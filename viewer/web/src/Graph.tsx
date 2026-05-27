@@ -5,6 +5,7 @@ import { MaterialNode } from './nodes/MaterialNode';
 import { MaterialOutputNode } from './nodes/MaterialOutputNode';
 import { FunctionInputNode, FunctionOutputNode } from './nodes/FunctionIONode';
 import { MaterialFunctionCallNode } from './nodes/MaterialFunctionCallNode';
+import { CommentBoxOverlay, type CommentBoxData } from './nodes/CommentBox';
 import { applyLayout } from './layout';
 import type { GraphPayload } from './protocol';
 import type { NodeDB } from '../../server/db-types';
@@ -88,14 +89,30 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
     return { nodes: applyLayout(rfNodes, rfEdges), edges: rfEdges };
   }, [graph, derivedPins, db, onEnterMF, basePath]);
 
+  const commentBoxes: CommentBoxData[] = useMemo(() => {
+    if (!graph.comments) return [];
+    const positions = Object.fromEntries(nodes.map(n => [n.id, n.position]));
+    return graph.comments.map(c => {
+      const inside = c.contains.map(id => positions[id]).filter(Boolean);
+      if (inside.length === 0) return null;
+      const xs = inside.map(p => p.x), ys = inside.map(p => p.y);
+      const minX = Math.min(...xs), maxX = Math.max(...xs) + 220;
+      const minY = Math.min(...ys), maxY = Math.max(...ys) + 100;
+      return { text: c.text, color: c.color ?? '#888', bounds: { x: minX, y: minY, w: maxX - minX, h: maxY - minY } };
+    }).filter((c): c is CommentBoxData => c !== null);
+  }, [graph.comments, nodes]);
+
   return (
-    <ReactFlow
-      nodes={nodes} edges={edges} nodeTypes={NODE_TYPES}
-      fitView style={{ background: '#1a1a1a' }}
-    >
-      <Background gap={20} color="#333" />
-      <Controls />
-      <MiniMap />
-    </ReactFlow>
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <ReactFlow
+        nodes={nodes} edges={edges} nodeTypes={NODE_TYPES}
+        fitView style={{ background: '#1a1a1a' }}
+      >
+        <Background gap={20} color="#333" />
+        <Controls />
+        <MiniMap />
+      </ReactFlow>
+      <CommentBoxOverlay comments={commentBoxes} />
+    </div>
   );
 }
