@@ -25,6 +25,7 @@ export function validateGraph(input: unknown): ValidationResult {
   const ids = new Set<string>();
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i];
+    if (typeof n !== 'object' || n === null) { errors.push(`nodes[${i}] must be an object`); continue; }
     if (typeof n.id !== 'string') { errors.push(`nodes[${i}].id must be string`); continue; }
     if (typeof n.type !== 'string') { errors.push(`nodes[${i}].type must be string`); continue; }
     if (ids.has(n.id)) errors.push(`duplicate node id: ${n.id}`);

@@ -49,4 +49,13 @@ describe('validateGraph', () => {
     });
     expect(r.errors.some(e => /ghost/.test(e))).toBe(true);
   });
+
+  it('rejects null elements in nodes array', () => {
+    const r = validateGraph({
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'x',
+      nodes: [null, { id: 'a', type: 'X' }],
+      connections: [],
+    });
+    expect(r.errors.some(e => /nodes\[0\] must be an object/.test(e))).toBe(true);
+  });
 });
