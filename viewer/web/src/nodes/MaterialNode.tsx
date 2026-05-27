@@ -21,18 +21,18 @@ export function MaterialNode({ data }: { data: MaterialNodeData }) {
       <div className="mat-node-title">{data.label}</div>
       <div className="mat-node-body">
         <div className="mat-node-pins mat-inputs">
-          {data.inputs.map((p, i) => (
+          {data.inputs.map((p) => (
             <div key={p.name} className="mat-pin">
-              <Handle id={p.name} type="target" position={Position.Left} style={{ top: 30 + i * 18 }} />
+              <Handle id={p.name} type="target" position={Position.Left} />
               <span className="mat-pin-name">{p.name}</span>
             </div>
           ))}
         </div>
         <div className="mat-node-pins mat-outputs">
-          {data.outputs.map((p, i) => (
+          {data.outputs.map((p) => (
             <div key={p.name} className="mat-pin mat-pin-right">
               <span className="mat-pin-name">{p.name}</span>
-              <Handle id={p.name} type="source" position={Position.Right} style={{ top: 30 + i * 18 }} />
+              <Handle id={p.name} type="source" position={Position.Right} />
             </div>
           ))}
         </div>
