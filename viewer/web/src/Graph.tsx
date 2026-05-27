@@ -19,11 +19,20 @@ const NODE_TYPES = {
 
 export interface GraphProps {
   payload: GraphPayload;
+  basePath: string;  // path of the current graph file, relative to graphs/
   db: NodeDB;
   onEnterMF(path: string): void;
 }
 
-export function Graph({ payload, db, onEnterMF }: GraphProps) {
+function resolveMFRelative(mfRef: string, currentPath: string): string {
+  // currentPath like "main.matgraph.json" or "functions/x.matgraph.json"
+  // mfRef like "./functions/y.matgraph.json" or "./z.matgraph.json"
+  const dir = currentPath.includes('/') ? currentPath.slice(0, currentPath.lastIndexOf('/') + 1) : '';
+  const cleaned = mfRef.replace(/^\.\//, '');
+  return (dir + cleaned).replace(/\/\.\//g, '/');
+}
+
+export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
   const { graph, derivedPins } = payload;
 
   const { nodes, edges } = useMemo(() => {
@@ -40,6 +49,7 @@ export function Graph({ payload, db, onEnterMF }: GraphProps) {
       if (n.type === 'MaterialFunctionCall') {
         const mfPath = (n.params?.MaterialFunction as string | undefined) ?? '';
         const pins = derivedPins[n.id] ?? { inputs: [], outputs: [] };
+        const mfRefAbs = resolveMFRelative(mfPath, basePath);
         return {
           id: n.id, type: 'materialFunctionCall', position: { x: 0, y: 0 },
           data: {
@@ -47,7 +57,7 @@ export function Graph({ payload, db, onEnterMF }: GraphProps) {
             label: mfPath.split('/').pop()?.replace('.matgraph.json', '') ?? 'unknown',
             inputs: pins.inputs, outputs: pins.outputs,
             params: n.params,
-            onDoubleClick: () => onEnterMF(normalizeMFPath(mfPath)),
+            onDoubleClick: () => onEnterMF(mfRefAbs),
             warning: pins.inputs.length === 0 && pins.outputs.length === 0 ? 'MaterialFunction missing or empty' : undefined,
           },
         };
@@ -76,7 +86,7 @@ export function Graph({ payload, db, onEnterMF }: GraphProps) {
     });
 
     return { nodes: applyLayout(rfNodes, rfEdges), edges: rfEdges };
-  }, [graph, derivedPins, db, onEnterMF]);
+  }, [graph, derivedPins, db, onEnterMF, basePath]);
 
   return (
     <ReactFlow
@@ -88,8 +98,4 @@ export function Graph({ payload, db, onEnterMF }: GraphProps) {
       <MiniMap />
     </ReactFlow>
   );
-}
-
-function normalizeMFPath(p: string): string {
-  return p.replace(/^\.\//, '');
 }

@@ -25,7 +25,7 @@ function Body() {
       <div style={{ flex: 1, display: 'flex' }}>
         <div style={{ width: 220 }}><FileList /></div>
         <div style={{ flex: 1 }}>
-          {payload ? <Graph payload={payload} db={DB} onEnterMF={enterMF} /> :
+          {payload ? <Graph payload={payload} basePath={current} db={DB} onEnterMF={enterMF} /> :
             <div style={{ color: '#888', padding: 20 }}>Select a graph from the left.</div>}
         </div>
       </div>
