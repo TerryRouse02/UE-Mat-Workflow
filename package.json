@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "engines": { "node": ">=18" },
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "pnpm@11.3.0",
   "scripts": {
     "build": "pnpm --filter viewer build",
     "test": "pnpm -r test",
