@@ -47,7 +47,10 @@ You are producing UE 5.7 Material node graphs as JSON. A local viewer renders yo
 
 6. **Every `MaterialFunction` must have at least one `FunctionInput` and one `FunctionOutput`.**
 
-7. **`MaterialFunctionCall.params.MaterialFunction`** is a path relative to `graphs/`, e.g. `"./functions/blend_normals.matgraph.json"`.
+7. **`MaterialFunctionCall.params.MaterialFunction`** is a path relative to the **current file's directory** (not always `graphs/` root).
+   - From a `Material` at `graphs/foo.matgraph.json` → `"./functions/blend_normals.matgraph.json"` resolves to `graphs/functions/blend_normals.matgraph.json`.
+   - From a `MaterialFunction` at `graphs/functions/a.matgraph.json` → `"./b.matgraph.json"` resolves to `graphs/functions/b.matgraph.json` (sibling file).
+   - Most projects keep all MFs in `graphs/functions/`, so MFs that call sibling MFs use `"./<name>.matgraph.json"`.
 
 ## Soft rules (best practice)
 
