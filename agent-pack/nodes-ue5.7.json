@@ -522,7 +522,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ParticleRadius": {
       "category": "Constants",
@@ -566,7 +566,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ParticleSpeed": {
       "category": "Constants",
@@ -677,7 +677,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false,
+      "verified": true,
       "params": [
         {
           "name": "Property",
@@ -955,7 +955,7 @@
           "type": "Float2"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ScreenPosition": {
       "category": "Coordinates",
@@ -971,7 +971,7 @@
           "type": "Float2"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "VertexNormalWS": {
       "category": "Coordinates",
@@ -1073,7 +1073,7 @@
           "type": "Float3"
         }
       ],
-      "verified": false,
+      "verified": true,
       "deprecated": true
     },
     "Desaturation": {
@@ -1894,7 +1894,7 @@
           "type": "matchInput"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SmoothStep": {
       "category": "Math",
@@ -2225,7 +2225,7 @@
           "type": "MaterialAttributes"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SetMaterialAttributes": {
       "category": "Material Attributes",
@@ -2269,7 +2269,9 @@
           "name": "AttributeNames",
           "type": "String[]"
         }
-      ]
+      ],
+      "dynamicPins": true,
+      "pinInfo": "The node shows one input pin per attribute listed in params.AttributeNames plus the fixed \"MaterialAttributes\" input. Pin names match UE material attribute names exactly (e.g., \"BaseColor\", \"Metallic\", \"Roughness\", \"Normal\", \"EmissiveColor\"). Output is always \"MaterialAttributes\"."
     },
     "BreakMaterialAttributes": {
       "category": "Material Attributes",
@@ -2343,7 +2345,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "GetMaterialAttributes": {
       "category": "Material Attributes",
@@ -2375,7 +2377,9 @@
           "name": "AttributeNames",
           "type": "String[]"
         }
-      ]
+      ],
+      "dynamicPins": true,
+      "pinInfo": "The node exposes one output pin per attribute listed in params.AttributeNames. Pin names match UE material attribute names exactly (e.g., \"BaseColor\", \"Metallic\", \"Roughness\", \"Normal\", \"EmissiveColor\"). The single input is always \"MaterialAttributes\"."
     },
     "BlendMaterialAttributes": {
       "category": "Material Attributes",
@@ -2415,7 +2419,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false,
+      "verified": true,
       "params": [
         {
           "name": "Collection",
@@ -2489,7 +2493,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false,
+      "verified": true,
       "params": [
         {
           "name": "ParameterName",
@@ -2818,7 +2822,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false,
+      "verified": true,
       "params": [
         {
           "name": "ParameterName",
@@ -3018,7 +3022,7 @@
           "type": "Float2"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SphericalParticleOpacity": {
       "category": "Particle",
@@ -3036,7 +3040,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ParticleSubUV": {
       "category": "Particle",
@@ -3070,7 +3074,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false,
+      "verified": true,
       "params": [
         {
           "name": "Blend",
@@ -3130,7 +3134,9 @@
           "name": "Layers",
           "type": "Attributes"
         }
-      ]
+      ],
+      "dynamicPins": true,
+      "pinInfo": "For each entry in params.Layers, the node exposes two input pins: \"Layer <LayerName>\" (any float) and \"Height <LayerName>\" (Float1). The single output is \"Result\". Use the exact layer name with capital L and H and a space before the name."
     },
     "LandscapeLayerCoords": {
       "category": "Landscape",
@@ -3421,7 +3427,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Distance": {
       "category": "Utility",
@@ -3480,7 +3486,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "FeatureLevelSwitch": {
       "category": "Utility",
@@ -3681,7 +3687,7 @@
           "type": "matchInput"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "QualitySwitch": {
       "category": "Utility",
@@ -3813,7 +3819,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false,
+      "verified": true,
       "params": [
         {
           "name": "NoiseFunction",
@@ -3846,7 +3852,7 @@
           "type": "Float3"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Transform": {
       "category": "Vector Operation",
@@ -3950,7 +3956,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ObjectBounds": {
       "category": "Vector",
@@ -3974,7 +3980,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ReflectionVectorWS": {
       "category": "Vector",
@@ -4004,7 +4010,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PreSkinnedLocalNormal": {
       "category": "Vector",
@@ -4028,7 +4034,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PreSkinnedLocalPosition": {
       "category": "Vector",
@@ -4052,7 +4058,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     }
   }
 }

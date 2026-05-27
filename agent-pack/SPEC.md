@@ -88,6 +88,49 @@ You are producing UE 5.7 Material node graphs as JSON. A local viewer renders yo
 | `FunctionOutput` | input: `Input` | Inside MaterialFunction only. `params.OutputName` becomes the pin name on the MaterialFunctionCall. |
 | `MaterialFunctionCall` | derived from referenced MF's `FunctionInput`/`FunctionOutput` | Set `params.MaterialFunction` path. |
 
+## Dynamic-pin nodes
+
+Some node types have `"dynamicPins": true` in the DB. Their actual input/output pin names are **not** listed statically — they depend on params or user wiring. The DB entry also contains a `"pinInfo"` string that gives the derivation rule.
+
+Current dynamic-pin nodes in `nodes-ue5.7.json`:
+
+| Node | Rule summary |
+|---|---|
+| `LandscapeLayerBlend` | For each entry in `params.Layers`, two inputs: `"Layer <name>"` and `"Height <name>"`. Output is `"Result"`. |
+| `SetMaterialAttributes` | Fixed input `"MaterialAttributes"` plus one input per entry in `params.AttributeNames` (e.g., `"BaseColor"`, `"Roughness"`). Output is `"MaterialAttributes"`. |
+| `GetMaterialAttributes` | Fixed input `"MaterialAttributes"`. One output per entry in `params.AttributeNames`. |
+
+**When you encounter a node with `dynamicPins: true`:**
+
+1. Read `pinInfo` — it gives the exact rule for deriving pin names (case, spaces, and punctuation matter).
+2. Set the relevant `params` field so the rule has data to work from.
+3. Write connections using the derived pin names. The viewer infers the pin set from your connections and renders them; it does **not** validate names against UE's real runtime rules — that is your responsibility.
+4. If you are unsure about the rule, **ask before writing** — guessing pin names for dynamic nodes produces a graph that renders but is wrong against real UE.
+
+Example: `LandscapeLayerBlend` with two layers "Dirt" and "Grass":
+
+```jsonc
+// node declaration
+{ "id": "blend", "type": "LandscapeLayerBlend",
+  "params": { "Layers": [{ "Name": "Dirt" }, { "Name": "Grass" }] } }
+
+// connections — pin names derived from layer names
+{ "from": "dirt_tex:RGB",   "to": "blend:Layer Dirt" }
+{ "from": "grass_tex:RGB",  "to": "blend:Layer Grass" }
+{ "from": "blend:Result",   "to": "OUT:BaseColor" }
+```
+
+Example: `GetMaterialAttributes` extracting BaseColor and Roughness:
+
+```jsonc
+{ "id": "getAttrs", "type": "GetMaterialAttributes",
+  "params": { "AttributeNames": ["BaseColor", "Roughness"] } }
+
+{ "from": "matBlend:Result",      "to": "getAttrs:MaterialAttributes" }
+{ "from": "getAttrs:BaseColor",   "to": "OUT:BaseColor" }
+{ "from": "getAttrs:Roughness",   "to": "OUT:Roughness" }
+```
+
 ## Examples
 
 See `agent-pack/examples/01_basic_pbr.matgraph.json` and `02_with_function.matgraph.json` for full working files.
