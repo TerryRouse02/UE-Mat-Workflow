@@ -1,0 +1,135 @@
+{
+  "schemaVersion": "1.0",
+  "ueVersion": "5.7",
+  "generatedAt": "2026-05-26",
+  "source": "manual seed; expand from https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference",
+  "reservedTypes": ["MaterialOutput", "FunctionInput", "FunctionOutput", "MaterialFunctionCall"],
+  "nodes": {
+    "Multiply": {
+      "category": "Math",
+      "description": "Multiplies two values component-wise. Unconnected pins use ConstA/ConstB.",
+      "inputs": [
+        { "name": "A", "type": "Float1|2|3|4", "required": true },
+        { "name": "B", "type": "Float1|2|3|4", "required": false }
+      ],
+      "outputs": [{ "name": "Result", "type": "matchInput" }],
+      "params": [
+        { "name": "ConstA", "type": "Float", "default": 0, "when": "A unconnected" },
+        { "name": "ConstB", "type": "Float", "default": 1, "when": "B unconnected" }
+      ],
+      "verified": true
+    },
+    "Add": {
+      "category": "Math",
+      "description": "Adds two values.",
+      "inputs": [
+        { "name": "A", "type": "Float1|2|3|4", "required": true },
+        { "name": "B", "type": "Float1|2|3|4", "required": false }
+      ],
+      "outputs": [{ "name": "Result", "type": "matchInput" }],
+      "params": [
+        { "name": "ConstA", "type": "Float", "default": 0, "when": "A unconnected" },
+        { "name": "ConstB", "type": "Float", "default": 0, "when": "B unconnected" }
+      ],
+      "verified": true
+    },
+    "OneMinus": {
+      "category": "Math",
+      "description": "Returns 1 - input.",
+      "inputs": [{ "name": "Input", "type": "Float1|2|3|4", "required": true }],
+      "outputs": [{ "name": "Result", "type": "matchInput" }],
+      "verified": true
+    },
+    "Lerp": {
+      "category": "Math",
+      "description": "Linear interpolation: lerp(A, B, Alpha).",
+      "inputs": [
+        { "name": "A", "type": "Float1|2|3|4", "required": true },
+        { "name": "B", "type": "Float1|2|3|4", "required": true },
+        { "name": "Alpha", "type": "Float1", "required": false }
+      ],
+      "outputs": [{ "name": "Result", "type": "matchInput" }],
+      "params": [{ "name": "ConstAlpha", "type": "Float", "default": 0, "when": "Alpha unconnected" }],
+      "verified": true
+    },
+    "Saturate": {
+      "category": "Math",
+      "description": "Clamps input to [0,1].",
+      "inputs": [{ "name": "Input", "type": "Float1|2|3|4", "required": true }],
+      "outputs": [{ "name": "Result", "type": "matchInput" }],
+      "verified": true
+    },
+    "TextureSampleParameter2D": {
+      "category": "Texture",
+      "description": "Samples a 2D texture exposed as a Material Parameter.",
+      "inputs": [
+        { "name": "UVs", "type": "Float2", "required": false },
+        { "name": "Tex", "type": "Texture2D", "required": false }
+      ],
+      "outputs": [
+        { "name": "RGB", "type": "Float3" },
+        { "name": "R", "type": "Float1" },
+        { "name": "G", "type": "Float1" },
+        { "name": "B", "type": "Float1" },
+        { "name": "A", "type": "Float1" },
+        { "name": "RGBA", "type": "Float4" }
+      ],
+      "params": [
+        { "name": "ParameterName", "type": "Name", "required": true },
+        { "name": "Texture", "type": "TextureRef" },
+        { "name": "SamplerType", "type": "Enum", "values": ["Color", "Grayscale", "Normal", "Alpha", "Masks"] }
+      ],
+      "verified": true
+    },
+    "TextureCoordinate": {
+      "category": "Coordinates",
+      "description": "Outputs the UV coordinates of the surface.",
+      "inputs": [],
+      "outputs": [{ "name": "UVs", "type": "Float2" }],
+      "params": [
+        { "name": "CoordinateIndex", "type": "Int", "default": 0 },
+        { "name": "UTiling", "type": "Float", "default": 1.0 },
+        { "name": "VTiling", "type": "Float", "default": 1.0 }
+      ],
+      "verified": true
+    },
+    "Constant3Vector": {
+      "category": "Constants",
+      "description": "A constant RGB vector.",
+      "inputs": [],
+      "outputs": [
+        { "name": "RGB", "type": "Float3" },
+        { "name": "R", "type": "Float1" },
+        { "name": "G", "type": "Float1" },
+        { "name": "B", "type": "Float1" }
+      ],
+      "params": [
+        { "name": "R", "type": "Float", "default": 0 },
+        { "name": "G", "type": "Float", "default": 0 },
+        { "name": "B", "type": "Float", "default": 0 }
+      ],
+      "verified": true
+    },
+    "ScalarParameter": {
+      "category": "Parameters",
+      "description": "A scalar value exposed as a Material Parameter.",
+      "inputs": [],
+      "outputs": [{ "name": "Value", "type": "Float1" }],
+      "params": [
+        { "name": "ParameterName", "type": "Name", "required": true },
+        { "name": "DefaultValue", "type": "Float", "default": 0 }
+      ],
+      "verified": true
+    },
+    "BlendAngleCorrectedNormals": {
+      "category": "Vector",
+      "description": "Blends two tangent-space normals while preserving angle.",
+      "inputs": [
+        { "name": "BaseNormal", "type": "Float3", "required": true },
+        { "name": "AdditionalNormal", "type": "Float3", "required": true }
+      ],
+      "outputs": [{ "name": "Result", "type": "Float3" }],
+      "verified": true
+    }
+  }
+}
