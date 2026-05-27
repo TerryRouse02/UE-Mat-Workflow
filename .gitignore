@@ -4,3 +4,14 @@ dist/
 .DS_Store
 .vite/
 coverage/
+
+# tsc -b emitted artifacts that shouldn't live next to source
+viewer/web/src/**/*.js
+viewer/web/src/**/*.d.ts
+!viewer/web/src/vite-env.d.ts
+
+# AI-output graphs (not curated examples — those live in agent-pack/examples/)
+graphs/*.matgraph.json
+graphs/**/*.matgraph.json
+!graphs/.gitkeep
+!graphs/functions/.gitkeep
