@@ -1,0 +1,18 @@
+#!/usr/bin/env node
+import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const cmd = process.argv[2] ?? 'start';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const serverEntry = resolve(__dirname, '../dist/server/index.js');
+
+if (cmd === 'start') {
+  await import(serverEntry);
+} else if (cmd === 'export') {
+  const exportEntry = resolve(__dirname, '../dist/server/html-export.js');
+  await import(exportEntry);
+} else {
+  console.error(`Unknown command: ${cmd}`);
+  console.error(`Usage: ue-mat-viewer [start|export <name> --out <path>]`);
+  process.exit(1);
+}
