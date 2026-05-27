@@ -1,8 +1,8 @@
 {
   "schemaVersion": "1.0",
   "ueVersion": "5.7",
-  "generatedAt": "2026-05-26",
-  "source": "manual seed; expand from https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference",
+  "generatedAt": "2026-05-27",
+  "source": "manual seed; expanded from Epic UE 5.7 Material Expressions Reference index and its linked official category pages (Atmosphere, Color, Constant, Coordinates, Custom, Depth, Font, Material Function, Material Attributes, Particle, Texture, Vector, Vector Operation, Landscape, Material Parameter, Utility): https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-engine-material-expressions-reference",
   "reservedTypes": ["MaterialOutput", "FunctionInput", "FunctionOutput", "MaterialFunctionCall"],
   "nodes": {
     "Multiply": {
@@ -130,6 +130,3694 @@
       ],
       "outputs": [{ "name": "Result", "type": "Float3" }],
       "verified": true
+    },
+    "Constant": {
+      "category": "Constants",
+      "description": "Outputs a single constant float value.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "R",
+          "type": "Float",
+          "default": 0
+        }
+      ]
+    },
+    "Constant2Vector": {
+      "category": "Constants",
+      "description": "Outputs a two-channel constant vector.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "RG",
+          "type": "Float2"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "R",
+          "type": "Float",
+          "default": 0
+        },
+        {
+          "name": "G",
+          "type": "Float",
+          "default": 0
+        }
+      ]
+    },
+    "Constant4Vector": {
+      "category": "Constants",
+      "description": "Outputs a four-channel RGBA constant vector.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "RGBA",
+          "type": "Float4"
+        },
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "R",
+          "type": "Float",
+          "default": 0
+        },
+        {
+          "name": "G",
+          "type": "Float",
+          "default": 0
+        },
+        {
+          "name": "B",
+          "type": "Float",
+          "default": 0
+        },
+        {
+          "name": "A",
+          "type": "Float",
+          "default": 1
+        }
+      ]
+    },
+    "DistanceCullFade": {
+      "category": "Constants",
+      "description": "Outputs a scalar fade value for primitives affected by cull distance.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "ParticleColor": {
+      "category": "Constants",
+      "description": "Outputs the current particle color data.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "ParticleDirection": {
+      "category": "Constants",
+      "description": "Outputs the current particle direction vector.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "ParticleMotionBlurFade": {
+      "category": "Constants",
+      "description": "Outputs the particle motion blur fade amount.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
+    },
+    "ParticleRadius": {
+      "category": "Constants",
+      "description": "Outputs the radius of the current particle.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "ParticleRelativeTime": {
+      "category": "Constants",
+      "description": "Outputs the relative lifetime of the current particle.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "ParticleSize": {
+      "category": "Constants",
+      "description": "Outputs the particle size as a two-channel vector.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Size",
+          "type": "Float2"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
+    },
+    "ParticleSpeed": {
+      "category": "Constants",
+      "description": "Outputs the speed of the current particle.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "PerInstanceFadeAmount": {
+      "category": "Constants",
+      "description": "Outputs the per-instance fade amount for instanced meshes.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "PerInstanceRandom": {
+      "category": "Constants",
+      "description": "Outputs a random value stable per instanced mesh instance.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "Time": {
+      "category": "Constants",
+      "description": "Outputs elapsed time for time-dependent material animation.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "IgnorePause",
+          "type": "Bool",
+          "default": false
+        },
+        {
+          "name": "Period",
+          "type": "Float"
+        }
+      ]
+    },
+    "TwoSidedSign": {
+      "category": "Constants",
+      "description": "Outputs 1 for front-facing surfaces and -1 for back-facing surfaces.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "VertexColor": {
+      "category": "Constants",
+      "description": "Outputs mesh vertex color channels.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "ViewProperty": {
+      "category": "Constants",
+      "description": "Outputs a selected view-dependent property.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": false,
+      "params": [
+        {
+          "name": "Property",
+          "type": "Enum",
+          "values": [
+            "FieldOfView",
+            "ViewSize",
+            "RenderTargetSize"
+          ]
+        }
+      ]
+    },
+    "PrecomputedAOMask": {
+      "category": "Constants",
+      "description": "Outputs the Lightmass precomputed ambient occlusion mask.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Mask",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "ActorPositionWS": {
+      "category": "Coordinates",
+      "description": "Outputs the actor position in world space.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "CameraPositionWS": {
+      "category": "Coordinates",
+      "description": "Outputs the camera position in world space.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "LightmapUVs": {
+      "category": "Coordinates",
+      "description": "Outputs lightmap UV coordinates.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "UVs",
+          "type": "Float2"
+        }
+      ],
+      "verified": true
+    },
+    "ObjectOrientation": {
+      "category": "Coordinates",
+      "description": "Outputs the object orientation in world space.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "ObjectPositionWS": {
+      "category": "Coordinates",
+      "description": "Outputs the object bounds center in world space.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "ObjectRadius": {
+      "category": "Coordinates",
+      "description": "Outputs the object radius.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "Panner": {
+      "category": "Coordinates",
+      "description": "Pans UV coordinates over time.",
+      "inputs": [
+        {
+          "name": "Coordinate",
+          "type": "Float2",
+          "required": false
+        },
+        {
+          "name": "Time",
+          "type": "Float1",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "UVs",
+          "type": "Float2"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "SpeedX",
+          "type": "Float",
+          "default": 0
+        },
+        {
+          "name": "SpeedY",
+          "type": "Float",
+          "default": 0
+        }
+      ]
+    },
+    "ParticlePositionWS": {
+      "category": "Coordinates",
+      "description": "Outputs particle position in world space.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "PixelNormalWS": {
+      "category": "Coordinates",
+      "description": "Outputs the pixel normal in world space.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "Rotator": {
+      "category": "Coordinates",
+      "description": "Rotates UV coordinates around a configurable center.",
+      "inputs": [
+        {
+          "name": "Coordinate",
+          "type": "Float2",
+          "required": false
+        },
+        {
+          "name": "Time",
+          "type": "Float1",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "UVs",
+          "type": "Float2"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "CenterX",
+          "type": "Float",
+          "default": 0.5
+        },
+        {
+          "name": "CenterY",
+          "type": "Float",
+          "default": 0.5
+        },
+        {
+          "name": "Speed",
+          "type": "Float",
+          "default": 0.25
+        }
+      ]
+    },
+    "SceneTexelSize": {
+      "category": "Coordinates",
+      "description": "Outputs the scene texel size.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Size",
+          "type": "Float2"
+        }
+      ],
+      "verified": false
+    },
+    "ScreenPosition": {
+      "category": "Coordinates",
+      "description": "Outputs screen-space position for the current pixel.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "ViewportUV",
+          "type": "Float2"
+        },
+        {
+          "name": "PixelPosition",
+          "type": "Float2"
+        }
+      ],
+      "verified": false
+    },
+    "VertexNormalWS": {
+      "category": "Coordinates",
+      "description": "Outputs vertex normals in world space.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "VertexTangentWS": {
+      "category": "Coordinates",
+      "description": "Outputs vertex tangents in world space.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "ViewSize": {
+      "category": "Coordinates",
+      "description": "Outputs the viewport size in pixels.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Size",
+          "type": "Float2"
+        }
+      ],
+      "verified": true
+    },
+    "WorldPosition": {
+      "category": "Coordinates",
+      "description": "Outputs the current pixel position in world space.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "AtmosphericFogColor": {
+      "category": "Atmosphere",
+      "description": "Outputs atmospheric fog color for the current pixel.",
+      "inputs": [
+        {
+          "name": "WorldPosition",
+          "type": "Float3",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Color",
+          "type": "Float3"
+        }
+      ],
+      "verified": false
+    },
+    "Desaturation": {
+      "category": "Color",
+      "description": "Desaturates an input color by a configurable fraction.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "Fraction",
+          "type": "Float1",
+          "required": false
+        },
+        {
+          "name": "LuminanceFactors",
+          "type": "Float3",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "LuminanceFactors",
+          "type": "Float3"
+        }
+      ]
+    },
+    "DepthFade": {
+      "category": "Depth",
+      "description": "Fades opacity near intersections using scene depth.",
+      "inputs": [
+        {
+          "name": "Opacity",
+          "type": "Float1",
+          "required": false
+        },
+        {
+          "name": "FadeDistance",
+          "type": "Float1",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "OpacityDefault",
+          "type": "Float",
+          "default": 1,
+          "when": "Opacity unconnected"
+        },
+        {
+          "name": "FadeDistanceDefault",
+          "type": "Float",
+          "default": 100,
+          "when": "FadeDistance unconnected"
+        }
+      ]
+    },
+    "PixelDepth": {
+      "category": "Depth",
+      "description": "Outputs the depth of the current pixel.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Depth",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "SceneDepth": {
+      "category": "Depth",
+      "description": "Samples scene depth at the provided UV coordinates.",
+      "inputs": [
+        {
+          "name": "UVs",
+          "type": "Float2",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Depth",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "InputMode",
+          "type": "Enum"
+        }
+      ]
+    },
+    "Abs": {
+      "category": "Math",
+      "description": "Returns the absolute value of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "AppendVector": {
+      "category": "Math",
+      "description": "Appends channels from A and B into a wider vector.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true
+    },
+    "Arccosine": {
+      "category": "Math",
+      "description": "Returns the inverse cosine of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "ArccosineFast": {
+      "category": "Math",
+      "description": "Returns a faster approximate inverse cosine of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": false
+    },
+    "Arcsine": {
+      "category": "Math",
+      "description": "Returns the inverse sine of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "ArcsineFast": {
+      "category": "Math",
+      "description": "Returns a faster approximate inverse sine of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": false
+    },
+    "Arctangent": {
+      "category": "Math",
+      "description": "Returns the inverse tangent of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "ArctangentFast": {
+      "category": "Math",
+      "description": "Returns a faster approximate inverse tangent of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": false
+    },
+    "Arctangent2": {
+      "category": "Math",
+      "description": "Returns the inverse tangent of X/Y using signs to determine the quadrant.",
+      "inputs": [
+        {
+          "name": "X",
+          "type": "Float1",
+          "required": true
+        },
+        {
+          "name": "Y",
+          "type": "Float1",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
+    },
+    "Arctangent2Fast": {
+      "category": "Math",
+      "description": "Returns a faster approximate Arctangent2 result.",
+      "inputs": [
+        {
+          "name": "X",
+          "type": "Float1",
+          "required": true
+        },
+        {
+          "name": "Y",
+          "type": "Float1",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
+    },
+    "Ceil": {
+      "category": "Math",
+      "description": "Rounds the input up to the next whole number.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Clamp": {
+      "category": "Math",
+      "description": "Constrains input values to a minimum and maximum range.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "Min",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Max",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ClampMode",
+          "type": "Enum",
+          "values": [
+            "CMODE_Clamp",
+            "CMODE_ClampMin",
+            "CMODE_ClampMax"
+          ]
+        },
+        {
+          "name": "MinDefault",
+          "type": "Float",
+          "default": 0,
+          "when": "Min unconnected"
+        },
+        {
+          "name": "MaxDefault",
+          "type": "Float",
+          "default": 1,
+          "when": "Max unconnected"
+        }
+      ]
+    },
+    "ComponentMask": {
+      "category": "Math",
+      "description": "Masks selected RGBA channels from the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "R",
+          "type": "Bool",
+          "default": true
+        },
+        {
+          "name": "G",
+          "type": "Bool",
+          "default": false
+        },
+        {
+          "name": "B",
+          "type": "Bool",
+          "default": false
+        },
+        {
+          "name": "A",
+          "type": "Bool",
+          "default": false
+        }
+      ]
+    },
+    "Cosine": {
+      "category": "Math",
+      "description": "Outputs a repeating cosine wave over the input range.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "Period",
+          "type": "Float",
+          "default": 1
+        }
+      ]
+    },
+    "CrossProduct": {
+      "category": "Math",
+      "description": "Returns the cross product of two three-channel vectors.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float3",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float3",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float3"
+        }
+      ],
+      "verified": true
+    },
+    "Divide": {
+      "category": "Math",
+      "description": "Divides A by B component-wise.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ConstA",
+          "type": "Float",
+          "default": 0,
+          "when": "A unconnected"
+        },
+        {
+          "name": "ConstB",
+          "type": "Float",
+          "default": 1,
+          "when": "B unconnected"
+        }
+      ]
+    },
+    "DotProduct": {
+      "category": "Math",
+      "description": "Returns the dot product of two vectors.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "Floor": {
+      "category": "Math",
+      "description": "Rounds the input down to the previous whole number.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Fmod": {
+      "category": "Math",
+      "description": "Returns the floating-point remainder of A divided by B.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": false
+    },
+    "Frac": {
+      "category": "Math",
+      "description": "Returns the fractional part of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "If": {
+      "category": "Math",
+      "description": "Compares A and B and selects the matching branch input.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1",
+          "required": true
+        },
+        {
+          "name": "A > B",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "A = B",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "A < B",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "LinearInterpolate": {
+      "category": "Math",
+      "description": "Linear interpolation: lerp(A, B, Alpha).",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ConstAlpha",
+          "type": "Float",
+          "default": 0,
+          "when": "Alpha unconnected"
+        }
+      ]
+    },
+    "Logarithm10": {
+      "category": "Math",
+      "description": "Returns the base-10 logarithm of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Logarithm2": {
+      "category": "Math",
+      "description": "Returns the base-2 logarithm of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Max": {
+      "category": "Math",
+      "description": "Returns the higher of A and B component-wise.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ConstA",
+          "type": "Float",
+          "default": 0,
+          "when": "A unconnected"
+        },
+        {
+          "name": "ConstB",
+          "type": "Float",
+          "default": 0,
+          "when": "B unconnected"
+        }
+      ]
+    },
+    "Min": {
+      "category": "Math",
+      "description": "Returns the lower of A and B component-wise.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ConstA",
+          "type": "Float",
+          "default": 0,
+          "when": "A unconnected"
+        },
+        {
+          "name": "ConstB",
+          "type": "Float",
+          "default": 0,
+          "when": "B unconnected"
+        }
+      ]
+    },
+    "Normalize": {
+      "category": "Math",
+      "description": "Normalizes the input vector.",
+      "inputs": [
+        {
+          "name": "VectorInput",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Power": {
+      "category": "Math",
+      "description": "Raises Base to the power of Exp.",
+      "inputs": [
+        {
+          "name": "Base",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "Exp",
+          "type": "Float1",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ConstExponent",
+          "type": "Float",
+          "default": 1,
+          "when": "Exp unconnected"
+        }
+      ]
+    },
+    "Round": {
+      "category": "Math",
+      "description": "Rounds the input to the nearest whole number.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Step": {
+      "category": "Math",
+      "description": "Returns 0 or 1 depending on whether X is above the reference value Y.",
+      "inputs": [
+        {
+          "name": "X",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "Y",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": false
+    },
+    "SmoothStep": {
+      "category": "Math",
+      "description": "Smoothly interpolates between 0 and 1 using Min, Max, and Value.",
+      "inputs": [
+        {
+          "name": "Min",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "Max",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "Value",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Sign": {
+      "category": "Math",
+      "description": "Returns -1, 0, or 1 according to the sign of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Sine": {
+      "category": "Math",
+      "description": "Outputs a repeating sine wave over the input range.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "Period",
+          "type": "Float",
+          "default": 1
+        }
+      ]
+    },
+    "SquareRoot": {
+      "category": "Math",
+      "description": "Outputs the square root of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Subtract": {
+      "category": "Math",
+      "description": "Subtracts B from A component-wise.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ConstA",
+          "type": "Float",
+          "default": 0,
+          "when": "A unconnected"
+        },
+        {
+          "name": "ConstB",
+          "type": "Float",
+          "default": 0,
+          "when": "B unconnected"
+        }
+      ]
+    },
+    "Tangent": {
+      "category": "Math",
+      "description": "Outputs the tangent of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Truncate": {
+      "category": "Math",
+      "description": "Discards the fractional part of the input.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "StaticBool": {
+      "category": "Material Function",
+      "description": "Provides a compile-time boolean value for material function logic.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "StaticBool"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "DefaultValue",
+          "type": "Bool",
+          "default": false
+        }
+      ]
+    },
+    "StaticSwitch": {
+      "category": "Material Function",
+      "description": "Selects between A and B according to a static boolean value.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "Value",
+          "type": "StaticBool",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "TextureObject": {
+      "category": "Material Function",
+      "description": "Outputs a texture object for use by material functions or texture samples.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Texture",
+          "type": "Texture2D"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "Texture",
+          "type": "TextureRef"
+        },
+        {
+          "name": "SamplerType",
+          "type": "Enum"
+        }
+      ]
+    },
+    "MakeMaterialAttributes": {
+      "category": "Material Attributes",
+      "description": "Bundles standard material attributes into a single MaterialAttributes output.",
+      "inputs": [
+        {
+          "name": "BaseColor",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Metallic",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Specular",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Roughness",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "EmissiveColor",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Opacity",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "OpacityMask",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Normal",
+          "type": "Float3",
+          "required": false
+        },
+        {
+          "name": "WorldPositionOffset",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Refraction",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "AmbientOcclusion",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "PixelDepthOffset",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "SubsurfaceColor",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "ClearCoat",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "ClearCoatRoughness",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MaterialAttributes",
+          "type": "MaterialAttributes"
+        }
+      ],
+      "verified": false
+    },
+    "SetMaterialAttributes": {
+      "category": "Material Attributes",
+      "description": "Sets selected material attributes on an incoming MaterialAttributes value.",
+      "inputs": [
+        {
+          "name": "MaterialAttributes",
+          "type": "MaterialAttributes",
+          "required": false
+        },
+        {
+          "name": "BaseColor",
+          "type": "Float3",
+          "required": false
+        },
+        {
+          "name": "Metallic",
+          "type": "Float1",
+          "required": false
+        },
+        {
+          "name": "Roughness",
+          "type": "Float1",
+          "required": false
+        },
+        {
+          "name": "Normal",
+          "type": "Float3",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MaterialAttributes",
+          "type": "MaterialAttributes"
+        }
+      ],
+      "verified": false,
+      "params": [
+        {
+          "name": "AttributeNames",
+          "type": "String[]"
+        }
+      ]
+    },
+    "BreakMaterialAttributes": {
+      "category": "Material Attributes",
+      "description": "Breaks a MaterialAttributes input into standard attribute outputs.",
+      "inputs": [
+        {
+          "name": "MaterialAttributes",
+          "type": "MaterialAttributes",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "BaseColor",
+          "type": "Float3"
+        },
+        {
+          "name": "Metallic",
+          "type": "Float1"
+        },
+        {
+          "name": "Specular",
+          "type": "Float1"
+        },
+        {
+          "name": "Roughness",
+          "type": "Float1"
+        },
+        {
+          "name": "EmissiveColor",
+          "type": "Float3"
+        },
+        {
+          "name": "Opacity",
+          "type": "Float1"
+        },
+        {
+          "name": "OpacityMask",
+          "type": "Float1"
+        },
+        {
+          "name": "Normal",
+          "type": "Float3"
+        },
+        {
+          "name": "WorldPositionOffset",
+          "type": "Float1"
+        },
+        {
+          "name": "Refraction",
+          "type": "Float1"
+        },
+        {
+          "name": "AmbientOcclusion",
+          "type": "Float1"
+        },
+        {
+          "name": "PixelDepthOffset",
+          "type": "Float1"
+        },
+        {
+          "name": "SubsurfaceColor",
+          "type": "Float3"
+        },
+        {
+          "name": "ClearCoat",
+          "type": "Float1"
+        },
+        {
+          "name": "ClearCoatRoughness",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
+    },
+    "GetMaterialAttributes": {
+      "category": "Material Attributes",
+      "description": "Extracts selected outputs from a MaterialAttributes input.",
+      "inputs": [
+        {
+          "name": "MaterialAttributes",
+          "type": "MaterialAttributes",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "BaseColor",
+          "type": "Float3"
+        },
+        {
+          "name": "Roughness",
+          "type": "Float1"
+        },
+        {
+          "name": "Normal",
+          "type": "Float3"
+        }
+      ],
+      "verified": false,
+      "params": [
+        {
+          "name": "AttributeNames",
+          "type": "String[]"
+        }
+      ]
+    },
+    "BlendMaterialAttributes": {
+      "category": "Material Attributes",
+      "description": "Blends two MaterialAttributes inputs according to Alpha.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "MaterialAttributes",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "MaterialAttributes",
+          "required": true
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "MaterialAttributes",
+          "type": "MaterialAttributes"
+        }
+      ],
+      "verified": true
+    },
+    "CollectionParameter": {
+      "category": "Parameters",
+      "description": "References a scalar or vector value from a Material Parameter Collection.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": false,
+      "params": [
+        {
+          "name": "Collection",
+          "type": "MaterialParameterCollection",
+          "required": true
+        },
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        }
+      ]
+    },
+    "DynamicParameter": {
+      "category": "Parameters",
+      "description": "Outputs up to four per-particle dynamic parameter values.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Param1",
+          "type": "Float1"
+        },
+        {
+          "name": "Param2",
+          "type": "Float1"
+        },
+        {
+          "name": "Param3",
+          "type": "Float1"
+        },
+        {
+          "name": "Param4",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ParamNames",
+          "type": "Name[]"
+        },
+        {
+          "name": "DefaultValue",
+          "type": "Float4"
+        }
+      ]
+    },
+    "FontSampleParameter": {
+      "category": "Parameters",
+      "description": "Samples a font texture exposed as a parameter.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        }
+      ],
+      "verified": false,
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Group",
+          "type": "Name"
+        },
+        {
+          "name": "Font",
+          "type": "FontRef"
+        },
+        {
+          "name": "FontTexturePage",
+          "type": "Int",
+          "default": 0
+        }
+      ]
+    },
+    "StaticSwitchParameter": {
+      "category": "Parameters",
+      "description": "Static parameter that selects A or B at compile time.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Group",
+          "type": "Name"
+        },
+        {
+          "name": "DefaultValue",
+          "type": "Bool",
+          "default": false
+        }
+      ]
+    },
+    "StaticBoolParameter": {
+      "category": "Parameters",
+      "description": "Static bool parameter for material functions and compile-time decisions.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "StaticBool"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Group",
+          "type": "Name"
+        },
+        {
+          "name": "DefaultValue",
+          "type": "Bool",
+          "default": false
+        }
+      ]
+    },
+    "StaticComponentMaskParameter": {
+      "category": "Parameters",
+      "description": "Static parameterized component mask.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Group",
+          "type": "Name"
+        },
+        {
+          "name": "DefaultR",
+          "type": "Bool",
+          "default": true
+        },
+        {
+          "name": "DefaultG",
+          "type": "Bool",
+          "default": false
+        },
+        {
+          "name": "DefaultB",
+          "type": "Bool",
+          "default": false
+        },
+        {
+          "name": "DefaultA",
+          "type": "Bool",
+          "default": false
+        }
+      ]
+    },
+    "VectorParameter": {
+      "category": "Parameters",
+      "description": "Four-channel vector parameter editable in material instances.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "RGBA",
+          "type": "Float4"
+        },
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Group",
+          "type": "Name"
+        },
+        {
+          "name": "DefaultValue",
+          "type": "Float4"
+        }
+      ]
+    },
+    "TextureObjectParameter": {
+      "category": "Parameters",
+      "description": "Texture object parameter for material functions or texture samples.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Texture",
+          "type": "Texture2D"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Group",
+          "type": "Name"
+        },
+        {
+          "name": "Texture",
+          "type": "TextureRef"
+        },
+        {
+          "name": "SamplerType",
+          "type": "Enum",
+          "values": [
+            "Color",
+            "Grayscale",
+            "Normal",
+            "Alpha",
+            "Masks"
+          ]
+        },
+        {
+          "name": "MipValueMode",
+          "type": "Enum"
+        }
+      ]
+    },
+    "TextureSample": {
+      "category": "Texture",
+      "description": "Samples a texture using optional UV coordinates.",
+      "inputs": [
+        {
+          "name": "UVs",
+          "type": "Float2",
+          "required": false
+        },
+        {
+          "name": "Tex",
+          "type": "Texture2D",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "Texture",
+          "type": "TextureRef"
+        },
+        {
+          "name": "SamplerType",
+          "type": "Enum",
+          "values": [
+            "Color",
+            "Grayscale",
+            "Normal",
+            "Alpha",
+            "Masks"
+          ]
+        },
+        {
+          "name": "MipValueMode",
+          "type": "Enum"
+        }
+      ]
+    },
+    "TextureSampleParameterSubUV": {
+      "category": "Parameters",
+      "description": "Particle SubUV texture sample exposed as a parameter.",
+      "inputs": [
+        {
+          "name": "UVs",
+          "type": "Float2",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        }
+      ],
+      "verified": false,
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Group",
+          "type": "Name"
+        },
+        {
+          "name": "Texture",
+          "type": "TextureRef"
+        },
+        {
+          "name": "SamplerType",
+          "type": "Enum",
+          "values": [
+            "Color",
+            "Grayscale",
+            "Normal",
+            "Alpha",
+            "Masks"
+          ]
+        },
+        {
+          "name": "MipValueMode",
+          "type": "Enum"
+        },
+        {
+          "name": "Blend",
+          "type": "Bool",
+          "default": false
+        }
+      ]
+    },
+    "TextureSampleParameterCube": {
+      "category": "Parameters",
+      "description": "Samples a cubemap texture exposed as a parameter.",
+      "inputs": [
+        {
+          "name": "UVs",
+          "type": "Float3",
+          "required": false
+        },
+        {
+          "name": "Tex",
+          "type": "TextureCube",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Group",
+          "type": "Name"
+        },
+        {
+          "name": "Texture",
+          "type": "TextureRef"
+        },
+        {
+          "name": "SamplerType",
+          "type": "Enum",
+          "values": [
+            "Color",
+            "Grayscale",
+            "Normal",
+            "Alpha",
+            "Masks"
+          ]
+        },
+        {
+          "name": "MipValueMode",
+          "type": "Enum"
+        }
+      ]
+    },
+    "TextureSampleParameterMovie": {
+      "category": "Parameters",
+      "description": "Samples a movie texture exposed as a parameter.",
+      "inputs": [
+        {
+          "name": "UVs",
+          "type": "Float2",
+          "required": false
+        },
+        {
+          "name": "Tex",
+          "type": "TextureMovie",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Group",
+          "type": "Name"
+        },
+        {
+          "name": "Texture",
+          "type": "TextureRef"
+        },
+        {
+          "name": "SamplerType",
+          "type": "Enum",
+          "values": [
+            "Color",
+            "Grayscale",
+            "Normal",
+            "Alpha",
+            "Masks"
+          ]
+        },
+        {
+          "name": "MipValueMode",
+          "type": "Enum"
+        }
+      ]
+    },
+    "ParticleMacroUV": {
+      "category": "Particle",
+      "description": "Outputs macro UV coordinates for particles.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "UVs",
+          "type": "Float2"
+        }
+      ],
+      "verified": false
+    },
+    "SphericalParticleOpacity": {
+      "category": "Particle",
+      "description": "Computes particle opacity for spherical particle rendering.",
+      "inputs": [
+        {
+          "name": "Density",
+          "type": "Float1",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Opacity",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
+    },
+    "ParticleSubUV": {
+      "category": "Particle",
+      "description": "Samples a particle SubUV texture.",
+      "inputs": [
+        {
+          "name": "UVs",
+          "type": "Float2",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        }
+      ],
+      "verified": false,
+      "params": [
+        {
+          "name": "Blend",
+          "type": "Bool",
+          "default": false
+        },
+        {
+          "name": "Texture",
+          "type": "TextureRef"
+        },
+        {
+          "name": "SamplerType",
+          "type": "Enum",
+          "values": [
+            "Color",
+            "Grayscale",
+            "Normal",
+            "Alpha",
+            "Masks"
+          ]
+        },
+        {
+          "name": "MipValueMode",
+          "type": "Enum"
+        }
+      ]
+    },
+    "LandscapeLayerBlend": {
+      "category": "Landscape",
+      "description": "Blends multiple landscape layer inputs into one result.",
+      "inputs": [
+        {
+          "name": "Layer",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Height",
+          "type": "Float1",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": false,
+      "params": [
+        {
+          "name": "Layers",
+          "type": "Attributes"
+        }
+      ]
+    },
+    "LandscapeLayerCoords": {
+      "category": "Landscape",
+      "description": "Generates UV coordinates for landscape material mapping.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "UVs",
+          "type": "Float2"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "MappingType",
+          "type": "Enum"
+        },
+        {
+          "name": "CustomUVType",
+          "type": "Enum"
+        },
+        {
+          "name": "MappingScale",
+          "type": "Float",
+          "default": 1
+        },
+        {
+          "name": "MappingRotation",
+          "type": "Float",
+          "default": 0
+        },
+        {
+          "name": "MappingPanU",
+          "type": "Float",
+          "default": 0
+        },
+        {
+          "name": "MappingPanV",
+          "type": "Float",
+          "default": 0
+        }
+      ]
+    },
+    "LandscapeLayerSwitch": {
+      "category": "Landscape",
+      "description": "Selects between layer-used and layer-not-used inputs for landscape optimization.",
+      "inputs": [
+        {
+          "name": "LayerUsed",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "LayerNotUsed",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "PreviewUsed",
+          "type": "Bool",
+          "default": false
+        }
+      ]
+    },
+    "LandscapeLayerWeight": {
+      "category": "Landscape",
+      "description": "Blends Base and Layer according to a named landscape layer weight.",
+      "inputs": [
+        {
+          "name": "Base",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Layer",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "PreviewWeight",
+          "type": "Float",
+          "default": 0
+        },
+        {
+          "name": "ConstBase",
+          "type": "Float3"
+        }
+      ]
+    },
+    "LandscapeVisibilityMask": {
+      "category": "Landscape",
+      "description": "Outputs the landscape visibility mask value.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Mask",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "AntialiasedTextureMask": {
+      "category": "Utility",
+      "description": "Samples a texture channel as an anti-aliased threshold mask.",
+      "inputs": [
+        {
+          "name": "UVs",
+          "type": "Float2",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "Threshold",
+          "type": "Float",
+          "default": 0.5
+        },
+        {
+          "name": "Channel",
+          "type": "Enum",
+          "values": [
+            "R",
+            "G",
+            "B",
+            "A"
+          ]
+        },
+        {
+          "name": "Texture",
+          "type": "TextureRef"
+        }
+      ]
+    },
+    "BumpOffset": {
+      "category": "Utility",
+      "description": "Offsets UV coordinates using a height input for parallax mapping.",
+      "inputs": [
+        {
+          "name": "Coordinate",
+          "type": "Float2",
+          "required": false
+        },
+        {
+          "name": "Height",
+          "type": "Float1",
+          "required": false
+        },
+        {
+          "name": "HeightRatioInput",
+          "type": "Float1",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "UVs",
+          "type": "Float2"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "HeightRatio",
+          "type": "Float",
+          "default": 0.05
+        },
+        {
+          "name": "ReferencePlane",
+          "type": "Float",
+          "default": 0.5
+        }
+      ]
+    },
+    "ConstantBiasScale": {
+      "category": "Utility",
+      "description": "Adds a bias to the input and multiplies by a scale.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "Bias",
+          "type": "Float",
+          "default": 1
+        },
+        {
+          "name": "Scale",
+          "type": "Float",
+          "default": 0.5
+        }
+      ]
+    },
+    "DDX": {
+      "category": "Utility",
+      "description": "Outputs the screen-space DDX derivative of the input.",
+      "inputs": [
+        {
+          "name": "Value",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "DDY": {
+      "category": "Utility",
+      "description": "Outputs the screen-space DDY derivative of the input.",
+      "inputs": [
+        {
+          "name": "Value",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "DepthOfFieldFunction": {
+      "category": "Utility",
+      "description": "Outputs a 0-1 depth-of-field blur factor.",
+      "inputs": [
+        {
+          "name": "Depth",
+          "type": "Float1",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
+    },
+    "Distance": {
+      "category": "Utility",
+      "description": "Computes Euclidean distance between A and B.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "DistanceFieldGradient": {
+      "category": "Utility",
+      "description": "Outputs the mesh distance field gradient direction at Position.",
+      "inputs": [
+        {
+          "name": "Position",
+          "type": "Float3",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Gradient",
+          "type": "Float3"
+        }
+      ],
+      "verified": true
+    },
+    "DistanceToNearestSurface": {
+      "category": "Utility",
+      "description": "Outputs distance from Position to the nearest mesh distance field surface.",
+      "inputs": [
+        {
+          "name": "Position",
+          "type": "Float3",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Distance",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
+    },
+    "FeatureLevelSwitch": {
+      "category": "Utility",
+      "description": "Selects an input based on the active rendering feature level.",
+      "inputs": [
+        {
+          "name": "Default",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "ES2",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "ES3.1",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "SM4",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "SM5",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Fresnel": {
+      "category": "Utility",
+      "description": "Computes a view-angle based Fresnel falloff.",
+      "inputs": [
+        {
+          "name": "ExponentIn",
+          "type": "Float1",
+          "required": false
+        },
+        {
+          "name": "BaseReflectFractionIn",
+          "type": "Float1",
+          "required": false
+        },
+        {
+          "name": "Normal",
+          "type": "Float3",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "Exponent",
+          "type": "Float",
+          "default": 5
+        },
+        {
+          "name": "BaseReflectFraction",
+          "type": "Float",
+          "default": 0
+        }
+      ]
+    },
+    "GIReplace": {
+      "category": "Utility",
+      "description": "Chooses different inputs for default, static indirect, or dynamic indirect GI paths.",
+      "inputs": [
+        {
+          "name": "Default",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "StaticIndirect",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "DynamicIndirect",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "LightmassReplace": {
+      "category": "Utility",
+      "description": "Uses one input for realtime rendering and another for Lightmass export.",
+      "inputs": [
+        {
+          "name": "Realtime",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "Lightmass",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "Noise": {
+      "category": "Utility",
+      "description": "Generates procedural scalar noise.",
+      "inputs": [
+        {
+          "name": "Position",
+          "type": "Float3",
+          "required": false
+        },
+        {
+          "name": "FilterWidth",
+          "type": "Float1",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "Scale",
+          "type": "Float",
+          "default": 1
+        },
+        {
+          "name": "Quality",
+          "type": "Int",
+          "default": 3
+        },
+        {
+          "name": "Function",
+          "type": "Enum"
+        },
+        {
+          "name": "Levels",
+          "type": "Int",
+          "default": 1
+        },
+        {
+          "name": "Turbulence",
+          "type": "Bool",
+          "default": false
+        }
+      ]
+    },
+    "PreviousFrameSwitch": {
+      "category": "Utility",
+      "description": "Selects current or previous-frame values for motion-vector aware materials.",
+      "inputs": [
+        {
+          "name": "CurrentFrame",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "PreviousFrame",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": false
+    },
+    "QualitySwitch": {
+      "category": "Utility",
+      "description": "Selects an input based on material quality level.",
+      "inputs": [
+        {
+          "name": "Default",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Low",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "High",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "verified": true
+    },
+    "RotateAboutAxis": {
+      "category": "Utility",
+      "description": "Outputs the delta from rotating Position around an axis and pivot.",
+      "inputs": [
+        {
+          "name": "NormalizedRotationAxis",
+          "type": "Float3",
+          "required": true
+        },
+        {
+          "name": "RotationAngle",
+          "type": "Float1",
+          "required": true
+        },
+        {
+          "name": "PivotPoint",
+          "type": "Float3",
+          "required": true
+        },
+        {
+          "name": "Position",
+          "type": "Float3",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float3"
+        }
+      ],
+      "verified": true
+    },
+    "SphereMask": {
+      "category": "Utility",
+      "description": "Outputs a soft spherical mask from positions A and B.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "Radius",
+          "type": "Float1",
+          "required": false
+        },
+        {
+          "name": "Hardness",
+          "type": "Float1",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "AttenuationRadius",
+          "type": "Float",
+          "default": 256
+        },
+        {
+          "name": "HardnessPercent",
+          "type": "Float",
+          "default": 100
+        }
+      ]
+    },
+    "VectorNoise": {
+      "category": "Utility",
+      "description": "Generates procedural vector noise.",
+      "inputs": [
+        {
+          "name": "Position",
+          "type": "Float3",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RGBA",
+          "type": "Float4"
+        },
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        }
+      ],
+      "verified": false,
+      "params": [
+        {
+          "name": "NoiseFunction",
+          "type": "Enum"
+        },
+        {
+          "name": "Quality",
+          "type": "Int",
+          "default": 3
+        },
+        {
+          "name": "TileSize",
+          "type": "Int"
+        }
+      ]
+    },
+    "DeriveNormalZ": {
+      "category": "Vector Operation",
+      "description": "Derives a Z component for a tangent-space normal from XY.",
+      "inputs": [
+        {
+          "name": "InXY",
+          "type": "Float2",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float3"
+        }
+      ],
+      "verified": false
+    },
+    "Transform": {
+      "category": "Vector Operation",
+      "description": "Transforms a vector between material coordinate spaces.",
+      "inputs": [
+        {
+          "name": "VectorInput",
+          "type": "Float3",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float3"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "Source",
+          "type": "Enum"
+        },
+        {
+          "name": "Destination",
+          "type": "Enum"
+        }
+      ]
+    },
+    "TransformPosition": {
+      "category": "Vector Operation",
+      "description": "Transforms a position between material coordinate spaces.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float3",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float3"
+        }
+      ],
+      "verified": true,
+      "params": [
+        {
+          "name": "Source",
+          "type": "Enum"
+        },
+        {
+          "name": "Destination",
+          "type": "Enum"
+        }
+      ]
+    },
+    "CameraVectorWS": {
+      "category": "Vector",
+      "description": "Outputs the camera vector in world space.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": true
+    },
+    "LightVector": {
+      "category": "Vector",
+      "description": "Outputs the light vector for supported light function/deferred decal contexts.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
+    },
+    "ObjectBounds": {
+      "category": "Vector",
+      "description": "Outputs the object bounds as a three-channel vector.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
+    },
+    "ReflectionVectorWS": {
+      "category": "Vector",
+      "description": "Outputs the reflection vector in world space.",
+      "inputs": [
+        {
+          "name": "CustomWorldNormal",
+          "type": "Float3",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        }
+      ],
+      "verified": true
+    },
+    "PreSkinnedLocalNormal": {
+      "category": "Vector",
+      "description": "Outputs the pre-skinned local-space normal.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
+    },
+    "PreSkinnedLocalPosition": {
+      "category": "Vector",
+      "description": "Outputs the pre-skinned local-space position.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
+        }
+      ],
+      "verified": false
     }
   }
 }
