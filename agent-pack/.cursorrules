@@ -1,0 +1,1 @@
+For UE5 material work, follow agent-pack/SPEC.md and only use node types from agent-pack/nodes-ue5.7.json (plus the reserved types MaterialOutput/FunctionInput/FunctionOutput/MaterialFunctionCall). Write Materials to graphs/<name>.matgraph.json and MaterialFunctions to graphs/functions/<name>.matgraph.json. Connections use "node:pin" strings. Never write x/y positions.
