@@ -1,0 +1,23 @@
+{
+  "name": "viewer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "ue-mat-viewer": "./bin/ue-mat-viewer" },
+  "scripts": {
+    "test": "vitest run",
+    "build": "tsc -p tsconfig.json && pnpm --filter web build",
+    "start": "node dist/server/index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "chokidar": "^4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0",
+    "vitest": "^2.0.0",
+    "ajv": "^8.17.0",
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0"
+  }
+}
