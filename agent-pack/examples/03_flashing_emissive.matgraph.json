@@ -1,0 +1,138 @@
+{
+  "schemaVersion": "1.0",
+  "ueVersion": "5.7",
+  "type": "Material",
+  "name": "flashing_emissive",
+  "description": "A metallic material with a pulsing/flashing emissive colored light, controlled by time.",
+  "nodes": [
+    {
+      "id": "time",
+      "type": "Time",
+      "params": {}
+    },
+    {
+      "id": "pulse_speed",
+      "type": "ScalarParameter",
+      "params": {
+        "ParameterName": "PulseSpeed",
+        "DefaultValue": 2.0
+      }
+    },
+    {
+      "id": "time_speed",
+      "type": "Multiply",
+      "params": {}
+    },
+    {
+      "id": "sine",
+      "type": "Sine",
+      "params": {
+        "Period": 1.0
+      }
+    },
+    {
+      "id": "mul_half",
+      "type": "Multiply",
+      "params": {
+        "ConstB": 0.5
+      }
+    },
+    {
+      "id": "add_half",
+      "type": "Add",
+      "params": {
+        "ConstB": 0.5
+      }
+    },
+    {
+      "id": "emissive_color",
+      "type": "VectorParameter",
+      "params": {
+        "ParameterName": "EmissiveColor",
+        "DefaultValue": [0.0, 1.0, 0.5, 1.0]
+      }
+    },
+    {
+      "id": "emissive_glow",
+      "type": "ScalarParameter",
+      "params": {
+        "ParameterName": "EmissiveIntensity",
+        "DefaultValue": 15.0
+      }
+    },
+    {
+      "id": "glow_color",
+      "type": "Multiply",
+      "params": {}
+    },
+    {
+      "id": "emissive_final",
+      "type": "Multiply",
+      "params": {}
+    },
+    {
+      "id": "base_color",
+      "type": "VectorParameter",
+      "params": {
+        "ParameterName": "BaseColor",
+        "DefaultValue": [0.1, 0.1, 0.1, 1.0]
+      }
+    },
+    {
+      "id": "metallic",
+      "type": "ScalarParameter",
+      "params": {
+        "ParameterName": "Metallic",
+        "DefaultValue": 0.9
+      }
+    },
+    {
+      "id": "roughness",
+      "type": "ScalarParameter",
+      "params": {
+        "ParameterName": "Roughness",
+        "DefaultValue": 0.2
+      }
+    },
+    {
+      "id": "OUT",
+      "type": "MaterialOutput",
+      "params": {}
+    }
+  ],
+  "connections": [
+    { "from": "time:Value", "to": "time_speed:A" },
+    { "from": "pulse_speed:Value", "to": "time_speed:B" },
+    { "from": "time_speed:Result", "to": "sine:Input" },
+    { "from": "sine:Result", "to": "mul_half:A" },
+    { "from": "mul_half:Result", "to": "add_half:A" },
+    { "from": "emissive_color:RGB", "to": "glow_color:A" },
+    { "from": "emissive_glow:Value", "to": "glow_color:B" },
+    { "from": "glow_color:Result", "to": "emissive_final:A" },
+    { "from": "add_half:Result", "to": "emissive_final:B" },
+    { "from": "base_color:RGB", "to": "OUT:BaseColor" },
+    { "from": "metallic:Value", "to": "OUT:Metallic" },
+    { "from": "roughness:Value", "to": "OUT:Roughness" },
+    { "from": "emissive_final:Result", "to": "OUT:EmissiveColor" }
+  ],
+  "comments": [
+    {
+      "id": "c_time",
+      "text": "Pulsing Wave Generator (0 to 1 range)",
+      "color": "#2c3e50",
+      "contains": ["time", "pulse_speed", "time_speed", "sine", "mul_half", "add_half"]
+    },
+    {
+      "id": "c_emissive",
+      "text": "Emissive Intensity & Color",
+      "color": "#27ae60",
+      "contains": ["emissive_color", "emissive_glow", "glow_color", "emissive_final"]
+    },
+    {
+      "id": "c_base",
+      "text": "Base Material Attributes",
+      "color": "#7f8c8d",
+      "contains": ["base_color", "metallic", "roughness"]
+    }
+  ]
+}

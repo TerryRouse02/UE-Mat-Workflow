@@ -11,6 +11,12 @@ describe('loadGraph', () => {
     expect(r.graph?.name).toBe('01_basic_pbr');
   });
 
+  it('loads the flashing emissive material example', async () => {
+    const r = await loadGraph(resolve(REPO, 'agent-pack/examples/03_flashing_emissive.matgraph.json'));
+    expect(r.errors).toEqual([]);
+    expect(r.graph?.name).toBe('flashing_emissive');
+  });
+
   it('returns errors for missing file', async () => {
     const r = await loadGraph(resolve(REPO, 'graphs/nonexistent.matgraph.json'));
     expect(r.errors[0]).toMatch(/not found/i);

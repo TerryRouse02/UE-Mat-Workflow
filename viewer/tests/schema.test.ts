@@ -18,6 +18,11 @@ describe('validateGraph', () => {
     expect(validateGraph(g).errors).toEqual([]);
   });
 
+  it('accepts the flashing emissive material', () => {
+    const g = loadJson('agent-pack/examples/03_flashing_emissive.matgraph.json');
+    expect(validateGraph(g).errors).toEqual([]);
+  });
+
   it('rejects missing schemaVersion', () => {
     const r = validateGraph({ ueVersion: '5.7', type: 'Material', name: 'x', nodes: [], connections: [] });
     expect(r.errors.some(e => /schemaVersion/.test(e))).toBe(true);

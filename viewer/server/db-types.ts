@@ -20,6 +20,9 @@ export interface NodeDef {
   outputs: PinDef[];
   params?: ParamDef[];
   verified: boolean;
+  dynamicPins?: boolean;
+  pinInfo?: string;
+  deprecated?: boolean;
 }
 
 export interface NodeDB {
