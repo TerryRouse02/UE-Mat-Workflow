@@ -1,0 +1,35 @@
+.mat-node {
+  background: #2b2b2b;
+  border: 1px solid #555;
+  border-radius: 4px;
+  min-width: 180px;
+  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  font-size: 12px;
+  color: #ddd;
+}
+.mat-node-title {
+  padding: 6px 10px;
+  font-weight: 600;
+  background: #1e1e1e;
+  border-bottom: 1px solid #555;
+  border-radius: 4px 4px 0 0;
+}
+.mat-node-body { display: flex; padding: 6px 0; min-height: 30px; }
+.mat-node-pins { flex: 1; }
+.mat-inputs { padding-left: 10px; }
+.mat-outputs { padding-right: 10px; text-align: right; }
+.mat-pin { position: relative; height: 18px; line-height: 18px; }
+.mat-pin-name { padding: 0 4px; }
+.mat-node-params {
+  border-top: 1px solid #444; padding: 4px 10px;
+  background: #252525; font-size: 10px;
+}
+.mat-param { margin: 2px 0; color: #aaa; }
+.mat-param code { color: #d4a050; }
+
+.mat-warn { border-color: #d4a050; }
+.mat-warn-msg { padding: 4px 10px; background: #4a3a20; color: #f0c060; font-size: 10px; }
+
+.mat-reserved { background: #2b3a4a; }
+
+.react-flow__edge-path { stroke: #888; stroke-width: 2; }
