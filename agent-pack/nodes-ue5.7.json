@@ -2,20 +2,48 @@
   "schemaVersion": "1.0",
   "ueVersion": "5.7",
   "generatedAt": "2026-05-27",
-  "source": "manual seed; expanded from Epic UE 5.7 Material Expressions Reference index and its linked official category pages (Atmosphere, Color, Constant, Coordinates, Custom, Depth, Font, Material Function, Material Attributes, Particle, Texture, Vector, Vector Operation, Landscape, Material Parameter, Utility): https://dev.epicgames.com/documentation/en-us/unreal-engine/unreal-engine-material-expressions-reference",
-  "reservedTypes": ["MaterialOutput", "FunctionInput", "FunctionOutput", "MaterialFunctionCall"],
+  "source": "manual seed + Epic UE 5.7 Material Expressions docs expansion + audit fixes (LinearInterpolate dedup, SamplerType enum, ReflectionVectorWS pins, etc.)",
+  "reservedTypes": [
+    "MaterialOutput",
+    "FunctionInput",
+    "FunctionOutput",
+    "MaterialFunctionCall"
+  ],
   "nodes": {
     "Multiply": {
       "category": "Math",
       "description": "Multiplies two values component-wise. Unconnected pins use ConstA/ConstB.",
       "inputs": [
-        { "name": "A", "type": "Float1|2|3|4", "required": true },
-        { "name": "B", "type": "Float1|2|3|4", "required": false }
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
       ],
-      "outputs": [{ "name": "Result", "type": "matchInput" }],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
       "params": [
-        { "name": "ConstA", "type": "Float", "default": 0, "when": "A unconnected" },
-        { "name": "ConstB", "type": "Float", "default": 1, "when": "B unconnected" }
+        {
+          "name": "ConstA",
+          "type": "Float",
+          "default": 0,
+          "when": "A unconnected"
+        },
+        {
+          "name": "ConstB",
+          "type": "Float",
+          "default": 1,
+          "when": "B unconnected"
+        }
       ],
       "verified": true
     },
@@ -23,61 +51,178 @@
       "category": "Math",
       "description": "Adds two values.",
       "inputs": [
-        { "name": "A", "type": "Float1|2|3|4", "required": true },
-        { "name": "B", "type": "Float1|2|3|4", "required": false }
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
       ],
-      "outputs": [{ "name": "Result", "type": "matchInput" }],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
       "params": [
-        { "name": "ConstA", "type": "Float", "default": 0, "when": "A unconnected" },
-        { "name": "ConstB", "type": "Float", "default": 0, "when": "B unconnected" }
+        {
+          "name": "ConstA",
+          "type": "Float",
+          "default": 0,
+          "when": "A unconnected"
+        },
+        {
+          "name": "ConstB",
+          "type": "Float",
+          "default": 0,
+          "when": "B unconnected"
+        }
       ],
       "verified": true
     },
     "OneMinus": {
       "category": "Math",
       "description": "Returns 1 - input.",
-      "inputs": [{ "name": "Input", "type": "Float1|2|3|4", "required": true }],
-      "outputs": [{ "name": "Result", "type": "matchInput" }],
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
       "verified": true
     },
     "Lerp": {
       "category": "Math",
       "description": "Linear interpolation: lerp(A, B, Alpha).",
       "inputs": [
-        { "name": "A", "type": "Float1|2|3|4", "required": true },
-        { "name": "B", "type": "Float1|2|3|4", "required": true },
-        { "name": "Alpha", "type": "Float1", "required": false }
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": true
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1",
+          "required": false
+        }
       ],
-      "outputs": [{ "name": "Result", "type": "matchInput" }],
-      "params": [{ "name": "ConstAlpha", "type": "Float", "default": 0, "when": "Alpha unconnected" }],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
+      "params": [
+        {
+          "name": "ConstAlpha",
+          "type": "Float",
+          "default": 0,
+          "when": "Alpha unconnected"
+        }
+      ],
       "verified": true
     },
     "Saturate": {
       "category": "Math",
       "description": "Clamps input to [0,1].",
-      "inputs": [{ "name": "Input", "type": "Float1|2|3|4", "required": true }],
-      "outputs": [{ "name": "Result", "type": "matchInput" }],
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": true
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "matchInput"
+        }
+      ],
       "verified": true
     },
     "TextureSampleParameter2D": {
       "category": "Texture",
       "description": "Samples a 2D texture exposed as a Material Parameter.",
       "inputs": [
-        { "name": "UVs", "type": "Float2", "required": false },
-        { "name": "Tex", "type": "Texture2D", "required": false }
+        {
+          "name": "UVs",
+          "type": "Float2",
+          "required": false
+        },
+        {
+          "name": "Tex",
+          "type": "Texture2D",
+          "required": false
+        }
       ],
       "outputs": [
-        { "name": "RGB", "type": "Float3" },
-        { "name": "R", "type": "Float1" },
-        { "name": "G", "type": "Float1" },
-        { "name": "B", "type": "Float1" },
-        { "name": "A", "type": "Float1" },
-        { "name": "RGBA", "type": "Float4" }
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        },
+        {
+          "name": "RGBA",
+          "type": "Float4"
+        }
       ],
       "params": [
-        { "name": "ParameterName", "type": "Name", "required": true },
-        { "name": "Texture", "type": "TextureRef" },
-        { "name": "SamplerType", "type": "Enum", "values": ["Color", "Grayscale", "Normal", "Alpha", "Masks"] }
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Texture",
+          "type": "TextureRef"
+        },
+        {
+          "name": "SamplerType",
+          "type": "Enum",
+          "values": [
+            "Color",
+            "LinearColor",
+            "Grayscale",
+            "LinearGrayscale",
+            "Normal",
+            "Alpha",
+            "Masks",
+            "Data",
+            "External",
+            "VirtualColor"
+          ]
+        }
       ],
       "verified": true
     },
@@ -85,11 +230,28 @@
       "category": "Coordinates",
       "description": "Outputs the UV coordinates of the surface.",
       "inputs": [],
-      "outputs": [{ "name": "UVs", "type": "Float2" }],
+      "outputs": [
+        {
+          "name": "UVs",
+          "type": "Float2"
+        }
+      ],
       "params": [
-        { "name": "CoordinateIndex", "type": "Int", "default": 0 },
-        { "name": "UTiling", "type": "Float", "default": 1.0 },
-        { "name": "VTiling", "type": "Float", "default": 1.0 }
+        {
+          "name": "CoordinateIndex",
+          "type": "Int",
+          "default": 0
+        },
+        {
+          "name": "UTiling",
+          "type": "Float",
+          "default": 1
+        },
+        {
+          "name": "VTiling",
+          "type": "Float",
+          "default": 1
+        }
       ],
       "verified": true
     },
@@ -98,15 +260,39 @@
       "description": "A constant RGB vector.",
       "inputs": [],
       "outputs": [
-        { "name": "RGB", "type": "Float3" },
-        { "name": "R", "type": "Float1" },
-        { "name": "G", "type": "Float1" },
-        { "name": "B", "type": "Float1" }
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        }
       ],
       "params": [
-        { "name": "R", "type": "Float", "default": 0 },
-        { "name": "G", "type": "Float", "default": 0 },
-        { "name": "B", "type": "Float", "default": 0 }
+        {
+          "name": "R",
+          "type": "Float",
+          "default": 0
+        },
+        {
+          "name": "G",
+          "type": "Float",
+          "default": 0
+        },
+        {
+          "name": "B",
+          "type": "Float",
+          "default": 0
+        }
       ],
       "verified": true
     },
@@ -114,10 +300,23 @@
       "category": "Parameters",
       "description": "A scalar value exposed as a Material Parameter.",
       "inputs": [],
-      "outputs": [{ "name": "Value", "type": "Float1" }],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Float1"
+        }
+      ],
       "params": [
-        { "name": "ParameterName", "type": "Name", "required": true },
-        { "name": "DefaultValue", "type": "Float", "default": 0 }
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "DefaultValue",
+          "type": "Float",
+          "default": 0
+        }
       ],
       "verified": true
     },
@@ -125,10 +324,23 @@
       "category": "Vector",
       "description": "Blends two tangent-space normals while preserving angle.",
       "inputs": [
-        { "name": "BaseNormal", "type": "Float3", "required": true },
-        { "name": "AdditionalNormal", "type": "Float3", "required": true }
+        {
+          "name": "BaseNormal",
+          "type": "Float3",
+          "required": true
+        },
+        {
+          "name": "AdditionalNormal",
+          "type": "Float3",
+          "required": true
+        }
       ],
-      "outputs": [{ "name": "Result", "type": "Float3" }],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float3"
+        }
+      ],
       "verified": true
     },
     "Constant": {
@@ -847,7 +1059,7 @@
     },
     "AtmosphericFogColor": {
       "category": "Atmosphere",
-      "description": "Outputs atmospheric fog color for the current pixel.",
+      "description": "Outputs atmospheric fog color for the current pixel. (deprecated in UE5; Atmospheric Fog actor was removed)",
       "inputs": [
         {
           "name": "WorldPosition",
@@ -861,7 +1073,8 @@
           "type": "Float3"
         }
       ],
-      "verified": false
+      "verified": false,
+      "deprecated": true
     },
     "Desaturation": {
       "category": "Color",
@@ -966,7 +1179,11 @@
       "params": [
         {
           "name": "InputMode",
-          "type": "Enum"
+          "type": "Enum",
+          "values": [
+            "WorldSpaceDepth",
+            "ManualUV"
+          ]
         }
       ]
     },
@@ -1045,7 +1262,7 @@
           "type": "matchInput"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Arcsine": {
       "category": "Math",
@@ -1081,7 +1298,7 @@
           "type": "matchInput"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Arctangent": {
       "category": "Math",
@@ -1117,7 +1334,7 @@
           "type": "matchInput"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Arctangent2": {
       "category": "Math",
@@ -1140,7 +1357,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Arctangent2Fast": {
       "category": "Math",
@@ -1163,7 +1380,7 @@
           "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Ceil": {
       "category": "Math",
@@ -1421,7 +1638,7 @@
           "type": "matchInput"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Frac": {
       "category": "Math",
@@ -1478,42 +1695,6 @@
         }
       ],
       "verified": true
-    },
-    "LinearInterpolate": {
-      "category": "Math",
-      "description": "Linear interpolation: lerp(A, B, Alpha).",
-      "inputs": [
-        {
-          "name": "A",
-          "type": "Float1|2|3|4",
-          "required": true
-        },
-        {
-          "name": "B",
-          "type": "Float1|2|3|4",
-          "required": true
-        },
-        {
-          "name": "Alpha",
-          "type": "Float1",
-          "required": false
-        }
-      ],
-      "outputs": [
-        {
-          "name": "Result",
-          "type": "matchInput"
-        }
-      ],
-      "verified": true,
-      "params": [
-        {
-          "name": "ConstAlpha",
-          "type": "Float",
-          "default": 0,
-          "when": "Alpha unconnected"
-        }
-      ]
     },
     "Logarithm10": {
       "category": "Math",
@@ -1942,7 +2123,19 @@
         },
         {
           "name": "SamplerType",
-          "type": "Enum"
+          "type": "Enum",
+          "values": [
+            "Color",
+            "LinearColor",
+            "Grayscale",
+            "LinearGrayscale",
+            "Normal",
+            "Alpha",
+            "Masks",
+            "Data",
+            "External",
+            "VirtualColor"
+          ]
         }
       ]
     },
@@ -2511,10 +2704,15 @@
           "type": "Enum",
           "values": [
             "Color",
+            "LinearColor",
             "Grayscale",
+            "LinearGrayscale",
             "Normal",
             "Alpha",
-            "Masks"
+            "Masks",
+            "Data",
+            "External",
+            "VirtualColor"
           ]
         },
         {
@@ -2571,10 +2769,15 @@
           "type": "Enum",
           "values": [
             "Color",
+            "LinearColor",
             "Grayscale",
+            "LinearGrayscale",
             "Normal",
             "Alpha",
-            "Masks"
+            "Masks",
+            "Data",
+            "External",
+            "VirtualColor"
           ]
         },
         {
@@ -2635,10 +2838,15 @@
           "type": "Enum",
           "values": [
             "Color",
+            "LinearColor",
             "Grayscale",
+            "LinearGrayscale",
             "Normal",
             "Alpha",
-            "Masks"
+            "Masks",
+            "Data",
+            "External",
+            "VirtualColor"
           ]
         },
         {
@@ -2709,10 +2917,15 @@
           "type": "Enum",
           "values": [
             "Color",
+            "LinearColor",
             "Grayscale",
+            "LinearGrayscale",
             "Normal",
             "Alpha",
-            "Masks"
+            "Masks",
+            "Data",
+            "External",
+            "VirtualColor"
           ]
         },
         {
@@ -2778,10 +2991,15 @@
           "type": "Enum",
           "values": [
             "Color",
+            "LinearColor",
             "Grayscale",
+            "LinearGrayscale",
             "Normal",
             "Alpha",
-            "Masks"
+            "Masks",
+            "Data",
+            "External",
+            "VirtualColor"
           ]
         },
         {
@@ -2868,10 +3086,15 @@
           "type": "Enum",
           "values": [
             "Color",
+            "LinearColor",
             "Grayscale",
+            "LinearGrayscale",
             "Normal",
             "Alpha",
-            "Masks"
+            "Masks",
+            "Data",
+            "External",
+            "VirtualColor"
           ]
         },
         {
@@ -3767,9 +3990,21 @@
         {
           "name": "XYZ",
           "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
         }
       ],
-      "verified": true
+      "verified": false
     },
     "PreSkinnedLocalNormal": {
       "category": "Vector",
