@@ -1,0 +1,26 @@
+{
+  "schemaVersion": "1.0",
+  "ueVersion": "5.7",
+  "type": "Material",
+  "name": "01_basic_pbr",
+  "description": "Minimum PBR: a base color parameter wired to the output.",
+  "nodes": [
+    { "id": "tex",  "type": "TextureSampleParameter2D",
+      "params": { "ParameterName": "BaseColorMap", "SamplerType": "Color" } },
+    { "id": "tint", "type": "Constant3Vector",
+      "params": { "R": 1.0, "G": 0.95, "B": 0.9 } },
+    { "id": "mul",  "type": "Multiply" },
+    { "id": "rough","type": "ScalarParameter",
+      "params": { "ParameterName": "Roughness", "DefaultValue": 0.5 } },
+    { "id": "OUT",  "type": "MaterialOutput" }
+  ],
+  "connections": [
+    { "from": "tex:RGB",   "to": "mul:A" },
+    { "from": "tint:RGB",  "to": "mul:B" },
+    { "from": "mul:Result","to": "OUT:BaseColor" },
+    { "from": "rough:Value","to": "OUT:Roughness" }
+  ],
+  "comments": [
+    { "id": "c1", "text": "Base Color Tinting", "color": "#4a90e2", "contains": ["tex","tint","mul"] }
+  ]
+}
