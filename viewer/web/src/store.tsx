@@ -56,6 +56,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const wsRef = React.useRef<ReturnType<typeof connect> | null>(null);
 
   useEffect(() => {
+    const exportData = (window as unknown as { __UE_MAT_EXPORT__?: { entry: string; files: Record<string, unknown>; derivedPins: unknown; warnings: string[] } }).__UE_MAT_EXPORT__;
+    if (exportData) {
+      dispatch({ type: 'hello', files: Object.keys(exportData.files) });
+      for (const [path, graph] of Object.entries(exportData.files)) {
+        dispatch({
+          type: 'graph', path,
+          payload: {
+            graph: graph as any,
+            derivedPins: exportData.derivedPins as any,
+            warnings: exportData.warnings,
+          },
+        });
+      }
+      dispatch({ type: 'open', path: exportData.entry });
+      return;
+    }
     const ws = connect((m: ServerMessage) => {
       if (m.kind === 'hello') dispatch({ type: 'hello', files: m.files });
       else if (m.kind === 'fileList') dispatch({ type: 'fileList', files: m.files });
