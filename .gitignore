@@ -15,3 +15,4 @@ graphs/*.matgraph.json
 graphs/**/*.matgraph.json
 !graphs/.gitkeep
 !graphs/functions/.gitkeep
+/Temp
