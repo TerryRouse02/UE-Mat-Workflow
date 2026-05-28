@@ -17,6 +17,18 @@ function codeBlockHeight(s: string): number {
   return Math.min(200, lines * 14 + 12);
 }
 
+// For inline <code>{JSON.stringify(v)}</code> values: estimate wrap.
+// Node body is ~220px wide; the params section has ~24px of "key:" label
+// on the left, leaving ~180px for the value. At font-size 10px monospace,
+// ~32 chars per line is a safe estimate.
+const PARAM_VALUE_CHARS_PER_LINE = 32;
+function inlineParamHeight(stringified: string): number {
+  if (!stringified) return 14;
+  const lines = Math.max(1, Math.ceil(stringified.length / PARAM_VALUE_CHARS_PER_LINE));
+  // Cap inline wrap at 5 lines (~70px) — past that the user can't read it anyway.
+  return Math.min(5, lines) * 14;
+}
+
 export function computeNodeHeight(data: any): number {
   const inputs = (data && data.inputs) || [];
   const outputs = (data && data.outputs) || [];
@@ -28,12 +40,14 @@ export function computeNodeHeight(data: any): number {
   const paramEntries = Object.entries(params);
   let paramHeight = 0;
   if (paramEntries.length > 0) {
-    paramHeight = 12; // section vertical padding (4px top + 4px bottom + border + slack)
+    paramHeight = 12; // section vertical padding
     for (const [, v] of paramEntries) {
       if (isCodeLikeValue(v)) {
         paramHeight += codeBlockHeight(v as string) + 4;
       } else {
-        paramHeight += 14; // single line at font-size 10px
+        // Non-code values render as inline <code>{JSON.stringify(v)}</code>
+        // which wraps within the node. Arrays/objects can wrap to multiple lines.
+        paramHeight += inlineParamHeight(JSON.stringify(v));
       }
     }
   }
