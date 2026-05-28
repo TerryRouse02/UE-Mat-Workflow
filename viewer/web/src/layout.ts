@@ -4,6 +4,19 @@ import type { Node, Edge } from 'reactflow';
 export const NODE_W = 220;
 const NODE_H = 100;
 
+// Kept in sync with MaterialNode's isCodeLike() — must match how the
+// component actually renders, or comment-cluster bounds will be wrong.
+function isCodeLikeValue(v: unknown): boolean {
+  return typeof v === 'string' && (v.includes('\n') || v.length > 40);
+}
+
+// Code <pre> block: ~14px per line + 12px padding, capped at 200px
+// (matches .mat-code pre CSS max-height).
+function codeBlockHeight(s: string): number {
+  const lines = (s.match(/\n/g)?.length ?? 0) + 1;
+  return Math.min(200, lines * 14 + 12);
+}
+
 export function computeNodeHeight(data: any): number {
   const inputs = (data && data.inputs) || [];
   const outputs = (data && data.outputs) || [];
@@ -11,8 +24,20 @@ export function computeNodeHeight(data: any): number {
 
   const maxPins = Math.max(inputs.length, outputs.length);
   const pinHeight = maxPins * 18;
-  const paramCount = Object.keys(params).length;
-  const paramHeight = paramCount > 0 ? (12 + paramCount * 14) : 0;
+
+  const paramEntries = Object.entries(params);
+  let paramHeight = 0;
+  if (paramEntries.length > 0) {
+    paramHeight = 12; // section vertical padding (4px top + 4px bottom + border + slack)
+    for (const [, v] of paramEntries) {
+      if (isCodeLikeValue(v)) {
+        paramHeight += codeBlockHeight(v as string) + 4;
+      } else {
+        paramHeight += 14; // single line at font-size 10px
+      }
+    }
+  }
+
   const warningHeight = data && data.warning ? 20 : 0;
 
   return 30 + Math.max(20, pinHeight) + paramHeight + warningHeight + 12;
