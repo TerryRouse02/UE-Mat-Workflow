@@ -30,7 +30,15 @@
   background: #252525; font-size: 10px;
 }
 .mat-param { margin: 2px 0; color: #aaa; }
-.mat-param code { color: #d4a050; }
+.mat-param code {
+  color: #d4a050;
+  /* JSON arrays/objects have no whitespace to break on — force break-anywhere
+     so the param value wraps within the node and doesn't blow up node width
+     (which would in turn break the comment-cluster bounding box math). */
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+.mat-node { max-width: 320px; }
 
 .mat-warn { border-color: #d4a050; }
 .mat-warn-msg { padding: 4px 10px; background: #4a3a20; color: #f0c060; font-size: 10px; }
