@@ -1,9 +1,9 @@
 import React, { createContext, useContext, useReducer, useEffect } from 'react';
 import { connect } from './ws-client';
-import type { ServerMessage, GraphPayload } from './protocol';
+import type { ServerMessage, GraphPayload, FileEntry } from './protocol';
 
 interface State {
-  files: string[];
+  files: FileEntry[];
   currentPath: string | null;
   breadcrumb: string[];
   graphs: Record<string, GraphPayload>;
@@ -11,8 +11,8 @@ interface State {
 }
 
 type Action =
-  | { type: 'hello'; files: string[] }
-  | { type: 'fileList'; files: string[] }
+  | { type: 'hello'; files: FileEntry[] }
+  | { type: 'fileList'; files: FileEntry[] }
   | { type: 'graph'; path: string; payload: GraphPayload }
   | { type: 'graphError'; path: string; errors: string[] }
   | { type: 'open'; path: string }
@@ -58,7 +58,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const exportData = (window as unknown as { __UE_MAT_EXPORT__?: { entry: string; files: Record<string, unknown>; derivedPins: unknown; warnings: string[] } }).__UE_MAT_EXPORT__;
     if (exportData) {
-      dispatch({ type: 'hello', files: Object.keys(exportData.files) });
+      const exportEntries: FileEntry[] = Object.entries(exportData.files).map(([path, g]) => {
+        const t = (g as { type?: string }).type;
+        return {
+          path,
+          type: t === 'Material' || t === 'MaterialFunction' ? t : 'Unknown',
+        };
+      });
+      dispatch({ type: 'hello', files: exportEntries });
       for (const [path, graph] of Object.entries(exportData.files)) {
         dispatch({
           type: 'graph', path,

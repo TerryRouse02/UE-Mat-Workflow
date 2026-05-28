@@ -11,7 +11,7 @@ function Body() {
 
   useEffect(() => {
     if (!state.currentPath && state.files.length > 0) {
-      open(state.files[0]);
+      open(state.files[0].path);
     }
   }, [state.files, state.currentPath, open]);
 
