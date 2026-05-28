@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Handle, Position } from 'reactflow';
 import './styles.css';
 
@@ -9,6 +10,32 @@ export interface MaterialNodeData {
   params?: Record<string, unknown>;
   warning?: string;
   isReserved?: boolean;
+}
+
+function isCodeLike(v: unknown): v is string {
+  return typeof v === 'string' && (v.includes('\n') || v.length > 40);
+}
+
+function CodeBlock({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(value).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  return (
+    <div className="mat-code">
+      <pre>{value}</pre>
+      <button
+        className="mat-copy-btn"
+        onClick={onCopy}
+        onMouseDown={(e) => e.stopPropagation()}
+        title="Copy to clipboard"
+      >{copied ? '✓ Copied' : '⧉ Copy'}</button>
+    </div>
+  );
 }
 
 export function MaterialNode({ data }: { data: MaterialNodeData }) {
@@ -40,7 +67,12 @@ export function MaterialNode({ data }: { data: MaterialNodeData }) {
       {data.params && Object.keys(data.params).length > 0 && (
         <div className="mat-node-params">
           {Object.entries(data.params).map(([k, v]) => (
-            <div key={k} className="mat-param"><span>{k}:</span> <code>{JSON.stringify(v)}</code></div>
+            <div key={k} className="mat-param">
+              <span>{k}:</span>{' '}
+              {isCodeLike(v)
+                ? <CodeBlock value={v} />
+                : <code>{JSON.stringify(v)}</code>}
+            </div>
           ))}
         </div>
       )}

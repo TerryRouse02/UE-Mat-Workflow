@@ -68,3 +68,40 @@
   border-color: #f0c060 !important;
   box-shadow: 0 0 6px #f0c060;
 }
+
+/* Code-like params (HLSL, multi-line strings): preformatted block + copy button */
+.mat-code {
+  position: relative;
+  display: block;
+  margin-top: 4px;
+  max-width: 320px;
+}
+.mat-code pre {
+  background: #1a1a1a;
+  color: #d4a050;
+  padding: 6px 36px 6px 8px;
+  border-radius: 3px;
+  font-size: 10px;
+  line-height: 1.4;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow: auto;
+  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
+}
+.mat-copy-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: #333;
+  color: #aaa;
+  border: 1px solid #555;
+  border-radius: 2px;
+  padding: 2px 6px;
+  font-size: 9px;
+  cursor: pointer;
+  pointer-events: all;
+  user-select: none;
+}
+.mat-copy-btn:hover { background: #444; color: #fff; }
