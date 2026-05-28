@@ -5,6 +5,9 @@ dist/
 .vite/
 coverage/
 
+# TypeScript incremental build cache (regenerated on every build)
+*.tsbuildinfo
+
 # tsc -b emitted artifacts that shouldn't live next to source
 viewer/web/src/**/*.js
 viewer/web/src/**/*.d.ts
@@ -14,5 +17,17 @@ viewer/web/src/**/*.d.ts
 graphs/*.matgraph.json
 graphs/**/*.matgraph.json
 !graphs/.gitkeep
-!graphs/functions/.gitkeep
+
+# Unreal Engine scratch
 /Temp
+
+# Editor / IDE settings
+.vscode/
+.idea/
+*.iml
+*.suo
+
+# Environment files
+.env
+.env.local
+.env.*.local
