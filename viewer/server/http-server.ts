@@ -5,7 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { watchGraphs } from './watcher.js';
 import { loadGraph } from './graph-loader.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
-import type { ServerMessage, ClientMessage } from './ws-protocol.js';
+import type { ServerMessage, ClientMessage, FileEntry } from './ws-protocol.js';
 
 export interface ServerOpts {
   repoRoot: string;     // contains graphs/
@@ -61,8 +61,19 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   const send = (ws: WebSocket, msg: ServerMessage) => ws.send(JSON.stringify(msg));
 
-  async function listFiles(): Promise<string[]> {
-    const out: string[] = [];
+  async function readGraphType(absPath: string): Promise<FileEntry['type']> {
+    try {
+      const raw = await readFile(absPath, 'utf-8');
+      const parsed = JSON.parse(raw) as { type?: string };
+      if (parsed.type === 'Material' || parsed.type === 'MaterialFunction') return parsed.type;
+      return 'Unknown';
+    } catch {
+      return 'Unknown';
+    }
+  }
+
+  async function listFiles(): Promise<FileEntry[]> {
+    const out: FileEntry[] = [];
     async function walk(dir: string) {
       let entries;
       try { entries = await readdir(dir, { withFileTypes: true }); }
@@ -71,12 +82,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         const full = join(dir, e.name);
         if (e.isDirectory()) await walk(full);
         else if (e.isFile() && e.name.endsWith('.matgraph.json')) {
-          out.push(relative(graphsRoot, full));
+          const type = await readGraphType(full);
+          out.push({ path: relative(graphsRoot, full), type });
         }
       }
     }
     await walk(graphsRoot);
-    return out.sort();
+    return out.sort((a, b) => a.path.localeCompare(b.path));
   }
 
   async function sendGraph(ws: WebSocket, relPath: string) {
