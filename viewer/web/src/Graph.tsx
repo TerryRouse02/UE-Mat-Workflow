@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import ReactFlow, { type Node, type Edge, Background, Controls, MiniMap } from 'reactflow';
+import { useMemo, useEffect } from 'react';
+import ReactFlow, { type Node, type Edge, Background, Controls, MiniMap, useNodesState } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { MaterialNode } from './nodes/MaterialNode';
 import { MaterialOutputNode } from './nodes/MaterialOutputNode';
@@ -9,6 +9,13 @@ import { CommentNode } from './nodes/CommentBox';
 import { applyLayout, computeNodeHeight, NODE_W } from './layout';
 import type { GraphPayload } from './protocol';
 import type { NodeDB } from '../../server/db-types';
+
+function setHandleHighlight(nodeId: string, handleId: string | null | undefined, on: boolean) {
+  if (!handleId) return;
+  const selector = `.react-flow__handle[data-nodeid="${nodeId}"][data-handleid="${CSS.escape(handleId)}"]`;
+  const el = document.querySelector(selector);
+  if (el) el.classList.toggle('handle-highlighted', on);
+}
 
 const NODE_TYPES = {
   generic: MaterialNode,
@@ -55,7 +62,7 @@ function resolveMFRelative(mfRef: string, currentPath: string): string {
 export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
   const { graph, derivedPins } = payload;
 
-  const { nodes, edges } = useMemo(() => {
+  const initialLayout = useMemo(() => {
     const rfNodes: Node[] = graph.nodes.map(n => {
       if (n.type === 'MaterialOutput') {
         return { id: n.id, type: 'materialOutput', position: { x: 0, y: 0 }, data: { id: n.id, params: n.params } };
@@ -119,6 +126,15 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
     return { nodes: applyLayout(rfNodes, rfEdges), edges: rfEdges };
   }, [graph, derivedPins, db, onEnterMF, basePath]);
 
+  const [nodes, setNodes, onNodesChange] = useNodesState(initialLayout.nodes);
+
+  // Reset to fresh layout whenever the graph/payload/MF derived pins change
+  useEffect(() => {
+    setNodes(initialLayout.nodes);
+  }, [initialLayout.nodes, setNodes]);
+
+  const edges = initialLayout.edges;
+
   const commentNodes: Node[] = useMemo(() => {
     if (!graph.comments) return [];
     const byId = new Map(nodes.map(n => [n.id, n]));
@@ -171,8 +187,16 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
   return (
     <ReactFlow
       nodes={allNodes} edges={edges} nodeTypes={NODE_TYPES}
+      onNodesChange={onNodesChange}
+      onEdgeMouseEnter={(_, edge) => {
+        setHandleHighlight(edge.source, edge.sourceHandle, true);
+        setHandleHighlight(edge.target, edge.targetHandle, true);
+      }}
+      onEdgeMouseLeave={(_, edge) => {
+        setHandleHighlight(edge.source, edge.sourceHandle, false);
+        setHandleHighlight(edge.target, edge.targetHandle, false);
+      }}
       fitView style={{ background: '#1a1a1a' }}
-
     >
       <Background gap={20} color="#333" />
       <Controls />
