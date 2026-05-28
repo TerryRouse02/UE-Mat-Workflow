@@ -7,6 +7,6 @@
   "scripts": {
     "build": "pnpm --filter viewer build",
     "test": "pnpm -r test",
-    "start": "pnpm --filter viewer start"
+    "start": "node viewer/dist/server/index.js"
   }
 }
