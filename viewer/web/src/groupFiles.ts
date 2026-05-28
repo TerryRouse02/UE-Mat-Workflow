@@ -1,7 +1,5 @@
-export interface FileEntry {
-  path: string;
-  type: 'Material' | 'MaterialFunction' | 'Unknown';
-}
+import type { FileEntry } from './protocol';
+export type { FileEntry };
 
 export interface Project {
   folder: string;

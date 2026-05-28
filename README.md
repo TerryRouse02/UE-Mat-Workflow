@@ -22,7 +22,11 @@ pnpm start
 # → http://localhost:5790 (自動嘗試 5790-5799)
 ```
 
-在另一個 terminal 跟你的 AI 對話（Claude Code 等），AI 會根據 `agent-pack/SPEC.md` 把材質寫到 `graphs/`，瀏覽器自動更新。
+在另一個 terminal 跟你的 AI 對話（Claude Code 等），AI 會根據 `agent-pack/SPEC.md` 把材質寫到 `graphs/<project>/<name>.matgraph.json`，瀏覽器自動更新。
+
+Sidebar 介紹：
+- **Files tab**：每個 `graphs/<project>/` 是一個專案（恰好 1 個 Material + 它使用的 MF），可摺疊；散落的舊檔或結構不符的會顯示在 Unorganized 區
+- **Nodes tab**：搜尋 + 分類瀏覽完整節點庫（UE 5.7，142 nodes），點節點看 inputs/outputs/params 細節
 
 匯出獨立 HTML（可離線、可分享給沒有 Node 的人）：
 
@@ -41,11 +45,16 @@ node viewer/dist/server/html-export.js export 01_basic_pbr --out ./my-graph.html
 - `01_basic_pbr.matgraph.json` — 純 Material
 - `02_with_function.matgraph.json` — 含 MaterialFunction
 
-把它們複製到 `graphs/`：
+把它們複製到自己的專案資料夾（範例採用舊扁平結構，新建議是 `graphs/<project>/`）：
 
 ```bash
-cp -r agent-pack/examples/* graphs/
+mkdir -p graphs/basic_pbr graphs/with_function
+cp agent-pack/examples/01_basic_pbr.matgraph.json graphs/basic_pbr/
+cp agent-pack/examples/02_with_function.matgraph.json graphs/with_function/
+cp agent-pack/examples/functions/blend_normals.matgraph.json graphs/with_function/
 ```
+
+然後把 `with_function` 的 `params.MaterialFunction` 從 `"./functions/blend_normals.matgraph.json"` 改成 `"./blend_normals.matgraph.json"`。
 
 ## 設計與規格
 

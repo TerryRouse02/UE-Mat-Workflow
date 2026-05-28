@@ -61,6 +61,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   const send = (ws: WebSocket, msg: ServerMessage) => ws.send(JSON.stringify(msg));
 
+  // Any read/parse error → 'Unknown'; user sees it under "Unorganized"
+  // and can investigate. Distinct error types are not surfaced.
   async function readGraphType(absPath: string): Promise<FileEntry['type']> {
     try {
       const raw = await readFile(absPath, 'utf-8');
