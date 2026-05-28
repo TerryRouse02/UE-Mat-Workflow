@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { StoreProvider, useStore } from './store';
 import { Breadcrumb } from './Breadcrumb';
-import { FileList } from './FileList';
+import { Sidebar } from './Sidebar';
 import { WarningPanel } from './WarningPanel';
 import { Graph } from './Graph';
 import { DB } from './db';
@@ -23,7 +23,7 @@ function Body() {
       <Breadcrumb />
       <WarningPanel />
       <div style={{ flex: 1, display: 'flex' }}>
-        <div style={{ width: 220 }}><FileList /></div>
+        <div style={{ width: 240 }}><Sidebar /></div>
         <div style={{ flex: 1 }}>
           {payload ? <Graph payload={payload} basePath={current} db={DB} onEnterMF={enterMF} /> :
             <div style={{ color: '#888', padding: 20 }}>Select a graph from the left.</div>}
