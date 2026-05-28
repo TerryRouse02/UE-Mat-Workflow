@@ -17,6 +17,13 @@ describe('loadGraph', () => {
     expect(r.graph?.name).toBe('flashing_emissive');
   });
 
+  it('loads the snow material example', async () => {
+    const r = await loadGraph(resolve(REPO, 'agent-pack/examples/04_snow.matgraph.json'));
+    expect(r.errors).toEqual([]);
+    expect(r.graph?.name).toBe('snow');
+  });
+
+
   it('returns errors for missing file', async () => {
     const r = await loadGraph(resolve(REPO, 'graphs/nonexistent.matgraph.json'));
     expect(r.errors[0]).toMatch(/not found/i);

@@ -23,6 +23,12 @@ describe('validateGraph', () => {
     expect(validateGraph(g).errors).toEqual([]);
   });
 
+  it('accepts the snow material', () => {
+    const g = loadJson('agent-pack/examples/04_snow.matgraph.json');
+    expect(validateGraph(g).errors).toEqual([]);
+  });
+
+
   it('rejects missing schemaVersion', () => {
     const r = validateGraph({ ueVersion: '5.7', type: 'Material', name: 'x', nodes: [], connections: [] });
     expect(r.errors.some(e => /schemaVersion/.test(e))).toBe(true);

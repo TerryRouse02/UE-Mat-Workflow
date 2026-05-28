@@ -1,0 +1,176 @@
+{
+  "schemaVersion": "1.0",
+  "ueVersion": "5.7",
+  "type": "Material",
+  "name": "snow",
+  "description": "A premium, highly realistic PBR snow material with subsurface scattering, customizable dirt blending, and dual-normal sparkle mapping.",
+  "nodes": [
+    {
+      "id": "snow_color",
+      "type": "VectorParameter",
+      "params": {
+        "ParameterName": "SnowColor",
+        "DefaultValue": [0.92, 0.95, 0.98, 1.0]
+      }
+    },
+    {
+      "id": "dirt_color",
+      "type": "VectorParameter",
+      "params": {
+        "ParameterName": "DirtColor",
+        "DefaultValue": [0.32, 0.22, 0.14, 1.0]
+      }
+    },
+    {
+      "id": "dirt_mask",
+      "type": "TextureSampleParameter2D",
+      "params": {
+        "ParameterName": "DirtMask",
+        "SamplerType": "Color"
+      }
+    },
+    {
+      "id": "dirt_intensity",
+      "type": "ScalarParameter",
+      "params": {
+        "ParameterName": "DirtIntensity",
+        "DefaultValue": 0.5
+      }
+    },
+    {
+      "id": "dirt_scale",
+      "type": "Multiply",
+      "params": {}
+    },
+    {
+      "id": "color_lerp",
+      "type": "Lerp",
+      "params": {}
+    },
+    {
+      "id": "roughness_base",
+      "type": "ScalarParameter",
+      "params": {
+        "ParameterName": "RoughnessBase",
+        "DefaultValue": 0.85
+      }
+    },
+    {
+      "id": "roughness_wet",
+      "type": "ScalarParameter",
+      "params": {
+        "ParameterName": "RoughnessWet",
+        "DefaultValue": 0.25
+      }
+    },
+    {
+      "id": "wetness_mask",
+      "type": "TextureSampleParameter2D",
+      "params": {
+        "ParameterName": "WetnessMask",
+        "SamplerType": "Grayscale"
+      }
+    },
+    {
+      "id": "roughness_lerp",
+      "type": "Lerp",
+      "params": {}
+    },
+    {
+      "id": "normal_drift",
+      "type": "TextureSampleParameter2D",
+      "params": {
+        "ParameterName": "SnowDriftNormal",
+        "SamplerType": "Normal"
+      }
+    },
+    {
+      "id": "normal_sparkle",
+      "type": "TextureSampleParameter2D",
+      "params": {
+        "ParameterName": "SnowSparkleNormal",
+        "SamplerType": "Normal"
+      }
+    },
+    {
+      "id": "mf_blend_normals",
+      "type": "MaterialFunctionCall",
+      "params": {
+        "MaterialFunction": "./functions/blend_normals.matgraph.json"
+      }
+    },
+    {
+      "id": "subsurface_color",
+      "type": "VectorParameter",
+      "params": {
+        "ParameterName": "SubsurfaceColor",
+        "DefaultValue": [0.45, 0.82, 0.93, 1.0]
+      }
+    },
+    {
+      "id": "metallic",
+      "type": "ScalarParameter",
+      "params": {
+        "ParameterName": "Metallic",
+        "DefaultValue": 0.0
+      }
+    },
+    {
+      "id": "specular",
+      "type": "ScalarParameter",
+      "params": {
+        "ParameterName": "Specular",
+        "DefaultValue": 0.5
+      }
+    },
+    {
+      "id": "OUT",
+      "type": "MaterialOutput",
+      "params": {}
+    }
+  ],
+  "connections": [
+    { "from": "dirt_mask:R", "to": "dirt_scale:A" },
+    { "from": "dirt_intensity:Value", "to": "dirt_scale:B" },
+    { "from": "snow_color:RGB", "to": "color_lerp:A" },
+    { "from": "dirt_color:RGB", "to": "color_lerp:B" },
+    { "from": "dirt_scale:Result", "to": "color_lerp:Alpha" },
+    { "from": "color_lerp:Result", "to": "OUT:BaseColor" },
+    { "from": "roughness_base:Value", "to": "roughness_lerp:A" },
+    { "from": "roughness_wet:Value", "to": "roughness_lerp:B" },
+    { "from": "wetness_mask:R", "to": "roughness_lerp:Alpha" },
+    { "from": "roughness_lerp:Result", "to": "OUT:Roughness" },
+    { "from": "normal_drift:RGB", "to": "mf_blend_normals:BaseNormal" },
+    { "from": "normal_sparkle:RGB", "to": "mf_blend_normals:DetailNormal" },
+    { "from": "mf_blend_normals:Result", "to": "OUT:Normal" },
+    { "from": "subsurface_color:RGB", "to": "OUT:SubsurfaceColor" },
+    { "from": "metallic:Value", "to": "OUT:Metallic" },
+    { "from": "specular:Value", "to": "OUT:Specular" }
+  ],
+  "comments": [
+    {
+      "id": "c_color",
+      "text": "Base Color & Dirt Blending",
+      "color": "#2c3e50",
+      "contains": ["snow_color", "dirt_color", "dirt_mask", "dirt_intensity", "dirt_scale", "color_lerp"]
+    },
+    {
+      "id": "c_roughness",
+      "text": "Roughness Blending (Dry vs. Wet Melted Snow)",
+      "color": "#7f8c8d",
+      "contains": ["roughness_base", "roughness_wet", "wetness_mask", "roughness_lerp"]
+    },
+    {
+      "id": "c_normal",
+      "text": "Normal Map Blending (Large Snow Drifts + Micro Glitter Sparkles)",
+      "color": "#2980b9",
+      "contains": ["normal_drift", "normal_sparkle", "mf_blend_normals"]
+    },
+    {
+      "id": "c_misc",
+      "text": "Specular, Metallic, and Subsurface Scattering Color",
+      "color": "#16a085",
+      "contains": ["metallic", "specular", "subsurface_color"]
+    }
+  ]
+}
