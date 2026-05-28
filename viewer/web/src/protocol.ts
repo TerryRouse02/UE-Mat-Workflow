@@ -26,9 +26,14 @@ export interface GraphPayload {
   warnings: string[];
 }
 
+export interface FileEntry {
+  path: string;
+  type: 'Material' | 'MaterialFunction' | 'Unknown';
+}
+
 export type ServerMessage =
-  | { kind: 'hello'; graphsRoot: string; files: string[] }
-  | { kind: 'fileList'; files: string[] }
+  | { kind: 'hello'; graphsRoot: string; files: FileEntry[] }
+  | { kind: 'fileList'; files: FileEntry[] }
   | { kind: 'graph'; path: string; payload: GraphPayload }
   | { kind: 'graphError'; path: string; errors: string[] };
 
