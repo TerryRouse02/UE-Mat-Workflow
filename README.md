@@ -1,51 +1,115 @@
 # UE Material Workflow
 
-AI 與人協作 UE5.7 材質節點圖的統一工作流。AI 寫 `.matgraph.json` 標準格式檔，本地 viewer 即時呈現節點圖。
+A unified workflow for AI + human collaboration on UE 5.7 material node graphs. Your AI writes a standard `.matgraph.json` format; a local viewer renders the node graph live, with a faithful, accurate representation of UE expressions.
 
-## 安裝
+[繁體中文](./README.zh-TW.md)
+
+---
+
+## Why
+
+- **No more text-wall node graphs.** AI describes materials in a strict JSON schema; the viewer renders them as real-looking UE nodes.
+- **No more hallucinated node names.** A pinned UE 5.7 node DB (142 expressions) is the source of truth — AI must use existing types, exact pin names, exact param names.
+- **One format across AI tools.** Same `agent-pack/` works in Claude Code, Cursor, Copilot CLI, Gemini CLI, or anything that reads agent rules.
+
+---
+
+## Install
 
 ```bash
-git clone <repo>
-cd ue-mat-workflow
+git clone https://github.com/TerryRouse02/UE-Mat-Workflow.git
+cd UE-Mat-Workflow
 pnpm install
 pnpm build
 ```
 
-需要 Node 18+ 和 pnpm。若沒裝 pnpm，可用 `npx pnpm install` 代替。
+Requires Node 18+ and pnpm. No pnpm? `npx pnpm install` works.
 
-## 使用
+---
 
-啟動 viewer：
+## Run the viewer
 
 ```bash
 pnpm start
-# → http://localhost:5790 (自動嘗試 5790-5799)
+# → http://localhost:5790 (auto-tries 5790–5799)
 ```
 
-在另一個 terminal 跟你的 AI 對話（Claude Code 等），AI 會根據 `agent-pack/SPEC.md` 把材質寫到 `graphs/<project>/<name>.matgraph.json`，瀏覽器自動更新。
+The sidebar has two tabs:
 
-Sidebar 介紹：
-- **Files tab**：每個 `graphs/<project>/` 是一個專案（恰好 1 個 Material + 它使用的 MF），可摺疊；散落的舊檔或結構不符的會顯示在 Unorganized 區
-- **Nodes tab**：搜尋 + 分類瀏覽完整節點庫（UE 5.7，142 nodes），點節點看 inputs/outputs/params 細節
+| Tab | What it shows |
+|---|---|
+| **Files** | Your materials, grouped by project folder. Each `graphs/<project>/` with exactly one Material + its MFs is a project; everything else falls under "Unorganized". |
+| **Nodes** | The full UE 5.7 node library — search by name or description, browse by category, click a node to see its inputs / outputs / params with type info and badges (verified, dynamic-pin, deprecated). |
 
-匯出獨立 HTML（可離線、可分享給沒有 Node 的人）：
+The viewer hot-reloads when files change.
+
+---
+
+## Use with AI tools
+
+The `agent-pack/` directory contains the spec, node DB, examples, and rule files for every popular AI coding tool. Point your tool at this repo and start prompting.
+
+### Claude Code
+
+`agent-pack/CLAUDE.md` is auto-discovered. From any conversation in this repo:
+
+> "Build me a stylized water material with normal map distortion and a fresnel rim glow."
+
+Claude reads `SPEC.md`, picks node types from `nodes-ue5.7.json`, and writes the JSON to `graphs/<project>/`. The viewer renders it immediately.
+
+### Cursor
+
+`agent-pack/.cursorrules` is auto-discovered. Same prompt flow.
+
+### Copilot CLI / Codex / generic agents
+
+`agent-pack/AGENTS.md` is the convention most generic agent CLIs follow. Run from the repo root and prompt:
+
+> "Read agent-pack/SPEC.md, then write a metal-rust blended material to graphs/."
+
+### Gemini CLI
+
+`agent-pack/GEMINI.md` is auto-discovered. Same flow.
+
+### Other tools
+
+Any tool that lets you point at a spec file works — give it `agent-pack/SPEC.md` and `agent-pack/nodes-ue5.7.json` and tell it to write `.matgraph.json` files into `graphs/<project>/`.
+
+---
+
+## File layout your AI produces
+
+One project = one folder. The folder holds exactly one Material and any MaterialFunctions it uses (project-local, not shared across projects).
+
+```
+graphs/
+├── obsidian/
+│   ├── obsidian.matgraph.json          [Material]
+│   └── fresnel_lib.matgraph.json       [MaterialFunction]
+└── flashing_emissive/
+    ├── flashing_emissive.matgraph.json
+    └── sine_pulse.matgraph.json
+```
+
+Convention: folder name = material name. MaterialFunction paths inside the JSON are sibling-relative: `"./fresnel_lib.matgraph.json"`.
+
+---
+
+## Export & share
+
+To send a graph to someone who doesn't have Node:
 
 ```bash
-node viewer/dist/server/html-export.js export 01_basic_pbr --out ./my-graph.html
+node viewer/dist/server/html-export.js export <project>/<name> --out ./shared.html
 ```
 
-## 給非 Node 使用者
+Produces a single self-contained `.html` file. Double-click to view.
 
-如果只是想看別人匯出的圖，雙擊 `.html` 即可，不需安裝任何東西。
+---
 
-## 範例
+## Examples
 
-`agent-pack/examples/` 下有兩個範例：
-
-- `01_basic_pbr.matgraph.json` — 純 Material
-- `02_with_function.matgraph.json` — 含 MaterialFunction
-
-把它們複製到自己的專案資料夾（範例採用舊扁平結構，新建議是 `graphs/<project>/`）：
+`agent-pack/examples/` has reference graphs in the legacy flat layout. To use them with the new convention:
 
 ```bash
 mkdir -p graphs/basic_pbr graphs/with_function
@@ -54,20 +118,33 @@ cp agent-pack/examples/02_with_function.matgraph.json graphs/with_function/
 cp agent-pack/examples/functions/blend_normals.matgraph.json graphs/with_function/
 ```
 
-然後把 `with_function` 的 `params.MaterialFunction` 從 `"./functions/blend_normals.matgraph.json"` 改成 `"./blend_normals.matgraph.json"`。
+Then edit `with_function/02_with_function.matgraph.json` and change the MaterialFunction path from `"./functions/blend_normals.matgraph.json"` to `"./blend_normals.matgraph.json"`.
 
-## 設計與規格
+---
 
-- 設計文件：`docs/superpowers/specs/2026-05-26-ue-material-workflow-design.md`
-- 實作計劃：`docs/superpowers/plans/2026-05-26-ue-material-workflow.md`
-- AI 規範：`agent-pack/SPEC.md`
-- 節點 DB：`agent-pack/nodes-ue5.7.json`（v1 seed，需補充）
+## Adding to the node DB
 
-## 補充節點 DB
+`agent-pack/nodes-ue5.7.json` currently has 142 expressions. To add more:
 
-DB 內目前有 10 個示範條目。補充時：
+1. Find the node in the [UE Material Expression Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference).
+2. Match the existing entry format under `nodes.<NodeName>` (inputs, outputs, params, category, description).
+3. Set `verified: true` only after you've cross-checked against UE.
+4. Run `pnpm test` to confirm the DB still validates.
 
-1. 從 https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference 查節點
-2. 仿造現有條目格式新增到 `nodes.<NodeName>`
-3. 確認 `verified: true`（你親自核對過）
-4. 跑 `pnpm test` 確認 DB 仍合法
+---
+
+## Documentation
+
+| Path | What's there |
+|---|---|
+| `agent-pack/SPEC.md` | The JSON schema and authoring rules your AI must follow. |
+| `agent-pack/nodes-ue5.7.json` | UE 5.7 node DB (the AI's vocabulary). |
+| `agent-pack/examples/` | Reference `.matgraph.json` files. |
+| `docs/superpowers/specs/` | Feature specs (design decisions). |
+| `docs/superpowers/plans/` | Implementation plans (history). |
+
+---
+
+## Tech
+
+TypeScript monorepo (pnpm workspaces). Viewer is React + React Flow + dagre, served by a tiny Node HTTP + WS server with chokidar watching the `graphs/` directory.
