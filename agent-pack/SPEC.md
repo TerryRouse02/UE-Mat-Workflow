@@ -4,8 +4,14 @@ You are producing UE 5.7 Material node graphs as JSON. A local viewer renders yo
 
 ## Where to write
 
-- `Material` files → `graphs/<name>.matgraph.json`
-- `MaterialFunction` files → `graphs/functions/<name>.matgraph.json`
+**One project = one folder under `graphs/`.** Each project folder contains exactly one Material and any MaterialFunctions that material references.
+
+- `Material` file → `graphs/<project>/<material_name>.matgraph.json`
+- `MaterialFunction` file → `graphs/<project>/<mf_name>.matgraph.json` (same folder as the Material that uses it)
+
+By convention, the folder name matches the material name. If the user already named a project, use that.
+
+Do **not** share MaterialFunctions across projects — copy them into each project that needs them. The viewer only recognizes a folder as a "project" if it contains exactly one Material; otherwise its contents appear under "Unorganized".
 
 ## File format
 
@@ -47,10 +53,10 @@ You are producing UE 5.7 Material node graphs as JSON. A local viewer renders yo
 
 6. **Every `MaterialFunction` must have at least one `FunctionInput` and one `FunctionOutput`.**
 
-7. **`MaterialFunctionCall.params.MaterialFunction`** is a path relative to the **current file's directory** (not always `graphs/` root).
-   - From a `Material` at `graphs/foo.matgraph.json` → `"./functions/blend_normals.matgraph.json"` resolves to `graphs/functions/blend_normals.matgraph.json`.
-   - From a `MaterialFunction` at `graphs/functions/a.matgraph.json` → `"./b.matgraph.json"` resolves to `graphs/functions/b.matgraph.json` (sibling file).
-   - Most projects keep all MFs in `graphs/functions/`, so MFs that call sibling MFs use `"./<name>.matgraph.json"`.
+7. **`MaterialFunctionCall.params.MaterialFunction`** is a path relative to the **current file's directory** (not the `graphs/` root).
+   - With the project-folder convention, the Material and its MFs are siblings in the same folder, so the path is just `"./<mf_name>.matgraph.json"`.
+   - Example: from `graphs/obsidian/obsidian.matgraph.json` → `"./fresnel_lib.matgraph.json"` resolves to `graphs/obsidian/fresnel_lib.matgraph.json`.
+   - MFs that call sibling MFs use the same `"./<name>.matgraph.json"` form.
 
 ## Soft rules (best practice)
 
