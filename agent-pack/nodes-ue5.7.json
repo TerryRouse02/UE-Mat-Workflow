@@ -10,6 +10,26 @@
     "MaterialFunctionCall"
   ],
   "nodes": {
+    "Custom": {
+      "category": "Custom",
+      "description": "Inline HLSL escape hatch. User-defined input pins and one output (type configurable). Use sparingly — bypasses UE's optimizer and shader graph reasoning.",
+      "inputs": [],
+      "outputs": [
+        { "name": "Output", "type": "matchOutputType" }
+      ],
+      "params": [
+        { "name": "Code", "type": "String", "required": true },
+        { "name": "OutputType", "type": "Enum", "values": ["CMOT_Float1", "CMOT_Float2", "CMOT_Float3", "CMOT_Float4", "CMOT_MaterialAttributes"], "default": "CMOT_Float3" },
+        { "name": "Description", "type": "String" },
+        { "name": "Inputs", "type": "Array<{InputName}>" },
+        { "name": "AdditionalOutputs", "type": "Array<{OutputName, OutputType}>" },
+        { "name": "IncludeFilePaths", "type": "String[]" },
+        { "name": "AdditionalDefines", "type": "Array<{Name, Value}>" }
+      ],
+      "verified": true,
+      "dynamicPins": true,
+      "pinInfo": "Inputs are entirely user-defined. For each entry in params.Inputs (e.g. [{\"InputName\":\"UV\"},{\"InputName\":\"Mask\"}]) the node exposes one input pin with that exact name. The primary output is named \"Output\" by default but can be overridden by params.Description text — keep it as \"Output\" unless you have reason to change. UE 5 supports additional outputs via params.AdditionalOutputs (each entry creates a pin with the given OutputName). The Code param holds the HLSL body; do NOT include 'return' — just an expression assigning to a local matching OutputType. Example for a simple 2x UV scale: params.Code = 'return UV * 2.0;', params.Inputs = [{\"InputName\":\"UV\"}], params.OutputType = 'CMOT_Float2'."
+    },
     "Multiply": {
       "category": "Math",
       "description": "Multiplies two values component-wise. Unconnected pins use ConstA/ConstB.",
