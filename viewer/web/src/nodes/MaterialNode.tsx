@@ -47,28 +47,32 @@ export function MaterialNode({ data }: { data: MaterialNodeData }) {
     <div className={cls.join(' ')}>
       <div className="mat-node-title">{data.label}</div>
       <div className="mat-node-body">
-        <div className="mat-node-pins mat-inputs">
-          {data.inputs.map((p) => (
-            <div key={p.name} className="mat-pin">
-              <Handle id={p.name} type="target" position={Position.Left} />
-              <span className="mat-pin-name">{p.name}</span>
-              {p.type && p.type !== 'Float' && (
-                <span className="mat-pin-type">: {p.type}</span>
-              )}
-            </div>
-          ))}
-        </div>
-        <div className="mat-node-pins mat-outputs">
-          {data.outputs.map((p) => (
-            <div key={p.name} className="mat-pin mat-pin-right">
-              {p.type && p.type !== 'Float' && (
-                <span className="mat-pin-type">{p.type} :</span>
-              )}
-              <span className="mat-pin-name">{p.name}</span>
-              <Handle id={p.name} type="source" position={Position.Right} />
-            </div>
-          ))}
-        </div>
+        {data.inputs.length > 0 && (
+          <div className="mat-node-pins mat-inputs">
+            {data.inputs.map((p) => (
+              <div key={p.name} className="mat-pin">
+                <Handle id={p.name} type="target" position={Position.Left} />
+                <span className="mat-pin-name">{p.name}</span>
+                {p.type && p.type !== 'Float' && (
+                  <span className="mat-pin-type">: {p.type}</span>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        {data.outputs.length > 0 && (
+          <div className="mat-node-pins mat-outputs">
+            {data.outputs.map((p) => (
+              <div key={p.name} className="mat-pin mat-pin-right">
+                {p.type && p.type !== 'Float' && (
+                  <span className="mat-pin-type">{p.type} :</span>
+                )}
+                <span className="mat-pin-name">{p.name}</span>
+                <Handle id={p.name} type="source" position={Position.Right} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
       {data.params && Object.keys(data.params).length > 0 && (
         <div className="mat-node-params">

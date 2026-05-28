@@ -37,12 +37,21 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       const filePath = join(opts.webDist, rel);
       const data = await readFile(filePath);
       const ext = extname(filePath);
-      res.writeHead(200, { 'Content-Type': MIME[ext] ?? 'application/octet-stream' });
+      // Only no-cache the HTML entrypoint so dev iterations see the latest
+      // bundle reference; assets are content-hashed and safe to cache.
+      const headers: Record<string, string> = {
+        'Content-Type': MIME[ext] ?? 'application/octet-stream',
+      };
+      if (ext === '.html') headers['Cache-Control'] = 'no-store';
+      res.writeHead(200, headers);
       res.end(data);
     } catch {
       try {
         const index = await readFile(join(opts.webDist, 'index.html'));
-        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.writeHead(200, {
+          'Content-Type': 'text/html; charset=utf-8',
+          'Cache-Control': 'no-store',
+        });
         res.end(index);
       } catch { res.writeHead(404); res.end(); }
     }

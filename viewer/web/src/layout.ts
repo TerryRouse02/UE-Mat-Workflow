@@ -57,6 +57,57 @@ export function computeNodeHeight(data: any): number {
   return 30 + Math.max(20, pinHeight) + paramHeight + warningHeight + 12;
 }
 
+export function computeNodeWidth(data: any): number {
+  if (!data) return 180;
+  const label = data.label || '';
+  const inputs = data.inputs || [];
+  const outputs = data.outputs || [];
+  const params = data.params || {};
+
+  const titleWidth = label.length * 8 + 24;
+  let maxRowWidth = 180;
+
+  // Estimate width impact of parameters
+  const paramEntries = Object.entries(params);
+  if (paramEntries.length > 0) {
+    for (const [, v] of paramEntries) {
+      if (isCodeLikeValue(v)) {
+        // Code pre blocks are wide
+        maxRowWidth = Math.max(maxRowWidth, 320);
+      } else {
+        // Normal parameter list
+        maxRowWidth = Math.max(maxRowWidth, 220);
+      }
+    }
+  }
+
+  const maxPins = Math.max(inputs.length, outputs.length);
+  for (let i = 0; i < maxPins; i++) {
+    const inp = inputs[i];
+    const out = outputs[i];
+
+    let rowWidth = 0;
+    if (inp && out) {
+      // Double-sided row
+      const inpWidth = inp.name.length * 7 + (inp.type && inp.type !== 'Float' ? inp.type.length * 6 + 12 : 0);
+      const outWidth = out.name.length * 7 + (out.type && out.type !== 'Float' ? out.type.length * 6 + 12 : 0);
+      rowWidth = inpWidth + outWidth + 24 + 32; // gap (24) + padding (32)
+    } else if (inp) {
+      // Single-sided input row
+      const inpWidth = inp.name.length * 7 + (inp.type && inp.type !== 'Float' ? inp.type.length * 6 + 12 : 0);
+      rowWidth = inpWidth + 32; // padding (32)
+    } else if (out) {
+      // Single-sided output row
+      const outWidth = out.name.length * 7 + (out.type && out.type !== 'Float' ? out.type.length * 6 + 12 : 0);
+      rowWidth = outWidth + 32; // padding (32)
+    }
+    if (rowWidth > maxRowWidth) maxRowWidth = rowWidth;
+  }
+
+  // Take the max of min-width (180), title width, and pin rows/params width, capped at max-width (380)
+  return Math.min(380, Math.max(180, titleWidth, maxRowWidth));
+}
+
 export interface LayoutInput {
   nodes: { id: string; width?: number; height?: number; rank?: 'min' | 'max' | 'same' }[];
   edges: { id: string; source: string; target: string }[];
@@ -143,7 +194,7 @@ export function applyLayout(
   const result = autoLayout({
     nodes: nodes.map(n => ({
       id: n.id,
-      width: NODE_W,
+      width: computeNodeWidth(n.data),
       height: computeNodeHeight(n.data),
       rank: n.type === 'materialOutput' ? ('max' as const) : undefined,
     })),

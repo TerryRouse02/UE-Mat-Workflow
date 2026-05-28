@@ -6,7 +6,7 @@ import { MaterialOutputNode } from './nodes/MaterialOutputNode';
 import { FunctionInputNode, FunctionOutputNode } from './nodes/FunctionIONode';
 import { MaterialFunctionCallNode } from './nodes/MaterialFunctionCallNode';
 import { CommentNode } from './nodes/CommentBox';
-import { applyLayout, computeNodeHeight, NODE_W } from './layout';
+import { applyLayout, computeNodeHeight, computeNodeWidth } from './layout';
 import type { GraphPayload } from './protocol';
 import type { NodeDB } from '../../server/db-types';
 
@@ -209,7 +209,7 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
           return {
             x: n.position.x,
             y: n.position.y,
-            w: NODE_W,
+            w: computeNodeWidth(n.data),
             h: computeNodeHeight(n.data),
           };
         })
@@ -222,9 +222,9 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
         const maxX = Math.max(...insideBoxes.map(b => b.x + b.w));
         const minY = Math.min(...insideBoxes.map(b => b.y));
         const maxY = Math.max(...insideBoxes.map(b => b.y + b.h));
-        const PAD_X = 16;
+        const PAD_X = 32;
         const PAD_TOP = 36;
-        const PAD_BOTTOM = 16;
+        const PAD_BOTTOM = 24;
         x = minX - PAD_X;
         y = minY - PAD_TOP;
         w = (maxX - minX) + PAD_X * 2;
