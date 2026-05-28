@@ -21,13 +21,27 @@ export function computeNodeHeight(data: any): number {
 export interface LayoutInput {
   nodes: { id: string; width?: number; height?: number; rank?: 'min' | 'max' | 'same' }[];
   edges: { id: string; source: string; target: string }[];
+  clusters?: { id: string; childNodeIds: string[] }[];
 }
 
-export function autoLayout(input: LayoutInput): Record<string, { x: number; y: number }> {
-  const g = new dagre.graphlib.Graph();
+export interface LayoutResult {
+  positions: Record<string, { x: number; y: number }>;
+  clusterBounds: Record<string, { x: number; y: number; width: number; height: number }>;
+}
+
+export function autoLayout(input: LayoutInput): LayoutResult {
+  const g = new dagre.graphlib.Graph({ compound: !!input.clusters?.length });
   g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 120 });
   g.setDefaultEdgeLabel(() => ({}));
 
+  // Declare clusters first (as parent nodes)
+  if (input.clusters) {
+    for (const c of input.clusters) {
+      g.setNode(c.id, {});
+    }
+  }
+
+  // Declare real nodes
   for (const n of input.nodes) {
     const w = n.width ?? NODE_W;
     const h = n.height ?? NODE_H;
@@ -35,27 +49,70 @@ export function autoLayout(input: LayoutInput): Record<string, { x: number; y: n
     if (n.rank) opts.rank = n.rank;
     g.setNode(n.id, opts);
   }
+
+  // Parent real nodes into their cluster
+  if (input.clusters) {
+    for (const c of input.clusters) {
+      for (const childId of c.childNodeIds) {
+        if (input.nodes.find(n => n.id === childId)) {
+          g.setParent(childId, c.id);
+        }
+      }
+    }
+  }
+
   for (const e of input.edges) g.setEdge(e.source, e.target);
 
   dagre.layout(g);
 
-  const out: Record<string, { x: number; y: number }> = {};
+  const positions: Record<string, { x: number; y: number }> = {};
   for (const n of input.nodes) {
     const w = n.width ?? NODE_W;
     const h = n.height ?? NODE_H;
     const p = g.node(n.id);
-    out[n.id] = { x: p.x - w / 2, y: p.y - h / 2 };
+    positions[n.id] = { x: p.x - w / 2, y: p.y - h / 2 };
   }
-  return out;
+
+  const clusterBounds: Record<string, { x: number; y: number; width: number; height: number }> = {};
+  if (input.clusters) {
+    for (const c of input.clusters) {
+      const cn = g.node(c.id) as { x: number; y: number; width: number; height: number } | undefined;
+      if (cn && typeof cn.width === 'number' && typeof cn.height === 'number') {
+        clusterBounds[c.id] = {
+          x: cn.x - cn.width / 2,
+          y: cn.y - cn.height / 2,
+          width: cn.width,
+          height: cn.height,
+        };
+      }
+    }
+  }
+
+  return { positions, clusterBounds };
 }
 
-export function applyLayout(nodes: Node[], edges: Edge[]): Node[] {
-  const positions = autoLayout({
-    nodes: nodes.map(n => {
-      const h = computeNodeHeight(n.data);
-      return { id: n.id, width: NODE_W, height: h, rank: n.type === 'materialOutput' ? 'max' as const : undefined };
-    }),
+export interface ApplyLayoutResult {
+  nodes: Node[];
+  clusterBounds: Record<string, { x: number; y: number; width: number; height: number }>;
+}
+
+export function applyLayout(
+  nodes: Node[],
+  edges: Edge[],
+  clusters?: { id: string; childNodeIds: string[] }[],
+): ApplyLayoutResult {
+  const result = autoLayout({
+    nodes: nodes.map(n => ({
+      id: n.id,
+      width: NODE_W,
+      height: computeNodeHeight(n.data),
+      rank: n.type === 'materialOutput' ? ('max' as const) : undefined,
+    })),
     edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target })),
+    clusters,
   });
-  return nodes.map(n => ({ ...n, position: positions[n.id] ?? { x: 0, y: 0 } }));
+  return {
+    nodes: nodes.map(n => ({ ...n, position: result.positions[n.id] ?? { x: 0, y: 0 } })),
+    clusterBounds: result.clusterBounds,
+  };
 }

@@ -123,7 +123,13 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
       return { id: `e${i}`, source: src, sourceHandle: srcPin, target: tgt, targetHandle: tgtPin };
     });
 
-    return { nodes: applyLayout(rfNodes, rfEdges), edges: rfEdges };
+    const clusters = (graph.comments ?? []).map(c => ({
+      id: 'comment-' + c.id,
+      childNodeIds: c.contains,
+    }));
+
+    const result = applyLayout(rfNodes, rfEdges, clusters);
+    return { nodes: result.nodes, edges: rfEdges, clusterBounds: result.clusterBounds };
   }, [graph, derivedPins, db, onEnterMF, basePath]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialLayout.nodes);
@@ -140,6 +146,11 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
     const byId = new Map(nodes.map(n => [n.id, n]));
 
     return graph.comments.map(c => {
+      const clusterId = 'comment-' + c.id;
+      const bounds = initialLayout.clusterBounds[clusterId];
+
+      // Compute bounds from live node positions (so the box follows drags)
+      // Fall back to dagre cluster bounds if there's nothing else.
       const insideBoxes = c.contains
         .map(id => {
           const n = byId.get(id);
@@ -152,27 +163,39 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
           };
         })
         .filter((b): b is { x: number; y: number; w: number; h: number } => b !== null);
-      if (insideBoxes.length === 0) return null;
 
-      const minX = Math.min(...insideBoxes.map(b => b.x));
-      const maxX = Math.max(...insideBoxes.map(b => b.x + b.w));
-      const minY = Math.min(...insideBoxes.map(b => b.y));
-      const maxY = Math.max(...insideBoxes.map(b => b.y + b.h));
+      let x: number, y: number, w: number, h: number;
 
-      // Padding: 16px horizontal on each side; 36px above (room for title), 16px below.
-      const PAD_X = 16;
-      const PAD_TOP = 36;
-      const PAD_BOTTOM = 16;
+      if (insideBoxes.length > 0) {
+        const minX = Math.min(...insideBoxes.map(b => b.x));
+        const maxX = Math.max(...insideBoxes.map(b => b.x + b.w));
+        const minY = Math.min(...insideBoxes.map(b => b.y));
+        const maxY = Math.max(...insideBoxes.map(b => b.y + b.h));
+        const PAD_X = 16;
+        const PAD_TOP = 36;
+        const PAD_BOTTOM = 16;
+        x = minX - PAD_X;
+        y = minY - PAD_TOP;
+        w = (maxX - minX) + PAD_X * 2;
+        h = (maxY - minY) + PAD_TOP + PAD_BOTTOM;
+      } else if (bounds) {
+        x = bounds.x;
+        y = bounds.y;
+        w = bounds.width;
+        h = bounds.height;
+      } else {
+        return null;
+      }
 
       return {
-        id: 'comment-' + c.id,
+        id: clusterId,
         type: 'commentBox',
-        position: { x: minX - PAD_X, y: minY - PAD_TOP },
+        position: { x, y },
         data: {
           text: c.text,
           color: c.color ?? '#888',
-          width: (maxX - minX) + PAD_X * 2,
-          height: (maxY - minY) + PAD_TOP + PAD_BOTTOM,
+          width: w,
+          height: h,
         },
         draggable: false,
         selectable: false,
@@ -180,7 +203,7 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
         style: { zIndex: -1 },
       } as Node;
     }).filter((n): n is Node => n !== null);
-  }, [graph.comments, nodes]);
+  }, [graph.comments, nodes, initialLayout.clusterBounds]);
 
   const allNodes = [...commentNodes, ...nodes];
 
