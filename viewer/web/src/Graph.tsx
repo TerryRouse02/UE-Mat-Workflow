@@ -5,7 +5,7 @@ import { MaterialNode } from './nodes/MaterialNode';
 import { MaterialOutputNode } from './nodes/MaterialOutputNode';
 import { FunctionInputNode, FunctionOutputNode } from './nodes/FunctionIONode';
 import { MaterialFunctionCallNode } from './nodes/MaterialFunctionCallNode';
-import { CommentBoxOverlay, type CommentBoxData } from './nodes/CommentBox';
+import { CommentNode } from './nodes/CommentBox';
 import { applyLayout } from './layout';
 import type { GraphPayload } from './protocol';
 import type { NodeDB } from '../../server/db-types';
@@ -16,6 +16,7 @@ const NODE_TYPES = {
   functionInput: FunctionInputNode,
   functionOutput: FunctionOutputNode,
   materialFunctionCall: MaterialFunctionCallNode,
+  commentBox: CommentNode,
 };
 
 export interface GraphProps {
@@ -118,30 +119,43 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
     return { nodes: applyLayout(rfNodes, rfEdges), edges: rfEdges };
   }, [graph, derivedPins, db, onEnterMF, basePath]);
 
-  const commentBoxes: CommentBoxData[] = useMemo(() => {
+  const commentNodes: Node[] = useMemo(() => {
     if (!graph.comments) return [];
     const positions = Object.fromEntries(nodes.map(n => [n.id, n.position]));
-    return graph.comments.map(c => {
+    return graph.comments.flatMap(c => {
       const inside = c.contains.map(id => positions[id]).filter(Boolean);
-      if (inside.length === 0) return null;
+      if (inside.length === 0) return [];
       const xs = inside.map(p => p.x), ys = inside.map(p => p.y);
       const minX = Math.min(...xs), maxX = Math.max(...xs) + 220;
       const minY = Math.min(...ys), maxY = Math.max(...ys) + 100;
-      return { text: c.text, color: c.color ?? '#888', bounds: { x: minX, y: minY, w: maxX - minX, h: maxY - minY } };
-    }).filter((c): c is CommentBoxData => c !== null);
+      const x = minX - 12;
+      const y = minY - 28;
+      const w = (maxX - minX) + 24;
+      const h = (maxY - minY) + 40;
+      return [{
+        id: 'comment-' + c.id,
+        type: 'commentBox',
+        position: { x, y },
+        data: { text: c.text, color: c.color ?? '#888', width: w, height: h },
+        draggable: false,
+        selectable: false,
+        zIndex: -1,
+        style: { zIndex: -1 },
+      }];
+    });
   }, [graph.comments, nodes]);
 
+  const allNodes = [...commentNodes, ...nodes];
+
   return (
-    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
-      <ReactFlow
-        nodes={nodes} edges={edges} nodeTypes={NODE_TYPES}
-        fitView style={{ background: '#1a1a1a' }}
-      >
-        <Background gap={20} color="#333" />
-        <Controls />
-        <MiniMap />
-      </ReactFlow>
-      <CommentBoxOverlay comments={commentBoxes} />
-    </div>
+    <ReactFlow
+      nodes={allNodes} edges={edges} nodeTypes={NODE_TYPES}
+      fitView style={{ background: '#1a1a1a' }}
+      defaultEdgeOptions={{ type: 'smoothstep' }}
+    >
+      <Background gap={20} color="#333" />
+      <Controls />
+      <MiniMap />
+    </ReactFlow>
   );
 }

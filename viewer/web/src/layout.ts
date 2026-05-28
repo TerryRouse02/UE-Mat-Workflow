@@ -5,19 +5,21 @@ const NODE_W = 220;
 const NODE_H = 100;
 
 export interface LayoutInput {
-  nodes: { id: string; width?: number; height?: number }[];
+  nodes: { id: string; width?: number; height?: number; rank?: 'min' | 'max' | 'same' }[];
   edges: { id: string; source: string; target: string }[];
 }
 
 export function autoLayout(input: LayoutInput): Record<string, { x: number; y: number }> {
   const g = new dagre.graphlib.Graph();
-  g.setGraph({ rankdir: 'LR', nodesep: 40, ranksep: 80 });
+  g.setGraph({ rankdir: 'LR', nodesep: 60, ranksep: 120 });
   g.setDefaultEdgeLabel(() => ({}));
 
   for (const n of input.nodes) {
     const w = n.width ?? NODE_W;
     const h = n.height ?? NODE_H;
-    g.setNode(n.id, { width: w, height: h });
+    const opts: Record<string, unknown> = { width: w, height: h };
+    if (n.rank) opts.rank = n.rank;
+    g.setNode(n.id, opts);
   }
   for (const e of input.edges) g.setEdge(e.source, e.target);
 
@@ -48,7 +50,7 @@ export function applyLayout(nodes: Node[], edges: Edge[]): Node[] {
       const warningHeight = data.warning ? 20 : 0;
 
       const h = 30 + Math.max(20, pinHeight) + paramHeight + warningHeight + 12;
-      return { id: n.id, width: NODE_W, height: h };
+      return { id: n.id, width: NODE_W, height: h, rank: n.type === 'materialOutput' ? 'max' as const : undefined };
     }),
     edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target })),
   });
