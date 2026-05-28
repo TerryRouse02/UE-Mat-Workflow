@@ -51,6 +51,29 @@ function inferPinsFromConnections(
   };
 }
 
+function mergePins(
+  ...sources: { name: string; type: string }[][]
+): { name: string; type: string }[] {
+  const seen = new Map<string, { name: string; type: string }>();
+  for (const src of sources) {
+    for (const p of src) {
+      if (!seen.has(p.name)) seen.set(p.name, p);
+    }
+  }
+  return Array.from(seen.values());
+}
+
+function mapCmotToDisplay(cmot: string | undefined): string {
+  switch (cmot) {
+    case 'CMOT_Float1': return 'Float1';
+    case 'CMOT_Float2': return 'Float2';
+    case 'CMOT_Float3': return 'Float3';
+    case 'CMOT_Float4': return 'Float4';
+    case 'CMOT_MaterialAttributes': return 'MaterialAttributes';
+    default: return 'Float3'; // UE default
+  }
+}
+
 function resolveMFRelative(mfRef: string, currentPath: string): string {
   // currentPath like "main.matgraph.json" or "functions/x.matgraph.json"
   // mfRef like "./functions/y.matgraph.json" or "./z.matgraph.json"
@@ -92,19 +115,47 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
       const def = db.nodes[n.type];
       const dbInputs = def?.inputs ?? [];
       const dbOutputs = def?.outputs ?? [];
+      const isDynamic = !!def?.dynamicPins;
 
-      // Fallback: if DB has no pin info, derive from connections in this graph
-      const needInfer = dbInputs.length === 0 && dbOutputs.length === 0;
-      const inferred = needInfer ? inferPinsFromConnections(n.id, graph.connections) : null;
+      // Per-side inference + merge with DB + Custom-specific explicit sources
+      const inferred = inferPinsFromConnections(n.id, graph.connections);
 
-      const finalInputs = inferred ? inferred.inputs : dbInputs;
-      const finalOutputs = inferred ? inferred.outputs : dbOutputs;
+      // Custom node: params.Inputs is the authoritative source for input pin names.
+      const customInputsFromParams: { name: string; type: string }[] =
+        n.type === 'Custom' && Array.isArray(n.params?.Inputs)
+          ? (n.params!.Inputs as Array<{ InputName?: string }>)
+              .filter(i => typeof i.InputName === 'string' && i.InputName.length > 0)
+              .map(i => ({ name: i.InputName as string, type: 'Float' }))
+          : [];
+
+      // Custom node: params.AdditionalOutputs declares extra outputs beyond the default 'Output'.
+      const customExtraOutputs: { name: string; type: string }[] =
+        n.type === 'Custom' && Array.isArray(n.params?.AdditionalOutputs)
+          ? (n.params!.AdditionalOutputs as Array<{ OutputName?: string; OutputType?: string }>)
+              .filter(o => typeof o.OutputName === 'string' && o.OutputName.length > 0)
+              .map(o => ({ name: o.OutputName as string, type: mapCmotToDisplay(o.OutputType) }))
+          : [];
+
+      // Compute the Custom default output's display type from params.OutputType
+      const customOutputDisplayType =
+        n.type === 'Custom' ? mapCmotToDisplay(n.params?.OutputType as string | undefined) : null;
+
+      const finalInputs = mergePins(
+        dbInputs,
+        customInputsFromParams,
+        isDynamic ? inferred.inputs : [],
+      );
+      const finalOutputs = mergePins(
+        // For Custom, replace the placeholder 'matchOutputType' on the default Output with the real type
+        customOutputDisplayType
+          ? dbOutputs.map(p => p.name === 'Output' ? { ...p, type: customOutputDisplayType } : p)
+          : dbOutputs,
+        customExtraOutputs,
+        isDynamic ? inferred.outputs : [],
+      );
 
       let warning: string | undefined;
       if (!def) warning = `Unknown node type: ${n.type}`;
-      else if (inferred && (inferred.inputs.length > 0 || inferred.outputs.length > 0)) {
-        warning = `Dynamic pins inferred from connections`;
-      }
 
       return {
         id: n.id, type: 'generic', position: { x: 0, y: 0 },

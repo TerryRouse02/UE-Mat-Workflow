@@ -52,12 +52,18 @@ export function MaterialNode({ data }: { data: MaterialNodeData }) {
             <div key={p.name} className="mat-pin">
               <Handle id={p.name} type="target" position={Position.Left} />
               <span className="mat-pin-name">{p.name}</span>
+              {p.type && p.type !== 'Float' && (
+                <span className="mat-pin-type">: {p.type}</span>
+              )}
             </div>
           ))}
         </div>
         <div className="mat-node-pins mat-outputs">
           {data.outputs.map((p) => (
             <div key={p.name} className="mat-pin mat-pin-right">
+              {p.type && p.type !== 'Float' && (
+                <span className="mat-pin-type">{p.type} :</span>
+              )}
               <span className="mat-pin-name">{p.name}</span>
               <Handle id={p.name} type="source" position={Position.Right} />
             </div>
