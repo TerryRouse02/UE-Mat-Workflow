@@ -33,3 +33,18 @@
 .mat-reserved { background: #2b3a4a; }
 
 .react-flow__edge-path { stroke: #888; stroke-width: 2; }
+
+/* base edge style was set above as .react-flow__edge-path: stroke #888 width 2.
+   Add hover state for disambiguation when many edges converge. */
+.react-flow__edge-path {
+  transition: stroke 0.1s ease, stroke-width 0.1s ease;
+}
+.react-flow__edge:hover .react-flow__edge-path,
+.react-flow__edge.selected .react-flow__edge-path {
+  stroke: #f0c060 !important;
+  stroke-width: 3 !important;
+}
+/* Make the invisible click-catcher wider so hover is easy to trigger */
+.react-flow__edge-interaction {
+  stroke-width: 20;
+}

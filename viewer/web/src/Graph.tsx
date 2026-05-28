@@ -6,7 +6,7 @@ import { MaterialOutputNode } from './nodes/MaterialOutputNode';
 import { FunctionInputNode, FunctionOutputNode } from './nodes/FunctionIONode';
 import { MaterialFunctionCallNode } from './nodes/MaterialFunctionCallNode';
 import { CommentNode } from './nodes/CommentBox';
-import { applyLayout } from './layout';
+import { applyLayout, computeNodeHeight, NODE_W } from './layout';
 import type { GraphPayload } from './protocol';
 import type { NodeDB } from '../../server/db-types';
 
@@ -121,28 +121,49 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
 
   const commentNodes: Node[] = useMemo(() => {
     if (!graph.comments) return [];
-    const positions = Object.fromEntries(nodes.map(n => [n.id, n.position]));
-    return graph.comments.flatMap(c => {
-      const inside = c.contains.map(id => positions[id]).filter(Boolean);
-      if (inside.length === 0) return [];
-      const xs = inside.map(p => p.x), ys = inside.map(p => p.y);
-      const minX = Math.min(...xs), maxX = Math.max(...xs) + 220;
-      const minY = Math.min(...ys), maxY = Math.max(...ys) + 100;
-      const x = minX - 12;
-      const y = minY - 28;
-      const w = (maxX - minX) + 24;
-      const h = (maxY - minY) + 40;
-      return [{
+    const byId = new Map(nodes.map(n => [n.id, n]));
+
+    return graph.comments.map(c => {
+      const insideBoxes = c.contains
+        .map(id => {
+          const n = byId.get(id);
+          if (!n) return null;
+          return {
+            x: n.position.x,
+            y: n.position.y,
+            w: NODE_W,
+            h: computeNodeHeight(n.data),
+          };
+        })
+        .filter((b): b is { x: number; y: number; w: number; h: number } => b !== null);
+      if (insideBoxes.length === 0) return null;
+
+      const minX = Math.min(...insideBoxes.map(b => b.x));
+      const maxX = Math.max(...insideBoxes.map(b => b.x + b.w));
+      const minY = Math.min(...insideBoxes.map(b => b.y));
+      const maxY = Math.max(...insideBoxes.map(b => b.y + b.h));
+
+      // Padding: 16px horizontal on each side; 36px above (room for title), 16px below.
+      const PAD_X = 16;
+      const PAD_TOP = 36;
+      const PAD_BOTTOM = 16;
+
+      return {
         id: 'comment-' + c.id,
         type: 'commentBox',
-        position: { x, y },
-        data: { text: c.text, color: c.color ?? '#888', width: w, height: h },
+        position: { x: minX - PAD_X, y: minY - PAD_TOP },
+        data: {
+          text: c.text,
+          color: c.color ?? '#888',
+          width: (maxX - minX) + PAD_X * 2,
+          height: (maxY - minY) + PAD_TOP + PAD_BOTTOM,
+        },
         draggable: false,
         selectable: false,
         zIndex: -1,
         style: { zIndex: -1 },
-      }];
-    });
+      } as Node;
+    }).filter((n): n is Node => n !== null);
   }, [graph.comments, nodes]);
 
   const allNodes = [...commentNodes, ...nodes];
@@ -151,7 +172,7 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
     <ReactFlow
       nodes={allNodes} edges={edges} nodeTypes={NODE_TYPES}
       fitView style={{ background: '#1a1a1a' }}
-      defaultEdgeOptions={{ type: 'smoothstep' }}
+
     >
       <Background gap={20} color="#333" />
       <Controls />

@@ -14,7 +14,7 @@ export function CommentNode({ data }: { data: CommentNodeData }) {
         background: data.color + '20',
         border: `2px solid ${data.color}`,
         borderRadius: 4,
-        padding: '4px 8px',
+        padding: '6px 12px',
         pointerEvents: 'none',
       }}
     >

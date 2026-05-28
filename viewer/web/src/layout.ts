@@ -1,8 +1,22 @@
 import dagre from 'dagre';
 import type { Node, Edge } from 'reactflow';
 
-const NODE_W = 220;
+export const NODE_W = 220;
 const NODE_H = 100;
+
+export function computeNodeHeight(data: any): number {
+  const inputs = (data && data.inputs) || [];
+  const outputs = (data && data.outputs) || [];
+  const params = (data && data.params) || {};
+
+  const maxPins = Math.max(inputs.length, outputs.length);
+  const pinHeight = maxPins * 18;
+  const paramCount = Object.keys(params).length;
+  const paramHeight = paramCount > 0 ? (12 + paramCount * 14) : 0;
+  const warningHeight = data && data.warning ? 20 : 0;
+
+  return 30 + Math.max(20, pinHeight) + paramHeight + warningHeight + 12;
+}
 
 export interface LayoutInput {
   nodes: { id: string; width?: number; height?: number; rank?: 'min' | 'max' | 'same' }[];
@@ -38,18 +52,7 @@ export function autoLayout(input: LayoutInput): Record<string, { x: number; y: n
 export function applyLayout(nodes: Node[], edges: Edge[]): Node[] {
   const positions = autoLayout({
     nodes: nodes.map(n => {
-      const data = n.data || {};
-      const inputs = data.inputs || [];
-      const outputs = data.outputs || [];
-      const params = data.params || {};
-
-      const maxPins = Math.max(inputs.length, outputs.length);
-      const pinHeight = maxPins * 18;
-      const paramCount = Object.keys(params).length;
-      const paramHeight = paramCount > 0 ? (12 + paramCount * 14) : 0;
-      const warningHeight = data.warning ? 20 : 0;
-
-      const h = 30 + Math.max(20, pinHeight) + paramHeight + warningHeight + 12;
+      const h = computeNodeHeight(n.data);
       return { id: n.id, width: NODE_W, height: h, rank: n.type === 'materialOutput' ? 'max' as const : undefined };
     }),
     edges: edges.map(e => ({ id: e.id, source: e.source, target: e.target })),
