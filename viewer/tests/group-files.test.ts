@@ -61,7 +61,10 @@ describe('groupFiles', () => {
       F('mystery/m.matgraph.json', 'Material'),
     ]);
     expect(result.projects).toEqual([]);
-    expect(result.unorganized.length).toBe(2);
+    expect(result.unorganized).toEqual([
+      F('mystery/something.matgraph.json', 'Unknown'),
+      F('mystery/m.matgraph.json', 'Material'),
+    ]);
   });
 
   it('projects sorted alphabetically by folder name', () => {
@@ -71,6 +74,7 @@ describe('groupFiles', () => {
       F('beta/b.matgraph.json', 'Material'),
     ]);
     expect(result.projects.map(p => p.folder)).toEqual(['alpha', 'beta', 'zeta']);
+    expect(result.unorganized).toEqual([]);
   });
 
   it('mfs within a project sorted alphabetically', () => {
@@ -91,5 +95,19 @@ describe('groupFiles', () => {
     ]);
     expect(result.unorganized).toEqual([F('proj/sub/deep.matgraph.json', 'Material')]);
     expect(result.projects).toEqual([]);
+  });
+
+  it('empty input returns empty projects + unorganized', () => {
+    expect(groupFiles([])).toEqual({ projects: [], unorganized: [] });
+  });
+
+  it('folder with one Material and no MFs is a valid project', () => {
+    const result = groupFiles([F('solo/main.matgraph.json', 'Material')]);
+    expect(result.projects).toEqual([{
+      folder: 'solo',
+      material: F('solo/main.matgraph.json', 'Material'),
+      mfs: [],
+    }]);
+    expect(result.unorganized).toEqual([]);
   });
 });
