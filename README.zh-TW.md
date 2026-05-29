@@ -139,7 +139,9 @@ cp agent-pack/examples/functions/blend_normals.matgraph.json graphs/with_functio
 |---|---|
 | `agent-pack/SPEC.md` | AI 必須遵循的 JSON schema 和撰寫規則。 |
 | `agent-pack/nodes-ue5.7.json` | UE 5.7 節點 DB（AI 的字典）。 |
+| `agent-pack/nodes-ue5.7.export.json` | 「匯出到 UE」用的每節點 UE 元數據（class 路徑、pin/param/output 對應）。 |
 | `agent-pack/examples/` | 參考用 `.matgraph.json` 檔案。 |
+| `tools/node-t3d-metadata/` | UE 編輯器 commandlet，從實際 UE 5.7 安裝自動擷取並驗證匯出元數據 — 用法見其 `README.md` / `docs/AGENT_WORKFLOW.md`。 |
 | `docs/superpowers/specs/` | 功能 spec（設計決策）。 |
 | `docs/superpowers/plans/` | 實作計劃（歷史記錄）。 |
 

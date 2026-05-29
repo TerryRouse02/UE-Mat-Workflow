@@ -5,6 +5,11 @@ Run this on a machine with Unreal Engine 5.7. Goal: fill
 in `agent-pack/nodes-ue5.7.json`, so the viewer's "Export to UE" produces T3D that
 pastes correctly into the Material Editor.
 
+> **Automated alternative (preferred):** the repo now ships `tools/node-t3d-metadata/`, a UE
+> editor commandlet that performs this extraction/verification automatically via UE reflection.
+> See `tools/node-t3d-metadata/README.md` and `tools/node-t3d-metadata/docs/AGENT_WORKFLOW.md`.
+> Use the manual procedure below only if you cannot run the commandlet.
+
 ## Contract (TypeScript types: viewer/web/src/export/export-meta-types.ts)
 
 Each entry under `nodes` (and `reserved`) has:

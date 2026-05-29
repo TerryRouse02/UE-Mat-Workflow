@@ -139,7 +139,9 @@ Then edit `with_function/02_with_function.matgraph.json` and change the Material
 |---|---|
 | `agent-pack/SPEC.md` | The JSON schema and authoring rules your AI must follow. |
 | `agent-pack/nodes-ue5.7.json` | UE 5.7 node DB (the AI's vocabulary). |
+| `agent-pack/nodes-ue5.7.export.json` | Per-node UE metadata for "Export to UE" (class paths, pin/param/output mappings). |
 | `agent-pack/examples/` | Reference `.matgraph.json` files. |
+| `tools/node-t3d-metadata/` | UE editor commandlet that auto-extracts & verifies the export metadata from a live UE 5.7 install — see its `README.md` / `docs/AGENT_WORKFLOW.md`. |
 | `docs/superpowers/specs/` | Feature specs (design decisions). |
 | `docs/superpowers/plans/` | Implementation plans (history). |
 
