@@ -62,6 +62,14 @@ function mfPathToAssetRef(mfRef: string, root: string): string {
   return `${clean}/${base}.${base}`;
 }
 
+function functionInputIndex(node: NodeJson, nodeMeta: NodeExportMeta, pinName: string, derivedPins: Record<string, DerivedPins>): number {
+  const mapped = nodeMeta.inputs[pinName]?.property ?? '';
+  const match = /^FunctionInputs\((\d+)\)$/.exec(mapped);
+  if (match) return Number(match[1]);
+  const i = (derivedPins[node.id]?.inputs ?? []).findIndex(p => p.name === pinName);
+  return i < 0 ? 0 : i;
+}
+
 export function graphToUET3D(
   graph: MatGraph,
   layout: Record<string, { x: number; y: number }>,
@@ -163,13 +171,13 @@ export function graphToUET3D(
       lines.push(`${I}${pm.property}=${formatted}`);
     }
 
-    // MaterialFunctionCall: function asset reference (+ auto-link warning for local MFs)
-    if (n.type === 'MaterialFunctionCall') {
-      const mfRef = (n.params?.MaterialFunction as string | undefined) ?? '';
+    // MaterialFunctionCall or built-in MF wrapper: function asset reference.
+    if (m.functionRefProperty) {
+      const mfRef = m.functionAsset ?? (n.params?.MaterialFunction as string | undefined) ?? '';
       if (mfRef) {
         const assetRef = mfPathToAssetRef(mfRef, mfRoot);
         lines.push(`${I}${m.functionRefProperty ?? 'MaterialFunction'}=MaterialFunction'"${assetRef}"'`);
-        if (!mfRef.startsWith('/')) {
+        if (n.type === 'MaterialFunctionCall' && !mfRef.startsWith('/')) {
           warnings.push(`MaterialFunctionCall "${n.id}" → create Material Function "${assetRef}" in UE for auto-link.`);
         }
       }
@@ -179,9 +187,8 @@ export function graphToUET3D(
     for (const c of incoming.get(n.id) ?? []) {
       const { index, mask } = srcRef(c.srcId, c.srcPin);
       const ref = `Expression=${ueName.get(c.srcId)},OutputIndex=${index}${maskBits(mask)}`;
-      if (n.type === 'MaterialFunctionCall') {
-        const i = (derivedPins[n.id]?.inputs ?? []).findIndex(p => p.name === c.dstPin);
-        lines.push(`${I}FunctionInputs(${i < 0 ? 0 : i})=(Input=(${ref}))`);
+      if (m.functionRefProperty) {
+        lines.push(`${I}FunctionInputs(${functionInputIndex(n, m, c.dstPin, derivedPins)})=(Input=(${ref}))`);
       } else {
         const inProp = m.inputs[c.dstPin]?.property;
         if (!inProp) {

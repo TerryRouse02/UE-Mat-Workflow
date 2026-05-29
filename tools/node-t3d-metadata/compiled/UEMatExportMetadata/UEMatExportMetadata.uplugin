@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0.0",
+	"FriendlyName": "UE Mat Export Metadata",
+	"Description": "Editor commandlet that derives UE material expression export metadata from UE reflection.",
+	"Category": "Tools",
+	"CreatedBy": "UE-Mat-Workflow",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"EngineVersion": "5.7.0",
+	"CanContainContent": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "UEMatExportMetadata",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		}
+	]
+}

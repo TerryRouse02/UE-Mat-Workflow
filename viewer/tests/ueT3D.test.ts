@@ -14,6 +14,12 @@ const META: ExportMeta = {
       inputs: { UVs: { property: 'Coordinates' } },
       outputs: { RGB: { index: 0 }, R: { index: 1 } },
       params: { SamplerType: { property: 'SamplerType', kind: 'enum', valueMap: { Normal: 'SAMPLERTYPE_Normal' } } } },
+    BlendAngleCorrectedNormals: { ueClass: '/Script/Engine.MaterialExpressionMaterialFunctionCall',
+      functionRefProperty: 'MaterialFunction',
+      functionAsset: '/Engine/Functions/Engine_MaterialFunctions02/Utility/BlendAngleCorrectedNormals.BlendAngleCorrectedNormals',
+      inputs: { BaseNormal: { property: 'FunctionInputs(0)' }, AdditionalNormal: { property: 'FunctionInputs(1)' } },
+      outputs: { Result: { index: 0 } },
+      params: {} },
   },
   reserved: {
     MaterialFunctionCall: { ueClass: '/Script/Engine.MaterialExpressionMaterialFunctionCall',
@@ -135,6 +141,22 @@ describe('graphToUET3D', () => {
     };
     const { text, warnings } = graphToUET3D(graph, layout({ mfc: [0, 0] }), META, { mfc: { inputs: [], outputs: [] } });
     expect(text).toContain("MaterialFunction=MaterialFunction'\"/Engine/Functions/Engine_MaterialFunctions02/Utility/Foo.Foo\"'");
+    expect(warnings).toEqual([]);
+  });
+
+  it('emits a built-in Material Function wrapper from metadata', () => {
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        { id: 'src', type: 'Constant', params: { R: 1 } },
+        { id: 'blend', type: 'BlendAngleCorrectedNormals' },
+      ],
+      connections: [{ from: 'src:Value', to: 'blend:AdditionalNormal' }],
+    };
+    const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], blend: [200, 0] }), META, NO_PINS);
+    expect(text).toContain('Begin Object Class=/Script/Engine.MaterialExpressionMaterialFunctionCall');
+    expect(text).toContain("MaterialFunction=MaterialFunction'\"/Engine/Functions/Engine_MaterialFunctions02/Utility/BlendAngleCorrectedNormals.BlendAngleCorrectedNormals\"'");
+    expect(text).toContain('FunctionInputs(1)=(Input=(Expression=MaterialExpressionConstant_0,OutputIndex=0))');
     expect(warnings).toEqual([]);
   });
 
