@@ -6,6 +6,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@db': resolve(__dirname, '../../agent-pack/nodes-ue5.7.json'),
+      '@export-meta': resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'),
     },
   },
   server: { port: 5791 },
