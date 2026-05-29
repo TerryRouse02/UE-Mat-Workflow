@@ -53,4 +53,50 @@ describe('startServer', () => {
     ws.close();
     await server.close();
   }, 5000);
+
+  it('resolves a sibling MaterialFunction for a material inside a project folder', async () => {
+    const root = mkdtempSync(resolve(tmpdir(), 'srv-'));
+    mkdirSync(resolve(root, 'graphs/proj'), { recursive: true });
+    // MF path is "./fn..." — relative to the MATERIAL's own folder, not graphs root.
+    writeFileSync(resolve(root, 'graphs/proj/main.matgraph.json'),
+      JSON.stringify({
+        schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'main',
+        nodes: [
+          { id: 'mfc', type: 'MaterialFunctionCall', params: { MaterialFunction: './fn.matgraph.json' } },
+          { id: 'OUT', type: 'MaterialOutput' },
+        ],
+        connections: [{ from: 'mfc:R', to: 'OUT:BaseColor' }],
+      }));
+    writeFileSync(resolve(root, 'graphs/proj/fn.matgraph.json'),
+      JSON.stringify({
+        schemaVersion: '1.0', ueVersion: '5.7', type: 'MaterialFunction', name: 'fn',
+        nodes: [
+          { id: 'i', type: 'FunctionInput', params: { InputName: 'A' } },
+          { id: 'o', type: 'FunctionOutput', params: { OutputName: 'R' } },
+        ],
+        connections: [{ from: 'i:Input', to: 'o:Input' }],
+      }));
+
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    const ws = new WebSocket(`ws://localhost:${server.port}`);
+
+    const graphMsg: any = await new Promise((res, rej) => {
+      ws.on('error', rej);
+      ws.on('message', d => {
+        const msg = JSON.parse(d.toString());
+        if (msg.kind === 'hello') ws.send(JSON.stringify({ kind: 'open', path: 'proj/main.matgraph.json' }));
+        else if (msg.kind === 'graph' || msg.kind === 'graphError') res(msg);
+      });
+    });
+
+    expect(graphMsg.kind).toBe('graph');
+    expect(graphMsg.payload.warnings).toEqual([]);
+    expect(graphMsg.payload.derivedPins['mfc']).toEqual({
+      inputs: [{ name: 'A', type: 'Float3' }],
+      outputs: [{ name: 'R', type: 'Float3' }],
+    });
+
+    ws.close();
+    await server.close();
+  }, 5000);
 });

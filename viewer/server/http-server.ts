@@ -1,6 +1,6 @@
 import { createServer, type Server } from 'node:http';
 import { readFile, readdir } from 'node:fs/promises';
-import { resolve, join, extname, relative } from 'node:path';
+import { resolve, join, extname, relative, dirname } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { watchGraphs } from './watcher.js';
 import { loadGraph } from './graph-loader.js';
@@ -100,7 +100,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       send(ws, { kind: 'graphError', path: relPath, errors: loaded.errors });
       return;
     }
-    const resolved = await resolveMaterialFunctions(loaded.graph, graphsRoot);
+    // MaterialFunction paths are relative to the material file's own directory
+    // (project-folder convention), not the graphs root.
+    const resolved = await resolveMaterialFunctions(loaded.graph, dirname(abs));
     send(ws, {
       kind: 'graph', path: relPath,
       payload: { graph: resolved.graph, derivedPins: resolved.derivedPins, warnings: resolved.warnings },

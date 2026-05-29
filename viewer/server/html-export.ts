@@ -1,5 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { resolve, dirname } from 'node:path';
 import { loadGraph } from './graph-loader.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
 
@@ -22,7 +22,9 @@ async function main() {
     console.error(`failed to load ${matgraphPath}:`, loaded.errors);
     process.exit(1);
   }
-  const resolved = await resolveMaterialFunctions(loaded.graph, graphsRoot);
+  // Resolve MF references relative to the material file's own directory
+  // (project-folder convention), matching the resolver's recursive behavior.
+  const resolved = await resolveMaterialFunctions(loaded.graph, dirname(matgraphPath));
 
   // Collect all referenced MFs recursively
   const allFiles: Record<string, unknown> = { [`${name}.matgraph.json`]: loaded.graph };
