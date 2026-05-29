@@ -21,6 +21,9 @@ graphs/**/*.matgraph.json
 # Unreal Engine scratch
 /Temp
 
+# Windows debug symbols (e.g. UE plugin builds — keep the .dll, drop the symbols)
+*.pdb
+
 # Editor / IDE settings
 .vscode/
 .idea/
