@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "1.0",
+  "ueVersion": "5.7",
+  "generatedAt": "2026-05-29",
+  "source": "hand-authored subset (best-effort, unverified) — Codex backfills/verifies on a UE 5.7 machine",
+  "nodes": {
+    "Multiply": {
+      "ueClass": "/Script/Engine.MaterialExpressionMultiply",
+      "inputs": { "A": { "property": "A" }, "B": { "property": "B" } },
+      "outputs": { "Result": { "index": 0 } },
+      "params": { "ConstA": { "property": "ConstA", "kind": "float" }, "ConstB": { "property": "ConstB", "kind": "float" } },
+      "verified": false
+    },
+    "Add": {
+      "ueClass": "/Script/Engine.MaterialExpressionAdd",
+      "inputs": { "A": { "property": "A" }, "B": { "property": "B" } },
+      "outputs": { "Result": { "index": 0 } },
+      "params": { "ConstA": { "property": "ConstA", "kind": "float" }, "ConstB": { "property": "ConstB", "kind": "float" } },
+      "verified": false
+    },
+    "Subtract": {
+      "ueClass": "/Script/Engine.MaterialExpressionSubtract",
+      "inputs": { "A": { "property": "A" }, "B": { "property": "B" } },
+      "outputs": { "Result": { "index": 0 } },
+      "params": { "ConstA": { "property": "ConstA", "kind": "float" }, "ConstB": { "property": "ConstB", "kind": "float" } },
+      "verified": false
+    },
+    "Saturate": {
+      "ueClass": "/Script/Engine.MaterialExpressionSaturate",
+      "inputs": { "Input": { "property": "Input" } },
+      "outputs": { "Result": { "index": 0 } },
+      "params": {},
+      "verified": false
+    },
+    "Lerp": {
+      "ueClass": "/Script/Engine.MaterialExpressionLinearInterpolate",
+      "inputs": { "A": { "property": "A" }, "B": { "property": "B" }, "Alpha": { "property": "Alpha" } },
+      "outputs": { "Result": { "index": 0 } },
+      "params": { "ConstAlpha": { "property": "ConstAlpha", "kind": "float" } },
+      "verified": false
+    },
+    "Constant": {
+      "ueClass": "/Script/Engine.MaterialExpressionConstant",
+      "inputs": {},
+      "outputs": { "Value": { "index": 0 } },
+      "params": { "R": { "property": "R", "kind": "float" } },
+      "verified": false
+    },
+    "ScalarParameter": {
+      "ueClass": "/Script/Engine.MaterialExpressionScalarParameter",
+      "inputs": {},
+      "outputs": { "Value": { "index": 0 } },
+      "params": { "ParameterName": { "property": "ParameterName", "kind": "name" }, "DefaultValue": { "property": "DefaultValue", "kind": "float" } },
+      "verified": false
+    },
+    "StaticSwitchParameter": {
+      "ueClass": "/Script/Engine.MaterialExpressionStaticSwitchParameter",
+      "inputs": { "A": { "property": "A" }, "B": { "property": "B" } },
+      "outputs": { "Result": { "index": 0 } },
+      "params": { "ParameterName": { "property": "ParameterName", "kind": "name" }, "DefaultValue": { "property": "DefaultValue", "kind": "bool" } },
+      "verified": false
+    },
+    "QualitySwitch": {
+      "ueClass": "/Script/Engine.MaterialExpressionQualitySwitch",
+      "inputs": { "Default": { "property": "Default" }, "Low": { "property": "Inputs(0)" }, "High": { "property": "Inputs(1)" } },
+      "outputs": { "Result": { "index": 0 } },
+      "params": {},
+      "verified": false
+    },
+    "FeatureLevelSwitch": {
+      "ueClass": "/Script/Engine.MaterialExpressionFeatureLevelSwitch",
+      "inputs": { "Default": { "property": "Default" }, "ES2": { "property": "Inputs(0)" }, "ES3.1": { "property": "Inputs(1)" }, "SM4": { "property": "Inputs(2)" }, "SM5": { "property": "Inputs(3)" } },
+      "outputs": { "Result": { "index": 0 } },
+      "params": {},
+      "verified": false
+    },
+    "TextureSampleParameter2D": {
+      "ueClass": "/Script/Engine.MaterialExpressionTextureSampleParameter2D",
+      "inputs": { "UVs": { "property": "Coordinates" }, "Tex": { "property": "TextureObject" } },
+      "outputs": { "RGB": { "index": 0 }, "R": { "index": 1 }, "G": { "index": 2 }, "B": { "index": 3 }, "A": { "index": 4 }, "RGBA": { "index": 5 } },
+      "params": {
+        "ParameterName": { "property": "ParameterName", "kind": "name" },
+        "Texture": { "property": "Texture", "kind": "texture" },
+        "SamplerType": { "property": "SamplerType", "kind": "enum", "valueMap": {
+          "Color": "SAMPLERTYPE_Color", "LinearColor": "SAMPLERTYPE_LinearColor",
+          "Grayscale": "SAMPLERTYPE_Grayscale", "LinearGrayscale": "SAMPLERTYPE_LinearGrayscale",
+          "Normal": "SAMPLERTYPE_Normal", "Alpha": "SAMPLERTYPE_Alpha", "Masks": "SAMPLERTYPE_Masks",
+          "Data": "SAMPLERTYPE_Data", "External": "SAMPLERTYPE_External", "VirtualColor": "SAMPLERTYPE_VirtualColor" } }
+      },
+      "verified": false
+    }
+  },
+  "reserved": {
+    "MaterialFunctionCall": {
+      "ueClass": "/Script/Engine.MaterialExpressionMaterialFunctionCall",
+      "functionRefProperty": "MaterialFunction",
+      "inputs": {}, "outputs": {}, "params": {},
+      "verified": false
+    },
+    "FunctionInput": {
+      "ueClass": "/Script/Engine.MaterialExpressionFunctionInput",
+      "inputs": {},
+      "outputs": { "Input": { "index": 0 } },
+      "params": {
+        "InputName": { "property": "InputName", "kind": "name" },
+        "InputType": { "property": "InputType", "kind": "enum", "valueMap": {
+          "Scalar": "FunctionInput_Scalar", "VectorFloat2": "FunctionInput_Vector2",
+          "VectorFloat3": "FunctionInput_Vector3", "VectorFloat4": "FunctionInput_Vector4",
+          "Texture2D": "FunctionInput_Texture2D", "MaterialAttributes": "FunctionInput_MaterialAttributes" } }
+      },
+      "verified": false
+    },
+    "FunctionOutput": {
+      "ueClass": "/Script/Engine.MaterialExpressionFunctionOutput",
+      "inputs": { "Input": { "property": "A" } },
+      "outputs": {},
+      "params": { "OutputName": { "property": "OutputName", "kind": "name" } },
+      "verified": false
+    }
+  }
+}

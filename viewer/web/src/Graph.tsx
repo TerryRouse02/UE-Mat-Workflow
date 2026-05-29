@@ -1,5 +1,5 @@
-import { useMemo, useEffect } from 'react';
-import ReactFlow, { type Node, type Edge, Background, Controls, MiniMap, useNodesState } from 'reactflow';
+import { useMemo, useEffect, useState } from 'react';
+import ReactFlow, { type Node, type Edge, Background, Controls, MiniMap, Panel, useNodesState } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { MaterialNode } from './nodes/MaterialNode';
 import { MaterialOutputNode } from './nodes/MaterialOutputNode';
@@ -9,6 +9,8 @@ import { CommentNode } from './nodes/CommentBox';
 import { applyLayout, computeNodeHeight, computeNodeWidth } from './layout';
 import type { GraphPayload } from './protocol';
 import type { NodeDB } from '../../server/db-types';
+import { graphToUET3D } from './export/ueT3D';
+import { EXPORT_META } from './export/export-meta';
 
 function setHandleHighlight(nodeId: string, handleId: string | null | undefined, on: boolean) {
   if (!handleId) return;
@@ -192,6 +194,28 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
 
   const edges = initialLayout.edges;
 
+  const [mfRoot, setMfRoot] = useState(() => localStorage.getItem('ue-mf-root') || '/Game/');
+  const [toast, setToast] = useState<{ msg: string; warnings: string[] } | null>(null);
+
+  const handleExport = async () => {
+    const positions: Record<string, { x: number; y: number }> = {};
+    for (const n of nodes) positions[n.id] = { x: n.position.x, y: n.position.y };
+    const { text, warnings } = graphToUET3D(graph, positions, EXPORT_META, derivedPins, { mfContentRoot: mfRoot });
+    const count = text ? text.split('Begin Object Class=').length - 1 : 0;
+    try {
+      await navigator.clipboard.writeText(text);
+      const msg = graph.type === 'MaterialFunction'
+        ? `Copied ${count} nodes. Create a Material Function "${graph.name}" under ${mfRoot} and paste here.`
+        : `Copied ${count} nodes — paste into UE's Material Editor.`;
+      setToast({ msg, warnings });
+    } catch {
+      setToast({ msg: 'Clipboard blocked by the browser — copy manually from the console.', warnings });
+      // eslint-disable-next-line no-console
+      console.log(text);
+    }
+    setTimeout(() => setToast(null), 8000);
+  };
+
   const commentNodes: Node[] = useMemo(() => {
     if (!graph.comments) return [];
     const byId = new Map(nodes.map(n => [n.id, n]));
@@ -272,6 +296,36 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
       }}
       fitView style={{ background: '#1a1a1a' }}
     >
+      <Panel position="top-right">
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-end' }}>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={handleExport}
+              style={{ background: '#2d7d46', color: '#fff', border: 'none', padding: '6px 10px', borderRadius: 4, cursor: 'pointer' }}>
+              導出到 UE
+            </button>
+            <button disabled title="coming soon"
+              style={{ background: '#333', color: '#888', border: 'none', padding: '6px 10px', borderRadius: 4, cursor: 'not-allowed' }}>
+              導入
+            </button>
+          </div>
+          <label style={{ color: '#aaa', fontSize: 11, display: 'flex', gap: 4, alignItems: 'center' }}>
+            MF root
+            <input value={mfRoot}
+              onChange={e => { setMfRoot(e.target.value); localStorage.setItem('ue-mf-root', e.target.value); }}
+              style={{ width: 120, background: '#222', color: '#ddd', border: '1px solid #444', borderRadius: 3, padding: '2px 4px', fontSize: 11 }} />
+          </label>
+          {toast && (
+            <div style={{ maxWidth: 280, background: '#222', border: '1px solid #444', borderRadius: 4, padding: 8, color: '#ddd', fontSize: 11 }}>
+              <div>{toast.msg}</div>
+              {toast.warnings.length > 0 && (
+                <ul style={{ margin: '6px 0 0', paddingLeft: 16, color: '#e0b050' }}>
+                  {toast.warnings.map((w, i) => <li key={i}>{w}</li>)}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      </Panel>
       <Background gap={20} color="#333" />
       <Controls />
       <MiniMap />

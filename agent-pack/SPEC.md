@@ -57,6 +57,12 @@ Do **not** share MaterialFunctions across projects — copy them into each proje
    - With the project-folder convention, the Material and its MFs are siblings in the same folder, so the path is just `"./<mf_name>.matgraph.json"`.
    - Example: from `graphs/obsidian/obsidian.matgraph.json` → `"./fresnel_lib.matgraph.json"` resolves to `graphs/obsidian/fresnel_lib.matgraph.json`.
    - MFs that call sibling MFs use the same `"./<name>.matgraph.json"` form.
+   - For **UE clipboard export**, this path may also be a UE engine asset path
+     (e.g. `/Engine/Functions/...`) to reference a built-in Material Function; such references
+     paste resolved but cannot be previewed in the viewer. For local MFs, export uses an
+     auto-link convention: create the MF in UE under the configured MF content root (default
+     `/Game/`) with the JSON's base name, and a pasted parent material auto-links its calls.
+     Positions (`x`/`y`) remain forbidden in the JSON — export synthesizes them from layout.
 
 ## Soft rules (best practice)
 
