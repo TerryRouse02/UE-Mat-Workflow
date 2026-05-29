@@ -24,7 +24,8 @@ export interface NodeExportMeta {
   inputs: Record<string, InputMeta>;      // our pin name -> input mapping
   outputs: Record<string, OutputMeta>;    // our pin name -> output mapping
   params: Record<string, ParamMeta>;      // our param name -> param mapping
-  functionRefProperty?: string;           // MaterialFunctionCall only
+  functionRefProperty?: string;           // MaterialFunctionCall or built-in MF wrapper
+  functionAsset?: string;                 // built-in Material Function asset path
   sample?: string;                        // raw copied T3D (reference only; not parsed)
   verified?: boolean;
   dynamicExport?: boolean;                // dynamic-pin node; emitter skips with a warning
