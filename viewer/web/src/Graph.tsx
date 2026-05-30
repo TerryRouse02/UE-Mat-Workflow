@@ -201,15 +201,15 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
     const positions: Record<string, { x: number; y: number }> = {};
     for (const n of nodes) positions[n.id] = { x: n.position.x, y: n.position.y };
     const { text, warnings } = graphToUET3D(graph, positions, EXPORT_META, derivedPins, { mfContentRoot: mfRoot });
-    const count = text ? text.split('Begin Object Class=').length - 1 : 0;
+    const count = text ? (text.match(/^Begin Object Class=\/Script\/UnrealEd\.MaterialGraphNode/gm)?.length ?? 0) : 0;
     try {
       await navigator.clipboard.writeText(text);
       const msg = graph.type === 'MaterialFunction'
         ? `Copied ${count} nodes. Create a Material Function "${graph.name}" under ${mfRoot} and paste here.`
-        : `Copied ${count} nodes — paste into UE's Material Editor.`;
+        : `Copied ${count} nodes - paste into UE's Material Editor.`;
       setToast({ msg, warnings });
     } catch {
-      setToast({ msg: 'Clipboard blocked by the browser — copy manually from the console.', warnings });
+      setToast({ msg: 'Clipboard blocked by the browser - copy manually from the console.', warnings });
       // eslint-disable-next-line no-console
       console.log(text);
     }
