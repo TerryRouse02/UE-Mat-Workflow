@@ -64,6 +64,14 @@ static TMap<FString, TMap<FString, FString>> BuildInputOverrides()
     return Overrides;
 }
 
+static TMap<FString, TMap<FString, FString>> BuildParamPropertyOverrides()
+{
+    TMap<FString, TMap<FString, FString>> Overrides;
+    Overrides.Add(TEXT("Transform"), {{TEXT("Source"), TEXT("TransformSourceType")}, {TEXT("Destination"), TEXT("TransformType")}});
+    Overrides.Add(TEXT("TransformPosition"), {{TEXT("Source"), TEXT("TransformSourceType")}, {TEXT("Destination"), TEXT("TransformType")}});
+    return Overrides;
+}
+
 static TMap<FString, FString> BuildSamplerTypeMap()
 {
     TMap<FString, FString> Map;
@@ -78,6 +86,62 @@ static TMap<FString, FString> BuildSamplerTypeMap()
     Map.Add(TEXT("External"), TEXT("SAMPLERTYPE_External"));
     Map.Add(TEXT("VirtualColor"), TEXT("SAMPLERTYPE_VirtualColor"));
     return Map;
+}
+
+static TMap<FString, FString> BuildTransformSourceMap()
+{
+    TMap<FString, FString> Map;
+    Map.Add(TEXT("Tangent"), TEXT("TRANSFORMSOURCE_Tangent"));
+    Map.Add(TEXT("Local"), TEXT("TRANSFORMSOURCE_Local"));
+    Map.Add(TEXT("World"), TEXT("TRANSFORMSOURCE_World"));
+    Map.Add(TEXT("View"), TEXT("TRANSFORMSOURCE_View"));
+    Map.Add(TEXT("Camera"), TEXT("TRANSFORMSOURCE_Camera"));
+    Map.Add(TEXT("ParticleWorld"), TEXT("TRANSFORMSOURCE_ParticleWorld"));
+    Map.Add(TEXT("Particle"), TEXT("TRANSFORMSOURCE_ParticleWorld"));
+    Map.Add(TEXT("Instance"), TEXT("TRANSFORMSOURCE_Instance"));
+    return Map;
+}
+
+static TMap<FString, FString> BuildTransformDestinationMap()
+{
+    TMap<FString, FString> Map;
+    Map.Add(TEXT("Tangent"), TEXT("TRANSFORM_Tangent"));
+    Map.Add(TEXT("Local"), TEXT("TRANSFORM_Local"));
+    Map.Add(TEXT("World"), TEXT("TRANSFORM_World"));
+    Map.Add(TEXT("View"), TEXT("TRANSFORM_View"));
+    Map.Add(TEXT("Camera"), TEXT("TRANSFORM_Camera"));
+    Map.Add(TEXT("ParticleWorld"), TEXT("TRANSFORM_ParticleWorld"));
+    Map.Add(TEXT("Particle"), TEXT("TRANSFORM_ParticleWorld"));
+    Map.Add(TEXT("Instance"), TEXT("TRANSFORM_Instance"));
+    return Map;
+}
+
+static TMap<FString, FString> BuildTransformPositionMap()
+{
+    TMap<FString, FString> Map;
+    Map.Add(TEXT("Local"), TEXT("TRANSFORMPOSSOURCE_Local"));
+    Map.Add(TEXT("World"), TEXT("TRANSFORMPOSSOURCE_World"));
+    Map.Add(TEXT("AbsoluteWorld"), TEXT("TRANSFORMPOSSOURCE_World"));
+    Map.Add(TEXT("PeriodicWorld"), TEXT("TRANSFORMPOSSOURCE_PeriodicWorld"));
+    Map.Add(TEXT("TranslatedWorld"), TEXT("TRANSFORMPOSSOURCE_TranslatedWorld"));
+    Map.Add(TEXT("CameraRelativeWorld"), TEXT("TRANSFORMPOSSOURCE_TranslatedWorld"));
+    Map.Add(TEXT("FirstPersonTranslatedWorld"), TEXT("TRANSFORMPOSSOURCE_FirstPersonTranslatedWorld"));
+    Map.Add(TEXT("View"), TEXT("TRANSFORMPOSSOURCE_View"));
+    Map.Add(TEXT("Camera"), TEXT("TRANSFORMPOSSOURCE_Camera"));
+    Map.Add(TEXT("Particle"), TEXT("TRANSFORMPOSSOURCE_Particle"));
+    Map.Add(TEXT("ParticleWorld"), TEXT("TRANSFORMPOSSOURCE_Particle"));
+    Map.Add(TEXT("Instance"), TEXT("TRANSFORMPOSSOURCE_Instance"));
+    return Map;
+}
+
+static void SetValueMapFromPairs(TSharedRef<FJsonObject> ParamMeta, const TMap<FString, FString>& Pairs)
+{
+    TSharedRef<FJsonObject> ValueMap = MakeShared<FJsonObject>();
+    for (const TPair<FString, FString>& Pair : Pairs)
+    {
+        ValueMap->SetStringField(Pair.Key, Pair.Value);
+    }
+    ParamMeta->SetObjectField(TEXT("valueMap"), ValueMap);
 }
 
 static FString ToAbsolutePath(const FString& Path)
@@ -263,6 +327,11 @@ static FString ResolveInputProperty(const FString& NodeType, const FString& PinN
         }
     }
 
+    if (ClassHasProperty(Class, PinName))
+    {
+        return PinName;
+    }
+
     if (Expression != nullptr)
     {
         const TMap<FString, FString> DisplayMap = BuildDisplayInputMap(Expression);
@@ -273,6 +342,19 @@ static FString ResolveInputProperty(const FString& NodeType, const FString& PinN
     }
 
     return ClassHasProperty(Class, PinName) ? PinName : PinName;
+}
+
+static FString ResolveParamProperty(const FString& NodeType, const FString& ParamName)
+{
+    static const TMap<FString, TMap<FString, FString>> ParamOverrides = BuildParamPropertyOverrides();
+    if (const TMap<FString, FString>* NodeOverrides = ParamOverrides.Find(NodeType))
+    {
+        if (const FString* Override = NodeOverrides->Find(ParamName))
+        {
+            return *Override;
+        }
+    }
+    return ParamName;
 }
 
 static FString KindForParamType(const FString& Type)
@@ -289,16 +371,27 @@ static FString KindForParamType(const FString& Type)
     return TEXT("string");
 }
 
-static void SetValueMap(TSharedRef<FJsonObject> ParamMeta, const FString& ParamName, const TSharedPtr<FJsonObject>& ParamObject)
+static void SetValueMap(TSharedRef<FJsonObject> ParamMeta, const FString& NodeType, const FString& ParamName, const TSharedPtr<FJsonObject>& ParamObject)
 {
-    TSharedRef<FJsonObject> ValueMap = MakeShared<FJsonObject>();
     if (ParamName == TEXT("SamplerType"))
     {
-        for (const TPair<FString, FString>& Pair : BuildSamplerTypeMap())
-        {
-            ValueMap->SetStringField(Pair.Key, Pair.Value);
-        }
-        ParamMeta->SetObjectField(TEXT("valueMap"), ValueMap);
+        SetValueMapFromPairs(ParamMeta, BuildSamplerTypeMap());
+        return;
+    }
+
+    if (NodeType == TEXT("Transform") && ParamName == TEXT("Source"))
+    {
+        SetValueMapFromPairs(ParamMeta, BuildTransformSourceMap());
+        return;
+    }
+    if (NodeType == TEXT("Transform") && ParamName == TEXT("Destination"))
+    {
+        SetValueMapFromPairs(ParamMeta, BuildTransformDestinationMap());
+        return;
+    }
+    if (NodeType == TEXT("TransformPosition") && (ParamName == TEXT("Source") || ParamName == TEXT("Destination")))
+    {
+        SetValueMapFromPairs(ParamMeta, BuildTransformPositionMap());
         return;
     }
 
@@ -308,6 +401,7 @@ static void SetValueMap(TSharedRef<FJsonObject> ParamMeta, const FString& ParamN
         return;
     }
 
+    TSharedRef<FJsonObject> ValueMap = MakeShared<FJsonObject>();
     for (const FString& Value : Values)
     {
         ValueMap->SetStringField(Value, Value);
@@ -373,11 +467,11 @@ static void AddParamMeta(const FString& NodeType, const FString& ParamName, cons
         return;
     }
 
-    ParamMeta->SetStringField(TEXT("property"), ParamName);
+    ParamMeta->SetStringField(TEXT("property"), ResolveParamProperty(NodeType, ParamName));
     ParamMeta->SetStringField(TEXT("kind"), KindForParamType(Type));
     if (Type == TEXT("Enum"))
     {
-        SetValueMap(ParamMeta, ParamName, ParamObject);
+        SetValueMap(ParamMeta, NodeType, ParamName, ParamObject);
     }
     ParamsObject->SetObjectField(ParamName, ParamMeta);
 }
