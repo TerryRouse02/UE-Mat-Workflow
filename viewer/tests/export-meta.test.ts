@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import type { ExportMeta } from '../web/src/export/export-meta-types';
 
@@ -39,6 +39,43 @@ describe('nodes-ue5.7.export.json', () => {
       expect(typeof m.inputs).toBe('object');
       expect(typeof m.outputs).toBe('object');
       expect(typeof m.params).toBe('object');
+    }
+  });
+
+  it('does not map connectable arithmetic inputs to default constant params', () => {
+    for (const type of ['Add', 'Multiply', 'Max']) {
+      const entry = exp.nodes[type];
+      expect(entry.inputs.A?.property, `${type}.A`).toBe('A');
+      expect(entry.inputs.B?.property, `${type}.B`).toBe('B');
+      expect(entry.params.ConstA?.property, `${type}.ConstA`).toBe('ConstA');
+      expect(entry.params.ConstB?.property, `${type}.ConstB`).toBe('ConstB');
+    }
+  });
+
+  it('maps Transform enum params to UE property names and enum literals', () => {
+    const entry = exp.nodes.Transform;
+    expect(entry.params.Source?.property).toBe('TransformSourceType');
+    expect(entry.params.Destination?.property).toBe('TransformType');
+    expect(entry.params.Source?.valueMap?.World).toBe('TRANSFORMSOURCE_World');
+    expect(entry.params.Destination?.valueMap?.Tangent).toBe('TRANSFORM_Tangent');
+  });
+
+  it('keeps a clipboard framing fixture for the core calibration node set', () => {
+    const fixturePath = resolve(__dirname, 'fixtures/ue-clipboard-core.t3d');
+    expect(existsSync(fixturePath)).toBe(true);
+    const fixture = readFileSync(fixturePath, 'utf-8');
+    for (const token of [
+      '/Script/UnrealEd.MaterialGraphNode',
+      '/Script/UnrealEd.MaterialGraphNode_Comment',
+      '/Script/Engine.MaterialExpressionConstant',
+      '/Script/Engine.MaterialExpressionAdd',
+      '/Script/Engine.MaterialExpressionVectorParameter',
+      '/Script/Engine.MaterialExpressionTextureSampleParameter2D',
+      '/Script/Engine.MaterialExpressionTransform',
+      '/Script/Engine.MaterialExpressionComponentMask',
+      'CustomProperties Pin',
+    ]) {
+      expect(fixture, token).toContain(token);
     }
   });
 });

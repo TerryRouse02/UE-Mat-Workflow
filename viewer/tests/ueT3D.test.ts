@@ -1,4 +1,6 @@
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { graphToUET3D, parseUET3D } from '../web/src/export/ueT3D';
 import type { ExportMeta } from '../web/src/export/export-meta-types';
 import type { MatGraph, DerivedPins } from '../web/src/protocol';
@@ -175,6 +177,26 @@ describe('graphToUET3D', () => {
     expect(text).toContain('InputName="A"');
     expect(text).toContain('OutputName="Result"');
     expect(text).toContain('A=(Expression=MaterialExpressionFunctionInput_0,OutputIndex=0)');
+  });
+
+  it('exports the raymarch cloud graph with MaterialGraphNode framing and no default-constant connection targets', () => {
+    const graph = JSON.parse(readFileSync(
+      resolve(__dirname, '../../graphs/raymarch_cloud_six_way/raymarch_cloud_six_way_fix.matgraph.json'),
+      'utf-8',
+    )) as MatGraph;
+    const exportMeta = JSON.parse(readFileSync(
+      resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'),
+      'utf-8',
+    )) as ExportMeta;
+    const positions = Object.fromEntries(graph.nodes.map((node, i) => [node.id, { x: i * 240, y: 0 }]));
+
+    const { text, warnings } = graphToUET3D(graph, positions, exportMeta, {});
+
+    expect(text).toContain('Begin Object Class=/Script/UnrealEd.MaterialGraphNode');
+    expect(text).toContain('MaterialExpression=');
+    expect(text).toContain('CustomProperties Pin');
+    expect(text).not.toMatch(/\bConst[AB]=\(Expression=/);
+    expect(warnings).toEqual(['MaterialOutput "OUT" skipped - connect final pins manually in UE.']);
   });
 });
 
