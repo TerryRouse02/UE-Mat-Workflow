@@ -41,7 +41,7 @@
 				}
 			},
 			"sample": "",
-			"verified": false,
+			"verified": true,
 			"note": "Inputs and AdditionalOutputs are emitted structurally by the Custom branch in ueT3D.ts; verified against viewer/tests/fixtures/ue-custom-node.t3d."
 		},
 		"Multiply":
