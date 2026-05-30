@@ -307,6 +307,14 @@ describe('graphToUET3D', () => {
     expect(text).not.toMatch(/\bConst[AB]=\(Expression=/);
   });
 
+  it('preserves the captured MakeMaterialAttributes source mask fixture', () => {
+    const fixture = readFileSync(resolve(__dirname, 'fixtures/ue-make-material-attributes-sources.t3d'), 'utf-8');
+
+    for (const attribute of ['BaseColor', 'Normal', 'Roughness', 'EmissiveColor', 'Metallic']) {
+      expect(fixture, `fixture must contain ${attribute}`).toMatch(new RegExp(`^\\s+${attribute}=\\(Expression=`, 'm'));
+    }
+  });
+
   it('exports a Custom node with dynamic inputs and additional outputs matching the UE fixture', () => {
     const exportMeta = JSON.parse(readFileSync(
       resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'), 'utf-8',

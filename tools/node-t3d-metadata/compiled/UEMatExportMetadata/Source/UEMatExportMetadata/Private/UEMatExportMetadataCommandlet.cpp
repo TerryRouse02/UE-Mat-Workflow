@@ -13,6 +13,8 @@
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionConstant3Vector.h"
 #include "Materials/MaterialExpressionMakeMaterialAttributes.h"
+#include "Materials/MaterialExpressionMultiply.h"
+#include "Materials/MaterialExpressionTextureSample.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Policies/PrettyJsonPrintPolicy.h"
@@ -203,7 +205,23 @@ static bool WriteMakeMaterialAttributesClipboardSample(const FString& Path, FStr
         Material,
         NAME_None,
         RF_Transactional);
-    UMaterialExpressionConstant* Roughness = NewObject<UMaterialExpressionConstant>(
+    UMaterialExpressionTextureSample* TextureSample = NewObject<UMaterialExpressionTextureSample>(
+        Material,
+        NAME_None,
+        RF_Transactional);
+    UMaterialExpressionConstant3Vector* MultiplyA = NewObject<UMaterialExpressionConstant3Vector>(
+        Material,
+        NAME_None,
+        RF_Transactional);
+    UMaterialExpressionConstant3Vector* MultiplyB = NewObject<UMaterialExpressionConstant3Vector>(
+        Material,
+        NAME_None,
+        RF_Transactional);
+    UMaterialExpressionMultiply* EmissiveMultiply = NewObject<UMaterialExpressionMultiply>(
+        Material,
+        NAME_None,
+        RF_Transactional);
+    UMaterialExpressionConstant* Metallic = NewObject<UMaterialExpressionConstant>(
         Material,
         NAME_None,
         RF_Transactional);
@@ -212,7 +230,8 @@ static bool WriteMakeMaterialAttributesClipboardSample(const FString& Path, FStr
         NAME_None,
         RF_Transactional);
 
-    if (BaseColor == nullptr || Roughness == nullptr || MakeAttributes == nullptr)
+    if (BaseColor == nullptr || TextureSample == nullptr || MultiplyA == nullptr || MultiplyB == nullptr ||
+        EmissiveMultiply == nullptr || Metallic == nullptr || MakeAttributes == nullptr)
     {
         OutError = TEXT("Failed to create material expression nodes.");
         return false;
@@ -224,17 +243,44 @@ static bool WriteMakeMaterialAttributesClipboardSample(const FString& Path, FStr
     BaseColor->MaterialExpressionEditorY = -120;
     Material->GetExpressionCollection().AddExpression(BaseColor);
 
-    Roughness->Material = Material;
-    Roughness->R = 0.5f;
-    Roughness->MaterialExpressionEditorX = -520;
-    Roughness->MaterialExpressionEditorY = 120;
-    Material->GetExpressionCollection().AddExpression(Roughness);
+    TextureSample->Material = Material;
+    TextureSample->MaterialExpressionEditorX = -520;
+    TextureSample->MaterialExpressionEditorY = 80;
+    Material->GetExpressionCollection().AddExpression(TextureSample);
+
+    MultiplyA->Material = Material;
+    MultiplyA->Constant = FLinearColor(0.2f, 0.4f, 0.8f, 1.0f);
+    MultiplyA->MaterialExpressionEditorX = -760;
+    MultiplyA->MaterialExpressionEditorY = 260;
+    Material->GetExpressionCollection().AddExpression(MultiplyA);
+
+    MultiplyB->Material = Material;
+    MultiplyB->Constant = FLinearColor(2.0f, 1.0f, 0.5f, 1.0f);
+    MultiplyB->MaterialExpressionEditorX = -760;
+    MultiplyB->MaterialExpressionEditorY = 420;
+    Material->GetExpressionCollection().AddExpression(MultiplyB);
+
+    EmissiveMultiply->Material = Material;
+    EmissiveMultiply->MaterialExpressionEditorX = -520;
+    EmissiveMultiply->MaterialExpressionEditorY = 340;
+    EmissiveMultiply->A.Connect(0, MultiplyA);
+    EmissiveMultiply->B.Connect(0, MultiplyB);
+    Material->GetExpressionCollection().AddExpression(EmissiveMultiply);
+
+    Metallic->Material = Material;
+    Metallic->R = 0.5f;
+    Metallic->MaterialExpressionEditorX = -520;
+    Metallic->MaterialExpressionEditorY = 560;
+    Material->GetExpressionCollection().AddExpression(Metallic);
 
     MakeAttributes->Material = Material;
     MakeAttributes->MaterialExpressionEditorX = -180;
-    MakeAttributes->MaterialExpressionEditorY = 0;
+    MakeAttributes->MaterialExpressionEditorY = 160;
     MakeAttributes->BaseColor.Connect(0, BaseColor);
-    MakeAttributes->Roughness.Connect(0, Roughness);
+    MakeAttributes->Normal.Connect(0, TextureSample);
+    MakeAttributes->Roughness.Connect(1, TextureSample);
+    MakeAttributes->EmissiveColor.Connect(0, EmissiveMultiply);
+    MakeAttributes->Metallic.Connect(0, Metallic);
     Material->GetExpressionCollection().AddExpression(MakeAttributes);
 
     FExpressionInput* MaterialAttributesInput = Material->GetExpressionInputForProperty(MP_MaterialAttributes);
@@ -247,7 +293,15 @@ static bool WriteMakeMaterialAttributesClipboardSample(const FString& Path, FStr
 
     Material->MaterialGraph->RebuildGraph();
 
-    TArray<UMaterialExpression*> ExpressionsToCopy = { BaseColor, Roughness, MakeAttributes };
+    TArray<UMaterialExpression*> ExpressionsToCopy = {
+        BaseColor,
+        TextureSample,
+        MultiplyA,
+        MultiplyB,
+        EmissiveMultiply,
+        Metallic,
+        MakeAttributes
+    };
     TSet<UObject*> NodesToExport;
     for (UMaterialExpression* Expression : ExpressionsToCopy)
     {
@@ -286,7 +340,7 @@ static bool WriteMakeMaterialAttributesClipboardSample(const FString& Path, FStr
     }
 
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
-    if (!FFileHelper::SaveStringToFile(ExportedText, *Path))
+    if (!FFileHelper::SaveStringToFile(ExportedText, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
         OutError = FString::Printf(TEXT("Failed to write clipboard sample: %s"), *Path);
         return false;
