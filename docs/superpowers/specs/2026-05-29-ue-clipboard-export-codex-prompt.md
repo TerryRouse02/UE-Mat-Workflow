@@ -43,6 +43,19 @@ Each entry under `nodes` (and `reserved`) has:
   `viewer/tests/export-meta.test.ts` fails on orphan keys).
 - Do not touch `nodes-ue5.7.json`, only `nodes-ue5.7.export.json`.
 - Leave `MaterialOutput` out entirely (never exported).
+- **Verify property names against the copied T3D, never guess from display names.** UE 5.7's
+  reflected `UProperty` name often differs from the Material Editor label or pre-5.7 docs:
+  - The `Transform` node's enum UProperties are `TransformSourceType` / `TransformType`
+    (not `Source` / `Destination`); `TransformPosition` likewise. Enum literals carry the full
+    prefix (`TRANSFORMSOURCE_World`, `TRANSFORM_Tangent`, `TRANSFORMPOSSOURCE_*`).
+  - Many connectable input properties have **no** `Const` prefix — they are plain `A`, `B`,
+    `Coordinate`, `Alpha`, etc. (the `Const*` names are the unconnected-default *params*, a
+    separate thing). Mapping an input to `ConstA` makes the connection paste onto the wrong slot.
+  - Other corrected pin properties found during calibration: `SphereMask` `Radius`/`Hardness`,
+    `Fresnel` `ExponentIn`/`BaseReflectFractionIn`, `BumpOffset` `HeightRatioInput`,
+    `Clamp` `Min`/`Max`, `DepthFade` `FadeDistance`.
+- For every `enum` param always include a `valueMap` from our value to the exact UE literal copied
+  from the T3D (e.g. `"Masks"` → `"SAMPLERTYPE_Masks"`).
 - Run `cd viewer && ./node_modules/.bin/vitest run tests/export-meta.test.ts` before returning.
 
 Output: the updated `agent-pack/nodes-ue5.7.export.json`.

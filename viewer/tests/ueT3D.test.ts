@@ -181,7 +181,7 @@ describe('graphToUET3D', () => {
 
   it('exports the raymarch cloud graph with MaterialGraphNode framing and no default-constant connection targets', () => {
     const graph = JSON.parse(readFileSync(
-      resolve(__dirname, '../../graphs/raymarch_cloud_six_way/raymarch_cloud_six_way_fix.matgraph.json'),
+      resolve(__dirname, '../../agent-pack/examples/raymarch_cloud_six_way/raymarch_cloud_six_way_fix.matgraph.json'),
       'utf-8',
     )) as MatGraph;
     const exportMeta = JSON.parse(readFileSync(
@@ -197,6 +197,75 @@ describe('graphToUET3D', () => {
     expect(text).toContain('CustomProperties Pin');
     expect(text).not.toMatch(/\bConst[AB]=\(Expression=/);
     expect(warnings).toEqual(['MaterialOutput "OUT" skipped - connect final pins manually in UE.']);
+  });
+
+  it('reproduces the real UE clipboard format tokens for the core calibration graph', () => {
+    // Ground-truth regression guard. Drive the emitter with the REAL calibrated
+    // metadata and a graph mirroring the node set captured in
+    // fixtures/ue-clipboard-core.t3d (a genuine UE 5.7 clipboard sample). Every
+    // asserted token is first verified to exist in that real fixture, then required
+    // in the emitter output - so a regression that reverts the calibration fails
+    // here, unlike the hand-authored golden tests above which only echo the
+    // emitter's own output and would silently follow such a regression.
+    const exportMeta = JSON.parse(readFileSync(
+      resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'),
+      'utf-8',
+    )) as ExportMeta;
+    const fixture = readFileSync(resolve(__dirname, 'fixtures/ue-clipboard-core.t3d'), 'utf-8');
+
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'core',
+      nodes: [
+        { id: 'c', type: 'Constant', params: { R: 1 } },
+        { id: 'add', type: 'Add' },
+        { id: 'vp', type: 'VectorParameter', params: { ParameterName: 'Color', DefaultValue: [1, 1, 1, 1] } },
+        { id: 'tex', type: 'TextureSampleParameter2D', params: { ParameterName: 'MaskTexture', Texture: '/Game/Textures/T_Mask.T_Mask', SamplerType: 'Masks' } },
+        { id: 'xf', type: 'Transform', params: { Source: 'World', Destination: 'Tangent' } },
+        { id: 'mask', type: 'ComponentMask', params: { R: true, G: false, B: false, A: false } },
+      ],
+      connections: [
+        { from: 'c:Value', to: 'add:A' },
+        { from: 'vp:RGB', to: 'add:B' },
+        { from: 'tex:RGB', to: 'mask:Input' },
+      ],
+      comments: [{ id: 'cm', text: 'Core clipboard calibration', color: '#808080', contains: ['c', 'add', 'vp', 'tex', 'xf', 'mask'] }],
+    };
+    const positions = layout({
+      c: [0, 0], add: [260, 0], vp: [0, 180], tex: [560, 0], xf: [560, 220], mask: [820, 0],
+    });
+
+    const { text, warnings } = graphToUET3D(graph, positions, exportMeta, NO_PINS);
+    expect(warnings).toEqual([]);
+
+    // Each token is real UE 5.7 clipboard syntax present in the captured fixture and
+    // must be reproduced by the emitter. The two assertions together prove the
+    // emitter output matches genuine UE ground truth, not a self-snapshot.
+    const realUEInvariants = [
+      'Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name=',
+      "ExportPath=\"/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.",
+      'CustomProperties Pin (PinId=',
+      'Direction="EGPD_Output"',
+      'Direction="EGPD_Input"',
+      "Texture=Texture2D'\"/Game/Textures/T_Mask.T_Mask\"'",
+      'SamplerType=SAMPLERTYPE_Masks',
+      'TransformSourceType=TRANSFORMSOURCE_World',
+      'TransformType=TRANSFORM_Tangent',
+      'DefaultValue=(R=1.0,G=1.0,B=1.0,A=1.0)',
+      'R=True',
+      'G=False',
+      'Begin Object Class=/Script/UnrealEd.MaterialGraphNode_Comment',
+      "MaterialExpression=MaterialExpressionConstant'",
+    ];
+    for (const token of realUEInvariants) {
+      expect(fixture, `fixture must contain ${token}`).toContain(token);
+      expect(text, `emitter must reproduce ${token}`).toContain(token);
+    }
+
+    // Connected inputs map to real UE FExpressionInput properties, never to the
+    // default-constant params (the bug class the raymarch guard also covers).
+    expect(text).toContain('A=(Expression=MaterialExpressionConstant_0,OutputIndex=0)');
+    expect(text).toContain('B=(Expression=MaterialExpressionVectorParameter_2,OutputIndex=1)');
+    expect(text).not.toMatch(/\bConst[AB]=\(Expression=/);
   });
 });
 

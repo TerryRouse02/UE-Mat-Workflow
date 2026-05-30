@@ -62,6 +62,9 @@ Do **not** share MaterialFunctions across projects — copy them into each proje
      paste resolved but cannot be previewed in the viewer. For local MFs, export uses an
      auto-link convention: create the MF in UE under the configured MF content root (default
      `/Game/`) with the JSON's base name, and a pasted parent material auto-links its calls.
+     The emitted T3D token is `MaterialFunction=MaterialFunction'"<assetPath>"'` — the inner
+     double-quotes are required and the outer single-quotes are UE's object-reference syntax;
+     UE resolves the call by that object path on paste.
      Positions (`x`/`y`) remain forbidden in the JSON — export synthesizes them from layout.
 
 ## Soft rules (best practice)

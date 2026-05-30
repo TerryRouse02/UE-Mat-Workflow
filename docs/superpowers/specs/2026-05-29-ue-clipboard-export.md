@@ -93,30 +93,49 @@ export function graphToUET3D(
   graph: MatGraph,                                  // the open Material or MaterialFunction
   layout: Record<string, { x: number; y: number }>,// node id → position (from dagre)
   meta: ExportMeta,
+  derivedPins: Record<string, DerivedPins>,         // MFCall pins resolved by the server
   opts?: UEExportOptions,
 ): UEExportResult;
 ```
 
+> **Calibration update (2026-05-29).** The format below was calibrated against real UE 5.7
+> clipboard output — see the captured ground truth `viewer/tests/fixtures/ue-clipboard-core.t3d`
+> and the reproduction test in `viewer/tests/ueT3D.test.ts`. The original flat two-pass design
+> (bare `MaterialExpression*` objects) **does not paste** — UE's Material Editor silently discards
+> it because that is the internal `.uasset` serialization, not the clipboard format. Every node
+> must be wrapped in an **outer `MaterialGraphNode`** object (the expression nests inside it).
+
 Algorithm:
-1. Assign each node a unique UE name `MaterialExpression<Type>_<n>`; keep `nodeId → ueName`.
+1. Assign each node a unique UE name `MaterialExpression<Type>_<n>` plus an outer
+   `MaterialGraphNode_<n>` (comments use `MaterialGraphNode_Comment_<n>`); keep `nodeId → names`.
+   Build a bidirectional pin-link map and a deterministic `PinId` GUID per (node, direction, pin).
 2. **Skip** `MaterialOutput` (warn once: "MaterialOutput skipped — connect final pins manually").
    **Skip** any node whose type has no metadata entry or is a known dynamic-pin node
-   (`LandscapeLayerBlend`, `SetMaterialAttributes`, `GetMaterialAttributes`) → warn
+   (`LandscapeLayerBlend`, `SetMaterialAttributes`, `GetMaterialAttributes`, `Custom`) → warn
    "node type X not exportable yet (id …)". Connections touching a skipped node are dropped.
-3. **Pass 1** — for every emitted node, write `Begin Object Class=<ueClass> Name="<ueName>"` / `End Object`.
-4. **Pass 2** — for every emitted node, write `Begin Object Name="<ueName>"` … `End Object` containing:
-   - Each param present in the node → `property=<value>` formatted by `kind`
-     (float→`2.000000`, bool→`True/False`, name/string→`"v"`, enum→`valueMap[v] ?? v`,
-     vectorN→struct from sample, texture→`None`).
-   - `MaterialExpressionEditorX/Y` from `layout`.
-   - For each **incoming** connection `from "src:srcPin" to "thisNode:dstPin"`:
-     look up `dstPin`→UE input property and `srcPin`→`OutputIndex`, emit
-     `DstProp=(Expression=<srcUeName>,OutputIndex=<idx>)`.
-5. **Comments** → `MaterialExpressionComment`: `Text`, `CommentColor` (from our `color`),
-   position = top-left of the layout bbox of `contains` nodes − padding, `SizeX/SizeY` =
-   bbox size + padding. Comments with no resolvable contained nodes still emit at origin + warn.
-6. **MaterialFunctionCall** → emit `MaterialFunction=MaterialFunction'"<path>"'` so the paste
-   **auto-links** to the user's asset (no manual per-call assignment):
+3. For every emitted node write **one contiguous block**
+   `Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_<n>" ExportPath="…"`
+   … `End Object` containing, in order:
+   - a nested **inner declaration** `Begin Object Class=<ueClass> Name="<ueName>" ExportPath="…" / End Object`;
+   - a nested **inner fill** `Begin Object Name="<ueName>" … End Object` (double-indented) with the
+     params + incoming-connection lines (see step 4);
+   - then at single indent: `MaterialExpression=<ShortClass>'<ueName>'`, `NodePosX/Y` (from
+     `layout`), `NodeGuid`, and **one `CustomProperties Pin (…)` line per input and output pin**
+     (`PinId`, `PinName`, `Direction` ∈ `EGPD_Input|EGPD_Output`, `LinkedTo=(<otherGraphNode> <PinId>,)`
+     when connected). UE needs these pin lines to register connections on paste.
+   Every `Begin Object` line carries an `ExportPath` under the fixed graph root
+   `/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0`.
+4. Params formatted by `kind` (float→`2.0`, int, bool→`True/False`, name/string→`"v"`,
+   enum→`valueMap[v] ?? v`, vectorN→`(R=…,G=…,…)` from an array or object, texture→
+   `Texture2D'"<path>"'` when a path is set else `None`). For each **incoming** connection
+   `from "src:srcPin" to "thisNode:dstPin"`, resolve `dstPin`→input property and `srcPin`→`OutputIndex`
+   and emit `DstProp=(Expression=<srcUeName>,OutputIndex=<idx>[,Mask=…])` inside the inner fill.
+5. **Comments** → outer `MaterialGraphNode_Comment` + inner `MaterialExpressionComment`: `Text`,
+   `CommentColor` (from our `color`), `NodeComment`, and `SizeX/SizeY` from the layout bbox of
+   `contains` nodes plus padding. Comments with no resolvable contained nodes still emit at origin + warn.
+6. **MaterialFunctionCall** → emit `MaterialFunction=MaterialFunction'"<path>"'` (inner
+   double-quotes; the outer single-quotes are UE object-ref syntax) so the paste **auto-links**
+   to the user's asset (no manual per-call assignment):
    - `params.MaterialFunction` is an engine path (`/…`) → pass through; built-in MFs paste resolved.
    - local `./<mfName>.matgraph.json` → emit `<mfContentRoot>/<mfName>.<mfName>`
      (e.g. `/Game/blend_normals.blend_normals`). Emit an **informational** warning listing each
@@ -124,10 +143,6 @@ Algorithm:
      UE resolves the reference by object path, so a match at that path auto-links on paste.
 7. **FunctionInput / FunctionOutput** (only in MF graphs) → emit with `InputName`/`OutputName`
    and `InputType` enum; the `Input` pin of FunctionOutput maps to UE input property `A`.
-
-The exact T3D framing (e.g. `ExportPath`, GUID property name) is finalized against Codex's
-`sample` strings in the final phase; v1 targets a structure known to paste in UE 5.x and the
-golden tests assert that structure (refined when samples land).
 
 ### 4. Toolbar UX
 
@@ -167,9 +182,17 @@ what you paste". No `x`/`y` is ever written to the `.matgraph.json`.
   the hand-authored subset is present; entries match the `ExportMeta` type.
 - **Coverage report**: count of authoring nodes with export metadata (informational; does **not**
   fail while Codex backfill is pending).
-- **Emitter golden tests**: small graphs (e.g. Constant3Vector → Multiply with a connection + a
-  comment; a tiny MF with FunctionInput/Output) → assert two-pass structure, connection
-  `OutputIndex`, positions, comment box, and the warning set (MaterialOutput skip, local MFCall).
+- **Emitter golden tests**: small graphs (e.g. Constant → Multiply with a connection + a
+  comment; a tiny MF with FunctionInput/Output) → assert the `MaterialGraphNode` framing,
+  connection `OutputIndex`, positions, comment box, and the warning set (MaterialOutput skip,
+  local MFCall).
+- **Ground-truth reproduction**: a graph mirroring the captured real-UE sample
+  `viewer/tests/fixtures/ue-clipboard-core.t3d` is run through the emitter with the **real**
+  `nodes-ue5.7.export.json`; every real-UE format token (MaterialGraphNode/`ExportPath` root,
+  `CustomProperties Pin`, `Texture2D'"…"'`, `SAMPLERTYPE_*`, `TRANSFORMSOURCE_*`/`TRANSFORM_*`,
+  ComponentMask channel bools) is asserted to exist in **both** the fixture and the emitter output.
+  This guards against a regression that reverts the calibration (the hand-authored golden tests
+  alone would silently follow such a regression).
 
 ### 8. Codex hand-off — `docs/superpowers/specs/2026-05-29-ue-clipboard-export-codex-prompt.md`
 
