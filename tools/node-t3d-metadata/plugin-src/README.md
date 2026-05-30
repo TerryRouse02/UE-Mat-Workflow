@@ -17,6 +17,15 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Sc
 `Package-Plugin.ps1` creates a compiled Win64 package under
 `tools\node-t3d-metadata\compiled\UEMatExportMetadata` for reuse.
 
+To capture the ground-truth MakeMaterialAttributes clipboard fixture:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Capture-MakeMaterialAttributesSample.ps1 -G1Root D:\SDGF_G1_Project
+```
+
+This writes `viewer\tests\fixtures\ue-make-material-attributes.t3d` by creating
+the nodes inside UE and exporting them through UE's native graph clipboard path.
+
 Default maintenance flow:
 
 ```powershell

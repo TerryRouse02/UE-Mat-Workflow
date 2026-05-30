@@ -10,6 +10,7 @@ const requiredFiles = [
   'Source/UEMatExportMetadata/Private/UEMatExportMetadataModule.cpp',
   'Scripts/Sync-To-G1Project.ps1',
   'Scripts/Run-UEMatExportMetadata.ps1',
+  'Scripts/Capture-MakeMaterialAttributesSample.ps1',
   'Scripts/Package-Plugin.ps1',
 ];
 
@@ -26,7 +27,7 @@ if (!descriptor.Modules?.some((mod) => mod.Name === 'UEMatExportMetadata' && mod
 }
 
 const commandlet = fs.readFileSync(path.join(root, 'Source/UEMatExportMetadata/Private/UEMatExportMetadataCommandlet.cpp'), 'utf8');
-for (const token of ['NodeDb=', 'Out=', 'UMaterialExpression', 'FJsonSerializer', 'functionAsset']) {
+for (const token of ['NodeDb=', 'Out=', 'MakeMaterialAttributesSampleOut=', 'UMaterialExpression', 'FJsonSerializer', 'functionAsset']) {
   if (!commandlet.includes(token)) {
     console.error(`Commandlet source is missing expected token: ${token}`);
     process.exit(1);

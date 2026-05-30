@@ -26,6 +26,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Sc
 
 The generated metadata is written to `agent-pack\nodes-ue5.7.export.json`. Logs are written under `Logs\UE`.
 
+To refresh the MakeMaterialAttributes clipboard calibration fixture:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Capture-MakeMaterialAttributesSample.ps1 -G1Root D:\SDGF_G1_Project
+```
+
+The fixture is written to `viewer\tests\fixtures\ue-make-material-attributes.t3d`.
+
 ## Agent Skill
 
 The portable skill lives at `skill/node-t3d-metadata/SKILL.md`. Any agent can use it directly by reading that file. To install it into an agent-specific skill registry, copy the whole `skill/node-t3d-metadata` folder to that agent's skills directory.

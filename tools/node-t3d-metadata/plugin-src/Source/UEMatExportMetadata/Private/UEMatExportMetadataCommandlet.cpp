@@ -1,13 +1,25 @@
 #include "UEMatExportMetadataCommandlet.h"
 
+#include "EdGraph/EdGraphNode.h"
+#include "EdGraph/EdGraphPin.h"
+#include "EdGraphUtilities.h"
 #include "HAL/FileManager.h"
+#include "Kismet2/BlueprintEditorUtils.h"
+#include "MaterialGraph/MaterialGraph.h"
+#include "MaterialGraph/MaterialGraphNode.h"
+#include "MaterialGraph/MaterialGraphSchema.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionConstant.h"
+#include "Materials/MaterialExpressionConstant3Vector.h"
+#include "Materials/MaterialExpressionMakeMaterialAttributes.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Policies/PrettyJsonPrintPolicy.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
 #include "Serialization/JsonWriter.h"
+#include "UObject/Package.h"
 #include "UObject/UnrealType.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(UEMatExportMetadataCommandlet)
@@ -165,6 +177,137 @@ static bool LoadJsonFile(const FString& Path, TSharedPtr<FJsonObject>& OutObject
         return false;
     }
 
+    return true;
+}
+
+static bool WriteMakeMaterialAttributesClipboardSample(const FString& Path, FString& OutError)
+{
+    UMaterial* Material = NewObject<UMaterial>(
+        GetTransientPackage(),
+        TEXT("UEMatWorkflowClipboard"),
+        RF_Transient | RF_Transactional);
+    if (Material == nullptr)
+    {
+        OutError = TEXT("Failed to create transient material.");
+        return false;
+    }
+
+    Material->bUseMaterialAttributes = true;
+    Material->MaterialGraph = CastChecked<UMaterialGraph>(FBlueprintEditorUtils::CreateNewGraph(
+        Material,
+        FName(TEXT("MaterialGraph_0")),
+        UMaterialGraph::StaticClass(),
+        UMaterialGraphSchema::StaticClass()));
+    Material->MaterialGraph->Material = Material;
+
+    UMaterialExpressionConstant3Vector* BaseColor = NewObject<UMaterialExpressionConstant3Vector>(
+        Material,
+        NAME_None,
+        RF_Transactional);
+    UMaterialExpressionConstant* Roughness = NewObject<UMaterialExpressionConstant>(
+        Material,
+        NAME_None,
+        RF_Transactional);
+    UMaterialExpressionMakeMaterialAttributes* MakeAttributes = NewObject<UMaterialExpressionMakeMaterialAttributes>(
+        Material,
+        NAME_None,
+        RF_Transactional);
+
+    if (BaseColor == nullptr || Roughness == nullptr || MakeAttributes == nullptr)
+    {
+        OutError = TEXT("Failed to create material expression nodes.");
+        return false;
+    }
+
+    BaseColor->Material = Material;
+    BaseColor->Constant = FLinearColor(1.0f, 0.0f, 0.0f, 1.0f);
+    BaseColor->MaterialExpressionEditorX = -520;
+    BaseColor->MaterialExpressionEditorY = -120;
+    Material->GetExpressionCollection().AddExpression(BaseColor);
+
+    Roughness->Material = Material;
+    Roughness->R = 0.5f;
+    Roughness->MaterialExpressionEditorX = -520;
+    Roughness->MaterialExpressionEditorY = 120;
+    Material->GetExpressionCollection().AddExpression(Roughness);
+
+    MakeAttributes->Material = Material;
+    MakeAttributes->MaterialExpressionEditorX = -180;
+    MakeAttributes->MaterialExpressionEditorY = 0;
+    MakeAttributes->BaseColor.Connect(0, BaseColor);
+    MakeAttributes->Roughness.Connect(0, Roughness);
+    Material->GetExpressionCollection().AddExpression(MakeAttributes);
+
+    FExpressionInput* MaterialAttributesInput = Material->GetExpressionInputForProperty(MP_MaterialAttributes);
+    if (MaterialAttributesInput == nullptr)
+    {
+        OutError = TEXT("Failed to resolve the root Material Attributes input.");
+        return false;
+    }
+    MaterialAttributesInput->Connect(0, MakeAttributes);
+
+    Material->MaterialGraph->RebuildGraph();
+
+    TArray<UMaterialExpression*> ExpressionsToCopy = { BaseColor, Roughness, MakeAttributes };
+    TSet<UObject*> NodesToExport;
+    for (UMaterialExpression* Expression : ExpressionsToCopy)
+    {
+        UEdGraphNode* GraphNode = Cast<UEdGraphNode>(Expression->GraphNode);
+        if (GraphNode == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to create graph node for %s."), *Expression->GetName());
+            return false;
+        }
+        NodesToExport.Add(GraphNode);
+    }
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UEdGraphNode* Node = Cast<UEdGraphNode>(NodeObject))
+        {
+            Node->PrepareForCopying();
+        }
+    }
+
+    FString ExportedText;
+    FEdGraphUtilities::ExportNodesToText(NodesToExport, ExportedText);
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UMaterialGraphNode* Node = Cast<UMaterialGraphNode>(NodeObject))
+        {
+            Node->PostCopyNode();
+        }
+    }
+
+    if (ExportedText.IsEmpty())
+    {
+        OutError = TEXT("UE exported an empty clipboard sample.");
+        return false;
+    }
+
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    if (!FFileHelper::SaveStringToFile(ExportedText, *Path))
+    {
+        OutError = FString::Printf(TEXT("Failed to write clipboard sample: %s"), *Path);
+        return false;
+    }
+
+    if (UMaterialGraphNode* MakeNode = Cast<UMaterialGraphNode>(MakeAttributes->GraphNode))
+    {
+        for (const UEdGraphPin* Pin : MakeNode->Pins)
+        {
+            UE_LOG(
+                LogTemp,
+                Display,
+                TEXT("MakeMaterialAttributes pin: Direction=%s SourceIndex=%d PinName=\"%s\""),
+                Pin->Direction == EGPD_Input ? TEXT("Input") : TEXT("Output"),
+                Pin->SourceIndex,
+                *Pin->PinName.ToString());
+        }
+    }
+
+    UE_LOG(LogTemp, Display, TEXT("Wrote MakeMaterialAttributes clipboard sample: %s"), *Path);
     return true;
 }
 
@@ -704,6 +847,19 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
 {
     using namespace UE::MatExportMetadata;
 
+    FString MakeMaterialAttributesSampleOutPath;
+    if (FParse::Value(*Params, TEXT("MakeMaterialAttributesSampleOut="), MakeMaterialAttributesSampleOutPath))
+    {
+        MakeMaterialAttributesSampleOutPath = ToAbsolutePath(MakeMaterialAttributesSampleOutPath);
+        FString Error;
+        if (!WriteMakeMaterialAttributesClipboardSample(MakeMaterialAttributesSampleOutPath, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 8;
+        }
+        return 0;
+    }
+
     FString NodeDbPath;
     FString OutPath;
     const bool bHasNodeDb = FParse::Value(*Params, TEXT("NodeDb="), NodeDbPath);
@@ -713,6 +869,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     if (!bHasNodeDb || !bHasOut)
     {
         UE_LOG(LogTemp, Error, TEXT("Usage: -run=UEMatExportMetadata -NodeDb=<nodes-ue5.7.json> -Out=<nodes-ue5.7.export.json> [-Strict]"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -MakeMaterialAttributesSampleOut=<fixture.t3d>"));
         return 2;
     }
 
