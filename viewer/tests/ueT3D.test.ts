@@ -267,6 +267,68 @@ describe('graphToUET3D', () => {
     expect(text).toContain('B=(Expression=MaterialExpressionVectorParameter_2,OutputIndex=1)');
     expect(text).not.toMatch(/\bConst[AB]=\(Expression=/);
   });
+
+  it('exports a Custom node with dynamic inputs and additional outputs matching the UE fixture', () => {
+    const exportMeta = JSON.parse(readFileSync(
+      resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'), 'utf-8',
+    )) as ExportMeta;
+    const fixture = readFileSync(resolve(__dirname, 'fixtures/ue-custom-node.t3d'), 'utf-8');
+
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'customprobe',
+      nodes: [
+        { id: 'uv', type: 'TextureCoordinate' },
+        { id: 'k', type: 'Constant', params: { R: 1 } },
+        { id: 'cust', type: 'Custom', params: {
+          Description: 'WF_CustomProbe',
+          OutputType: 'CMOT_Float3',
+          Code: '// probe\nfloat v = UV.x * Mask;\nreturn float3(v, v, "x" == 0 ? 0.0 : v);',
+          Inputs: [{ InputName: 'UV' }, { InputName: 'Mask' }],
+          AdditionalOutputs: [{ OutputName: 'Extra', OutputType: 'CMOT_Float1' }],
+        } },
+        { id: 'm1', type: 'Multiply' },
+        { id: 'm2', type: 'Multiply' },
+      ],
+      connections: [
+        { from: 'uv:UVs', to: 'cust:UV' },
+        { from: 'k:Value', to: 'cust:Mask' },
+        { from: 'cust:Output', to: 'm1:A' },
+        { from: 'cust:Extra', to: 'm2:A' },
+      ],
+    };
+    const positions = layout({ uv: [0, 0], k: [0, 200], cust: [240, 0], m1: [480, 0], m2: [480, 200] });
+
+    const { text, warnings } = graphToUET3D(graph, positions, exportMeta, NO_PINS);
+
+    // Custom is no longer skipped:
+    expect(warnings.some(w => /cust.*not exportable/i.test(w))).toBe(false);
+
+    // Tokens present in BOTH the real UE fixture and the emitter output (ground truth):
+    const tokens = [
+      'Begin Object Class=/Script/Engine.MaterialExpressionCustom',
+      'OutputType=CMOT_Float3',
+      'Description="WF_CustomProbe"',
+      'Inputs(0)=(InputName="UV",Input=(Expression=MaterialExpressionTextureCoordinate_0,OutputIndex=0))',
+      'Inputs(1)=(InputName="Mask",Input=(Expression=MaterialExpressionConstant_1,OutputIndex=0))',
+      'AdditionalOutputs(0)=(OutputName="Extra",OutputType=CMOT_Float1)',
+    ];
+    for (const tk of tokens) {
+      expect(fixture, `fixture must contain ${tk}`).toContain(tk);
+      expect(text, `emitter must reproduce ${tk}`).toContain(tk);
+    }
+
+    // Exact Code escaping taken from the real fixture (newlines -> \n, quotes -> \"):
+    const codeLine = fixture.split('\n').find(l => l.trim().startsWith('Code='))!.trim();
+    expect(codeLine).toBe('Code="// probe\\nfloat v = UV.x * Mask;\\nreturn float3(v, v, \\"x\\" == 0 ? 0.0 : v);"');
+    expect(text).toContain(codeLine);
+
+    // Dynamic pins declared; the additional output (Extra) indexes at 1:
+    expect(text).toContain('PinName="UV"');
+    expect(text).toContain('PinName="Mask"');
+    expect(text).toContain('PinName="Output"');
+    expect(text).toContain('PinName="Extra"');
+    expect(text).toMatch(/A=\(Expression=MaterialExpressionCustom_\d+,OutputIndex=1\)/);
+  });
 });
 
 describe('parseUET3D', () => {

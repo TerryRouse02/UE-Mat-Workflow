@@ -44,7 +44,11 @@ function fmtFloat(v: unknown): string {
 }
 
 function quote(value: unknown): string {
-  return `"${String(value).replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+  return `"${String(value)
+    .replace(/\\/g, '\\\\')
+    .replace(/"/g, '\\"')
+    .replace(/\r/g, '')
+    .replace(/\n/g, '\\n')}"`;
 }
 
 function fmtParam(value: unknown, p: ParamMeta, node: NodeJson): string | null {
@@ -138,6 +142,10 @@ function pinId(nodeId: string, pinName: string, direction: 'input' | 'output'): 
 }
 
 function nodeOutputPins(node: NodeJson, meta: NodeExportMeta, derivedPins: Record<string, DerivedPins>): string[] {
+  if (node.type === 'Custom') {
+    const extra = ((node.params?.AdditionalOutputs ?? []) as { OutputName: string }[]).map(o => o.OutputName);
+    return ['Output', ...extra];
+  }
   if (node.type === 'MaterialFunctionCall') {
     return (derivedPins[node.id]?.outputs ?? []).map(pin => pin.name);
   }
@@ -147,6 +155,9 @@ function nodeOutputPins(node: NodeJson, meta: NodeExportMeta, derivedPins: Recor
 }
 
 function nodeInputPins(node: NodeJson, meta: NodeExportMeta, derivedPins: Record<string, DerivedPins>): string[] {
+  if (node.type === 'Custom') {
+    return ((node.params?.Inputs ?? []) as { InputName: string }[]).map(i => i.InputName);
+  }
   if (node.type === 'MaterialFunctionCall' && Object.keys(meta.inputs).length === 0) {
     return (derivedPins[node.id]?.inputs ?? []).map(pin => pin.name);
   }
@@ -226,6 +237,11 @@ export function graphToUET3D(
 
   const srcRef = (srcId: string, srcPin: string): { index: number; mask?: string } => {
     const node = byId.get(srcId);
+    if (node?.type === 'Custom') {
+      const outs = ['Output', ...((node.params?.AdditionalOutputs ?? []) as { OutputName: string }[]).map(o => o.OutputName)];
+      const idx = outs.indexOf(srcPin);
+      return { index: idx < 0 ? 0 : idx };
+    }
     if (node?.type === 'MaterialFunctionCall') {
       const idx = (derivedPins[srcId]?.outputs ?? []).findIndex(o => o.name === srcPin);
       return { index: idx < 0 ? 0 : idx };
@@ -330,20 +346,39 @@ export function graphToUET3D(
       }
     }
 
-    for (const connection of incoming.get(node.id) ?? []) {
-      const src = byNodeId.get(connection.srcId);
-      if (!src) continue;
-      const { index, mask } = srcRef(connection.srcId, connection.srcPin);
-      const ref = `Expression=${src.expressionName},OutputIndex=${index}${maskBits(mask)}`;
-      if (nodeMeta.functionRefProperty) {
-        lines.push(`${I}${I}FunctionInputs(${functionInputIndex(node, nodeMeta, connection.dstPin, derivedPins)})=(Input=(${ref}))`);
-      } else {
-        const inProp = nodeMeta.inputs[connection.dstPin]?.property;
-        if (!inProp) {
-          warnings.push(`Node "${node.id}" (${node.type}): input pin "${connection.dstPin}" has no UE mapping - connection skipped.`);
-          continue;
+    if (node.type === 'Custom') {
+      const inputs = (node.params?.Inputs ?? []) as { InputName: string }[];
+      const incomingByPin = new Map((incoming.get(node.id) ?? []).map(c => [c.dstPin, c]));
+      inputs.forEach((inp, i) => {
+        const c = incomingByPin.get(inp.InputName);
+        if (c) {
+          const { index, mask } = srcRef(c.srcId, c.srcPin);
+          const ref = `Expression=${byNodeId.get(c.srcId)!.expressionName},OutputIndex=${index}${maskBits(mask)}`;
+          lines.push(`${I}${I}Inputs(${i})=(InputName=${quote(inp.InputName)},Input=(${ref}))`);
+        } else {
+          lines.push(`${I}${I}Inputs(${i})=(InputName=${quote(inp.InputName)})`);
         }
-        lines.push(`${I}${I}${inProp}=(${ref})`);
+      });
+      const addOuts = (node.params?.AdditionalOutputs ?? []) as { OutputName: string; OutputType?: string }[];
+      addOuts.forEach((o, i) => {
+        lines.push(`${I}${I}AdditionalOutputs(${i})=(OutputName=${quote(o.OutputName)},OutputType=${o.OutputType ?? 'CMOT_Float1'})`);
+      });
+    } else {
+      for (const connection of incoming.get(node.id) ?? []) {
+        const src = byNodeId.get(connection.srcId);
+        if (!src) continue;
+        const { index, mask } = srcRef(connection.srcId, connection.srcPin);
+        const ref = `Expression=${src.expressionName},OutputIndex=${index}${maskBits(mask)}`;
+        if (nodeMeta.functionRefProperty) {
+          lines.push(`${I}${I}FunctionInputs(${functionInputIndex(node, nodeMeta, connection.dstPin, derivedPins)})=(Input=(${ref}))`);
+        } else {
+          const inProp = nodeMeta.inputs[connection.dstPin]?.property;
+          if (!inProp) {
+            warnings.push(`Node "${node.id}" (${node.type}): input pin "${connection.dstPin}" has no UE mapping - connection skipped.`);
+            continue;
+          }
+          lines.push(`${I}${I}${inProp}=(${ref})`);
+        }
       }
     }
 
