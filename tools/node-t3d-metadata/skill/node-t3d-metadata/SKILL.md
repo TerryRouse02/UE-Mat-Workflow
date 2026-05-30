@@ -10,41 +10,41 @@ This is a portable agent workflow. It does not require Codex-specific features. 
 ## Core Rules
 
 - Update `agent-pack\nodes-ue5.7.export.json`; do not edit `agent-pack\nodes-ue5.7.json` unless the user explicitly asks.
-- Do not edit `G1_Project.uproject`.
+- Do not edit the host `.uproject`; it is only used to run the UE commandlet.
 - Use the compiled external plugin in `tools\node-t3d-metadata\compiled\UEMatExportMetadata` for normal runs.
 - Do not guess UE class paths or pin mappings; use the commandlet and audit the output.
 
 ## Workflow
 
-From the repo root, rebuild the plugin only if `plugin-src/` changed or the compiled package is missing:
+From the repo root, run the generic maintenance entrypoint:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Package-Plugin.ps1 -G1Root D:\SDGF_G1_Project
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
+  -ProjectPath <Path\To\Project.uproject> `
+  -EngineRoot <Path\To\UnrealEngine>
 ```
 
-Generate metadata:
+The entrypoint rebuilds the plugin when needed, generates metadata, audits the output, and runs targeted viewer tests.
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-UEMatExportMetadata.ps1 -G1Root D:\SDGF_G1_Project
-```
+Use `-CaptureFixtures` only when calibrating UE clipboard/T3D emitter behavior.
 
 Verify:
 
 ```powershell
 node tools\node-t3d-metadata\validate-tooling.js
 node tools\node-t3d-metadata\plugin-src\validate-plugin.js
+node tools\node-t3d-metadata\audit-export-meta.js
 ```
 
-Then run the metadata audit from `tools\node-t3d-metadata\docs\VERIFICATION.md`.
+Then run any additional checks from `tools\node-t3d-metadata\docs\VERIFICATION.md`.
 
 ## Success Criteria
 
 - Commandlet log says `Warnings: 0` and `Success - 0 error(s), 0 warning(s)`.
 - Audit says `missing=0`, `orphans=0`, `unresolved=0`, and `badShape=0`.
-- Current expected counts are `db=142`, `export=142`, `reserved=3`, `verified=138`, `dynamic=4`.
 
 ## Troubleshooting
 
-- If the run script reports a project plugin shadowing the compiled plugin, verify and remove only `D:\SDGF_G1_Project\G1_Project\Plugins\UEMatExportMetadata`.
-- If building with `-UseProjectPlugin`, close `UnrealEditor` and `LiveCodingConsole` first.
+- If the run script reports a project plugin shadowing the compiled plugin, verify and remove only `<ProjectDir>\Plugins\UEMatExportMetadata`.
+- If building in project-plugin mode, close `UnrealEditor` and `LiveCodingConsole` first.
 - If Vitest cannot run because `viewer\node_modules` is missing, report dependency installation as the blocker.

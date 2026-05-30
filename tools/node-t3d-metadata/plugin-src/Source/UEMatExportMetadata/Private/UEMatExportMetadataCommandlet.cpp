@@ -28,7 +28,6 @@ namespace UE::MatExportMetadata
 {
 static const TSet<FString> DynamicNodeTypes =
 {
-    TEXT("Custom"),
     TEXT("SetMaterialAttributes"),
     TEXT("GetMaterialAttributes"),
     TEXT("LandscapeLayerBlend")
@@ -660,6 +659,31 @@ static TSharedRef<FJsonObject> BuildParamsObject(const FString& NodeType, const 
     return ParamsObject;
 }
 
+static TMap<FString, TSharedPtr<FJsonObject>> ExportParamObjectsForNode(const FString& NodeType, const TMap<FString, TSharedPtr<FJsonObject>>& ParamObjects)
+{
+    if (NodeType != TEXT("Custom"))
+    {
+        return ParamObjects;
+    }
+
+    static const TSet<FString> CustomScalarParams =
+    {
+        TEXT("Code"),
+        TEXT("Description"),
+        TEXT("OutputType")
+    };
+
+    TMap<FString, TSharedPtr<FJsonObject>> FilteredParams;
+    for (const TPair<FString, TSharedPtr<FJsonObject>>& Pair : ParamObjects)
+    {
+        if (CustomScalarParams.Contains(Pair.Key))
+        {
+            FilteredParams.Add(Pair.Key, Pair.Value);
+        }
+    }
+    return FilteredParams;
+}
+
 static TSharedRef<FJsonObject> BuildFunctionInputsObject(const TArray<FString>& InputNames)
 {
     TSharedRef<FJsonObject> InputsObject = MakeShared<FJsonObject>();
@@ -708,7 +732,8 @@ static TSharedRef<FJsonObject> BuildNodeEntry(const FString& NodeType, const TSh
         Entry->SetStringField(TEXT("ueClass"), TEXT("/Script/Engine.MaterialExpressionMaterialFunctionCall"));
         Entry->SetObjectField(TEXT("inputs"), BuildFunctionInputsObject(ReadNamesFromArray(NodeObject, TEXT("inputs"))));
         Entry->SetObjectField(TEXT("outputs"), BuildOutputsObject(ReadNamesFromArray(NodeObject, TEXT("outputs")), nullptr));
-        Entry->SetObjectField(TEXT("params"), BuildParamsObject(NodeType, ReadParamObjects(NodeObject)));
+        const TMap<FString, TSharedPtr<FJsonObject>> ParamObjects = ExportParamObjectsForNode(NodeType, ReadParamObjects(NodeObject));
+        Entry->SetObjectField(TEXT("params"), BuildParamsObject(NodeType, ParamObjects));
         Entry->SetStringField(TEXT("sample"), ExistingSampleFor(ExistingRoot, NodeType, false));
         Entry->SetStringField(TEXT("functionRefProperty"), TEXT("MaterialFunction"));
         Entry->SetStringField(TEXT("functionAsset"), *FunctionAsset);
@@ -746,7 +771,8 @@ static TSharedRef<FJsonObject> BuildNodeEntry(const FString& NodeType, const TSh
         Entry->SetObjectField(TEXT("outputs"), BuildOutputsObject(ReadNamesFromArray(NodeObject, TEXT("outputs")), Expression));
     }
 
-    Entry->SetObjectField(TEXT("params"), BuildParamsObject(NodeType, ReadParamObjects(NodeObject)));
+    const TMap<FString, TSharedPtr<FJsonObject>> ParamObjects = ExportParamObjectsForNode(NodeType, ReadParamObjects(NodeObject));
+    Entry->SetObjectField(TEXT("params"), BuildParamsObject(NodeType, ParamObjects));
     Entry->SetStringField(TEXT("sample"), ExistingSampleFor(ExistingRoot, NodeType, false));
 
     if (bDynamic)
@@ -758,7 +784,15 @@ static TSharedRef<FJsonObject> BuildNodeEntry(const FString& NodeType, const TSh
     else if (Class != nullptr)
     {
         Entry->SetBoolField(TEXT("verified"), true);
-        if (NodeType == TEXT("TextureSampleParameterMovie"))
+        if (NodeType == TEXT("Custom"))
+        {
+            Entry->SetStringField(TEXT("note"), TEXT("Inputs and AdditionalOutputs are emitted structurally by the Custom branch in ueT3D.ts; verified against viewer/tests/fixtures/ue-custom-node.t3d."));
+        }
+        else if (NodeType == TEXT("MakeMaterialAttributes"))
+        {
+            Entry->SetStringField(TEXT("note"), TEXT("Verified by UE reflection commandlet. Also the auto-collect target: graphToUET3D synthesizes one MakeMaterialAttributes per MaterialOutput and reroutes the root's attribute wires into it, so a pasted material needs a single MaterialAttributes wire (enable Use Material Attributes). See collectMaterialOutputs in viewer/web/src/export/ueT3D.ts."));
+        }
+        else if (NodeType == TEXT("TextureSampleParameterMovie"))
         {
             Entry->SetStringField(TEXT("note"), TEXT("Verified by UE reflection commandlet; UE 5.7 exports movie texture parameters through MaterialExpressionTextureSampleParameter2D."));
         }

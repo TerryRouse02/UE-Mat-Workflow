@@ -9,12 +9,15 @@ const required = [
   'docs/AGENT_WORKFLOW.md',
   'docs/VERIFICATION.md',
   'skill/node-t3d-metadata/SKILL.md',
+  'Invoke-NodeT3DMetadataMaintenance.ps1',
+  'audit-export-meta.js',
   'plugin-src/UEMatExportMetadata.uplugin',
   'plugin-src/Source/UEMatExportMetadata/UEMatExportMetadata.Build.cs',
   'plugin-src/Source/UEMatExportMetadata/Private/UEMatExportMetadataCommandlet.cpp',
   'plugin-src/Scripts/Package-Plugin.ps1',
   'plugin-src/Scripts/Run-UEMatExportMetadata.ps1',
-  'plugin-src/Scripts/Sync-To-G1Project.ps1',
+  'plugin-src/Scripts/Capture-MakeMaterialAttributesSample.ps1',
+  'plugin-src/Scripts/Sync-ToProject.ps1',
   'compiled/UEMatExportMetadata/UEMatExportMetadata.uplugin',
   'compiled/UEMatExportMetadata/Binaries/Win64/UnrealEditor-UEMatExportMetadata.dll',
 ];
@@ -28,11 +31,16 @@ const missing = required.filter((file) => !fs.existsSync(path.join(bundleRoot, f
 const leftovers = forbidden.filter((file) => fs.existsSync(file));
 
 const scriptChecks = [
-  ['plugin-src/Scripts/Package-Plugin.ps1', 'compiled\\UEMatExportMetadata'],
-  ['plugin-src/Scripts/Run-UEMatExportMetadata.ps1', 'compiled\\UEMatExportMetadata'],
-  ['skill/node-t3d-metadata/SKILL.md', 'Run-UEMatExportMetadata.ps1'],
+  ['Invoke-NodeT3DMetadataMaintenance.ps1', 'ProjectPath'],
+  ['Invoke-NodeT3DMetadataMaintenance.ps1', 'EngineRoot'],
+  ['Invoke-NodeT3DMetadataMaintenance.ps1', 'audit-export-meta.js'],
+  ['plugin-src/Scripts/Package-Plugin.ps1', 'EngineRoot'],
+  ['plugin-src/Scripts/Run-UEMatExportMetadata.ps1', 'ProjectPath'],
+  ['plugin-src/Scripts/Capture-MakeMaterialAttributesSample.ps1', 'ProjectPath'],
+  ['skill/node-t3d-metadata/SKILL.md', 'Invoke-NodeT3DMetadataMaintenance.ps1'],
   ['skill/node-t3d-metadata/SKILL.md', 'agent-pack\\nodes-ue5.7.export.json'],
   ['docs/AGENT_WORKFLOW.md', 'agent-pack\\nodes-ue5.7.export.json'],
+  ['docs/VERIFICATION.md', 'audit-export-meta.js'],
 ];
 
 const badContent = [];

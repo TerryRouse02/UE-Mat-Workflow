@@ -8,7 +8,7 @@ const requiredFiles = [
   'Source/UEMatExportMetadata/Public/UEMatExportMetadataCommandlet.h',
   'Source/UEMatExportMetadata/Private/UEMatExportMetadataCommandlet.cpp',
   'Source/UEMatExportMetadata/Private/UEMatExportMetadataModule.cpp',
-  'Scripts/Sync-To-G1Project.ps1',
+  'Scripts/Sync-ToProject.ps1',
   'Scripts/Run-UEMatExportMetadata.ps1',
   'Scripts/Capture-MakeMaterialAttributesSample.ps1',
   'Scripts/Package-Plugin.ps1',

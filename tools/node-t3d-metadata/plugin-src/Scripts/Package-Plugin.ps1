@@ -1,6 +1,8 @@
 param(
-    [string]$G1Root = "D:\SDGF_G1_Project",
-    [string]$PackageDir = ""
+    [string]$ProjectPath = "",
+    [string]$EngineRoot = "",
+    [string]$PackageDir = "",
+    [string]$WorkflowRoot = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,16 +23,25 @@ function Find-RepoRoot([string]$StartPath) {
 
 $PluginRoot = Split-Path -Parent $PSScriptRoot
 $BundleRoot = Split-Path -Parent $PluginRoot
-$WorkflowRoot = Find-RepoRoot $BundleRoot
+if ([string]::IsNullOrWhiteSpace($WorkflowRoot)) {
+    $WorkflowRoot = Find-RepoRoot $BundleRoot
+}
+if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
+    throw "EngineRoot is required. Pass -EngineRoot <path-to-UnrealEngine>."
+}
 if ([string]::IsNullOrWhiteSpace($PackageDir)) {
     $PackageDir = Join-Path $BundleRoot "compiled\UEMatExportMetadata"
 }
 
-$RunUAT = Join-Path $G1Root "UnrealEngine\Engine\Build\BatchFiles\RunUAT.bat"
+$EngineRoot = (Resolve-Path -LiteralPath $EngineRoot).Path
+$RunUAT = Join-Path $EngineRoot "Engine\Build\BatchFiles\RunUAT.bat"
 $PluginFile = Join-Path $PluginRoot "UEMatExportMetadata.uplugin"
 $LogRoot = Join-Path $WorkflowRoot "Logs\UE"
 $PackageLog = Join-Path $LogRoot "UEMatExportMetadata_Package.log"
 
+if (-not [string]::IsNullOrWhiteSpace($ProjectPath) -and -not (Test-Path $ProjectPath)) {
+    throw "ProjectPath not found: $ProjectPath"
+}
 foreach ($required in @($RunUAT, $PluginFile)) {
     if (-not (Test-Path $required)) {
         throw "Required path not found: $required"

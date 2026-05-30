@@ -1,7 +1,9 @@
 param(
-    [string]$G1Root = "D:\SDGF_G1_Project",
+    [string]$ProjectPath = "",
+    [string]$EngineRoot = "",
     [string]$WorkflowRoot = "",
-    [string]$Out = ""
+    [string]$Out = "",
+    [string]$PackageDir = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -25,14 +27,25 @@ $BundleRoot = Split-Path -Parent $PluginRoot
 if ([string]::IsNullOrWhiteSpace($WorkflowRoot)) {
     $WorkflowRoot = Find-RepoRoot $BundleRoot
 }
+if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
+    throw "ProjectPath is required. Pass -ProjectPath <path-to-.uproject>."
+}
+if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
+    throw "EngineRoot is required. Pass -EngineRoot <path-to-UnrealEngine>."
+}
 if ([string]::IsNullOrWhiteSpace($Out)) {
     $Out = Join-Path $WorkflowRoot "viewer\tests\fixtures\ue-make-material-attributes.t3d"
 }
 
-$ProjectPath = Join-Path $G1Root "G1_Project\G1_Project.uproject"
-$EditorCmd = Join-Path $G1Root "UnrealEngine\Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
-$PackagedPlugin = Join-Path $BundleRoot "compiled\UEMatExportMetadata\UEMatExportMetadata.uplugin"
-$ProjectPlugin = Join-Path $G1Root "G1_Project\Plugins\UEMatExportMetadata\UEMatExportMetadata.uplugin"
+$ProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path
+$EngineRoot = (Resolve-Path -LiteralPath $EngineRoot).Path
+$ProjectDir = Split-Path -Parent $ProjectPath
+$EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+if ([string]::IsNullOrWhiteSpace($PackageDir)) {
+    $PackageDir = Join-Path $BundleRoot "compiled\UEMatExportMetadata"
+}
+$PackagedPlugin = Join-Path $PackageDir "UEMatExportMetadata.uplugin"
+$ProjectPlugin = Join-Path $ProjectDir "Plugins\UEMatExportMetadata\UEMatExportMetadata.uplugin"
 $LogRoot = Join-Path $WorkflowRoot "Logs\UE"
 $CommandletLog = Join-Path $LogRoot "UEMatExportMetadata_MakeMaterialAttributesSample.log"
 

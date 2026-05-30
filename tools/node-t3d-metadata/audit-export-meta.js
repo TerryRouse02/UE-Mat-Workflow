@@ -1,0 +1,178 @@
+const fs = require('fs');
+const path = require('path');
+
+function parseArgs(argv) {
+  const args = {
+    workflowRoot: path.resolve(__dirname, '..', '..'),
+    json: false,
+  };
+  for (let i = 0; i < argv.length; i += 1) {
+    const arg = argv[i];
+    if (arg === '--json') {
+      args.json = true;
+    } else if (arg === '--workflow-root') {
+      args.workflowRoot = path.resolve(argv[++i]);
+    } else {
+      throw new Error(`Unknown argument: ${arg}`);
+    }
+  }
+  return args;
+}
+
+function readJson(file) {
+  return JSON.parse(fs.readFileSync(file, 'utf8'));
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function declaredNames(items) {
+  if (!Array.isArray(items)) return [];
+  return items
+    .map((item) => (typeof item === 'string' ? item : item?.name))
+    .filter((name) => typeof name === 'string' && name.length > 0);
+}
+
+function hasParamMap(meta, name) {
+  if (meta.params?.[name]) return true;
+  return Object.values(meta.params ?? {}).some((paramMeta) => (
+    isPlainObject(paramMeta)
+      && isPlainObject(paramMeta.components)
+      && typeof paramMeta.components[name] === 'string'
+  ));
+}
+
+function audit(workflowRoot) {
+  const dbPath = path.join(workflowRoot, 'agent-pack', 'nodes-ue5.7.json');
+  const exportPath = path.join(workflowRoot, 'agent-pack', 'nodes-ue5.7.export.json');
+  const db = readJson(dbPath);
+  const exp = readJson(exportPath);
+
+  const dbNodes = isPlainObject(db.nodes) ? db.nodes : {};
+  const expNodes = isPlainObject(exp.nodes) ? exp.nodes : {};
+  const reserved = isPlainObject(exp.reserved) ? exp.reserved : {};
+  const dbKeys = Object.keys(dbNodes);
+  const nodeKeys = Object.keys(expNodes);
+  const reservedKeys = Object.keys(reserved);
+
+  const missing = dbKeys.filter((key) => !(key in expNodes));
+  const orphans = nodeKeys.filter((key) => !(key in dbNodes));
+  const dynamic = nodeKeys.filter((key) => expNodes[key]?.dynamicExport === true);
+  const verified = nodeKeys.filter((key) => expNodes[key]?.verified === true);
+  const unresolved = nodeKeys.filter((key) => expNodes[key]?.verified !== true && expNodes[key]?.dynamicExport !== true);
+  const reservedMissing = ['MaterialFunctionCall', 'FunctionInput', 'FunctionOutput'].filter((key) => !(key in reserved));
+  const reservedUnexpected = reservedKeys.filter((key) => key === 'MaterialOutput');
+  const structuralParams = {
+    Custom: new Set(['Inputs', 'AdditionalOutputs', 'IncludeFilePaths', 'AdditionalDefines']),
+  };
+
+  const badShape = [];
+  for (const [key, meta] of [...Object.entries(expNodes), ...Object.entries(reserved).map(([key, value]) => [`reserved:${key}`, value])]) {
+    if (!isPlainObject(meta)) {
+      badShape.push(`${key}: entry is not an object`);
+      continue;
+    }
+    if (typeof meta.ueClass !== 'string' || meta.ueClass.length === 0) {
+      badShape.push(`${key}.ueClass`);
+    }
+    for (const field of ['inputs', 'outputs', 'params']) {
+      if (!isPlainObject(meta[field])) {
+        badShape.push(`${key}.${field}`);
+      }
+    }
+  }
+
+  const missingMaps = [];
+  for (const [key, node] of Object.entries(dbNodes)) {
+    const meta = expNodes[key];
+    if (!isPlainObject(meta) || meta.dynamicExport === true) {
+      continue;
+    }
+
+    for (const name of declaredNames(node.inputs)) {
+      if (!meta.inputs?.[name]) {
+        missingMaps.push(`${key}.inputs.${name}`);
+      }
+    }
+    for (const name of declaredNames(node.outputs)) {
+      if (!meta.outputs?.[name]) {
+        missingMaps.push(`${key}.outputs.${name}`);
+      }
+    }
+    for (const name of declaredNames(node.params)) {
+      if (structuralParams[key]?.has(name)) {
+        continue;
+      }
+      if (!hasParamMap(meta, name)) {
+        missingMaps.push(`${key}.params.${name}`);
+      }
+    }
+  }
+
+  const failed = missing.length > 0
+    || orphans.length > 0
+    || unresolved.length > 0
+    || reservedMissing.length > 0
+    || reservedUnexpected.length > 0
+    || badShape.length > 0
+    || missingMaps.length > 0;
+
+  return {
+    failed,
+    summary: {
+      db: dbKeys.length,
+      export: nodeKeys.length,
+      reserved: reservedKeys.length,
+      missing: missing.length,
+      orphans: orphans.length,
+      verified: verified.length,
+      dynamic: dynamic.length,
+      unresolved: unresolved.length,
+      badShape: badShape.length,
+      missingMaps: missingMaps.length,
+    },
+    details: {
+      missing,
+      orphans,
+      dynamic,
+      unresolved,
+      reservedMissing,
+      reservedUnexpected,
+      badShape,
+      missingMaps,
+    },
+  };
+}
+
+function printList(label, values) {
+  if (values.length === 0) return;
+  console.error(`${label}:`);
+  for (const value of values) {
+    console.error(`- ${value}`);
+  }
+}
+
+try {
+  const args = parseArgs(process.argv.slice(2));
+  const result = audit(args.workflowRoot);
+  if (args.json) {
+    console.log(JSON.stringify(result, null, 2));
+  } else {
+    const s = result.summary;
+    console.log(`db=${s.db} export=${s.export} reserved=${s.reserved} missing=${s.missing} orphans=${s.orphans} verified=${s.verified} dynamic=${s.dynamic} unresolved=${s.unresolved} badShape=${s.badShape} missingMaps=${s.missingMaps}`);
+    if (result.failed) {
+      printList('Missing export metadata', result.details.missing);
+      printList('Orphan export metadata', result.details.orphans);
+      printList('Unresolved non-dynamic metadata', result.details.unresolved);
+      printList('Missing reserved metadata', result.details.reservedMissing);
+      printList('Unexpected reserved metadata', result.details.reservedUnexpected);
+      printList('Bad metadata shape', result.details.badShape);
+      printList('Missing declared pin/param maps', result.details.missingMaps);
+    }
+  }
+  process.exit(result.failed ? 1 : 0);
+} catch (error) {
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(2);
+}
