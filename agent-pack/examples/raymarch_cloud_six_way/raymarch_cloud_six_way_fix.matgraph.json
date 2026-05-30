@@ -1,0 +1,191 @@
+{
+  "schemaVersion": "1.0",
+  "ueVersion": "5.7",
+  "type": "Material",
+  "name": "raymarch_cloud_six_way_fix",
+  "description": "RayMarchCloud2D six-way lighting decode: split UDLR/FBTD channels into six signed tangent-space light directions.",
+  "nodes": [
+    {
+      "id": "tex_udlr",
+      "type": "TextureSampleParameter2D",
+      "params": {
+        "ParameterName": "Six-way lighting Texture1_UDLR",
+        "Texture": "/Game/G1/MaterialLibrary/Material/Scene/M_RayMarchCloud2D/Textures/Cloud_Texture_12_UDLR.Cloud_Texture_12_UDLR",
+        "SamplerType": "Masks"
+      }
+    },
+    {
+      "id": "tex_fbtd",
+      "type": "TextureSampleParameter2D",
+      "params": {
+        "ParameterName": "Six-way lighting Texture2_FBTD",
+        "Texture": "/Game/G1/MaterialLibrary/Material/Scene/M_RayMarchCloud2D/Textures/Cloud_Texture_12_FBTD.Cloud_Texture_12_FBTD",
+        "SamplerType": "Masks"
+      }
+    },
+    {
+      "id": "light_ws",
+      "type": "VectorParameter",
+      "params": {
+        "ParameterName": "LightVectorWS_DebugInput",
+        "Group": "SixWay_Debug",
+        "DefaultValue": [0, 0, 1, 0]
+      }
+    },
+    {
+      "id": "light_offset",
+      "type": "VectorParameter",
+      "params": {
+        "ParameterName": "偏移天空大气方向",
+        "Group": "SixWay",
+        "DefaultValue": [0, 0, 0, 0]
+      }
+    },
+    { "id": "add_light_offset", "type": "Add" },
+    { "id": "normalize_light_ws", "type": "Normalize" },
+    {
+      "id": "world_to_tangent",
+      "type": "Transform",
+      "params": {
+        "Source": "World",
+        "Destination": "Tangent"
+      }
+    },
+    { "id": "normalize_light_ts", "type": "Normalize" },
+    {
+      "id": "mask_x",
+      "type": "ComponentMask",
+      "params": { "R": true, "G": false, "B": false, "A": false }
+    },
+    {
+      "id": "mask_y",
+      "type": "ComponentMask",
+      "params": { "R": false, "G": true, "B": false, "A": false }
+    },
+    {
+      "id": "mask_z",
+      "type": "ComponentMask",
+      "params": { "R": false, "G": false, "B": true, "A": false }
+    },
+    { "id": "zero", "type": "Constant", "params": { "R": 0 } },
+    { "id": "neg_one", "type": "Constant", "params": { "R": -1 } },
+    { "id": "right_w", "type": "Max" },
+    { "id": "neg_x", "type": "Multiply" },
+    { "id": "left_w", "type": "Max" },
+    { "id": "neg_y", "type": "Multiply" },
+    { "id": "top_w", "type": "Max" },
+    { "id": "bottom_w", "type": "Max" },
+    { "id": "front_w", "type": "Max" },
+    { "id": "neg_z", "type": "Multiply" },
+    { "id": "back_w", "type": "Max" },
+    { "id": "right_term", "type": "Multiply" },
+    { "id": "left_term", "type": "Multiply" },
+    { "id": "top_term", "type": "Multiply" },
+    { "id": "bottom_term", "type": "Multiply" },
+    { "id": "front_term", "type": "Multiply" },
+    { "id": "back_term", "type": "Multiply" },
+    { "id": "add_x", "type": "Add" },
+    { "id": "add_y", "type": "Add" },
+    { "id": "add_z", "type": "Add" },
+    { "id": "add_xy", "type": "Add" },
+    { "id": "six_way_light", "type": "Add" },
+    {
+      "id": "six_way_color",
+      "type": "VectorParameter",
+      "params": {
+        "ParameterName": "SixWayLightTint",
+        "Group": "SixWay",
+        "DefaultValue": [1, 1, 1, 1]
+      }
+    },
+    { "id": "tinted_six_way", "type": "Multiply" },
+    { "id": "opacity", "type": "Constant", "params": { "R": 0.65 } },
+    { "id": "OUT", "type": "MaterialOutput" }
+  ],
+  "connections": [
+    { "from": "light_ws:RGB", "to": "add_light_offset:A" },
+    { "from": "light_offset:RGB", "to": "add_light_offset:B" },
+    { "from": "add_light_offset:Result", "to": "normalize_light_ws:VectorInput" },
+    { "from": "normalize_light_ws:Result", "to": "world_to_tangent:VectorInput" },
+    { "from": "world_to_tangent:Result", "to": "normalize_light_ts:VectorInput" },
+    { "from": "normalize_light_ts:Result", "to": "mask_x:Input" },
+    { "from": "normalize_light_ts:Result", "to": "mask_y:Input" },
+    { "from": "normalize_light_ts:Result", "to": "mask_z:Input" },
+    { "from": "mask_x:Result", "to": "right_w:A" },
+    { "from": "zero:Value", "to": "right_w:B" },
+    { "from": "mask_x:Result", "to": "neg_x:A" },
+    { "from": "neg_one:Value", "to": "neg_x:B" },
+    { "from": "neg_x:Result", "to": "left_w:A" },
+    { "from": "zero:Value", "to": "left_w:B" },
+    { "from": "mask_y:Result", "to": "neg_y:A" },
+    { "from": "neg_one:Value", "to": "neg_y:B" },
+    { "from": "neg_y:Result", "to": "top_w:A" },
+    { "from": "zero:Value", "to": "top_w:B" },
+    { "from": "mask_y:Result", "to": "bottom_w:A" },
+    { "from": "zero:Value", "to": "bottom_w:B" },
+    { "from": "mask_z:Result", "to": "front_w:A" },
+    { "from": "zero:Value", "to": "front_w:B" },
+    { "from": "mask_z:Result", "to": "neg_z:A" },
+    { "from": "neg_one:Value", "to": "neg_z:B" },
+    { "from": "neg_z:Result", "to": "back_w:A" },
+    { "from": "zero:Value", "to": "back_w:B" },
+    { "from": "tex_udlr:A", "to": "right_term:A" },
+    { "from": "right_w:Result", "to": "right_term:B" },
+    { "from": "tex_udlr:B", "to": "left_term:A" },
+    { "from": "left_w:Result", "to": "left_term:B" },
+    { "from": "tex_udlr:R", "to": "top_term:A" },
+    { "from": "top_w:Result", "to": "top_term:B" },
+    { "from": "tex_udlr:G", "to": "bottom_term:A" },
+    { "from": "bottom_w:Result", "to": "bottom_term:B" },
+    { "from": "tex_fbtd:R", "to": "front_term:A" },
+    { "from": "front_w:Result", "to": "front_term:B" },
+    { "from": "tex_fbtd:G", "to": "back_term:A" },
+    { "from": "back_w:Result", "to": "back_term:B" },
+    { "from": "right_term:Result", "to": "add_x:A" },
+    { "from": "left_term:Result", "to": "add_x:B" },
+    { "from": "top_term:Result", "to": "add_y:A" },
+    { "from": "bottom_term:Result", "to": "add_y:B" },
+    { "from": "front_term:Result", "to": "add_z:A" },
+    { "from": "back_term:Result", "to": "add_z:B" },
+    { "from": "add_x:Result", "to": "add_xy:A" },
+    { "from": "add_y:Result", "to": "add_xy:B" },
+    { "from": "add_xy:Result", "to": "six_way_light:A" },
+    { "from": "add_z:Result", "to": "six_way_light:B" },
+    { "from": "six_way_light:Result", "to": "tinted_six_way:A" },
+    { "from": "six_way_color:RGB", "to": "tinted_six_way:B" },
+    { "from": "tinted_six_way:Result", "to": "OUT:EmissiveColor" },
+    { "from": "opacity:Value", "to": "OUT:Opacity" }
+  ],
+  "comments": [
+    {
+      "id": "c_input",
+      "text": "Inputs: UDLR/FBTD direction textures plus the world-space light vector. In the real material, replace LightVectorWS_DebugInput with AtmosphericLightVector + existing sky-direction offset.",
+      "color": "#4a90e2",
+      "contains": ["tex_udlr", "tex_fbtd", "light_ws", "light_offset", "add_light_offset"]
+    },
+    {
+      "id": "c_space",
+      "text": "World to Tangent: six-way lighting must evaluate the light direction in tangent/card space.",
+      "color": "#50c878",
+      "contains": ["normalize_light_ws", "world_to_tangent", "normalize_light_ts", "mask_x", "mask_y", "mask_z"]
+    },
+    {
+      "id": "c_weights",
+      "text": "Signed direction weights: use max(axis, 0) and max(-axis, 0). This replaces the old If nodes that selected the same channel for both signs.",
+      "color": "#f5a623",
+      "contains": ["zero", "neg_one", "right_w", "neg_x", "left_w", "neg_y", "top_w", "bottom_w", "front_w", "neg_z", "back_w"]
+    },
+    {
+      "id": "c_terms",
+      "text": "Default channel mapping: Right=UDLR.A, Left=UDLR.B, Top=UDLR.R, Bottom=UDLR.G, Front=FBTD.R, Back=FBTD.G. Swap paired channels if validation lighting shows an axis is reversed.",
+      "color": "#bd10e0",
+      "contains": ["right_term", "left_term", "top_term", "bottom_term", "front_term", "back_term"]
+    },
+    {
+      "id": "c_sum",
+      "text": "Add all six weighted directional terms. Feed this result back into the existing scattering/tint chain in M_RayMarchCloud2D.",
+      "color": "#7ed321",
+      "contains": ["add_x", "add_y", "add_z", "add_xy", "six_way_light", "six_way_color", "tinted_six_way", "OUT"]
+    }
+  ]
+}
