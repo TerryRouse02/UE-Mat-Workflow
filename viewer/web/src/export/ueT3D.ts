@@ -263,6 +263,36 @@ function collectMaterialOutputs(
   };
 }
 
+// Material Attributes family nodes (MakeMaterialAttributes, and prospectively
+// SetMaterialAttributes) rebuild their input connections from the expression-level
+// FExpressionInput on paste, NOT from the graph-pin LinkedTo that ordinary nodes use.
+// A bare expression name fails to resolve in that code path (the Expression pointer
+// ends up null and the wire drops), so these inputs need a fully-qualified object
+// reference: "<ueClass>'<GraphNodeName>.<ExpressionName>'". Verified against
+// tests/fixtures/ue-make-material-attributes.t3d (a genuine UE 5.7 clipboard sample).
+function fqExpressionRef(src: EmittedExpression): string {
+  return quote(`${src.meta.ueClass}'${src.graphNodeName}.${src.expressionName}'`);
+}
+
+// Channel-named outputs carry a component mask in the FExpressionInput; single
+// outputs (Result, Value, Distance, …) do not. X/Y/Z/W alias the R/G/B/A slots.
+// Verified against tests/fixtures/ue-make-material-attributes-sources.t3d:
+// RGB -> ",Mask=1,MaskR=1,MaskG=1,MaskB=1"; R -> ",Mask=1,MaskR=1"; Result -> "".
+const OUTPUT_CHANNELS: Record<string, string> = {
+  R: 'R', G: 'G', B: 'B', A: 'A', RG: 'RG', RGB: 'RGB', RGBA: 'RGBA',
+  X: 'R', Y: 'G', Z: 'B', W: 'A', XY: 'RG', XYZ: 'RGB', XYZW: 'RGBA',
+};
+
+// The channel suffix UE writes after an Expression ref for a MaterialAttributes-family
+// input: only the channels that are on, zeros omitted (real UE clipboard format).
+function componentMaskFor(outputPin: string): string {
+  const channels = OUTPUT_CHANNELS[outputPin];
+  if (!channels) return '';
+  const parts = ['Mask=1'];
+  for (const c of ['R', 'G', 'B', 'A']) if (channels.includes(c)) parts.push(`Mask${c}=1`);
+  return `,${parts.join(',')}`;
+}
+
 export function graphToUET3D(
   graph: MatGraph,
   layout: Record<string, { x: number; y: number }>,
@@ -450,7 +480,16 @@ export function graphToUET3D(
             warnings.push(`Node "${node.id}" (${node.type}): input pin "${connection.dstPin}" has no UE mapping - connection skipped.`);
             continue;
           }
-          lines.push(`${I}${I}${inProp}=(${ref})`);
+          if (node.type === 'MakeMaterialAttributes') {
+            // Fully-qualified Expression ref (see fqExpressionRef), then OutputIndex
+            // (only when >0, before the mask) and the source output's component mask.
+            // Order/format verified against ue-make-material-attributes-sources.t3d.
+            const idxPart = index > 0 ? `,OutputIndex=${index}` : '';
+            const maskPart = componentMaskFor(connection.srcPin);
+            lines.push(`${I}${I}${inProp}=(Expression=${fqExpressionRef(src)}${idxPart}${maskPart})`);
+          } else {
+            lines.push(`${I}${I}${inProp}=(${ref})`);
+          }
         }
       }
     }

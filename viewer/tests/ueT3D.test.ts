@@ -102,9 +102,12 @@ describe('graphToUET3D', () => {
     // Exactly one MakeMaterialAttributes expression is synthesized to collect every attribute wire.
     expect(text).toContain('Begin Object Class=/Script/Engine.MaterialExpressionMakeMaterialAttributes');
     expect((text.match(/MaterialExpressionMakeMaterialAttributes Name=/g) ?? []).length).toBe(1);
-    // Both attribute connections now feed the collector's matching input properties.
-    expect(text).toContain('BaseColor=(Expression=MaterialExpressionConstant_0,OutputIndex=0)');
-    expect(text).toContain('Roughness=(Expression=MaterialExpressionConstant_1,OutputIndex=0)');
+    // Both attribute connections feed the collector's matching input properties, using
+    // the fully-qualified Expression reference the MaterialAttributes family requires.
+    expect(text).toContain(`BaseColor=(Expression="/Script/Engine.MaterialExpressionConstant'MaterialGraphNode_0.MaterialExpressionConstant_0'")`);
+    expect(text).toContain(`Roughness=(Expression="/Script/Engine.MaterialExpressionConstant'MaterialGraphNode_1.MaterialExpressionConstant_1'")`);
+    // And never the bare-name form that fails to resolve on paste for this node family.
+    expect(text).not.toMatch(/BaseColor=\(Expression=MaterialExpressionConstant_0,/);
     // The collector exposes the single MaterialAttributes output pin (the one manual wire in UE).
     expect(text).toContain('PinName="MaterialAttributes",Direction="EGPD_Output"');
     // Guidance points at the single-wire workflow.
@@ -125,10 +128,101 @@ describe('graphToUET3D', () => {
       ],
     };
     const { text, warnings } = graphToUET3D(graph, layout({ a: [0, 0], b: [0, 200], OUT: [300, 0] }), META, NO_PINS);
-    // First wire wins; the collector's BaseColor pin links to exactly one expression.
-    expect(text).toContain('BaseColor=(Expression=MaterialExpressionConstant_0,OutputIndex=0)');
-    expect(text).not.toContain('Expression=MaterialExpressionConstant_1');
+    // First wire wins; the collector's BaseColor input appears exactly once and points
+    // at the first source (node 0), never the dropped second source.
+    const baseColorInputs = text.split('\n').map(l => l.trim()).filter(l => l.startsWith('BaseColor=(Expression='));
+    expect(baseColorInputs).toHaveLength(1);
+    expect(baseColorInputs[0]).toContain('MaterialGraphNode_0.MaterialExpressionConstant_0');
     expect(warnings.some(w => /BaseColor.*(duplicate|wired more than once)/i.test(w))).toBe(true);
+  });
+
+  it('uses a fully-qualified Expression reference for MakeMaterialAttributes inputs (ground truth)', () => {
+    const exportMeta = JSON.parse(readFileSync(
+      resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'), 'utf-8',
+    )) as ExportMeta;
+    const fixture = readFileSync(resolve(__dirname, 'fixtures/ue-make-material-attributes.t3d'), 'utf-8');
+
+    // Ground truth: genuine UE 5.7 serializes MakeMaterialAttributes inputs with a
+    // fully-qualified object reference, NOT the bare-name form ordinary nodes use.
+    const fqBaseColor = `BaseColor=(Expression="/Script/Engine.MaterialExpressionConstant3Vector'MaterialGraphNode_0.MaterialExpressionConstant3Vector_0'"`;
+    expect(fixture, 'real UE fixture uses the full-path form').toContain(fqBaseColor);
+    expect(fixture).not.toContain('BaseColor=(Expression=MaterialExpressionConstant3Vector_0');
+
+    // Our emitter must reproduce that full-path form for the same graph (auto-collected).
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'mma',
+      nodes: [
+        { id: 'c3', type: 'Constant3Vector', params: { Constant: [1, 0, 0, 1] } },
+        { id: 'k', type: 'Constant', params: { R: 0.5 } },
+        { id: 'OUT', type: 'MaterialOutput' },
+      ],
+      connections: [
+        { from: 'c3:RGB', to: 'OUT:BaseColor' },
+        { from: 'k:Value', to: 'OUT:Roughness' },
+      ],
+    };
+    const positions = layout({ c3: [-520, -120], k: [-520, 120], OUT: [0, 0] });
+    const { text } = graphToUET3D(graph, positions, exportMeta, NO_PINS);
+
+    expect(text, 'emitter reproduces the ground-truth full-path ref').toContain(fqBaseColor);
+    expect(text).toMatch(/Roughness=\(Expression="\/Script\/Engine\.MaterialExpressionConstant'MaterialGraphNode_1\.MaterialExpressionConstant_\d+'"\)/);
+    // The ordinary-node bare form must NOT appear for the collector's inputs.
+    expect(text).not.toMatch(/BaseColor=\(Expression=MaterialExpressionConstant3Vector_\d+,OutputIndex/);
+  });
+
+  it('reproduces the per-source-type channel mask/OutputIndex for MakeMaterialAttributes inputs (ground truth)', () => {
+    const exportMeta = JSON.parse(readFileSync(
+      resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'), 'utf-8',
+    )) as ExportMeta;
+    const fixture = readFileSync(resolve(__dirname, 'fixtures/ue-make-material-attributes-sources.t3d'), 'utf-8');
+
+    // Pull the suffix after the Expression object ref straight from the genuine UE 5.7
+    // sample. Node numbers differ between the fixture and our emitter, so we compare the
+    // channel suffix (Mask / OutputIndex), which is what the source output type determines.
+    const suffix = (text: string, prop: string): string => {
+      const line = text.split(/\r?\n/).map(l => l.trim()).find(l => l.startsWith(`${prop}=(Expression=`));
+      if (!line) throw new Error(`no ${prop} input line`);
+      return line.replace(/^.*?'"/, ''); // drop everything up to the Expression ref's closing '"
+    };
+
+    // Bind the expectation to real UE ground truth, then guard the exact strings so a
+    // silent capture regression can't quietly weaken the test.
+    const real = {
+      BaseColor: suffix(fixture, 'BaseColor'),         // Constant3Vector RGB
+      Normal: suffix(fixture, 'Normal'),               // TextureSample RGB
+      Roughness: suffix(fixture, 'Roughness'),         // TextureSample R (index 1)
+      EmissiveColor: suffix(fixture, 'EmissiveColor'), // Multiply Result (single output)
+      Metallic: suffix(fixture, 'Metallic'),           // Constant Value (single output)
+    };
+    expect(real.BaseColor).toBe(',Mask=1,MaskR=1,MaskG=1,MaskB=1)');
+    expect(real.Normal).toBe(',Mask=1,MaskR=1,MaskG=1,MaskB=1)');
+    expect(real.Roughness).toBe(',OutputIndex=1,Mask=1,MaskR=1)');
+    expect(real.EmissiveColor).toBe(')');
+    expect(real.Metallic).toBe(')');
+
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'mma2',
+      nodes: [
+        { id: 'c3', type: 'Constant3Vector', params: { Constant: [1, 0, 0, 1] } },
+        { id: 'tex', type: 'TextureSample', params: {} },
+        { id: 'mul', type: 'Multiply' },
+        { id: 'k', type: 'Constant', params: { R: 0.5 } },
+        { id: 'OUT', type: 'MaterialOutput' },
+      ],
+      connections: [
+        { from: 'c3:RGB', to: 'OUT:BaseColor' },
+        { from: 'tex:RGB', to: 'OUT:Normal' },
+        { from: 'tex:R', to: 'OUT:Roughness' },
+        { from: 'mul:Result', to: 'OUT:EmissiveColor' },
+        { from: 'k:Value', to: 'OUT:Metallic' },
+      ],
+    };
+    const positions = layout({ c3: [0, 0], tex: [0, 200], mul: [0, 400], k: [0, 600], OUT: [400, 0] });
+    const { text } = graphToUET3D(graph, positions, exportMeta, NO_PINS);
+
+    for (const prop of ['BaseColor', 'Normal', 'Roughness', 'EmissiveColor', 'Metallic'] as const) {
+      expect(suffix(text, prop), `${prop} suffix must match real UE`).toBe(real[prop]);
+    }
   });
 
   it('warns and skips a node type with no metadata', () => {
