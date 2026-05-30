@@ -22,6 +22,11 @@ const META: ExportMeta = {
       inputs: { BaseNormal: { property: 'FunctionInputs(0)' }, AdditionalNormal: { property: 'FunctionInputs(1)' } },
       outputs: { Result: { index: 0 } },
       params: {} },
+    MakeMaterialAttributes: { ueClass: '/Script/Engine.MaterialExpressionMakeMaterialAttributes',
+      inputs: Object.fromEntries(['BaseColor', 'Metallic', 'Specular', 'Roughness', 'EmissiveColor', 'Opacity',
+        'OpacityMask', 'Normal', 'WorldPositionOffset', 'Refraction', 'AmbientOcclusion', 'PixelDepthOffset',
+        'SubsurfaceColor', 'ClearCoat', 'ClearCoatRoughness'].map(a => [a, { property: a }])),
+      outputs: { MaterialAttributes: { index: 0 } }, params: {} },
   },
   reserved: {
     MaterialFunctionCall: { ueClass: '/Script/Engine.MaterialExpressionMaterialFunctionCall',
@@ -78,19 +83,52 @@ describe('graphToUET3D', () => {
     expect(text).toContain('A=(Expression=MaterialExpressionTextureSampleParameter2D_0,OutputIndex=0,Mask=1,MaskR=1,MaskG=0,MaskB=0,MaskA=0)');
   });
 
-  it('skips MaterialOutput with a warning and drops connections into it', () => {
+  it('auto-collects MaterialOutput attribute wires into a synthesized MakeMaterialAttributes node', () => {
     const graph: MatGraph = {
       schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
       nodes: [
         { id: 'c', type: 'Constant', params: { R: 1 } },
+        { id: 'r', type: 'Constant', params: { R: 0.5 } },
         { id: 'OUT', type: 'MaterialOutput' },
       ],
-      connections: [{ from: 'c:Value', to: 'OUT:BaseColor' }],
+      connections: [
+        { from: 'c:Value', to: 'OUT:BaseColor' },
+        { from: 'r:Value', to: 'OUT:Roughness' },
+      ],
     };
-    const { text, warnings } = graphToUET3D(graph, layout({ c: [0, 0], OUT: [300, 0] }), META, NO_PINS);
-    expect(text).not.toContain('MaterialOutput');
-    expect(text).not.toContain('BaseColor');
-    expect(warnings.some(w => /MaterialOutput.*manually/i.test(w))).toBe(true);
+    const { text, warnings } = graphToUET3D(graph, layout({ c: [0, 0], r: [0, 200], OUT: [300, 0] }), META, NO_PINS);
+    // The MaterialOutput root itself is never emitted (its pin is wired manually in UE).
+    expect(text).not.toContain('MaterialExpressionMaterialOutput');
+    // Exactly one MakeMaterialAttributes expression is synthesized to collect every attribute wire.
+    expect(text).toContain('Begin Object Class=/Script/Engine.MaterialExpressionMakeMaterialAttributes');
+    expect((text.match(/MaterialExpressionMakeMaterialAttributes Name=/g) ?? []).length).toBe(1);
+    // Both attribute connections now feed the collector's matching input properties.
+    expect(text).toContain('BaseColor=(Expression=MaterialExpressionConstant_0,OutputIndex=0)');
+    expect(text).toContain('Roughness=(Expression=MaterialExpressionConstant_1,OutputIndex=0)');
+    // The collector exposes the single MaterialAttributes output pin (the one manual wire in UE).
+    expect(text).toContain('PinName="MaterialAttributes",Direction="EGPD_Output"');
+    // Guidance points at the single-wire workflow.
+    expect(warnings.some(w => /MakeMaterialAttributes|Material Attributes/i.test(w))).toBe(true);
+  });
+
+  it('drops duplicate wires into the same MaterialOutput attribute pin and warns', () => {
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        { id: 'a', type: 'Constant', params: { R: 1 } },
+        { id: 'b', type: 'Constant', params: { R: 2 } },
+        { id: 'OUT', type: 'MaterialOutput' },
+      ],
+      connections: [
+        { from: 'a:Value', to: 'OUT:BaseColor' },
+        { from: 'b:Value', to: 'OUT:BaseColor' },
+      ],
+    };
+    const { text, warnings } = graphToUET3D(graph, layout({ a: [0, 0], b: [0, 200], OUT: [300, 0] }), META, NO_PINS);
+    // First wire wins; the collector's BaseColor pin links to exactly one expression.
+    expect(text).toContain('BaseColor=(Expression=MaterialExpressionConstant_0,OutputIndex=0)');
+    expect(text).not.toContain('Expression=MaterialExpressionConstant_1');
+    expect(warnings.some(w => /BaseColor.*(duplicate|wired more than once)/i.test(w))).toBe(true);
   });
 
   it('warns and skips a node type with no metadata', () => {
@@ -196,7 +234,8 @@ describe('graphToUET3D', () => {
     expect(text).toContain('MaterialExpression=');
     expect(text).toContain('CustomProperties Pin');
     expect(text).not.toMatch(/\bConst[AB]=\(Expression=/);
-    expect(warnings).toEqual(['MaterialOutput "OUT" skipped - connect final pins manually in UE.']);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toMatch(/MaterialOutput "OUT".*MakeMaterialAttributes/);
   });
 
   it('reproduces the real UE clipboard format tokens for the core calibration graph', () => {

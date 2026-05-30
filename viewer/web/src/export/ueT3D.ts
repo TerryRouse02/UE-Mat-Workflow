@@ -194,6 +194,75 @@ function pinLine(
   return `${I}CustomProperties Pin (${parts.join(',')},)`;
 }
 
+// The 15 attribute pins of a MaterialOutput root node — identical to the inputs of
+// MakeMaterialAttributes, which is what lets us collect them losslessly.
+const MATERIAL_ATTRIBUTE_PINS = [
+  'BaseColor', 'Metallic', 'Specular', 'Roughness', 'EmissiveColor', 'Opacity', 'OpacityMask',
+  'Normal', 'WorldPositionOffset', 'Refraction', 'AmbientOcclusion', 'PixelDepthOffset',
+  'SubsurfaceColor', 'ClearCoat', 'ClearCoatRoughness',
+];
+
+// UE's root material node cannot be copied to the clipboard, so any wires the author drew into a
+// MaterialOutput's attribute pins would be lost on paste. To preserve them we synthesize one
+// MakeMaterialAttributes expression per MaterialOutput, reroute those attribute wires into it, and
+// leave its single MaterialAttributes output for the user to connect to the root (enable "Use
+// Material Attributes"). This turns N broken manual reconnections into exactly one.
+function collectMaterialOutputs(
+  graph: MatGraph,
+  layout: Record<string, { x: number; y: number }>,
+): { nodes: NodeJson[]; connections: MatGraph['connections']; layout: Record<string, { x: number; y: number }>; warnings: string[] } {
+  const outputs = graph.nodes.filter(n => n.type === 'MaterialOutput');
+  if (outputs.length === 0) {
+    return { nodes: graph.nodes, connections: graph.connections, layout, warnings: [] };
+  }
+  const warnings: string[] = [];
+  const extraNodes: NodeJson[] = [];
+  const extraLayout: Record<string, { x: number; y: number }> = {};
+  const collectorFor = new Map<string, string>(); // MaterialOutput id -> collector id
+  const seenPin = new Set<string>();               // `${collectorId}:${attr}` already wired
+  const countFor = new Map<string, number>();      // collectorId -> wires collected
+
+  for (const out of outputs) {
+    const id = `${out.id}__MakeAttributes`;
+    collectorFor.set(out.id, id);
+    const pos = layout[out.id] ?? { x: 0, y: 0 };
+    extraLayout[id] = { x: pos.x - 250, y: pos.y };
+    extraNodes.push({ id, type: 'MakeMaterialAttributes', params: {} });
+  }
+
+  const connections: MatGraph['connections'] = [];
+  for (const connection of graph.connections) {
+    const [dstId, dstPin] = connection.to.split(':');
+    const collectorId = collectorFor.get(dstId);
+    if (!collectorId || !MATERIAL_ATTRIBUTE_PINS.includes(dstPin)) {
+      connections.push(connection);
+      continue;
+    }
+    const key = `${collectorId}:${dstPin}`;
+    if (seenPin.has(key)) {
+      warnings.push(`MaterialOutput "${dstId}" pin "${dstPin}" wired more than once - duplicate dropped (UE allows one wire per input).`);
+      continue;
+    }
+    seenPin.add(key);
+    countFor.set(collectorId, (countFor.get(collectorId) ?? 0) + 1);
+    connections.push({ ...connection, to: `${collectorId}:${dstPin}` });
+  }
+
+  for (const [outId, collectorId] of collectorFor) {
+    const count = countFor.get(collectorId) ?? 0;
+    if (count > 0) {
+      warnings.push(`MaterialOutput "${outId}": auto-collected ${count} attribute(s) into MakeMaterialAttributes "${collectorId}". In UE, connect its MaterialAttributes output to the material's root pin and enable "Use Material Attributes".`);
+    }
+  }
+
+  return {
+    nodes: [...graph.nodes, ...extraNodes],
+    connections,
+    layout: { ...layout, ...extraLayout },
+    warnings,
+  };
+}
+
 export function graphToUET3D(
   graph: MatGraph,
   layout: Record<string, { x: number; y: number }>,
@@ -203,15 +272,19 @@ export function graphToUET3D(
 ): UEExportResult {
   const warnings: string[] = [];
   const mfRoot = opts.mfContentRoot || '/Game/';
-  const byId = new Map(graph.nodes.map(n => [n.id, n]));
+  const collected = collectMaterialOutputs(graph, layout);
+  const nodes = collected.nodes;
+  const connections = collected.connections;
+  const effectiveLayout = collected.layout;
+  warnings.push(...collected.warnings);
+  const byId = new Map(nodes.map(n => [n.id, n]));
   const emitted: EmittedExpression[] = [];
   const byNodeId = new Map<string, EmittedExpression>();
   let counter = 0;
 
-  for (const node of graph.nodes) {
+  for (const node of nodes) {
     if (node.type === 'MaterialOutput') {
-      warnings.push(`MaterialOutput "${node.id}" skipped - connect final pins manually in UE.`);
-      continue;
+      continue; // attribute wires are auto-collected into MakeMaterialAttributes; see collectMaterialOutputs
     }
     const nodeMeta = metaFor(meta, node.type);
     if (!nodeMeta || nodeMeta.dynamicExport) {
@@ -252,7 +325,7 @@ export function graphToUET3D(
 
   const incoming = new Map<string, { srcId: string; srcPin: string; dstPin: string }[]>();
   const pinLinks = new Map<string, PinLink[]>();
-  for (const connection of graph.connections) {
+  for (const connection of connections) {
     const [srcId, srcPin] = connection.from.split(':');
     const [dstId, dstPin] = connection.to.split(':');
     const src = byNodeId.get(srcId);
@@ -280,7 +353,7 @@ export function graphToUET3D(
   const lines: string[] = [];
 
   for (const comment of comments) {
-    const pts = comment.contains.map(id => layout[id]).filter(Boolean) as { x: number; y: number }[];
+    const pts = comment.contains.map(id => effectiveLayout[id]).filter(Boolean) as { x: number; y: number }[];
     let x = 0;
     let y = 0;
     let w = 400;
@@ -320,7 +393,7 @@ export function graphToUET3D(
 
   for (const item of emitted) {
     const { node, meta: nodeMeta } = item;
-    const pos = layout[node.id] ?? { x: 0, y: 0 };
+    const pos = effectiveLayout[node.id] ?? { x: 0, y: 0 };
 
     lines.push(`Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="${item.graphNodeName}" ExportPath="/Script/UnrealEd.MaterialGraphNode'${GRAPH_ROOT}.${item.graphNodeName}'"`);
     lines.push(`${I}Begin Object Class=${nodeMeta.ueClass} Name="${item.expressionName}" ExportPath="${nodeMeta.ueClass}'${GRAPH_ROOT}.${item.graphNodeName}.${item.expressionName}'"`);

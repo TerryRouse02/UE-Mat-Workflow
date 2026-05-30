@@ -67,6 +67,24 @@ Do **not** share MaterialFunctions across projects — copy them into each proje
      UE resolves the call by that object path on paste.
      Positions (`x`/`y`) remain forbidden in the JSON — export synthesizes them from layout.
 
+## Material output → clipboard export
+
+You author the material exactly as before: wire your final results into the
+`MaterialOutput` node's attribute pins (`BaseColor`, `Roughness`, …). Authoring
+does not change.
+
+On **UE clipboard export** the root `MaterialOutput` node cannot be copied, so
+the emitter automatically synthesizes one `MakeMaterialAttributes` node and
+reroutes every wire you drew into `MaterialOutput` into that node's matching
+input. After pasting into UE you make a **single** connection — the synthesized
+node's `MaterialAttributes` output to the material's root node — and enable
+**Use Material Attributes** on the material. This replaces what used to be one
+manual reconnection per attribute.
+
+Only one wire per attribute pin is kept: if two sources are wired into the same
+`MaterialOutput` pin, export keeps the first and warns (UE allows one connection
+per input).
+
 ## Soft rules (best practice)
 
 - Group related nodes with `comments` for clarity.

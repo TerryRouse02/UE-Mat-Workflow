@@ -2751,7 +2751,7 @@
 			},
 			"sample": "",
 			"verified": true,
-			"note": "Verified by UE reflection commandlet. Raw clipboard T3D sample is preserved only when already present."
+			"note": "Verified by UE reflection commandlet. Also the auto-collect target: graphToUET3D synthesizes one MakeMaterialAttributes per MaterialOutput and reroutes the root's attribute wires into it, so a pasted material needs a single MaterialAttributes wire (enable Use Material Attributes). See collectMaterialOutputs in viewer/web/src/export/ueT3D.ts."
 		},
 		"SetMaterialAttributes":
 		{
