@@ -38,32 +38,11 @@
 				{
 					"property": "Description",
 					"kind": "string"
-				},
-				"Inputs":
-				{
-					"property": "Inputs",
-					"kind": "string"
-				},
-				"AdditionalOutputs":
-				{
-					"property": "AdditionalOutputs",
-					"kind": "string"
-				},
-				"IncludeFilePaths":
-				{
-					"property": "IncludeFilePaths",
-					"kind": "string"
-				},
-				"AdditionalDefines":
-				{
-					"property": "AdditionalDefines",
-					"kind": "string"
 				}
 			},
 			"sample": "",
 			"verified": false,
-			"dynamicExport": true,
-			"note": "Dynamic-pin node; static export is intentionally skipped unless a per-instance exporter is implemented."
+			"note": "Inputs and AdditionalOutputs are emitted structurally by the Custom branch in ueT3D.ts; verified against viewer/tests/fixtures/ue-custom-node.t3d."
 		},
 		"Multiply":
 		{
