@@ -1,0 +1,22 @@
+.insp { padding: 14px; font-size: 12px; }
+.insp-eyebrow { display: flex; align-items: center; gap: 6px; color: var(--fg-faint); font-size: 11px; }
+.insp-catdot { width: 8px; height: 8px; border-radius: 50%; }
+.insp-title { font-size: 15px; font-weight: 600; margin-top: 4px; word-break: break-word; }
+.insp-subtitle { color: var(--fg-faint); margin-top: 2px; }
+.insp-callout { background: rgba(224,179,77,.12); border: 1px solid var(--warn); border-radius: var(--radius); padding: 8px 10px; margin: 10px 0; color: var(--warn); }
+.insp-callout p { margin: 4px 0 0; color: var(--fg-dim); font-size: 11px; }
+.insp-section { margin-top: 14px; }
+.insp-sub { text-transform: uppercase; letter-spacing: .06em; font-size: 10px; color: var(--fg-faint); margin-bottom: 6px; }
+.insp-pin { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+.insp-pindot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.insp-pintype { margin-left: auto; color: var(--fg-faint); }
+.insp-param { margin: 6px 0; }
+.insp-plabel { color: var(--fg-dim); margin-bottom: 2px; }
+.insp-code { position: relative; margin-top: 4px; }
+.insp-code pre { background: var(--bg0); color: var(--warn); padding: 6px 40px 6px 8px; border-radius: 5px; font-size: 11px; margin: 0; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; }
+.insp-copy { position: absolute; top: 4px; right: 4px; background: var(--bg2); color: var(--fg-dim); border: 1px solid var(--bd); border-radius: 3px; padding: 2px 6px; font-size: 9px; cursor: pointer; }
+.insp-copy:hover { color: var(--fg); }
+.insp-param code { color: var(--warn); word-break: break-all; overflow-wrap: anywhere; }
+.ready-row { display: flex; gap: 6px; padding: 3px 0; }
+.ready-row.warn { color: var(--warn); }
+.ready-row.ok { color: var(--ok); }
