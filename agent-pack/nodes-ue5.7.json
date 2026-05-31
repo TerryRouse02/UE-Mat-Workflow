@@ -28,7 +28,7 @@
       ],
       "verified": true,
       "dynamicPins": true,
-      "pinInfo": "Inputs are entirely user-defined. For each entry in params.Inputs (e.g. [{\"InputName\":\"UV\"},{\"InputName\":\"Mask\"}]) the node exposes one input pin with that exact name. The primary output is named \"Output\" by default but can be overridden by params.Description text — keep it as \"Output\" unless you have reason to change. UE 5 supports additional outputs via params.AdditionalOutputs (each entry creates a pin with the given OutputName). The Code param holds the HLSL body; do NOT include 'return' — just an expression assigning to a local matching OutputType. Example for a simple 2x UV scale: params.Code = 'return UV * 2.0;', params.Inputs = [{\"InputName\":\"UV\"}], params.OutputType = 'CMOT_Float2'."
+      "pinInfo": "Inputs are entirely user-defined. For each entry in params.Inputs (e.g. [{\"InputName\":\"UV\"},{\"InputName\":\"Mask\"}]) the node exposes one input pin with that exact name. The primary output is named \"Output\" by default but can be overridden by params.Description text — keep it as \"Output\" unless you have reason to change. UE 5 supports additional outputs via params.AdditionalOutputs (each entry creates a pin with the given OutputName). The Code param holds the HLSL body and MUST end with a 'return' statement whose value matches OutputType (verified against viewer/tests/fixtures/ue-custom-node.t3d, where Code is 'return float3(...);'). Example for a simple 2x UV scale: params.Code = 'return UV * 2.0;', params.Inputs = [{\"InputName\":\"UV\"}], params.OutputType = 'CMOT_Float2'."
     },
     "Multiply": {
       "category": "Math",

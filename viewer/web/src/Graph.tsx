@@ -11,6 +11,7 @@ import type { GraphPayload } from './protocol';
 import type { NodeDB } from '../../server/db-types';
 import { graphToUET3D } from './export/ueT3D';
 import { EXPORT_META } from './export/export-meta';
+import { validateConnectionPins } from './validate';
 
 function setHandleHighlight(nodeId: string, handleId: string | null | undefined, on: boolean) {
   if (!handleId) return;
@@ -88,9 +89,26 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
   const { graph, derivedPins } = payload;
 
   const initialLayout = useMemo(() => {
+    // Load-time validation: connections referencing pins that don't exist on the
+    // referenced node. Collect per-node so each problem surfaces on its node via
+    // the same `warning` mechanism as "Unknown node type".
+    const pinIssuesByNode = new Map<string, string[]>();
+    for (const issue of validateConnectionPins(graph, db)) {
+      const srcId = issue.from.split(':')[0];
+      const dstId = issue.to.split(':')[0];
+      const target = issue.problem.includes('no input pin') ? dstId : srcId;
+      const list = pinIssuesByNode.get(target) ?? [];
+      list.push(issue.problem);
+      pinIssuesByNode.set(target, list);
+    }
+
     const rfNodes: Node[] = graph.nodes.map(n => {
       if (n.type === 'MaterialOutput') {
-        return { id: n.id, type: 'materialOutput', position: { x: 0, y: 0 }, data: { id: n.id, params: n.params } };
+        const pinProblems = pinIssuesByNode.get(n.id);
+        return {
+          id: n.id, type: 'materialOutput', position: { x: 0, y: 0 },
+          data: { id: n.id, params: n.params, warning: pinProblems?.join('\n') },
+        };
       }
       if (n.type === 'FunctionInput') {
         return { id: n.id, type: 'functionInput', position: { x: 0, y: 0 }, data: { id: n.id, params: n.params } };
@@ -158,6 +176,10 @@ export function Graph({ payload, basePath, db, onEnterMF }: GraphProps) {
 
       let warning: string | undefined;
       if (!def) warning = `Unknown node type: ${n.type}`;
+      const pinProblems = pinIssuesByNode.get(n.id);
+      if (pinProblems && pinProblems.length > 0) {
+        warning = [warning, ...pinProblems].filter(Boolean).join('\n');
+      }
 
       return {
         id: n.id, type: 'generic', position: { x: 0, y: 0 },
