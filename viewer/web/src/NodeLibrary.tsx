@@ -111,6 +111,7 @@ export function NodeLibrary() {
   const [query, setQuery] = useState('');
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
   const [openNode, setOpenNode] = useState<string | null>(null);
+  const [cat, setCat] = useState<string>('All');
 
   const allEntries: NodeEntry[] = useMemo(
     () => Object.entries(DB.nodes).map(([name, def]) => ({ name, def })),
@@ -125,7 +126,13 @@ export function NodeLibrary() {
       )
     : allEntries;
 
-  const grouped = useMemo(() => groupByCategory(filtered), [filtered]);
+  const allCats = useMemo(
+    () => ['All', ...Array.from(new Set(allEntries.map(e => e.def.category || 'Uncategorized'))).sort()],
+    [allEntries]
+  );
+
+  const catFiltered = cat === 'All' ? filtered : filtered.filter(e => (e.def.category || 'Uncategorized') === cat);
+  const grouped = useMemo(() => groupByCategory(catFiltered), [catFiltered]);
   const categories = Object.keys(grouped).sort();
   const expandAll = q.length > 0;
 
@@ -138,6 +145,11 @@ export function NodeLibrary() {
         value={query}
         onChange={e => setQuery(e.target.value)}
       />
+      <div className="sb-cats">
+        {allCats.map(c => (
+          <button key={c} className={`sb-cat ${cat === c ? 'on' : ''}`} onClick={() => setCat(c)}>{c}</button>
+        ))}
+      </div>
       {categories.length === 0 && (
         <div style={{ color: '#666', fontSize: 11, padding: 8 }}>No matches for "{query}"</div>
       )}
