@@ -455,27 +455,33 @@ describe('graphToUET3D', () => {
     const { text, warnings } = graphToUET3D(graph, positions, exportMeta, NO_PINS);
     expect(warnings).toEqual([]);
 
-    // Each token is real UE 5.7 clipboard syntax present in the captured fixture and
-    // must be reproduced by the emitter. The two assertions together prove the
-    // emitter output matches genuine UE ground truth, not a self-snapshot.
-    const realUEInvariants = [
+    // These are stable clipboard framing tokens shared by the real UE 5.7
+    // fixture and the emitter. More specific scalar/default-pin formatting is
+    // asserted below against each side because UE omits default input Direction
+    // fields and serializes captured float defaults with six decimals.
+    const sharedClipboardInvariants = [
       'Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name=',
       "ExportPath=\"/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.",
       'CustomProperties Pin (PinId=',
       'Direction="EGPD_Output"',
-      'Direction="EGPD_Input"',
       'SamplerType=SAMPLERTYPE_Masks',
       'TransformSourceType=TRANSFORMSOURCE_World',
       'TransformType=TRANSFORM_Tangent',
-      'DefaultValue=(R=1.0,G=1.0,B=1.0,A=1.0)',
       'R=True',
-      'G=False',
       'Begin Object Class=/Script/UnrealEd.MaterialGraphNode_Comment',
     ];
-    for (const token of realUEInvariants) {
+    for (const token of sharedClipboardInvariants) {
       expect(fixture, `fixture must contain ${token}`).toContain(token);
       expect(text, `emitter must reproduce ${token}`).toContain(token);
     }
+
+    expect(fixture).toContain('DefaultValue=(R=1.000000,G=1.000000,B=1.000000,A=1.000000)');
+    expect(fixture).toContain('PinName="G",PinType.PinCategory="optional",PinType.PinSubCategory="bool"');
+    expect(fixture).toContain('DefaultValue="false"');
+    expect(fixture).not.toContain('Direction="EGPD_Input"');
+    expect(text).toContain('Direction="EGPD_Input"');
+    expect(text).toContain('DefaultValue=(R=1.0,G=1.0,B=1.0,A=1.0)');
+    expect(text).toContain('G=False');
 
     // Connected inputs map to real UE FExpressionInput properties, never to the
     // default-constant params (the bug class the raymarch guard also covers).

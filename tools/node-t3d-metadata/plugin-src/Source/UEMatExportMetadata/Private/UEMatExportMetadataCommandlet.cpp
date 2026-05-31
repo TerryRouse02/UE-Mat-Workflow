@@ -7,16 +7,22 @@
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "MaterialGraph/MaterialGraph.h"
 #include "MaterialGraph/MaterialGraphNode.h"
+#include "MaterialGraph/MaterialGraphNode_Comment.h"
 #include "MaterialGraph/MaterialGraphSchema.h"
 #include "Engine/Texture2D.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpression.h"
+#include "Materials/MaterialExpressionAdd.h"
+#include "Materials/MaterialExpressionComment.h"
+#include "Materials/MaterialExpressionComponentMask.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionConstant3Vector.h"
 #include "Materials/MaterialExpressionMakeMaterialAttributes.h"
 #include "Materials/MaterialExpressionMultiply.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
+#include "Materials/MaterialExpressionTransform.h"
+#include "Materials/MaterialExpressionVectorParameter.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Policies/PrettyJsonPrintPolicy.h"
@@ -363,6 +369,173 @@ static bool WriteMakeMaterialAttributesClipboardSample(const FString& Path, FStr
     }
 
     UE_LOG(LogTemp, Display, TEXT("Wrote MakeMaterialAttributes clipboard sample: %s"), *Path);
+    return true;
+}
+
+static bool WriteCoreClipboardSample(const FString& Path, const FString& TextureAssetPath, FString& OutError)
+{
+    UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, *TextureAssetPath);
+    if (Texture == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Failed to load Texture2D asset: %s"), *TextureAssetPath);
+        return false;
+    }
+
+    UMaterial* Material = NewObject<UMaterial>(
+        GetTransientPackage(),
+        TEXT("UEMatWorkflowClipboard"),
+        RF_Transient | RF_Transactional);
+    if (Material == nullptr)
+    {
+        OutError = TEXT("Failed to create transient material.");
+        return false;
+    }
+
+    Material->MaterialGraph = CastChecked<UMaterialGraph>(FBlueprintEditorUtils::CreateNewGraph(
+        Material,
+        FName(TEXT("MaterialGraph_0")),
+        UMaterialGraph::StaticClass(),
+        UMaterialGraphSchema::StaticClass()));
+    Material->MaterialGraph->Material = Material;
+
+    UMaterialExpressionConstant* Constant = NewObject<UMaterialExpressionConstant>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionAdd* Add = NewObject<UMaterialExpressionAdd>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionVectorParameter* VectorParameter = NewObject<UMaterialExpressionVectorParameter>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionTextureSampleParameter2D* TextureParameter = NewObject<UMaterialExpressionTextureSampleParameter2D>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionTransform* Transform = NewObject<UMaterialExpressionTransform>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionComponentMask* ComponentMask = NewObject<UMaterialExpressionComponentMask>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionComment* Comment = NewObject<UMaterialExpressionComment>(Material, NAME_None, RF_Transactional);
+    if (Constant == nullptr || Add == nullptr || VectorParameter == nullptr || TextureParameter == nullptr ||
+        Transform == nullptr || ComponentMask == nullptr || Comment == nullptr)
+    {
+        OutError = TEXT("Failed to create core clipboard material expressions.");
+        return false;
+    }
+
+    Constant->Material = Material;
+    Constant->R = 1.0f;
+    Constant->MaterialExpressionEditorX = 0;
+    Constant->MaterialExpressionEditorY = 0;
+    Material->GetExpressionCollection().AddExpression(Constant);
+
+    Add->Material = Material;
+    Add->A.Connect(0, Constant);
+    Add->B.Connect(1, VectorParameter);
+    Add->MaterialExpressionEditorX = 260;
+    Add->MaterialExpressionEditorY = 0;
+    Material->GetExpressionCollection().AddExpression(Add);
+
+    VectorParameter->Material = Material;
+    VectorParameter->ParameterName = TEXT("Color");
+    VectorParameter->DefaultValue = FLinearColor(1.0f, 1.0f, 1.0f, 1.0f);
+    VectorParameter->MaterialExpressionEditorX = 0;
+    VectorParameter->MaterialExpressionEditorY = 180;
+    Material->GetExpressionCollection().AddExpression(VectorParameter);
+
+    TextureParameter->Material = Material;
+    TextureParameter->ParameterName = TEXT("MaskTexture");
+    TextureParameter->Texture = Texture;
+    TextureParameter->AutoSetSampleType();
+    TextureParameter->SamplerType = SAMPLERTYPE_Masks;
+    TextureParameter->MaterialExpressionEditorX = 560;
+    TextureParameter->MaterialExpressionEditorY = 0;
+    Material->GetExpressionCollection().AddExpression(TextureParameter);
+
+    Transform->Material = Material;
+    Transform->TransformSourceType = TRANSFORMSOURCE_World;
+    Transform->TransformType = TRANSFORM_Tangent;
+    Transform->MaterialExpressionEditorX = 560;
+    Transform->MaterialExpressionEditorY = 220;
+    Material->GetExpressionCollection().AddExpression(Transform);
+
+    ComponentMask->Material = Material;
+    ComponentMask->Input.Connect(0, TextureParameter);
+    ComponentMask->R = 1;
+    ComponentMask->G = 0;
+    ComponentMask->B = 0;
+    ComponentMask->A = 0;
+    ComponentMask->MaterialExpressionEditorX = 820;
+    ComponentMask->MaterialExpressionEditorY = 0;
+    Material->GetExpressionCollection().AddExpression(ComponentMask);
+
+    Comment->Material = Material;
+    Comment->Text = TEXT("Core clipboard calibration");
+    Comment->SizeX = 1120;
+    Comment->SizeY = 420;
+    Comment->CommentColor = FLinearColor(0.5f, 0.5f, 0.5f, 1.0f);
+    Comment->MaterialExpressionEditorX = -80;
+    Comment->MaterialExpressionEditorY = -80;
+    Material->GetExpressionCollection().AddComment(Comment);
+
+    Material->MaterialGraph->RebuildGraph();
+
+    TArray<UMaterialExpression*> ExpressionsToCopy = {
+        Constant,
+        Add,
+        VectorParameter,
+        TextureParameter,
+        Transform,
+        ComponentMask
+    };
+
+    TSet<UObject*> NodesToExport;
+    for (UMaterialExpression* Expression : ExpressionsToCopy)
+    {
+        UEdGraphNode* GraphNode = Cast<UEdGraphNode>(Expression->GraphNode);
+        if (GraphNode == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to create graph node for %s."), *Expression->GetName());
+            return false;
+        }
+        NodesToExport.Add(GraphNode);
+    }
+
+    UEdGraphNode* CommentNode = Cast<UEdGraphNode>(Comment->GraphNode);
+    if (CommentNode == nullptr)
+    {
+        OutError = TEXT("Failed to create graph node for the core clipboard comment.");
+        return false;
+    }
+    NodesToExport.Add(CommentNode);
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UEdGraphNode* Node = Cast<UEdGraphNode>(NodeObject))
+        {
+            Node->PrepareForCopying();
+        }
+    }
+
+    FString ExportedText;
+    FEdGraphUtilities::ExportNodesToText(NodesToExport, ExportedText);
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UMaterialGraphNode* MaterialNode = Cast<UMaterialGraphNode>(NodeObject))
+        {
+            MaterialNode->PostCopyNode();
+        }
+        else if (UMaterialGraphNode_Comment* CommentGraphNode = Cast<UMaterialGraphNode_Comment>(NodeObject))
+        {
+            CommentGraphNode->PostCopyNode();
+        }
+    }
+
+    if (ExportedText.IsEmpty())
+    {
+        OutError = TEXT("UE exported an empty core clipboard sample.");
+        return false;
+    }
+
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    if (!FFileHelper::SaveStringToFile(ExportedText, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+    {
+        OutError = FString::Printf(TEXT("Failed to write core clipboard sample: %s"), *Path);
+        return false;
+    }
+
+    UE_LOG(LogTemp, Display, TEXT("Core clipboard texture asset: %s"), *Texture->GetPathName());
+    UE_LOG(LogTemp, Display, TEXT("Wrote core clipboard sample: %s"), *Path);
     return true;
 }
 
@@ -1224,6 +1397,26 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         return 0;
     }
 
+    FString CoreClipboardOutPath;
+    if (FParse::Value(*Params, TEXT("CoreClipboardOut="), CoreClipboardOutPath))
+    {
+        CoreClipboardOutPath = ToAbsolutePath(CoreClipboardOutPath);
+        FString TextureAssetPath;
+        if (!FParse::Value(*Params, TEXT("TextureAsset="), TextureAssetPath) || TextureAssetPath.IsEmpty())
+        {
+            UE_LOG(LogTemp, Error, TEXT("TextureAsset is required when using CoreClipboardOut."));
+            return 11;
+        }
+
+        FString Error;
+        if (!WriteCoreClipboardSample(CoreClipboardOutPath, TextureAssetPath, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 11;
+        }
+        return 0;
+    }
+
     FString MakeMaterialAttributesSampleOutPath;
     if (FParse::Value(*Params, TEXT("MakeMaterialAttributesSampleOut="), MakeMaterialAttributesSampleOutPath))
     {
@@ -1247,6 +1440,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     {
         UE_LOG(LogTemp, Error, TEXT("Usage: -run=UEMatExportMetadata -NodeDb=<nodes-ue5.7.json> -Out=<nodes-ue5.7.export.json> [-Strict]"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -MakeMaterialAttributesSampleOut=<fixture.t3d>"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -CoreClipboardOut=<fixture.t3d> -TextureAsset=<Texture2D object path>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -TextureSampleSourcesOut=<fixture.t3d> -TextureAsset=<Texture2D object path>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -ClipboardIn=<clipboard.t3d> [-ImportClipboard]"));
         return 2;

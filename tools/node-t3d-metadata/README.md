@@ -39,6 +39,12 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3
   -EngineRoot <Path\To\UnrealEngine> `
   -CaptureFixtures
 
+# Capture the core MaterialGraphNode clipboard calibration fixture.
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Capture-CoreClipboardSample.ps1 `
+  -ProjectPath <Path\To\Project.uproject> `
+  -EngineRoot <Path\To\UnrealEngine> `
+  -TextureAsset /Game/Textures/T_Mask.T_Mask
+
 # Capture TextureSample / TextureSampleParameter2D texture reference syntax.
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Capture-TextureSampleSources.ps1 `
   -ProjectPath <Path\To\Project.uproject> `

@@ -74,9 +74,14 @@ describe('nodes-ue5.7.export.json', () => {
       '/Script/Engine.MaterialExpressionTransform',
       '/Script/Engine.MaterialExpressionComponentMask',
       'CustomProperties Pin',
+      'PinType.PinCategory=',
+      'PersistentGuid=00000000000000000000000000000000',
+      'PinFriendlyName=',
+      'MaterialExpression="/Script/Engine.MaterialExpression',
     ]) {
       expect(fixture, token).toContain(token);
     }
+    expect(fixture).not.toContain('11111111111111111111111111111111');
   });
 
   it('exports Custom as a non-dynamic node with only structural scalar params', () => {
