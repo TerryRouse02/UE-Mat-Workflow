@@ -34,6 +34,8 @@ export interface GraphProps {
   basePath: string;  // path of the current graph file, relative to graphs/
   db: NodeDB;
   onEnterMF(path: string): void;
+  onSelectNode?: (id: string | null) => void;
+  onPositions?: (p: Record<string, { x: number; y: number }>) => void;
 }
 
 function inferPinsFromConnections(
