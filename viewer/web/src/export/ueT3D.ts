@@ -1,5 +1,7 @@
 import type { MatGraph, NodeJson, DerivedPins } from '../protocol';
 import type { ExportMeta, NodeExportMeta, OutputMeta, ParamMeta } from './export-meta-types';
+import { splitRef } from '../connstr';
+import { MATERIAL_ATTRIBUTE_PINS } from '../material-attributes';
 
 export interface UEExportOptions { mfContentRoot?: string; }
 export interface UEExportResult { text: string; warnings: string[]; }
@@ -37,10 +39,27 @@ function ueClassName(ueClass: string): string {
   return dot >= 0 ? ueClass.slice(dot + 1) : ueClass;
 }
 
+// Render a number as a plain (non-exponential) decimal string. UE's T3D parser
+// rejects scientific notation (e.g. 1e-7, 1e+21), which String()/toFixed() can emit
+// for very small or very large magnitudes. toLocaleString('fullwide') never uses an
+// exponent; we then trim trailing fractional zeros, keeping at least one decimal.
+function plainDecimal(n: number): string {
+  let s = n.toLocaleString('fullwide', { useGrouping: false, maximumFractionDigits: 20 });
+  if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '.0');
+  else s = `${s}.0`;
+  return s;
+}
+
 function fmtFloat(v: unknown): string {
   const n = typeof v === 'number' ? v : Number(v);
   if (!Number.isFinite(n)) return '0.0';
-  return Number.isInteger(n) ? n.toFixed(1) : String(n);
+  if (Number.isInteger(n)) {
+    const fixed = n.toFixed(1);
+    // toFixed reverts to exponential at |n| >= 1e21; use the plain-decimal path there.
+    return /[eE]/.test(fixed) ? plainDecimal(n) : fixed;
+  }
+  const s = String(n);
+  return /[eE]/.test(s) ? plainDecimal(n) : s;
 }
 
 function quote(value: unknown): string {
@@ -49,6 +68,20 @@ function quote(value: unknown): string {
     .replace(/"/g, '\\"')
     .replace(/\r/g, '')
     .replace(/\n/g, '\\n')}"`;
+}
+
+// Build a UE texture object reference: "<scriptClass>'<assetPath>'". A path that is
+// already a fully-formed object ref (it contains a quote, i.e. carries its own class)
+// is passed through verbatim so non-Texture2D classes (TextureCube, etc.) survive. A
+// bare asset path is wrapped with the given engine class (default Texture2D). Adding a
+// new default class is a one-arg change here, not new string-sniffing at the call site.
+function textureObjectRef(path: string, ueClass = '/Script/Engine.Texture2D'): string {
+  if (path.includes("'")) {
+    // Already class-qualified. Tolerate the legacy "Texture2D'...'" shorthand (no
+    // /Script/ prefix) by promoting it to the engine path; otherwise emit as-is.
+    return path.startsWith("Texture2D'") ? `/Script/Engine.${path}` : path;
+  }
+  return `${ueClass}'${path}'`;
 }
 
 function fmtParam(value: unknown, p: ParamMeta, node: NodeJson): string | null {
@@ -62,11 +95,7 @@ function fmtParam(value: unknown, p: ParamMeta, node: NodeJson): string | null {
     case 'texture': {
       const path = typeof value === 'string' ? value.trim() : '';
       if (!path) return 'None';
-      if (path.startsWith('/Script/') && path.includes("'")) return quote(path);
-      const objectPath = path.startsWith("Texture2D'")
-        ? `/Script/Engine.${path}`
-        : `/Script/Engine.Texture2D'${path}'`;
-      return quote(objectPath);
+      return quote(textureObjectRef(path));
     }
     case 'vector2':
     case 'vector3':
@@ -115,12 +144,20 @@ function mfPathToAssetRef(mfRef: string, root: string): string {
   return `${clean}/${base}.${base}`;
 }
 
-function functionInputIndex(node: NodeJson, nodeMeta: NodeExportMeta, pinName: string, derivedPins: Record<string, DerivedPins>): number {
+function functionInputIndex(node: NodeJson, nodeMeta: NodeExportMeta, pinName: string, derivedPins: Record<string, DerivedPins>, warnings?: string[]): number {
+  // Metadata is authoritative: an explicit FunctionInputs(n) mapping wins.
   const mapped = nodeMeta.inputs[pinName]?.property ?? '';
   const match = /^FunctionInputs\((\d+)\)$/.exec(mapped);
   if (match) return Number(match[1]);
+  // Fallback: positional index in the derived pins. Fragile if ordering desyncs, so a
+  // pin we can't locate keeps the safe default (0) but is surfaced as a warning instead
+  // of silently mis-wiring to the first function input.
   const i = (derivedPins[node.id]?.inputs ?? []).findIndex(p => p.name === pinName);
-  return i < 0 ? 0 : i;
+  if (i < 0) {
+    warnings?.push(`MaterialFunctionCall "${node.id}": input pin "${pinName}" not found in metadata or derived pins - defaulting to FunctionInputs(0); verify the wire.`);
+    return 0;
+  }
+  return i;
 }
 
 function guidFor(seed: string): string {
@@ -210,13 +247,9 @@ function pinLine(
   return `${I}CustomProperties Pin (${parts.join(',')},)`;
 }
 
-// The 15 attribute pins of a MaterialOutput root node — identical to the inputs of
-// MakeMaterialAttributes, which is what lets us collect them losslessly.
-const MATERIAL_ATTRIBUTE_PINS = [
-  'BaseColor', 'Metallic', 'Specular', 'Roughness', 'EmissiveColor', 'Opacity', 'OpacityMask',
-  'Normal', 'WorldPositionOffset', 'Refraction', 'AmbientOcclusion', 'PixelDepthOffset',
-  'SubsurfaceColor', 'ClearCoat', 'ClearCoatRoughness',
-];
+// The 15 attribute pins of a MaterialOutput root node are identical to the inputs of
+// MakeMaterialAttributes, which is what lets us collect them losslessly. The canonical
+// list lives in ../material-attributes (shared with the editor's MaterialOutputNode).
 
 // UE's root material node cannot be copied to the clipboard, so any wires the author drew into a
 // MaterialOutput's attribute pins would be lost on paste. To preserve them we synthesize one
@@ -248,7 +281,7 @@ function collectMaterialOutputs(
 
   const connections: MatGraph['connections'] = [];
   for (const connection of graph.connections) {
-    const [dstId, dstPin] = connection.to.split(':');
+    const [dstId, dstPin] = splitRef(connection.to);
     const collectorId = collectorFor.get(dstId);
     if (!collectorId || !MATERIAL_ATTRIBUTE_PINS.includes(dstPin)) {
       connections.push(connection);
@@ -372,8 +405,8 @@ export function graphToUET3D(
   const incoming = new Map<string, { srcId: string; srcPin: string; dstPin: string }[]>();
   const pinLinks = new Map<string, PinLink[]>();
   for (const connection of connections) {
-    const [srcId, srcPin] = connection.from.split(':');
-    const [dstId, dstPin] = connection.to.split(':');
+    const [srcId, srcPin] = splitRef(connection.from);
+    const [dstId, dstPin] = splitRef(connection.to);
     const src = byNodeId.get(srcId);
     const dst = byNodeId.get(dstId);
     if (!src || !dst) continue;
@@ -489,7 +522,7 @@ export function graphToUET3D(
         const { index, mask } = srcRef(connection.srcId, connection.srcPin);
         const ref = `Expression=${src.expressionName},OutputIndex=${index}${maskBits(mask)}`;
         if (nodeMeta.functionRefProperty) {
-          lines.push(`${I}${I}FunctionInputs(${functionInputIndex(node, nodeMeta, connection.dstPin, derivedPins)})=(Input=(${ref}))`);
+          lines.push(`${I}${I}FunctionInputs(${functionInputIndex(node, nodeMeta, connection.dstPin, derivedPins, warnings)})=(Input=(${ref}))`);
         } else {
           const inProp = nodeMeta.inputs[connection.dstPin]?.property;
           if (!inProp) {

@@ -1,11 +1,8 @@
 import { MaterialNode, type MaterialNodeData } from './MaterialNode';
+import { MATERIAL_ATTRIBUTE_PINS } from '../material-attributes';
 
-export const MATERIAL_OUTPUT_PINS = [
-  'BaseColor', 'Metallic', 'Specular', 'Roughness', 'EmissiveColor',
-  'Opacity', 'OpacityMask', 'Normal', 'WorldPositionOffset',
-  'Refraction', 'AmbientOcclusion', 'PixelDepthOffset',
-  'SubsurfaceColor', 'ClearCoat', 'ClearCoatRoughness',
-];
+// A MaterialOutput root node's input pins are exactly the MaterialAttributes set.
+export const MATERIAL_OUTPUT_PINS = MATERIAL_ATTRIBUTE_PINS;
 
 export function MaterialOutputNode(props: { data: Pick<MaterialNodeData, 'id' | 'params' | 'warning'> }) {
   const data: MaterialNodeData = {

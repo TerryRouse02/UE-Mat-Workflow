@@ -140,4 +140,21 @@ describe('validateConnectionPins', () => {
     );
     expect(validateConnectionPins(g, DB)).toEqual([]);
   });
+
+  it('splits on the first colon: a pin name containing a colon is not truncated', () => {
+    // A plain `.split(':')` destructure would drop everything after the second colon,
+    // checking the pin "Base" instead of the real (invalid) "Base:Color". splitRef keeps
+    // the whole pin name so the report names the actual offending pin.
+    const g = graph(
+      [
+        { id: 'c1', type: 'Constant', params: { Value: 1 } },
+        { id: 'out', type: 'MaterialOutput' },
+      ],
+      [{ from: 'c1:Value', to: 'out:Base:Color' }],
+    );
+    const issues = validateConnectionPins(g, DB);
+    expect(issues).toHaveLength(1);
+    // The reported pin name (in quotes) is the full "Base:Color", not the truncated "Base".
+    expect(issues[0].problem).toMatch(/input pin "Base:Color"/);
+  });
 });

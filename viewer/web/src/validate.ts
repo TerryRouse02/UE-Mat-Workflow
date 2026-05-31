@@ -1,6 +1,7 @@
 import type { MatGraph } from './protocol';
 import type { NodeDB } from '../../server/db-types';
 import { MATERIAL_OUTPUT_PINS } from './nodes/MaterialOutputNode';
+import { splitRef } from './connstr';
 
 export interface ConnectionPinIssue {
   from: string;
@@ -69,8 +70,8 @@ export function validateConnectionPins(graph: MatGraph, db: NodeDB): ConnectionP
   const issues: ConnectionPinIssue[] = [];
 
   for (const c of graph.connections) {
-    const [srcId, srcPin] = c.from.split(':');
-    const [dstId, dstPin] = c.to.split(':');
+    const [srcId, srcPin] = splitRef(c.from);
+    const [dstId, dstPin] = splitRef(c.to);
 
     // Source endpoint: pin must exist as an OUTPUT.
     const srcType = typeById.get(srcId);

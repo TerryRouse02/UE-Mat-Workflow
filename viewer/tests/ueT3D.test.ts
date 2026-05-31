@@ -106,6 +106,49 @@ describe('graphToUET3D', () => {
     expect(text).not.toContain(`Texture2D'"/Game/Textures/T_Mask.T_Mask"'`);
   });
 
+  it('passes an already-formed texture object ref through unchanged', () => {
+    const fullRef = `/Script/Engine.TextureCube'/Game/Textures/T_Cube.T_Cube'`;
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        {
+          id: 't',
+          type: 'TextureSampleParameter2D',
+          params: {
+            Texture: fullRef,
+            SamplerType: 'Normal',
+          },
+        },
+      ],
+      connections: [],
+    };
+    const { text } = graphToUET3D(graph, layout({ t: [0, 0] }), META, NO_PINS);
+    // A fully-formed ref (already contains the class'path' form) is emitted verbatim,
+    // never re-wrapped in another Texture2D'...' layer.
+    expect(text).toContain(`Texture="${fullRef}"`);
+    expect(text).not.toContain(`Texture2D'/Script/Engine.TextureCube'`);
+  });
+
+  it('emits float constants in plain decimal, never scientific notation', () => {
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        { id: 'tiny', type: 'Constant', params: { R: 0.0000001 } },
+        { id: 'huge', type: 'Constant', params: { R: 1e21 } },
+      ],
+      connections: [],
+    };
+    const { text } = graphToUET3D(graph, layout({ tiny: [0, 0], huge: [0, 200] }), META, NO_PINS);
+    const constLines = text.split('\n').map(l => l.trim()).filter(l => l.startsWith('R='));
+    expect(constLines.length).toBe(2);
+    for (const line of constLines) {
+      // UE's T3D parser rejects exponential notation; every float must be plain decimal.
+      expect(line).not.toMatch(/[eE]/);
+    }
+    // The tiny value still round-trips as a faithful decimal, not "0".
+    expect(constLines.some(l => l === 'R=0.0000001')).toBe(true);
+  });
+
   it('matches UE 5.7 captured texture reference syntax for TextureSample nodes', () => {
     const exportMeta = JSON.parse(readFileSync(
       resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'), 'utf-8',
@@ -350,6 +393,45 @@ describe('graphToUET3D', () => {
     expect(text).toContain("MaterialFunction=MaterialFunction'\"/Game/blend_normals.blend_normals\"'");
     expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,OutputIndex=0))');
     expect(warnings.some(w => /blend_normals.*auto-link|create.*blend_normals/i.test(w))).toBe(true);
+  });
+
+  it('resolves a MaterialFunctionCall input pin index from FunctionInputs(n) metadata', () => {
+    // BlendAngleCorrectedNormals carries explicit FunctionInputs(n) mappings, so the
+    // index comes from metadata (the authoritative path) - not from derived-pin order.
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        { id: 'src', type: 'Constant', params: { R: 1 } },
+        { id: 'blend', type: 'BlendAngleCorrectedNormals' },
+      ],
+      connections: [{ from: 'src:Value', to: 'blend:AdditionalNormal' }],
+    };
+    const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], blend: [200, 0] }), META, NO_PINS);
+    // AdditionalNormal -> FunctionInputs(1) from metadata, even with no derived pins present.
+    expect(text).toContain('FunctionInputs(1)=(Input=(Expression=MaterialExpressionConstant_0,OutputIndex=0))');
+    expect(warnings).toEqual([]);
+  });
+
+  it('warns when a MaterialFunctionCall input pin is not found in the fallback', () => {
+    // Reserved MaterialFunctionCall meta has no input mappings, so the index falls back
+    // to derived-pin order. If the wired pin isn't in derivedPins, we keep a safe default
+    // (index 0) but surface a warning so the silent mis-wire becomes visible.
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        { id: 'src', type: 'Constant', params: { R: 1 } },
+        { id: 'mfc', type: 'MaterialFunctionCall', params: { MaterialFunction: './blend_normals.matgraph.json' } },
+      ],
+      connections: [{ from: 'src:Value', to: 'mfc:MissingPin' }],
+    };
+    const derived: Record<string, DerivedPins> = {
+      mfc: { inputs: [{ name: 'BaseNormal', type: 'Float3' }], outputs: [{ name: 'Result', type: 'Float3' }] },
+    };
+    const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], mfc: [200, 0] }), META, derived, { mfContentRoot: '/Game/' });
+    // Safe default index 0 is still emitted (the wire is not dropped silently).
+    expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,OutputIndex=0))');
+    // ...but the unresolved pin is now visible as a warning.
+    expect(warnings.some(w => /MissingPin/.test(w))).toBe(true);
   });
 
   it('passes through an engine-path MaterialFunction without a warning', () => {
