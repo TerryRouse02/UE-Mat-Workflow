@@ -129,14 +129,31 @@ viewer 會在左側欄把它歸為一個專案，導出到 UE 也直接可用，
 
 ---
 
+## 多版本 UE 支援
+
+節點 DB 是**依版本切分**的，以版本成對的形式放在 `agent-pack/`：
+
+- `nodes-ue<major.minor>.json` —— 撰寫用的 DB（AI 的字典）。
+- `nodes-ue<major.minor>.export.json` —— 「匯出到 UE」用的每節點 UE 元數據。
+
+目前是 `nodes-ue5.7.json` + `nodes-ue5.7.export.json`；之後會有 `nodes-ue5.8.*` 等。Viewer 在 build 時自動探索所有存在的版本，並依每張圖的 `ueVersion` 欄位挑選對應的成對檔案。若某張圖指定了不支援的版本，viewer 會顯示明確的橫幅提示，並擋下可靠的匯出。
+
+**擴充新版本只是丟資料、不用改程式：** 用 UE commandlet（`tools/node-t3d-metadata`）針對該引擎版本產出這兩個檔案，丟進 `agent-pack/` 即可。
+
+> 對 AI 下 prompt 時，先告訴它你要做哪個 UE 版本 —— agent 規則要求它在寫任何 `.matgraph.json` 之前，必須先確認版本受支援。
+
+---
+
 ## 補充節點 DB
 
-`agent-pack/nodes-ue5.7.json` 目前有 142 個 expression。要新增：
+DB 依版本切分：編輯你目標版本的那一份（例如 `agent-pack/nodes-ue5.7.json`，目前有 142 個 expression）。要新增：
 
 1. 從 [UE Material Expression Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference) 查節點。
 2. 仿照現有條目格式新增到 `nodes.<NodeName>`（inputs、outputs、params、category、description）。
 3. `verified: true` 只在你親自核對過後才設。
 4. 跑 `pnpm test` 確認 DB 仍合法。
+
+（若要支援一個全新的 UE 版本，而不是擴充現有版本，請見 [多版本 UE 支援](#多版本-ue-支援) —— 用 commandlet 產出該版本的成對檔案，不要手動編輯。）
 
 ---
 
@@ -145,10 +162,10 @@ viewer 會在左側欄把它歸為一個專案，導出到 UE 也直接可用，
 | 路徑 | 內容 |
 |---|---|
 | `agent-pack/SPEC.md` | AI 必須遵循的 JSON schema 和撰寫規則。 |
-| `agent-pack/nodes-ue5.7.json` | UE 5.7 節點 DB（AI 的字典）。 |
-| `agent-pack/nodes-ue5.7.export.json` | 「匯出到 UE」用的每節點 UE 元數據（class 路徑、pin/param/output 對應）。 |
+| `agent-pack/nodes-ue<version>.json` | 依版本切分的節點 DB（AI 的字典），例如 `nodes-ue5.7.json`。 |
+| `agent-pack/nodes-ue<version>.export.json` | 「匯出到 UE」用的每版本 UE 元數據（class 路徑、pin/param/output 對應）。 |
 | `agent-pack/examples/` | 參考用 `.matgraph.json` 檔案。 |
-| `tools/node-t3d-metadata/` | UE 編輯器 commandlet，從實際 UE 5.7 安裝自動擷取並驗證匯出元數據 — 用法見其 `README.md` / `docs/AGENT_WORKFLOW.md`。 |
+| `tools/node-t3d-metadata/` | UE 編輯器 commandlet，從實際 UE 安裝自動擷取並驗證匯出元數據（每個版本各跑一次） — 用法見其 `README.md` / `docs/AGENT_WORKFLOW.md`。 |
 | `docs/superpowers/specs/` | 功能 spec（設計決策）。 |
 | `docs/superpowers/plans/` | 實作計劃（歷史記錄）。 |
 

@@ -129,14 +129,31 @@ The viewer then groups it as a project in the sidebar and it exports to UE as-is
 
 ---
 
+## Multi-version UE support
+
+The node DB is **version-scoped**. It ships as version pairs in `agent-pack/`:
+
+- `nodes-ue<major.minor>.json` — the authoring DB (the AI's vocabulary).
+- `nodes-ue<major.minor>.export.json` — per-node UE metadata for "Export to UE".
+
+Today that's `nodes-ue5.7.json` + `nodes-ue5.7.export.json`; later `nodes-ue5.8.*`, and so on. The viewer auto-discovers every version present at build time and selects the pair matching each graph's `ueVersion` field. A graph that targets an unsupported version shows a clear banner in the viewer and is blocked from reliable export.
+
+**Extending to a new version is a data drop, no code change:** generate both files with the UE commandlet (`tools/node-t3d-metadata`) against that engine version and drop them in `agent-pack/`.
+
+> When prompting an AI, tell it which UE version you target first — the agent rules require it to confirm a supported version before writing any `.matgraph.json`.
+
+---
+
 ## Adding to the node DB
 
-`agent-pack/nodes-ue5.7.json` currently has 142 expressions. To add more:
+The DB is version-scoped: edit the pair for the version you target (e.g. `agent-pack/nodes-ue5.7.json`, currently 142 expressions). To add more:
 
 1. Find the node in the [UE Material Expression Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference).
 2. Match the existing entry format under `nodes.<NodeName>` (inputs, outputs, params, category, description).
 3. Set `verified: true` only after you've cross-checked against UE.
 4. Run `pnpm test` to confirm the DB still validates.
+
+(To support a whole new UE version instead of extending an existing one, see [Multi-version UE support](#multi-version-ue-support) — generate the version pair via the commandlet rather than editing by hand.)
 
 ---
 
@@ -145,10 +162,10 @@ The viewer then groups it as a project in the sidebar and it exports to UE as-is
 | Path | What's there |
 |---|---|
 | `agent-pack/SPEC.md` | The JSON schema and authoring rules your AI must follow. |
-| `agent-pack/nodes-ue5.7.json` | UE 5.7 node DB (the AI's vocabulary). |
-| `agent-pack/nodes-ue5.7.export.json` | Per-node UE metadata for "Export to UE" (class paths, pin/param/output mappings). |
+| `agent-pack/nodes-ue<version>.json` | Version-scoped node DB (the AI's vocabulary), e.g. `nodes-ue5.7.json`. |
+| `agent-pack/nodes-ue<version>.export.json` | Per-version UE metadata for "Export to UE" (class paths, pin/param/output mappings). |
 | `agent-pack/examples/` | Reference `.matgraph.json` files. |
-| `tools/node-t3d-metadata/` | UE editor commandlet that auto-extracts & verifies the export metadata from a live UE 5.7 install — see its `README.md` / `docs/AGENT_WORKFLOW.md`. |
+| `tools/node-t3d-metadata/` | UE editor commandlet that auto-extracts & verifies the export metadata from a live UE install (run per version) — see its `README.md` / `docs/AGENT_WORKFLOW.md`. |
 | `docs/superpowers/specs/` | Feature specs (design decisions). |
 | `docs/superpowers/plans/` | Implementation plans (history). |
 

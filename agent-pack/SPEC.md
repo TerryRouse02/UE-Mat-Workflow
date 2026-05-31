@@ -1,6 +1,33 @@
 # UE Material Workflow — AI Spec
 
-You are producing UE 5.7 Material node graphs as JSON. A local viewer renders your output.
+You are producing UE Material node graphs as JSON. A local viewer renders your output.
+
+> **HARD RULE — confirm the UE version before you author anything.**
+> Before authoring or editing ANY material graph, you MUST ask the user which UE
+> version they are targeting, and confirm that version is supported (a
+> `nodes-ue<version>.json` DB pair exists in `agent-pack/`). **Do not write any
+> `.matgraph.json` until the UE version is confirmed and supported.** Set the
+> graph's `ueVersion` to that confirmed version, then author against the DB pair
+> that matches it. If the user names an unsupported version, stop and say so — the
+> viewer flags it with a banner and blocks reliable export.
+
+## Multi-version node DB
+
+The node DB ships as **version pairs** in `agent-pack/`:
+
+- `nodes-ue<major.minor>.json` — the authoring DB (the node vocabulary you read).
+- `nodes-ue<major.minor>.export.json` — per-node UE metadata for "Export to UE".
+
+Example today: `nodes-ue5.7.json` + `nodes-ue5.7.export.json` (later, `nodes-ue5.8.*`, etc.).
+
+The viewer auto-discovers every present version at build time and selects the DB
+pair matching each graph's `ueVersion`. An unsupported `ueVersion` shows a clear
+banner in the viewer and blocks reliable export. **Adding a version is purely a
+data drop:** generate both files via the UE commandlet (`tools/node-t3d-metadata`)
+and place them in `agent-pack/` — no code change needed.
+
+Throughout this spec, `nodes-ue5.7.json` is used as the concrete example; read the
+pair matching the confirmed `ueVersion` instead.
 
 ## Where to write
 
@@ -39,21 +66,27 @@ Do **not** share MaterialFunctions across projects — copy them into each proje
 
 ## Hard rules
 
-1. **Node type must exist in `nodes-ue5.7.json` OR be one of these reserved types:**
+1. **Confirm the UE version before authoring** (see the hard rule at the top). Ask
+   which UE version the user targets, confirm a `nodes-ue<version>.json` DB pair
+   exists in `agent-pack/`, and set `ueVersion` to that confirmed version. Author
+   against the DB pair that matches. Never write a `.matgraph.json` for an
+   unconfirmed or unsupported version.
+
+2. **Node type must exist in the version-matched `nodes-ue<version>.json` OR be one of these reserved types:**
    `MaterialOutput`, `FunctionInput`, `FunctionOutput`, `MaterialFunctionCall`.
    Unknown types → viewer red-flags. Do not invent types.
 
-2. **Pin names must match the DB exactly.** Look up `inputs[].name` and `outputs[].name` for the node type before writing a connection.
+3. **Pin names must match the DB exactly.** Look up `inputs[].name` and `outputs[].name` for the node type before writing a connection.
 
-3. **Do not write `x`/`y` positions.** Layout is automatic (dagre).
+4. **Do not write `x`/`y` positions.** Layout is automatic (dagre).
 
-4. **Use `"node:pin"` strings, never objects.**
+5. **Use `"node:pin"` strings, never objects.**
 
-5. **Every `Material` should have exactly one `MaterialOutput` node** (id by convention `OUT`).
+6. **Every `Material` should have exactly one `MaterialOutput` node** (id by convention `OUT`).
 
-6. **Every `MaterialFunction` must have at least one `FunctionInput` and one `FunctionOutput`.**
+7. **Every `MaterialFunction` must have at least one `FunctionInput` and one `FunctionOutput`.**
 
-7. **`MaterialFunctionCall.params.MaterialFunction`** is a path relative to the **current file's directory** (not the `graphs/` root).
+8. **`MaterialFunctionCall.params.MaterialFunction`** is a path relative to the **current file's directory** (not the `graphs/` root).
    - With the project-folder convention, the Material and its MFs are siblings in the same folder, so the path is just `"./<mf_name>.matgraph.json"`.
    - Example: from `graphs/obsidian/obsidian.matgraph.json` → `"./fresnel_lib.matgraph.json"` resolves to `graphs/obsidian/fresnel_lib.matgraph.json`.
    - MFs that call sibling MFs use the same `"./<name>.matgraph.json"` form.
