@@ -7,6 +7,7 @@ import './inspector.css';
 export interface InspectorProps {
   graph?: MatGraph;
   selectedNodeId: string | null;
+  derivedPins?: Record<string, { inputs: { name: string; type: string }[]; outputs: { name: string; type: string }[] }>;
 }
 
 function isCodeLike(v: unknown): v is string {
@@ -46,7 +47,7 @@ function PinList({ title, pins }: { title: string; pins: { name: string; type: s
   );
 }
 
-export function Inspector({ graph, selectedNodeId }: InspectorProps) {
+export function Inspector({ graph, selectedNodeId, derivedPins }: InspectorProps) {
   if (!graph) return <aside className="inspector-wrap" />;
 
   const node = selectedNodeId ? graph.nodes.find(n => n.id === selectedNodeId) : undefined;
@@ -68,8 +69,15 @@ export function Inspector({ graph, selectedNodeId }: InspectorProps) {
             <p>The viewer renders it, but Export can't map its class — it'll be flagged, not blocked.</p>
           </div>
         )}
-        <PinList title="Inputs" pins={def?.inputs ?? []} />
-        <PinList title="Outputs" pins={def?.outputs ?? []} />
+        {(() => {
+          const livePins = derivedPins?.[node.id];
+          const inputPins = (def?.inputs ?? livePins?.inputs ?? []);
+          const outputPins = (def?.outputs ?? livePins?.outputs ?? []);
+          return <>
+            <PinList title="Inputs" pins={inputPins} />
+            <PinList title="Outputs" pins={outputPins} />
+          </>;
+        })()}
         {params.length > 0 && (
           <div className="insp-section">
             <div className="insp-sub">Parameters</div>
@@ -86,6 +94,7 @@ export function Inspector({ graph, selectedNodeId }: InspectorProps) {
   }
 
   const unknownCount = graph.nodes.filter(n => !DB.nodes[n.type]).length;
+  const mfCount = graph.nodes.filter(n => n.type === 'MaterialFunctionCall').length;
   return (
     <aside className="inspector-wrap insp">
       <div className="insp-eyebrow"><span className="mono">Material</span></div>
@@ -97,6 +106,7 @@ export function Inspector({ graph, selectedNodeId }: InspectorProps) {
         {unknownCount > 0 && (
           <div className="ready-row warn">! {unknownCount} unknown expression{unknownCount > 1 ? 's' : ''} — partial export</div>
         )}
+        {mfCount > 0 && <div className="ready-row">ƒ {mfCount} MaterialFunction link{mfCount > 1 ? 's' : ''}</div>}
       </div>
     </aside>
   );

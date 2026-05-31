@@ -15,6 +15,7 @@
 .watch-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-dim);
   background: var(--bg2); border: 1px solid var(--bd); border-radius: 999px; padding: 4px 10px; }
 .watch-pill.warn { color: var(--warn); }
+.watch-pill.snap { color: var(--fg-faint); }
 .watch-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-faint); }
 .watch-dot.live { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
 .export-group { position: relative; display: flex; }

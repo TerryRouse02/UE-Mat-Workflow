@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { StoreProvider, useStore } from './store';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
@@ -20,9 +20,11 @@ function Body() {
   const current = state.breadcrumb[state.breadcrumb.length - 1];
   const payload = current ? state.graphs[current] : undefined;
 
-  const pushToast = (t: Omit<ToastItem, 'id'>) =>
-    setToasts(ts => [...ts, { id: Date.now() + Math.random(), ...t }]);
+  const pushToast = useCallback((t: Omit<ToastItem, 'id'>) =>
+    setToasts(ts => [...ts, { id: Date.now() + Math.random(), ...t }]), []);
   const closeToast = (id: number) => setToasts(ts => ts.filter(t => t.id !== id));
+
+  useEffect(() => { setSelectedNodeId(null); }, [current]);
 
   // Hot-reload notice: when the open graph's payload object changes while live.
   const prevPayloadRef = useRef(payload);
@@ -31,7 +33,7 @@ function Body() {
       pushToast({ variant: 'info', title: 'Graph updated', message: `${current} reloaded from disk.` });
     }
     prevPayloadRef.current = payload;
-  }, [payload, current, state.connection]);
+  }, [payload, current, state.connection, pushToast]);
 
   const errs = current ? (state.errors[current] ?? []) : [];
   const warns = payload?.warnings ?? [];
@@ -56,10 +58,10 @@ function Body() {
             </div>
           )}
           {payload
-            ? <Graph payload={payload} basePath={current!} db={DB} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} />
+            ? <Graph key={current} payload={payload} basePath={current!} db={DB} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} />
             : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
-        <Inspector graph={payload?.graph} selectedNodeId={selectedNodeId} />
+        <Inspector graph={payload?.graph} selectedNodeId={selectedNodeId} derivedPins={payload?.derivedPins} />
       </div>
       <ToastStack toasts={toasts} onClose={closeToast} />
     </div>

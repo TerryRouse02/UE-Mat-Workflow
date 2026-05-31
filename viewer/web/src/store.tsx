@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useEffect } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
 import { connect } from './ws-client';
 import type { ServerMessage, GraphPayload, FileEntry } from './protocol';
 
@@ -103,14 +103,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     return () => ws.close();
   }, []);
 
-  return (
-    <C.Provider value={{
-      state,
-      open(path) { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'open', path }); },
-      enterMF(path) { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'enterMF', mfPath: path }); },
-      popBreadcrumb(i) { dispatch({ type: 'popBreadcrumb', toIndex: i }); },
-    }}>{children}</C.Provider>
-  );
+  const open = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'open', path }); }, []);
+  const enterMF = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'enterMF', mfPath: path }); }, []);
+  const popBreadcrumb = useCallback((i: number) => { dispatch({ type: 'popBreadcrumb', toIndex: i }); }, []);
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb }), [state, open, enterMF, popBreadcrumb]);
+  return <C.Provider value={value}>{children}</C.Provider>;
 }
 
 export function useStore() {

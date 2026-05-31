@@ -66,7 +66,7 @@ function NodeDetail({ def }: { def: NodeDef }) {
       {def.dynamicPins && def.pinInfo && (
         <div className="lib-node-detail-section">
           <div className="lib-node-detail-section-title">Pin rule</div>
-          <div style={{ fontStyle: 'italic', color: '#aaa' }}>{def.pinInfo}</div>
+          <div style={{ fontStyle: 'italic', color: 'var(--fg-dim)' }}>{def.pinInfo}</div>
         </div>
       )}
     </div>
@@ -151,7 +151,7 @@ export function NodeLibrary() {
         ))}
       </div>
       {categories.length === 0 && (
-        <div style={{ color: '#666', fontSize: 11, padding: 8 }}>No matches for "{query}"</div>
+        <div style={{ color: 'var(--fg-faint)', fontSize: 11, padding: 8 }}>No matches for "{query}"</div>
       )}
       {categories.map(cat => (
         <CategoryBlock

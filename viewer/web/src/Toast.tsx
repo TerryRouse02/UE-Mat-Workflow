@@ -9,7 +9,7 @@ export interface ToastItem {
   detail?: string[];
 }
 
-const ICON: Record<ToastItem['variant'], string> = { loading: '↻', success: '✓', warning: '!', error: '✕', info: '↻' };
+const ICON: Record<ToastItem['variant'], string> = { loading: '↻', success: '✓', warning: '!', error: '✕', info: 'ℹ' };
 
 function Toast({ t, onClose }: { t: ToastItem; onClose: (id: number) => void }) {
   useEffect(() => {

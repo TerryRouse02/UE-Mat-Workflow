@@ -20,7 +20,7 @@
 .gnode-warn { border-color: var(--warn); }
 .gnode-reserved .gnode-head { background: #20283a; }
 
-/* ---- Edges (per-edge color is set inline in a later task) ---- */
+/* ---- Edges (per-edge color set inline in Graph.tsx) ---- */
 .react-flow__edge-path { stroke: var(--fg-faint); stroke-width: 2; transition: stroke-width 0.1s ease; }
 .react-flow__edge:hover .react-flow__edge-path,
 .react-flow__edge.selected .react-flow__edge-path { stroke-width: 3 !important; }
