@@ -35,11 +35,20 @@ pnpm start
 # → http://localhost:5790 (auto-tries 5790–5799)
 ```
 
+**Working on the viewer's code?** Use dev mode instead — it rebuilds the UI on every save, so you just refresh the browser (no manual `pnpm build`, no restart):
+
+```bash
+pnpm dev
+# edit any UI file → save → refresh the browser (F5)
+```
+
+(Backend/server `.ts` changes still need a re-run of `pnpm dev`.)
+
 The sidebar has two tabs:
 
 | Tab | What it shows |
 |---|---|
-| **Files** | Your materials, grouped by project folder. Each `graphs/<project>/` with exactly one Material + its MFs is a project; everything else falls under "Unorganized". |
+| **Files** | Your materials, grouped by project folder. Every sub-folder under `graphs/` is one project showing all its files; only files at the `graphs/` root fall under "Unorganized". |
 | **Nodes** | The full UE 5.7 node library — search by name or description, browse by category, click a node to see its inputs / outputs / params with type info and badges (verified, dynamic-pin, deprecated). |
 
 The viewer hot-reloads when files change.

@@ -35,11 +35,20 @@ pnpm start
 # → http://localhost:5790（自動嘗試 5790–5799）
 ```
 
+**在改 viewer 的程式碼？** 改用 dev 模式 —— 它會在每次存檔時重新編譯 UI，你只要刷新瀏覽器（不用手動 `pnpm build`、不用重啟）：
+
+```bash
+pnpm dev
+# 改任何 UI 檔 → 存檔 → 刷新瀏覽器（F5）
+```
+
+（後端/server 的 `.ts` 改動仍需重跑一次 `pnpm dev`。）
+
 Sidebar 有兩個 tab：
 
 | Tab | 內容 |
 |---|---|
-| **Files** | 你的材質，依專案資料夾分組。`graphs/<project>/` 內若恰有 1 個 Material + 它使用的 MF，就是一個專案；其他結構不符的會顯示在「Unorganized」區。 |
+| **Files** | 你的材質，依專案資料夾分組。`graphs/` 下每個子資料夾就是一個專案，裡面所有檔案都會顯示；只有直接放在 `graphs/` 根層的檔案會落到「Unorganized」區。 |
 | **Nodes** | UE 5.7 完整節點庫——可依名稱或描述搜尋、按分類瀏覽，點節點看 inputs / outputs / params 細節，包含型別與徽章（verified、dynamic-pin、deprecated）。 |
 
 檔案變動時 viewer 會自動 reload。
