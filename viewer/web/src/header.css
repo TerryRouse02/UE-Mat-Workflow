@@ -1,0 +1,32 @@
+.hdr { display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  height: 48px; padding: 0 14px; background: var(--hed); border-bottom: 1px solid var(--bd); flex: none; }
+.hdr-left { display: flex; align-items: center; gap: 16px; min-width: 0; }
+.brand { display: flex; align-items: baseline; gap: 6px; }
+.brand-mark { color: var(--accent); }
+.brand-name { font-weight: 700; letter-spacing: .02em; }
+.brand-sub { color: var(--fg-faint); font-size: 11px; }
+.crumb { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
+.crumb-seg { display: inline-flex; align-items: center; gap: 4px; }
+.crumb-sep { color: var(--fg-faint); margin: 0 2px; }
+.crumb-link, .crumb-cur { background: none; border: 0; color: var(--fg-dim); cursor: pointer; font: inherit; padding: 2px 4px; }
+.crumb-link:hover { color: var(--fg); }
+.crumb-cur { color: var(--fg); cursor: default; }
+.hdr-right { display: flex; align-items: center; gap: 10px; }
+.watch-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-dim);
+  background: var(--bg2); border: 1px solid var(--bd); border-radius: 999px; padding: 4px 10px; }
+.watch-pill.warn { color: var(--warn); }
+.watch-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-faint); }
+.watch-dot.live { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+.export-group { position: relative; display: flex; }
+.btn-export { background: var(--accent); color: #fff; border: 0; border-radius: var(--radius) 0 0 var(--radius);
+  padding: 6px 12px; font: inherit; font-weight: 600; cursor: pointer; }
+.btn-export:disabled { opacity: .5; cursor: not-allowed; }
+.btn-mfroot { background: var(--bg2); color: var(--fg-dim); border: 0; border-left: 1px solid var(--bd);
+  border-radius: 0 var(--radius) var(--radius) 0; padding: 6px 9px; cursor: pointer; }
+.btn-mfroot.hint { color: var(--warn); box-shadow: 0 0 0 1px var(--warn) inset; }
+.mfroot-popover { position: absolute; top: 38px; right: 0; z-index: 50; width: 240px; display: flex; flex-direction: column; gap: 6px;
+  background: var(--bg2); border: 1px solid var(--bd); border-radius: var(--radius); padding: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+.mfroot-popover label { font-size: 11px; color: var(--fg-dim); }
+.hint-txt { display: block; color: var(--fg-faint); font-size: 10px; }
+.mfroot-popover input { background: var(--bg0); color: var(--fg); border: 1px solid var(--bd); border-radius: 5px; padding: 5px 7px; font: inherit; }
+.btn-import { background: var(--bg2); color: var(--fg-faint); border: 1px solid var(--bd); border-radius: var(--radius); padding: 6px 12px; cursor: not-allowed; }
