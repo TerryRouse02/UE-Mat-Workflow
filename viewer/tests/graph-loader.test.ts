@@ -6,19 +6,19 @@ const REPO = resolve(__dirname, '..', '..');
 
 describe('loadGraph', () => {
   it('loads a valid example', async () => {
-    const r = await loadGraph(resolve(REPO, 'agent-pack/examples/01_basic_pbr.matgraph.json'));
+    const r = await loadGraph(resolve(REPO, 'agent-pack/examples/01_basic_pbr/01_basic_pbr.matgraph.json'));
     expect(r.errors).toEqual([]);
     expect(r.graph?.name).toBe('01_basic_pbr');
   });
 
   it('loads the flashing emissive material example', async () => {
-    const r = await loadGraph(resolve(REPO, 'agent-pack/examples/03_flashing_emissive.matgraph.json'));
+    const r = await loadGraph(resolve(REPO, 'agent-pack/examples/03_flashing_emissive/03_flashing_emissive.matgraph.json'));
     expect(r.errors).toEqual([]);
     expect(r.graph?.name).toBe('flashing_emissive');
   });
 
   it('loads the snow material example', async () => {
-    const r = await loadGraph(resolve(REPO, 'agent-pack/examples/04_snow.matgraph.json'));
+    const r = await loadGraph(resolve(REPO, 'agent-pack/examples/04_snow/04_snow.matgraph.json'));
     expect(r.errors).toEqual([]);
     expect(r.graph?.name).toBe('snow');
   });

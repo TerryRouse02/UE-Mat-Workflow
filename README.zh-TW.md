@@ -9,7 +9,8 @@ AI 與人協作 UE 5.7 材質節點圖的統一工作流。AI 輸出標準 `.mat
 ## 為什麼用這套
 
 - **不要再用文字牆描述節點圖了。** AI 用嚴格 JSON schema 描述材質，viewer 渲染成像真的 UE 節點。
-- **不要再讓 AI 亂編節點名了。** 釘住的 UE 5.7 節點 DB（142 個 expression）是 single source of truth——AI 必須用已存在的節點型別、精確的 pin 名稱、精確的 param 名稱。
+- **不要再讓 AI 亂編節點名了。** 釘住的 UE 5.7 節點 DB（142 個 expression）是 single source of truth——AI 必須用已存在的節點型別、精確的 pin 名稱、精確的 param 名稱。viewer 還會標出「連到不存在 pin」的連線。
+- **最終輸出不再斷線。** 你把結果直接接進 `MaterialOutput` 節點；導出時 emitter 會自動把它們收進一個 `MakeMaterialAttributes` 節點，貼進 UE 只需接 1 根線，而不是每個屬性接一根。
 - **一套格式跨 AI 工具。** 同一個 `agent-pack/` 在 Claude Code、Cursor、Copilot CLI、Gemini CLI 或任何能讀 agent rules 的工具裡都能用。
 
 ---
@@ -109,16 +110,13 @@ node viewer/dist/server/html-export.js export <project>/<name> --out ./shared.ht
 
 ## 範例
 
-`agent-pack/examples/` 有舊扁平結構的參考檔。要套用新慣例：
+`agent-pack/examples/` 的參考檔每個都已是合規專案資料夾（`<name>/<name>.matgraph.json`，引用的 MaterialFunction 複製在同資料夾、不共享）。要試用某個，直接整個資料夾複製到 `graphs/`：
 
 ```bash
-mkdir -p graphs/basic_pbr graphs/with_function
-cp agent-pack/examples/01_basic_pbr.matgraph.json graphs/basic_pbr/
-cp agent-pack/examples/02_with_function.matgraph.json graphs/with_function/
-cp agent-pack/examples/functions/blend_normals.matgraph.json graphs/with_function/
+cp -r agent-pack/examples/02_with_function graphs/
 ```
 
-接著編輯 `with_function/02_with_function.matgraph.json`，把 MaterialFunction 路徑從 `"./functions/blend_normals.matgraph.json"` 改成 `"./blend_normals.matgraph.json"`。
+viewer 會在左側欄把它歸為一個專案，導出到 UE 也直接可用，不需改任何路徑。
 
 ---
 

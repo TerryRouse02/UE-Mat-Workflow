@@ -1,0 +1,1548 @@
+{
+  "schemaVersion": "1.0",
+  "ueVersion": "5.7",
+  "type": "Material",
+  "name": "stress_all_nodes",
+  "description": "Stress test: one of every exportable node type, zero warnings.",
+  "nodes": [
+    {
+      "id": "OUT",
+      "type": "MaterialOutput"
+    },
+    {
+      "id": "MFC",
+      "type": "MaterialFunctionCall",
+      "params": {
+        "MaterialFunction": "./stress_all_nodes_lib.matgraph.json"
+      }
+    },
+    {
+      "id": "CUSTOM",
+      "type": "Custom",
+      "params": {
+        "Code": "return UV * Mask;",
+        "OutputType": "CMOT_Float3",
+        "Description": "StressCustom",
+        "Inputs": [
+          {
+            "InputName": "UV"
+          },
+          {
+            "InputName": "Mask"
+          }
+        ],
+        "AdditionalOutputs": [
+          {
+            "OutputName": "Extra",
+            "OutputType": "CMOT_Float1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "N_Multiply",
+      "type": "Multiply"
+    },
+    {
+      "id": "N_Add",
+      "type": "Add"
+    },
+    {
+      "id": "N_OneMinus",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_Lerp",
+      "type": "Lerp"
+    },
+    {
+      "id": "N_Saturate",
+      "type": "Saturate"
+    },
+    {
+      "id": "N_TextureSampleParameter2D",
+      "type": "TextureSampleParameter2D",
+      "params": {
+        "ParameterName": "StressAlbedo"
+      }
+    },
+    {
+      "id": "N_TextureCoordinate",
+      "type": "TextureCoordinate"
+    },
+    {
+      "id": "N_Constant3Vector",
+      "type": "Constant3Vector"
+    },
+    {
+      "id": "N_ScalarParameter",
+      "type": "ScalarParameter",
+      "params": {
+        "ParameterName": "StressScalar"
+      }
+    },
+    {
+      "id": "N_BlendAngleCorrectedNormals",
+      "type": "BlendAngleCorrectedNormals"
+    },
+    {
+      "id": "N_Constant",
+      "type": "Constant"
+    },
+    {
+      "id": "N_Constant2Vector",
+      "type": "Constant2Vector"
+    },
+    {
+      "id": "N_Constant4Vector",
+      "type": "Constant4Vector"
+    },
+    {
+      "id": "N_DistanceCullFade",
+      "type": "DistanceCullFade"
+    },
+    {
+      "id": "N_ParticleColor",
+      "type": "ParticleColor"
+    },
+    {
+      "id": "N_ParticleDirection",
+      "type": "ParticleDirection"
+    },
+    {
+      "id": "N_ParticleMotionBlurFade",
+      "type": "ParticleMotionBlurFade"
+    },
+    {
+      "id": "N_ParticleRadius",
+      "type": "ParticleRadius"
+    },
+    {
+      "id": "N_ParticleRelativeTime",
+      "type": "ParticleRelativeTime"
+    },
+    {
+      "id": "N_ParticleSize",
+      "type": "ParticleSize"
+    },
+    {
+      "id": "N_ParticleSpeed",
+      "type": "ParticleSpeed"
+    },
+    {
+      "id": "N_PerInstanceFadeAmount",
+      "type": "PerInstanceFadeAmount"
+    },
+    {
+      "id": "N_PerInstanceRandom",
+      "type": "PerInstanceRandom"
+    },
+    {
+      "id": "N_Time",
+      "type": "Time"
+    },
+    {
+      "id": "N_TwoSidedSign",
+      "type": "TwoSidedSign"
+    },
+    {
+      "id": "N_VertexColor",
+      "type": "VertexColor"
+    },
+    {
+      "id": "N_ViewProperty",
+      "type": "ViewProperty"
+    },
+    {
+      "id": "N_PrecomputedAOMask",
+      "type": "PrecomputedAOMask"
+    },
+    {
+      "id": "N_ActorPositionWS",
+      "type": "ActorPositionWS"
+    },
+    {
+      "id": "N_CameraPositionWS",
+      "type": "CameraPositionWS"
+    },
+    {
+      "id": "N_LightmapUVs",
+      "type": "LightmapUVs"
+    },
+    {
+      "id": "N_ObjectOrientation",
+      "type": "ObjectOrientation"
+    },
+    {
+      "id": "N_ObjectPositionWS",
+      "type": "ObjectPositionWS"
+    },
+    {
+      "id": "N_ObjectRadius",
+      "type": "ObjectRadius"
+    },
+    {
+      "id": "N_Panner",
+      "type": "Panner"
+    },
+    {
+      "id": "N_ParticlePositionWS",
+      "type": "ParticlePositionWS"
+    },
+    {
+      "id": "N_PixelNormalWS",
+      "type": "PixelNormalWS"
+    },
+    {
+      "id": "N_Rotator",
+      "type": "Rotator"
+    },
+    {
+      "id": "N_SceneTexelSize",
+      "type": "SceneTexelSize"
+    },
+    {
+      "id": "N_ScreenPosition",
+      "type": "ScreenPosition"
+    },
+    {
+      "id": "N_VertexNormalWS",
+      "type": "VertexNormalWS"
+    },
+    {
+      "id": "N_VertexTangentWS",
+      "type": "VertexTangentWS"
+    },
+    {
+      "id": "N_ViewSize",
+      "type": "ViewSize"
+    },
+    {
+      "id": "N_WorldPosition",
+      "type": "WorldPosition"
+    },
+    {
+      "id": "N_AtmosphericFogColor",
+      "type": "AtmosphericFogColor"
+    },
+    {
+      "id": "N_Desaturation",
+      "type": "Desaturation"
+    },
+    {
+      "id": "N_DepthFade",
+      "type": "DepthFade"
+    },
+    {
+      "id": "N_PixelDepth",
+      "type": "PixelDepth"
+    },
+    {
+      "id": "N_SceneDepth",
+      "type": "SceneDepth"
+    },
+    {
+      "id": "N_Abs",
+      "type": "Abs"
+    },
+    {
+      "id": "N_AppendVector",
+      "type": "AppendVector"
+    },
+    {
+      "id": "N_Arccosine",
+      "type": "Arccosine"
+    },
+    {
+      "id": "N_ArccosineFast",
+      "type": "ArccosineFast"
+    },
+    {
+      "id": "N_Arcsine",
+      "type": "Arcsine"
+    },
+    {
+      "id": "N_ArcsineFast",
+      "type": "ArcsineFast"
+    },
+    {
+      "id": "N_Arctangent",
+      "type": "Arctangent"
+    },
+    {
+      "id": "N_ArctangentFast",
+      "type": "ArctangentFast"
+    },
+    {
+      "id": "N_Arctangent2",
+      "type": "Arctangent2"
+    },
+    {
+      "id": "N_Arctangent2Fast",
+      "type": "Arctangent2Fast"
+    },
+    {
+      "id": "N_Ceil",
+      "type": "Ceil"
+    },
+    {
+      "id": "N_Clamp",
+      "type": "Clamp"
+    },
+    {
+      "id": "N_ComponentMask",
+      "type": "ComponentMask"
+    },
+    {
+      "id": "N_Cosine",
+      "type": "Cosine"
+    },
+    {
+      "id": "N_CrossProduct",
+      "type": "CrossProduct"
+    },
+    {
+      "id": "N_Divide",
+      "type": "Divide"
+    },
+    {
+      "id": "N_DotProduct",
+      "type": "DotProduct"
+    },
+    {
+      "id": "N_Floor",
+      "type": "Floor"
+    },
+    {
+      "id": "N_Fmod",
+      "type": "Fmod"
+    },
+    {
+      "id": "N_Frac",
+      "type": "Frac"
+    },
+    {
+      "id": "N_If",
+      "type": "If"
+    },
+    {
+      "id": "N_Logarithm10",
+      "type": "Logarithm10"
+    },
+    {
+      "id": "N_Logarithm2",
+      "type": "Logarithm2"
+    },
+    {
+      "id": "N_Max",
+      "type": "Max"
+    },
+    {
+      "id": "N_Min",
+      "type": "Min"
+    },
+    {
+      "id": "N_Normalize",
+      "type": "Normalize"
+    },
+    {
+      "id": "N_Power",
+      "type": "Power"
+    },
+    {
+      "id": "N_Round",
+      "type": "Round"
+    },
+    {
+      "id": "N_Step",
+      "type": "Step"
+    },
+    {
+      "id": "N_SmoothStep",
+      "type": "SmoothStep"
+    },
+    {
+      "id": "N_Sign",
+      "type": "Sign"
+    },
+    {
+      "id": "N_Sine",
+      "type": "Sine"
+    },
+    {
+      "id": "N_SquareRoot",
+      "type": "SquareRoot"
+    },
+    {
+      "id": "N_Subtract",
+      "type": "Subtract"
+    },
+    {
+      "id": "N_Tangent",
+      "type": "Tangent"
+    },
+    {
+      "id": "N_Truncate",
+      "type": "Truncate"
+    },
+    {
+      "id": "N_StaticBool",
+      "type": "StaticBool"
+    },
+    {
+      "id": "N_StaticSwitch",
+      "type": "StaticSwitch"
+    },
+    {
+      "id": "N_TextureObject",
+      "type": "TextureObject"
+    },
+    {
+      "id": "N_MakeMaterialAttributes",
+      "type": "MakeMaterialAttributes"
+    },
+    {
+      "id": "N_BreakMaterialAttributes",
+      "type": "BreakMaterialAttributes"
+    },
+    {
+      "id": "N_BlendMaterialAttributes",
+      "type": "BlendMaterialAttributes"
+    },
+    {
+      "id": "N_CollectionParameter",
+      "type": "CollectionParameter",
+      "params": {
+        "Collection": "/Game/StressMPC",
+        "ParameterName": "StressCollParam"
+      }
+    },
+    {
+      "id": "N_DynamicParameter",
+      "type": "DynamicParameter"
+    },
+    {
+      "id": "N_FontSampleParameter",
+      "type": "FontSampleParameter",
+      "params": {
+        "ParameterName": "StressFont"
+      }
+    },
+    {
+      "id": "N_StaticSwitchParameter",
+      "type": "StaticSwitchParameter",
+      "params": {
+        "ParameterName": "StressSSwitch"
+      }
+    },
+    {
+      "id": "N_StaticBoolParameter",
+      "type": "StaticBoolParameter",
+      "params": {
+        "ParameterName": "StressSBool"
+      }
+    },
+    {
+      "id": "N_StaticComponentMaskParameter",
+      "type": "StaticComponentMaskParameter",
+      "params": {
+        "ParameterName": "StressMask"
+      }
+    },
+    {
+      "id": "N_VectorParameter",
+      "type": "VectorParameter",
+      "params": {
+        "ParameterName": "StressVector"
+      }
+    },
+    {
+      "id": "N_TextureObjectParameter",
+      "type": "TextureObjectParameter",
+      "params": {
+        "ParameterName": "StressTexObj"
+      }
+    },
+    {
+      "id": "N_TextureSample",
+      "type": "TextureSample"
+    },
+    {
+      "id": "N_TextureSampleParameterSubUV",
+      "type": "TextureSampleParameterSubUV",
+      "params": {
+        "ParameterName": "StressSubUV"
+      }
+    },
+    {
+      "id": "N_TextureSampleParameterCube",
+      "type": "TextureSampleParameterCube",
+      "params": {
+        "ParameterName": "StressCube"
+      }
+    },
+    {
+      "id": "N_TextureSampleParameterMovie",
+      "type": "TextureSampleParameterMovie",
+      "params": {
+        "ParameterName": "StressMovie"
+      }
+    },
+    {
+      "id": "N_ParticleMacroUV",
+      "type": "ParticleMacroUV"
+    },
+    {
+      "id": "N_SphericalParticleOpacity",
+      "type": "SphericalParticleOpacity"
+    },
+    {
+      "id": "N_ParticleSubUV",
+      "type": "ParticleSubUV"
+    },
+    {
+      "id": "N_LandscapeLayerCoords",
+      "type": "LandscapeLayerCoords"
+    },
+    {
+      "id": "N_LandscapeLayerSwitch",
+      "type": "LandscapeLayerSwitch",
+      "params": {
+        "ParameterName": "StressLandLayer"
+      }
+    },
+    {
+      "id": "N_LandscapeLayerWeight",
+      "type": "LandscapeLayerWeight",
+      "params": {
+        "ParameterName": "StressLandWeight"
+      }
+    },
+    {
+      "id": "N_LandscapeVisibilityMask",
+      "type": "LandscapeVisibilityMask"
+    },
+    {
+      "id": "N_AntialiasedTextureMask",
+      "type": "AntialiasedTextureMask"
+    },
+    {
+      "id": "N_BumpOffset",
+      "type": "BumpOffset"
+    },
+    {
+      "id": "N_ConstantBiasScale",
+      "type": "ConstantBiasScale"
+    },
+    {
+      "id": "N_DDX",
+      "type": "DDX"
+    },
+    {
+      "id": "N_DDY",
+      "type": "DDY"
+    },
+    {
+      "id": "N_DepthOfFieldFunction",
+      "type": "DepthOfFieldFunction"
+    },
+    {
+      "id": "N_Distance",
+      "type": "Distance"
+    },
+    {
+      "id": "N_DistanceFieldGradient",
+      "type": "DistanceFieldGradient"
+    },
+    {
+      "id": "N_DistanceToNearestSurface",
+      "type": "DistanceToNearestSurface"
+    },
+    {
+      "id": "N_FeatureLevelSwitch",
+      "type": "FeatureLevelSwitch"
+    },
+    {
+      "id": "N_Fresnel",
+      "type": "Fresnel"
+    },
+    {
+      "id": "N_GIReplace",
+      "type": "GIReplace"
+    },
+    {
+      "id": "N_LightmassReplace",
+      "type": "LightmassReplace"
+    },
+    {
+      "id": "N_Noise",
+      "type": "Noise"
+    },
+    {
+      "id": "N_PreviousFrameSwitch",
+      "type": "PreviousFrameSwitch"
+    },
+    {
+      "id": "N_QualitySwitch",
+      "type": "QualitySwitch"
+    },
+    {
+      "id": "N_RotateAboutAxis",
+      "type": "RotateAboutAxis"
+    },
+    {
+      "id": "N_SphereMask",
+      "type": "SphereMask"
+    },
+    {
+      "id": "N_VectorNoise",
+      "type": "VectorNoise"
+    },
+    {
+      "id": "N_DeriveNormalZ",
+      "type": "DeriveNormalZ"
+    },
+    {
+      "id": "N_Transform",
+      "type": "Transform"
+    },
+    {
+      "id": "N_TransformPosition",
+      "type": "TransformPosition"
+    },
+    {
+      "id": "N_CameraVectorWS",
+      "type": "CameraVectorWS"
+    },
+    {
+      "id": "N_LightVector",
+      "type": "LightVector"
+    },
+    {
+      "id": "N_ObjectBounds",
+      "type": "ObjectBounds"
+    },
+    {
+      "id": "N_ReflectionVectorWS",
+      "type": "ReflectionVectorWS"
+    },
+    {
+      "id": "N_PreSkinnedLocalNormal",
+      "type": "PreSkinnedLocalNormal"
+    },
+    {
+      "id": "N_PreSkinnedLocalPosition",
+      "type": "PreSkinnedLocalPosition"
+    }
+  ],
+  "connections": [
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "OUT:BaseColor"
+    },
+    {
+      "from": "N_OneMinus:Result",
+      "to": "OUT:Roughness"
+    },
+    {
+      "from": "N_Cosine:Result",
+      "to": "OUT:Metallic"
+    },
+    {
+      "from": "N_BreakMaterialAttributes:Normal",
+      "to": "OUT:Normal"
+    },
+    {
+      "from": "N_Desaturation:Result",
+      "to": "OUT:EmissiveColor"
+    },
+    {
+      "from": "N_DepthFade:Result",
+      "to": "OUT:Opacity"
+    },
+    {
+      "from": "N_AntialiasedTextureMask:Result",
+      "to": "OUT:OpacityMask"
+    },
+    {
+      "from": "N_PrecomputedAOMask:Mask",
+      "to": "OUT:AmbientOcclusion"
+    },
+    {
+      "from": "N_ConstantBiasScale:Result",
+      "to": "OUT:PixelDepthOffset"
+    },
+    {
+      "from": "N_StaticSwitch:Result",
+      "to": "OUT:SubsurfaceColor"
+    },
+    {
+      "from": "N_DepthOfFieldFunction:Result",
+      "to": "OUT:ClearCoat"
+    },
+    {
+      "from": "N_DistanceToNearestSurface:Distance",
+      "to": "OUT:ClearCoatRoughness"
+    },
+    {
+      "from": "N_Fresnel:Result",
+      "to": "OUT:Specular"
+    },
+    {
+      "from": "N_RotateAboutAxis:Result",
+      "to": "OUT:WorldPositionOffset"
+    },
+    {
+      "from": "N_SphereMask:Result",
+      "to": "OUT:Refraction"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_Multiply:A"
+    },
+    {
+      "from": "N_Constant2Vector:RG",
+      "to": "N_Multiply:B"
+    },
+    {
+      "from": "N_Multiply:Result",
+      "to": "N_Add:A"
+    },
+    {
+      "from": "N_Lerp:Result",
+      "to": "N_Add:B"
+    },
+    {
+      "from": "N_Add:Result",
+      "to": "N_OneMinus:Input"
+    },
+    {
+      "from": "N_OneMinus:Result",
+      "to": "N_Saturate:Input"
+    },
+    {
+      "from": "N_Saturate:Result",
+      "to": "N_Cosine:Input"
+    },
+    {
+      "from": "N_ParticleColor:RGB",
+      "to": "N_Lerp:A"
+    },
+    {
+      "from": "N_ParticleDirection:XYZ",
+      "to": "N_Lerp:B"
+    },
+    {
+      "from": "N_ParticleRelativeTime:Value",
+      "to": "N_Lerp:Alpha"
+    },
+    {
+      "from": "N_Constant4Vector:A",
+      "to": "N_Subtract:A"
+    },
+    {
+      "from": "N_DistanceCullFade:Value",
+      "to": "N_Subtract:B"
+    },
+    {
+      "from": "N_Subtract:Result",
+      "to": "N_Sine:Input"
+    },
+    {
+      "from": "N_Sine:Result",
+      "to": "N_Abs:Input"
+    },
+    {
+      "from": "N_Abs:Result",
+      "to": "N_Arccosine:Input"
+    },
+    {
+      "from": "N_Arccosine:Result",
+      "to": "N_ArccosineFast:Input"
+    },
+    {
+      "from": "N_ArccosineFast:Result",
+      "to": "N_Arcsine:Input"
+    },
+    {
+      "from": "N_Arcsine:Result",
+      "to": "N_ArcsineFast:Input"
+    },
+    {
+      "from": "N_ArcsineFast:Result",
+      "to": "N_Arctangent:Input"
+    },
+    {
+      "from": "N_Arctangent:Result",
+      "to": "N_ArctangentFast:Input"
+    },
+    {
+      "from": "N_ArctangentFast:Result",
+      "to": "N_Arctangent2:X"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_Arctangent2:Y"
+    },
+    {
+      "from": "N_Arctangent2:Result",
+      "to": "N_Arctangent2Fast:X"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_Arctangent2Fast:Y"
+    },
+    {
+      "from": "N_Arctangent2Fast:Result",
+      "to": "N_Ceil:Input"
+    },
+    {
+      "from": "N_Ceil:Result",
+      "to": "N_Floor:Input"
+    },
+    {
+      "from": "N_Floor:Result",
+      "to": "N_Round:Input"
+    },
+    {
+      "from": "N_Round:Result",
+      "to": "N_Truncate:Input"
+    },
+    {
+      "from": "N_Truncate:Result",
+      "to": "N_Frac:Input"
+    },
+    {
+      "from": "N_Frac:Result",
+      "to": "N_Step:X"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_Step:Y"
+    },
+    {
+      "from": "N_Step:Result",
+      "to": "N_SmoothStep:Value"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_SmoothStep:Min"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_SmoothStep:Max"
+    },
+    {
+      "from": "N_SmoothStep:Result",
+      "to": "N_SquareRoot:Input"
+    },
+    {
+      "from": "N_SquareRoot:Result",
+      "to": "N_Tangent:Input"
+    },
+    {
+      "from": "N_Tangent:Result",
+      "to": "N_Logarithm10:Input"
+    },
+    {
+      "from": "N_Logarithm10:Result",
+      "to": "N_Logarithm2:Input"
+    },
+    {
+      "from": "N_ParticleRadius:Value",
+      "to": "N_Clamp:Input"
+    },
+    {
+      "from": "N_ParticleSize:X",
+      "to": "N_Clamp:Min"
+    },
+    {
+      "from": "N_ParticleSpeed:Value",
+      "to": "N_Clamp:Max"
+    },
+    {
+      "from": "N_Clamp:Result",
+      "to": "N_Min:A"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_Min:B"
+    },
+    {
+      "from": "N_Min:Result",
+      "to": "N_Max:A"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_Max:B"
+    },
+    {
+      "from": "N_Max:Result",
+      "to": "N_Power:Base"
+    },
+    {
+      "from": "N_PerInstanceRandom:Value",
+      "to": "N_Power:Exp"
+    },
+    {
+      "from": "N_Power:Result",
+      "to": "N_Sign:Input"
+    },
+    {
+      "from": "N_Sign:Result",
+      "to": "N_Divide:A"
+    },
+    {
+      "from": "N_Logarithm2:Result",
+      "to": "N_Divide:B"
+    },
+    {
+      "from": "N_Divide:Result",
+      "to": "N_Fmod:A"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_Fmod:B"
+    },
+    {
+      "from": "N_PerInstanceFadeAmount:Value",
+      "to": "N_Noise:FilterWidth"
+    },
+    {
+      "from": "N_CollectionParameter:Value",
+      "to": "N_Noise:Position"
+    },
+    {
+      "from": "N_Noise:Result",
+      "to": "N_QualitySwitch:Default"
+    },
+    {
+      "from": "N_PreSkinnedLocalPosition:XYZ",
+      "to": "N_QualitySwitch:Low"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_QualitySwitch:High"
+    },
+    {
+      "from": "N_QualitySwitch:Result",
+      "to": "N_PreviousFrameSwitch:CurrentFrame"
+    },
+    {
+      "from": "N_Time:Value",
+      "to": "N_Panner:Time"
+    },
+    {
+      "from": "N_Time:Value",
+      "to": "N_Rotator:Time"
+    },
+    {
+      "from": "N_TwoSidedSign:Value",
+      "to": "N_SceneDepth:UVs"
+    },
+    {
+      "from": "N_VertexColor:R",
+      "to": "N_DepthFade:Opacity"
+    },
+    {
+      "from": "N_ViewProperty:Value",
+      "to": "N_DepthFade:FadeDistance"
+    },
+    {
+      "from": "N_TextureCoordinate:UVs",
+      "to": "N_Panner:Coordinate"
+    },
+    {
+      "from": "N_TextureCoordinate:UVs",
+      "to": "CUSTOM:UV"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "CUSTOM:Mask"
+    },
+    {
+      "from": "N_Panner:UVs",
+      "to": "N_TextureSampleParameter2D:UVs"
+    },
+    {
+      "from": "MFC:ColorOut",
+      "to": "N_Rotator:Coordinate"
+    },
+    {
+      "from": "N_Rotator:UVs",
+      "to": "N_TextureSample:UVs"
+    },
+    {
+      "from": "N_TextureObject:Texture",
+      "to": "N_TextureSample:Tex"
+    },
+    {
+      "from": "N_TextureSample:R",
+      "to": "N_BumpOffset:Height"
+    },
+    {
+      "from": "N_LightmapUVs:UVs",
+      "to": "N_AntialiasedTextureMask:UVs"
+    },
+    {
+      "from": "N_ObjectOrientation:XYZ",
+      "to": "N_Transform:VectorInput"
+    },
+    {
+      "from": "N_Transform:Result",
+      "to": "N_TransformPosition:Input"
+    },
+    {
+      "from": "N_TransformPosition:Result",
+      "to": "N_ReflectionVectorWS:CustomWorldNormal"
+    },
+    {
+      "from": "N_ReflectionVectorWS:XYZ",
+      "to": "N_TextureSampleParameterCube:UVs"
+    },
+    {
+      "from": "N_ObjectPositionWS:XYZ",
+      "to": "N_DistanceToNearestSurface:Position"
+    },
+    {
+      "from": "N_ObjectRadius:Value",
+      "to": "N_SphereMask:Radius"
+    },
+    {
+      "from": "N_ParticlePositionWS:XYZ",
+      "to": "N_SphereMask:A"
+    },
+    {
+      "from": "N_WorldPosition:XYZ",
+      "to": "N_SphereMask:B"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_SphereMask:Hardness"
+    },
+    {
+      "from": "N_PixelNormalWS:XYZ",
+      "to": "N_ComponentMask:Input"
+    },
+    {
+      "from": "N_ComponentMask:Result",
+      "to": "N_AppendVector:A"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_AppendVector:B"
+    },
+    {
+      "from": "N_AppendVector:Result",
+      "to": "N_DeriveNormalZ:InXY"
+    },
+    {
+      "from": "N_DeriveNormalZ:Result",
+      "to": "N_BlendAngleCorrectedNormals:AdditionalNormal"
+    },
+    {
+      "from": "N_VertexNormalWS:XYZ",
+      "to": "N_BlendAngleCorrectedNormals:BaseNormal"
+    },
+    {
+      "from": "N_BlendAngleCorrectedNormals:Result",
+      "to": "N_Normalize:VectorInput"
+    },
+    {
+      "from": "N_Normalize:Result",
+      "to": "N_CrossProduct:A"
+    },
+    {
+      "from": "N_VertexTangentWS:XYZ",
+      "to": "N_CrossProduct:B"
+    },
+    {
+      "from": "N_CrossProduct:Result",
+      "to": "N_DotProduct:A"
+    },
+    {
+      "from": "N_CameraVectorWS:XYZ",
+      "to": "N_DotProduct:B"
+    },
+    {
+      "from": "N_DotProduct:Result",
+      "to": "N_If:A"
+    },
+    {
+      "from": "N_ScreenPosition:ViewportUV",
+      "to": "N_BumpOffset:Coordinate"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_BumpOffset:HeightRatioInput"
+    },
+    {
+      "from": "N_BumpOffset:UVs",
+      "to": "N_TextureSampleParameterSubUV:UVs"
+    },
+    {
+      "from": "N_ActorPositionWS:XYZ",
+      "to": "N_DistanceFieldGradient:Position"
+    },
+    {
+      "from": "N_DistanceFieldGradient:Gradient",
+      "to": "N_Distance:A"
+    },
+    {
+      "from": "N_CameraPositionWS:XYZ",
+      "to": "N_Distance:B"
+    },
+    {
+      "from": "N_Distance:Result",
+      "to": "N_If:B"
+    },
+    {
+      "from": "N_WorldPosition:XYZ",
+      "to": "N_AtmosphericFogColor:WorldPosition"
+    },
+    {
+      "from": "N_AtmosphericFogColor:Color",
+      "to": "N_Desaturation:Input"
+    },
+    {
+      "from": "N_ScalarParameter:Value",
+      "to": "N_Desaturation:Fraction"
+    },
+    {
+      "from": "N_LandscapeLayerWeight:Result",
+      "to": "N_Desaturation:LuminanceFactors"
+    },
+    {
+      "from": "N_PixelDepth:Depth",
+      "to": "N_DepthOfFieldFunction:Depth"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_If:A > B"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_If:A = B"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_If:A < B"
+    },
+    {
+      "from": "N_StaticBool:Value",
+      "to": "N_StaticSwitch:Value"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_StaticSwitch:A"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_StaticSwitch:B"
+    },
+    {
+      "from": "N_StaticBoolParameter:Value",
+      "to": "N_StaticSwitchParameter:A"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_StaticSwitchParameter:B"
+    },
+    {
+      "from": "N_StaticSwitchParameter:Result",
+      "to": "N_TextureSampleParameter2D:Tex"
+    },
+    {
+      "from": "N_Constant4Vector:RGBA",
+      "to": "N_StaticComponentMaskParameter:Input"
+    },
+    {
+      "from": "N_TextureObjectParameter:Texture",
+      "to": "N_TextureSampleParameterCube:Tex"
+    },
+    {
+      "from": "N_TextureCoordinate:UVs",
+      "to": "N_TextureSampleParameterMovie:UVs"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_MakeMaterialAttributes:BaseColor"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_MakeMaterialAttributes:Roughness"
+    },
+    {
+      "from": "N_MakeMaterialAttributes:MaterialAttributes",
+      "to": "N_BreakMaterialAttributes:MaterialAttributes"
+    },
+    {
+      "from": "N_MakeMaterialAttributes:MaterialAttributes",
+      "to": "N_BlendMaterialAttributes:A"
+    },
+    {
+      "from": "N_MakeMaterialAttributes:MaterialAttributes",
+      "to": "N_BlendMaterialAttributes:B"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_BlendMaterialAttributes:Alpha"
+    },
+    {
+      "from": "N_BlendMaterialAttributes:MaterialAttributes",
+      "to": "N_MakeMaterialAttributes:Metallic"
+    },
+    {
+      "from": "N_DynamicParameter:Param1",
+      "to": "N_ConstantBiasScale:Input"
+    },
+    {
+      "from": "N_FontSampleParameter:R",
+      "to": "N_DDX:Value"
+    },
+    {
+      "from": "N_DDX:Result",
+      "to": "N_DDY:Value"
+    },
+    {
+      "from": "N_VectorParameter:RGB",
+      "to": "N_Fresnel:Normal"
+    },
+    {
+      "from": "N_LandscapeLayerCoords:UVs",
+      "to": "N_LandscapeLayerWeight:Base"
+    },
+    {
+      "from": "N_LandscapeVisibilityMask:Mask",
+      "to": "N_LandscapeLayerWeight:Layer"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_LandscapeLayerSwitch:LayerUsed"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_LandscapeLayerSwitch:LayerNotUsed"
+    },
+    {
+      "from": "N_ParticleMacroUV:UVs",
+      "to": "N_ParticleSubUV:UVs"
+    },
+    {
+      "from": "N_ParticleSubUV:RGB",
+      "to": "N_SphericalParticleOpacity:Density"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_FeatureLevelSwitch:Default"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_FeatureLevelSwitch:SM5"
+    },
+    {
+      "from": "N_FeatureLevelSwitch:Result",
+      "to": "N_GIReplace:StaticIndirect"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_GIReplace:Default"
+    },
+    {
+      "from": "N_VectorNoise:RGB",
+      "to": "N_GIReplace:DynamicIndirect"
+    },
+    {
+      "from": "N_GIReplace:Result",
+      "to": "N_LightmassReplace:Realtime"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_LightmassReplace:Lightmass"
+    },
+    {
+      "from": "N_WorldPosition:XYZ",
+      "to": "N_PreviousFrameSwitch:PreviousFrame"
+    },
+    {
+      "from": "N_PreviousFrameSwitch:Result",
+      "to": "N_VectorNoise:Position"
+    },
+    {
+      "from": "N_VertexNormalWS:XYZ",
+      "to": "N_RotateAboutAxis:NormalizedRotationAxis"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_RotateAboutAxis:RotationAngle"
+    },
+    {
+      "from": "N_ObjectPositionWS:XYZ",
+      "to": "N_RotateAboutAxis:PivotPoint"
+    },
+    {
+      "from": "N_WorldPosition:XYZ",
+      "to": "N_RotateAboutAxis:Position"
+    },
+    {
+      "from": "N_LightmassReplace:Result",
+      "to": "MFC:ColorIn"
+    },
+    {
+      "from": "CUSTOM:Extra",
+      "to": "N_Fresnel:ExponentIn"
+    },
+    {
+      "from": "N_TextureSampleParameter2D:RGB",
+      "to": "N_Fresnel:BaseReflectFractionIn"
+    },
+    {
+      "from": "N_ParticleMotionBlurFade:Value",
+      "to": "N_FeatureLevelSwitch:ES2"
+    },
+    {
+      "from": "N_SceneTexelSize:Size",
+      "to": "N_FeatureLevelSwitch:ES3.1"
+    },
+    {
+      "from": "N_ViewSize:Size",
+      "to": "N_FeatureLevelSwitch:SM4"
+    },
+    {
+      "from": "N_SceneDepth:Depth",
+      "to": "N_TextureSampleParameterMovie:Tex"
+    },
+    {
+      "from": "N_Fmod:Result",
+      "to": "N_MakeMaterialAttributes:Specular"
+    },
+    {
+      "from": "N_If:Result",
+      "to": "N_MakeMaterialAttributes:EmissiveColor"
+    },
+    {
+      "from": "N_StaticComponentMaskParameter:Result",
+      "to": "N_MakeMaterialAttributes:Opacity"
+    },
+    {
+      "from": "N_TextureSampleParameterSubUV:RGB",
+      "to": "N_MakeMaterialAttributes:OpacityMask"
+    },
+    {
+      "from": "N_TextureSampleParameterCube:RGB",
+      "to": "N_MakeMaterialAttributes:Normal"
+    },
+    {
+      "from": "N_TextureSampleParameterMovie:RGB",
+      "to": "N_MakeMaterialAttributes:WorldPositionOffset"
+    },
+    {
+      "from": "N_SphericalParticleOpacity:Opacity",
+      "to": "N_MakeMaterialAttributes:Refraction"
+    },
+    {
+      "from": "N_LandscapeLayerSwitch:Result",
+      "to": "N_MakeMaterialAttributes:AmbientOcclusion"
+    },
+    {
+      "from": "N_DDY:Result",
+      "to": "N_MakeMaterialAttributes:PixelDepthOffset"
+    },
+    {
+      "from": "N_LightVector:XYZ",
+      "to": "N_MakeMaterialAttributes:SubsurfaceColor"
+    },
+    {
+      "from": "N_ObjectBounds:XYZ",
+      "to": "N_MakeMaterialAttributes:ClearCoat"
+    },
+    {
+      "from": "N_PreSkinnedLocalNormal:XYZ",
+      "to": "N_MakeMaterialAttributes:ClearCoatRoughness"
+    }
+  ],
+  "comments": [
+    {
+      "id": "CMT_Constants",
+      "text": "Constants & Particles",
+      "color": "#2d4a7a",
+      "contains": [
+        "N_Constant",
+        "N_Constant2Vector",
+        "N_Constant3Vector",
+        "N_Constant4Vector",
+        "N_DistanceCullFade",
+        "N_ParticleColor",
+        "N_ParticleDirection",
+        "N_ParticleMotionBlurFade",
+        "N_ParticleRadius",
+        "N_ParticleRelativeTime",
+        "N_ParticleSize",
+        "N_ParticleSpeed",
+        "N_PerInstanceFadeAmount",
+        "N_PerInstanceRandom",
+        "N_Time",
+        "N_TwoSidedSign",
+        "N_VertexColor",
+        "N_ViewProperty",
+        "N_PrecomputedAOMask"
+      ]
+    },
+    {
+      "id": "CMT_Coordinates",
+      "text": "Coordinates & UV",
+      "color": "#2d6b3e",
+      "contains": [
+        "N_TextureCoordinate",
+        "N_ActorPositionWS",
+        "N_CameraPositionWS",
+        "N_LightmapUVs",
+        "N_ObjectOrientation",
+        "N_ObjectPositionWS",
+        "N_ObjectRadius",
+        "N_Panner",
+        "N_ParticlePositionWS",
+        "N_PixelNormalWS",
+        "N_Rotator",
+        "N_SceneTexelSize",
+        "N_ScreenPosition",
+        "N_VertexNormalWS",
+        "N_VertexTangentWS",
+        "N_ViewSize",
+        "N_WorldPosition"
+      ]
+    },
+    {
+      "id": "CMT_Math",
+      "text": "Math Operations",
+      "color": "#7a2d2d",
+      "contains": [
+        "N_Multiply",
+        "N_Add",
+        "N_Subtract",
+        "N_Divide",
+        "N_Abs",
+        "N_Ceil",
+        "N_Floor",
+        "N_Round",
+        "N_Truncate",
+        "N_Frac",
+        "N_Fmod",
+        "N_Power",
+        "N_SquareRoot",
+        "N_Clamp",
+        "N_Min",
+        "N_Max",
+        "N_Lerp",
+        "N_OneMinus",
+        "N_Saturate",
+        "N_Sine",
+        "N_Cosine",
+        "N_Tangent",
+        "N_Arccosine",
+        "N_ArccosineFast",
+        "N_Arcsine",
+        "N_ArcsineFast",
+        "N_Arctangent",
+        "N_ArctangentFast",
+        "N_Arctangent2",
+        "N_Arctangent2Fast",
+        "N_Step",
+        "N_SmoothStep",
+        "N_Sign",
+        "N_Logarithm10",
+        "N_Logarithm2",
+        "N_DotProduct",
+        "N_CrossProduct",
+        "N_AppendVector",
+        "N_ComponentMask",
+        "N_Normalize",
+        "N_If"
+      ]
+    },
+    {
+      "id": "CMT_Texture",
+      "text": "Textures & Parameters",
+      "color": "#6b4a2d",
+      "contains": [
+        "N_TextureSampleParameter2D",
+        "N_TextureSample",
+        "N_TextureObject",
+        "N_TextureObjectParameter",
+        "N_TextureSampleParameterSubUV",
+        "N_TextureSampleParameterCube",
+        "N_TextureSampleParameterMovie",
+        "N_ScalarParameter",
+        "N_VectorParameter",
+        "N_StaticSwitchParameter",
+        "N_StaticBoolParameter",
+        "N_StaticComponentMaskParameter",
+        "N_FontSampleParameter",
+        "N_CollectionParameter",
+        "N_DynamicParameter",
+        "N_StaticBool",
+        "N_StaticSwitch"
+      ]
+    },
+    {
+      "id": "CMT_Utility",
+      "text": "Utility, Vector & Landscape",
+      "color": "#4a2d6b",
+      "contains": [
+        "N_AtmosphericFogColor",
+        "N_Desaturation",
+        "N_DepthFade",
+        "N_PixelDepth",
+        "N_SceneDepth",
+        "N_AntialiasedTextureMask",
+        "N_BumpOffset",
+        "N_ConstantBiasScale",
+        "N_DDX",
+        "N_DDY",
+        "N_DepthOfFieldFunction",
+        "N_Distance",
+        "N_DistanceFieldGradient",
+        "N_DistanceToNearestSurface",
+        "N_FeatureLevelSwitch",
+        "N_Fresnel",
+        "N_GIReplace",
+        "N_LightmassReplace",
+        "N_Noise",
+        "N_PreviousFrameSwitch",
+        "N_QualitySwitch",
+        "N_RotateAboutAxis",
+        "N_SphereMask",
+        "N_VectorNoise",
+        "N_DeriveNormalZ",
+        "N_Transform",
+        "N_TransformPosition",
+        "N_CameraVectorWS",
+        "N_LightVector",
+        "N_ObjectBounds",
+        "N_ReflectionVectorWS",
+        "N_PreSkinnedLocalNormal",
+        "N_PreSkinnedLocalPosition",
+        "N_BlendAngleCorrectedNormals",
+        "N_LandscapeLayerCoords",
+        "N_LandscapeLayerSwitch",
+        "N_LandscapeLayerWeight",
+        "N_LandscapeVisibilityMask",
+        "N_ParticleMacroUV",
+        "N_SphericalParticleOpacity",
+        "N_ParticleSubUV"
+      ]
+    },
+    {
+      "id": "CMT_MAttr",
+      "text": "Material Attributes & Custom",
+      "color": "#2d6b6b",
+      "contains": [
+        "N_MakeMaterialAttributes",
+        "N_BreakMaterialAttributes",
+        "N_BlendMaterialAttributes",
+        "CUSTOM",
+        "MFC"
+      ]
+    }
+  ]
+}

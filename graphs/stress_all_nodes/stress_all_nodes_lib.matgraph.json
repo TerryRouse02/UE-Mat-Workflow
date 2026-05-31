@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "1.0",
+  "ueVersion": "5.7",
+  "type": "MaterialFunction",
+  "name": "stress_all_nodes_lib",
+  "description": "MF used by stress_all_nodes: simple color passthrough with Lerp.",
+  "nodes": [
+    {
+      "id": "MF_IN",
+      "type": "FunctionInput",
+      "params": {
+        "InputName": "ColorIn"
+      }
+    },
+    {
+      "id": "MF_LERP",
+      "type": "Lerp"
+    },
+    {
+      "id": "MF_SAT",
+      "type": "Saturate"
+    },
+    {
+      "id": "MF_OUT",
+      "type": "FunctionOutput",
+      "params": {
+        "OutputName": "ColorOut"
+      }
+    }
+  ],
+  "connections": [
+    {
+      "from": "MF_IN:Input",
+      "to": "MF_LERP:A"
+    },
+    {
+      "from": "MF_IN:Input",
+      "to": "MF_LERP:B"
+    },
+    {
+      "from": "MF_LERP:Result",
+      "to": "MF_SAT:Input"
+    },
+    {
+      "from": "MF_SAT:Result",
+      "to": "MF_OUT:Input"
+    }
+  ]
+}

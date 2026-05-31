@@ -1,0 +1,50 @@
+{
+  "schemaVersion": "1.0",
+  "ueVersion": "5.7",
+  "type": "Material",
+  "name": "02_with_function",
+  "description": "Uses a MaterialFunction to blend two normals.",
+  "nodes": [
+    {
+      "id": "n_base",
+      "type": "TextureSampleParameter2D",
+      "params": {
+        "ParameterName": "BaseNormal",
+        "SamplerType": "Normal"
+      }
+    },
+    {
+      "id": "n_det",
+      "type": "TextureSampleParameter2D",
+      "params": {
+        "ParameterName": "DetailNormal",
+        "SamplerType": "Normal"
+      }
+    },
+    {
+      "id": "blendfn",
+      "type": "MaterialFunctionCall",
+      "params": {
+        "MaterialFunction": "./blend_normals.matgraph.json"
+      }
+    },
+    {
+      "id": "OUT",
+      "type": "MaterialOutput"
+    }
+  ],
+  "connections": [
+    {
+      "from": "n_base:RGB",
+      "to": "blendfn:BaseNormal"
+    },
+    {
+      "from": "n_det:RGB",
+      "to": "blendfn:DetailNormal"
+    },
+    {
+      "from": "blendfn:Result",
+      "to": "OUT:Normal"
+    }
+  ]
+}

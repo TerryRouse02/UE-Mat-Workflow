@@ -17,6 +17,8 @@ viewer/web/src/**/*.d.ts
 graphs/*.matgraph.json
 graphs/**/*.matgraph.json
 !graphs/.gitkeep
+# Exception: the all-nodes stress material is version-controlled (export regression artifact)
+!graphs/stress_all_nodes/*.matgraph.json
 
 # Unreal Engine scratch
 /Temp

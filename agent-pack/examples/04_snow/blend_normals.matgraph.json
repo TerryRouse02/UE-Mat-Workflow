@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "1.0",
+  "ueVersion": "5.7",
+  "type": "MaterialFunction",
+  "name": "blend_normals",
+  "nodes": [
+    { "id": "in_a",  "type": "FunctionInput",
+      "params": { "InputName": "BaseNormal", "InputType": "VectorFloat3" } },
+    { "id": "in_b",  "type": "FunctionInput",
+      "params": { "InputName": "DetailNormal", "InputType": "VectorFloat3" } },
+    { "id": "blend", "type": "BlendAngleCorrectedNormals" },
+    { "id": "out",   "type": "FunctionOutput",
+      "params": { "OutputName": "Result" } }
+  ],
+  "connections": [
+    { "from": "in_a:Input",     "to": "blend:BaseNormal" },
+    { "from": "in_b:Input",     "to": "blend:AdditionalNormal" },
+    { "from": "blend:Result",   "to": "out:Input" }
+  ]
+}

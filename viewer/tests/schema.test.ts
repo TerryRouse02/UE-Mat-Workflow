@@ -9,22 +9,22 @@ function loadJson(rel: string) {
 
 describe('validateGraph', () => {
   it('accepts the basic PBR example', () => {
-    const g = loadJson('agent-pack/examples/01_basic_pbr.matgraph.json');
+    const g = loadJson('agent-pack/examples/01_basic_pbr/01_basic_pbr.matgraph.json');
     expect(validateGraph(g).errors).toEqual([]);
   });
 
   it('accepts the with-function example', () => {
-    const g = loadJson('agent-pack/examples/02_with_function.matgraph.json');
+    const g = loadJson('agent-pack/examples/02_with_function/02_with_function.matgraph.json');
     expect(validateGraph(g).errors).toEqual([]);
   });
 
   it('accepts the flashing emissive material', () => {
-    const g = loadJson('agent-pack/examples/03_flashing_emissive.matgraph.json');
+    const g = loadJson('agent-pack/examples/03_flashing_emissive/03_flashing_emissive.matgraph.json');
     expect(validateGraph(g).errors).toEqual([]);
   });
 
   it('accepts the snow material', () => {
-    const g = loadJson('agent-pack/examples/04_snow.matgraph.json');
+    const g = loadJson('agent-pack/examples/04_snow/04_snow.matgraph.json');
     expect(validateGraph(g).errors).toEqual([]);
   });
 

@@ -10,7 +10,12 @@
       "type": "VectorParameter",
       "params": {
         "ParameterName": "SnowColor",
-        "DefaultValue": [0.92, 0.95, 0.98, 1.0]
+        "DefaultValue": [
+          0.92,
+          0.95,
+          0.98,
+          1
+        ]
       }
     },
     {
@@ -18,7 +23,12 @@
       "type": "VectorParameter",
       "params": {
         "ParameterName": "DirtColor",
-        "DefaultValue": [0.32, 0.22, 0.14, 1.0]
+        "DefaultValue": [
+          0.32,
+          0.22,
+          0.14,
+          1
+        ]
       }
     },
     {
@@ -96,7 +106,7 @@
       "id": "mf_blend_normals",
       "type": "MaterialFunctionCall",
       "params": {
-        "MaterialFunction": "./functions/blend_normals.matgraph.json"
+        "MaterialFunction": "./blend_normals.matgraph.json"
       }
     },
     {
@@ -104,7 +114,12 @@
       "type": "VectorParameter",
       "params": {
         "ParameterName": "SubsurfaceColor",
-        "DefaultValue": [0.45, 0.82, 0.93, 1.0]
+        "DefaultValue": [
+          0.45,
+          0.82,
+          0.93,
+          1
+        ]
       }
     },
     {
@@ -112,7 +127,7 @@
       "type": "ScalarParameter",
       "params": {
         "ParameterName": "Metallic",
-        "DefaultValue": 0.0
+        "DefaultValue": 0
       }
     },
     {
@@ -130,47 +145,115 @@
     }
   ],
   "connections": [
-    { "from": "dirt_mask:R", "to": "dirt_scale:A" },
-    { "from": "dirt_intensity:Value", "to": "dirt_scale:B" },
-    { "from": "snow_color:RGB", "to": "color_lerp:A" },
-    { "from": "dirt_color:RGB", "to": "color_lerp:B" },
-    { "from": "dirt_scale:Result", "to": "color_lerp:Alpha" },
-    { "from": "color_lerp:Result", "to": "OUT:BaseColor" },
-    { "from": "roughness_base:Value", "to": "roughness_lerp:A" },
-    { "from": "roughness_wet:Value", "to": "roughness_lerp:B" },
-    { "from": "wetness_mask:R", "to": "roughness_lerp:Alpha" },
-    { "from": "roughness_lerp:Result", "to": "OUT:Roughness" },
-    { "from": "normal_drift:RGB", "to": "mf_blend_normals:BaseNormal" },
-    { "from": "normal_sparkle:RGB", "to": "mf_blend_normals:DetailNormal" },
-    { "from": "mf_blend_normals:Result", "to": "OUT:Normal" },
-    { "from": "subsurface_color:RGB", "to": "OUT:SubsurfaceColor" },
-    { "from": "metallic:Value", "to": "OUT:Metallic" },
-    { "from": "specular:Value", "to": "OUT:Specular" }
+    {
+      "from": "dirt_mask:R",
+      "to": "dirt_scale:A"
+    },
+    {
+      "from": "dirt_intensity:Value",
+      "to": "dirt_scale:B"
+    },
+    {
+      "from": "snow_color:RGB",
+      "to": "color_lerp:A"
+    },
+    {
+      "from": "dirt_color:RGB",
+      "to": "color_lerp:B"
+    },
+    {
+      "from": "dirt_scale:Result",
+      "to": "color_lerp:Alpha"
+    },
+    {
+      "from": "color_lerp:Result",
+      "to": "OUT:BaseColor"
+    },
+    {
+      "from": "roughness_base:Value",
+      "to": "roughness_lerp:A"
+    },
+    {
+      "from": "roughness_wet:Value",
+      "to": "roughness_lerp:B"
+    },
+    {
+      "from": "wetness_mask:R",
+      "to": "roughness_lerp:Alpha"
+    },
+    {
+      "from": "roughness_lerp:Result",
+      "to": "OUT:Roughness"
+    },
+    {
+      "from": "normal_drift:RGB",
+      "to": "mf_blend_normals:BaseNormal"
+    },
+    {
+      "from": "normal_sparkle:RGB",
+      "to": "mf_blend_normals:DetailNormal"
+    },
+    {
+      "from": "mf_blend_normals:Result",
+      "to": "OUT:Normal"
+    },
+    {
+      "from": "subsurface_color:RGB",
+      "to": "OUT:SubsurfaceColor"
+    },
+    {
+      "from": "metallic:Value",
+      "to": "OUT:Metallic"
+    },
+    {
+      "from": "specular:Value",
+      "to": "OUT:Specular"
+    }
   ],
   "comments": [
     {
       "id": "c_color",
       "text": "Base Color & Dirt Blending",
       "color": "#2c3e50",
-      "contains": ["snow_color", "dirt_color", "dirt_mask", "dirt_intensity", "dirt_scale", "color_lerp"]
+      "contains": [
+        "snow_color",
+        "dirt_color",
+        "dirt_mask",
+        "dirt_intensity",
+        "dirt_scale",
+        "color_lerp"
+      ]
     },
     {
       "id": "c_roughness",
       "text": "Roughness Blending (Dry vs. Wet Melted Snow)",
       "color": "#7f8c8d",
-      "contains": ["roughness_base", "roughness_wet", "wetness_mask", "roughness_lerp"]
+      "contains": [
+        "roughness_base",
+        "roughness_wet",
+        "wetness_mask",
+        "roughness_lerp"
+      ]
     },
     {
       "id": "c_normal",
       "text": "Normal Map Blending (Large Snow Drifts + Micro Glitter Sparkles)",
       "color": "#2980b9",
-      "contains": ["normal_drift", "normal_sparkle", "mf_blend_normals"]
+      "contains": [
+        "normal_drift",
+        "normal_sparkle",
+        "mf_blend_normals"
+      ]
     },
     {
       "id": "c_misc",
       "text": "Specular, Metallic, and Subsurface Scattering Color",
       "color": "#16a085",
-      "contains": ["metallic", "specular", "subsurface_color"]
+      "contains": [
+        "metallic",
+        "specular",
+        "subsurface_color"
+      ]
     }
   ]
 }

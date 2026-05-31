@@ -166,7 +166,7 @@ Example: `GetMaterialAttributes` extracting BaseColor and Roughness:
 
 ## Examples
 
-See `agent-pack/examples/01_basic_pbr.matgraph.json` and `02_with_function.matgraph.json` for full working files.
+See `agent-pack/examples/01_basic_pbr/01_basic_pbr.matgraph.json` and `02_with_function/02_with_function.matgraph.json` for full working files. Each example is a compliant project folder (`<name>/<name>.matgraph.json` plus any MFs copied alongside it) — the same one-folder-per-project convention the spec requires.
 
 ## Failure modes you must avoid
 

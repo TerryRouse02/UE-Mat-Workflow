@@ -9,7 +9,8 @@ A unified workflow for AI + human collaboration on UE 5.7 material node graphs. 
 ## Why
 
 - **No more text-wall node graphs.** AI describes materials in a strict JSON schema; the viewer renders them as real-looking UE nodes.
-- **No more hallucinated node names.** A pinned UE 5.7 node DB (142 expressions) is the source of truth — AI must use existing types, exact pin names, exact param names.
+- **No more hallucinated node names.** A pinned UE 5.7 node DB (142 expressions) is the source of truth — AI must use existing types, exact pin names, exact param names. The viewer flags connections that reference a pin which doesn't exist on its node.
+- **Final outputs survive export.** You wire results straight into the `MaterialOutput` node; on export the emitter auto-collects them into a `MakeMaterialAttributes` node, so a pasted material needs one wire in UE instead of one per attribute.
 - **One format across AI tools.** Same `agent-pack/` works in Claude Code, Cursor, Copilot CLI, Gemini CLI, or anything that reads agent rules.
 
 ---
@@ -109,16 +110,13 @@ Produces a single self-contained `.html` file. Double-click to view.
 
 ## Examples
 
-`agent-pack/examples/` has reference graphs in the legacy flat layout. To use them with the new convention:
+`agent-pack/examples/` holds reference graphs, each already a compliant project folder (`<name>/<name>.matgraph.json`, with any MaterialFunction copied alongside it — not shared). To try one, copy its whole folder into `graphs/`:
 
 ```bash
-mkdir -p graphs/basic_pbr graphs/with_function
-cp agent-pack/examples/01_basic_pbr.matgraph.json graphs/basic_pbr/
-cp agent-pack/examples/02_with_function.matgraph.json graphs/with_function/
-cp agent-pack/examples/functions/blend_normals.matgraph.json graphs/with_function/
+cp -r agent-pack/examples/02_with_function graphs/
 ```
 
-Then edit `with_function/02_with_function.matgraph.json` and change the MaterialFunction path from `"./functions/blend_normals.matgraph.json"` to `"./blend_normals.matgraph.json"`.
+The viewer then groups it as a project in the sidebar and it exports to UE as-is — no path edits needed.
 
 ---
 
