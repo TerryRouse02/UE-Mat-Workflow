@@ -1,33 +1,59 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { loadDB, validateDB } from '../server/db-loader';
 
-const DB_PATH = resolve(__dirname, '../../agent-pack/nodes-ue5.7.json');
+const AGENT_PACK = resolve(__dirname, '../../agent-pack');
 
-describe('db-loader', () => {
-  it('loads the seed DB without errors', () => {
-    const db = loadDB(DB_PATH);
-    expect(db.ueVersion).toBe('5.7');
-    expect(Object.keys(db.nodes).length).toBeGreaterThanOrEqual(10);
+// Every shipped authoring DB: agent-pack/nodes-ue<ver>.json (the .export.json
+// siblings are export metadata, not DBs). As more UE versions are added this
+// validates each one automatically.
+const dbFiles = readdirSync(AGENT_PACK)
+  .filter(f => f.startsWith('nodes-ue') && f.endsWith('.json') && !f.endsWith('.export.json'))
+  .map(f => resolve(AGENT_PACK, f));
+
+describe('db-loader — all shipped version DBs', () => {
+  it('finds at least one version DB', () => {
+    expect(dbFiles.length).toBeGreaterThan(0);
   });
 
-  it('every node has at least one output', () => {
-    const db = loadDB(DB_PATH);
-    for (const [name, def] of Object.entries(db.nodes)) {
-      expect(def.outputs.length, `${name} must have outputs`).toBeGreaterThan(0);
-    }
-  });
+  for (const path of dbFiles) {
+    const name = path.split('/').pop()!;
+    describe(name, () => {
+      it('loads and validates without errors', () => {
+        const db = loadDB(path);
+        expect(db.ueVersion).toBeTruthy();
+        expect(Object.keys(db.nodes).length).toBeGreaterThanOrEqual(10);
+      });
 
-  it('validateDB rejects DB with duplicate pin names', () => {
-    const bad = JSON.parse(readFileSync(DB_PATH, 'utf-8'));
-    bad.nodes.Multiply.inputs.push({ name: 'A', type: 'Float1', required: false });
+      it('every node has at least one output', () => {
+        const db = loadDB(path);
+        for (const [n, def] of Object.entries(db.nodes)) {
+          expect(def.outputs.length, `${n} must have outputs`).toBeGreaterThan(0);
+        }
+      });
+    });
+  }
+});
+
+describe('validateDB rejects malformed DBs', () => {
+  const base = dbFiles[0];
+
+  it('rejects duplicate pin names', () => {
+    const bad = JSON.parse(readFileSync(base, 'utf-8'));
+    const first = Object.keys(bad.nodes)[0];
+    bad.nodes[first].inputs = [
+      ...(bad.nodes[first].inputs ?? []),
+      { name: 'DUP', type: 'Float1' },
+      { name: 'DUP', type: 'Float1' },
+    ];
     expect(() => validateDB(bad)).toThrow(/duplicate pin/i);
   });
 
-  it('validateDB rejects when a node has no outputs', () => {
-    const bad = JSON.parse(readFileSync(DB_PATH, 'utf-8'));
-    bad.nodes.Multiply.outputs = [];
+  it('rejects when a node has no outputs', () => {
+    const bad = JSON.parse(readFileSync(base, 'utf-8'));
+    const first = Object.keys(bad.nodes)[0];
+    bad.nodes[first].outputs = [];
     expect(() => validateDB(bad)).toThrow(/no outputs/i);
   });
 });

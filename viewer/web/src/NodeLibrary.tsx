@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { DB } from './db';
+import { useDb } from './dbContext';
 import type { NodeDef, PinDef, ParamDef } from '../../server/db-types';
 
 interface NodeEntry {
@@ -108,14 +108,15 @@ function CategoryBlock({
 }
 
 export function NodeLibrary() {
+  const { db } = useDb();
   const [query, setQuery] = useState('');
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
   const [openNode, setOpenNode] = useState<string | null>(null);
   const [cat, setCat] = useState<string>('All');
 
   const allEntries: NodeEntry[] = useMemo(
-    () => Object.entries(DB.nodes).map(([name, def]) => ({ name, def })),
-    []
+    () => Object.entries(db.nodes).map(([name, def]) => ({ name, def })),
+    [db]
   );
 
   const q = query.trim().toLowerCase();

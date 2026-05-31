@@ -3,7 +3,7 @@ import { useStore } from './store';
 import { formatSyncAgo } from './syncStatus';
 import { hasMaterialFunctionCall } from './graphInfo';
 import { graphToUET3D } from './export/ueT3D';
-import { EXPORT_META } from './export/export-meta';
+import { useDb } from './dbContext';
 import type { MatGraph, DerivedPins } from './protocol';
 import type { ToastItem } from './Toast';
 import './header.css';
@@ -27,13 +27,14 @@ function WatchPill() {
 
 export function Header({ graph, derivedPins, positions, pushToast }: HeaderProps) {
   const { state, popBreadcrumb } = useStore();
+  const { exportMeta, supported } = useDb();
   const [mfRoot, setMfRoot] = useState(() => localStorage.getItem('ue-mf-root') || '/Game/');
   const [popoverOpen, setPopoverOpen] = useState(false);
   const usesMF = hasMaterialFunctionCall(graph);
 
   const doExport = async () => {
-    if (!graph || !derivedPins) return;
-    const { text, warnings } = graphToUET3D(graph, positions, EXPORT_META, derivedPins, { mfContentRoot: mfRoot });
+    if (!graph || !derivedPins || !supported) return;
+    const { text, warnings } = graphToUET3D(graph, positions, exportMeta, derivedPins, { mfContentRoot: mfRoot });
     const count = text ? (text.match(/^Begin Object Class=\/Script\/UnrealEd\.MaterialGraphNode/gm)?.length ?? 0) : 0;
     try {
       await navigator.clipboard.writeText(text);
@@ -66,7 +67,8 @@ export function Header({ graph, derivedPins, positions, pushToast }: HeaderProps
       <div className="hdr-right">
         <WatchPill />
         <div className="export-group">
-          <button className="btn-export" onClick={doExport} disabled={!graph}>導出到 UE</button>
+          <button className="btn-export" onClick={doExport} disabled={!graph || !supported}
+            title={graph && !supported ? `UE ${state.graphs[state.breadcrumb[state.breadcrumb.length - 1]]?.graph.ueVersion ?? ''} not supported — export disabled` : undefined}>導出到 UE</button>
           <button className={`btn-mfroot ${usesMF ? 'hint' : ''}`} title="MF content root" onClick={() => setPopoverOpen(o => !o)}>⚙</button>
           {popoverOpen && (
             <div className="mfroot-popover">

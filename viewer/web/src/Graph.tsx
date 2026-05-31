@@ -1,5 +1,5 @@
 import { useMemo, useEffect, useState } from 'react';
-import ReactFlow, { type Node, type Edge, Background, Controls, MiniMap, useNodesState, useReactFlow, ReactFlowProvider, BackgroundVariant } from 'reactflow';
+import ReactFlow, { type Node, type Edge, Background, Controls, MiniMap, useNodesState, useReactFlow, useNodesInitialized, ReactFlowProvider, BackgroundVariant } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { MaterialNode } from './nodes/MaterialNode';
 import { MaterialOutputNode } from './nodes/MaterialOutputNode';
@@ -11,6 +11,7 @@ import type { GraphPayload } from './protocol';
 import type { NodeDB } from '../../server/db-types';
 import { validateConnectionPins } from './validate';
 import { pinColor } from './theme/colors';
+import { splitRef } from './connstr';
 
 function setHandleHighlight(nodeId: string, handleId: string | null | undefined, on: boolean) {
   if (!handleId) return;
@@ -44,8 +45,8 @@ function inferPinsFromConnections(
   const inputNames = new Set<string>();
   const outputNames = new Set<string>();
   for (const c of connections) {
-    const [srcNode, srcPin] = c.from.split(':');
-    const [tgtNode, tgtPin] = c.to.split(':');
+    const [srcNode, srcPin] = splitRef(c.from);
+    const [tgtNode, tgtPin] = splitRef(c.to);
     if (srcNode === nodeId && srcPin) outputNames.add(srcPin);
     if (tgtNode === nodeId && tgtPin) inputNames.add(tgtPin);
   }
@@ -98,8 +99,8 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
     // the same `warning` mechanism as "Unknown node type".
     const pinIssuesByNode = new Map<string, string[]>();
     for (const issue of validateConnectionPins(graph, db)) {
-      const srcId = issue.from.split(':')[0];
-      const dstId = issue.to.split(':')[0];
+      const srcId = splitRef(issue.from)[0];
+      const dstId = splitRef(issue.to)[0];
       const target = issue.problem.includes('no input pin') ? dstId : srcId;
       const list = pinIssuesByNode.get(target) ?? [];
       list.push(issue.problem);
@@ -198,8 +199,8 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
     });
 
     const rfEdges: Edge[] = graph.connections.map((c, i) => {
-      const [src, srcPin] = c.from.split(':');
-      const [tgt, tgtPin] = c.to.split(':');
+      const [src, srcPin] = splitRef(c.from);
+      const [tgt, tgtPin] = splitRef(c.to);
       const srcNodeType = graph.nodes.find(n => n.id === src)?.type ?? '';
       const srcType = derivedPins[src]?.outputs.find(o => o.name === srcPin)?.type
         ?? db.nodes[srcNodeType]?.outputs?.find(o => o.name === srcPin)?.type;
@@ -232,11 +233,15 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
     onPositions(p);
   }, [nodes, onPositions]);
 
-  // Re-fit whenever the active graph changes (so we always land on nodes, never blank)
+  // Fit to the nodes, but only AFTER ReactFlow has measured them — so we always
+  // land centred on real nodes and never on blank space. <Graph> is keyed by the
+  // active path (remounts per graph); `useNodesInitialized` flips true once the
+  // fresh nodes have real dimensions. Re-run on layout changes too, to cover an
+  // in-place hot-reload of the same path.
+  const nodesInitialized = useNodesInitialized();
   useEffect(() => {
-    const id = requestAnimationFrame(() => rf.fitView({ padding: 0.2, duration: 200 }));
-    return () => cancelAnimationFrame(id);
-  }, [initialLayout.nodes, rf]);
+    if (nodesInitialized) rf.fitView({ padding: 0.2, duration: 200 });
+  }, [nodesInitialized, initialLayout.nodes, rf]);
 
   const commentNodes: Node[] = useMemo(() => {
     if (!graph.comments) return [];
@@ -306,21 +311,21 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
     if (!selId) return null;
     const s = new Set<string>([selId]);
     for (const c of graph.connections) {
-      const a = c.from.split(':')[0], b = c.to.split(':')[0];
+      const a = splitRef(c.from)[0], b = splitRef(c.to)[0];
       if (a === selId) s.add(b);
       if (b === selId) s.add(a);
     }
     return s;
   }, [selId, graph.connections]);
 
-  const allNodes = [...commentNodes, ...nodes].map(n =>
+  const allNodes = useMemo(() => [...commentNodes, ...nodes].map(n =>
     connSet && !n.id.startsWith('comment-') && !connSet.has(n.id)
       ? { ...n, style: { ...n.style, opacity: 0.3 } }
       : n
-  );
-  const displayEdges = connSet
+  ), [commentNodes, nodes, connSet]);
+  const displayEdges = useMemo(() => connSet
     ? edges.map(e => ({ ...e, style: { ...e.style, opacity: connSet.has(e.source) && connSet.has(e.target) ? 1 : 0.15 } }))
-    : edges;
+    : edges, [edges, connSet]);
 
   return (
     <ReactFlow

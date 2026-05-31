@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { MatGraph } from './protocol';
-import { DB } from './db';
+import { useDb } from './dbContext';
 import { pinColor, catColor } from './theme/colors';
 import './inspector.css';
 
@@ -48,13 +48,18 @@ function PinList({ title, pins }: { title: string; pins: { name: string; type: s
 }
 
 export function Inspector({ graph, selectedNodeId, derivedPins }: InspectorProps) {
+  const { db } = useDb();
+  // Reserved types (MaterialOutput, MaterialFunctionCall, FunctionInput/Output)
+  // live in db.reservedTypes, not db.nodes — they are first-class, handled types,
+  // NOT unknown expressions.
+  const reserved = new Set(db.reservedTypes ?? []);
   if (!graph) return <aside className="inspector-wrap" />;
 
   const node = selectedNodeId ? graph.nodes.find(n => n.id === selectedNodeId) : undefined;
 
   if (node) {
-    const def = DB.nodes[node.type];
-    const unknown = !def;
+    const def = db.nodes[node.type];
+    const unknown = !def && !reserved.has(node.type);
     const params = Object.entries(node.params ?? {});
     return (
       <aside className="inspector-wrap insp">
@@ -93,7 +98,7 @@ export function Inspector({ graph, selectedNodeId, derivedPins }: InspectorProps
     );
   }
 
-  const unknownCount = graph.nodes.filter(n => !DB.nodes[n.type]).length;
+  const unknownCount = graph.nodes.filter(n => !db.nodes[n.type] && !reserved.has(n.type)).length;
   const mfCount = graph.nodes.filter(n => n.type === 'MaterialFunctionCall').length;
   return (
     <aside className="inspector-wrap insp">

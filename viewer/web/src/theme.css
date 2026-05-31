@@ -19,7 +19,12 @@ body { margin: 0; background: var(--bg0); color: var(--fg);
 .inspector-wrap { width: 300px; flex: none; border-left: 1px solid var(--bd); background: var(--bg1); overflow-y: auto; }
 .canvas-empty { color: var(--fg-faint); padding: 20px; }
 .canvas-topbar { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 12px; background: var(--bg1); border-bottom: 1px solid var(--bd); flex: none; }
+.canvas-banner { flex: none; padding: 8px 12px; font-size: 12px; line-height: 1.5; color: var(--warn); background: var(--bg2); border-bottom: 1px solid var(--bd); border-left: 3px solid var(--warn); }
+.canvas-banner b { color: var(--fg); }
+.canvas-banner code { font-size: 11px; background: var(--bg1); padding: 1px 4px; border-radius: 3px; color: var(--fg-dim); }
 .ct-title { font-weight: 600; }
 .ct-right { display: flex; align-items: center; gap: 12px; }
 .ct-warn { color: var(--warn); font-size: 11px; cursor: default; }
 .ct-count { color: var(--fg-faint); font-size: 11px; }
+.ct-ver { color: var(--fg-dim); font-size: 11px; padding: 1px 6px; border: 1px solid var(--bd); border-radius: 4px; }
+.ct-ver.warn { color: var(--warn); border-color: var(--warn); }
