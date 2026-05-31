@@ -38,8 +38,7 @@ function ProjectFolder({ project }: { project: Project }) {
       </div>
       {open && (
         <div className="tree-folder-children">
-          <FileRow entry={project.material} />
-          {project.mfs.map(mf => <FileRow key={mf.path} entry={mf} />)}
+          {project.files.map(f => <FileRow key={f.path} entry={f} />)}
         </div>
       )}
     </div>

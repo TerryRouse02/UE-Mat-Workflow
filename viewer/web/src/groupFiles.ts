@@ -3,8 +3,7 @@ export type { FileEntry };
 
 export interface Project {
   folder: string;
-  material: FileEntry;
-  mfs: FileEntry[];
+  files: FileEntry[];
 }
 
 export interface GroupResult {
@@ -12,6 +11,10 @@ export interface GroupResult {
   unorganized: FileEntry[];
 }
 
+// Grouping rule (deliberately simple): any sub-folder under graphs/ is ONE
+// project, and every file inside it is shown — no constraints on material count,
+// file types, or nesting. Only files sitting directly at the graphs/ root (no
+// folder) land in "unorganized". Drop a folder in, it's a project.
 export function groupFiles(entries: FileEntry[]): GroupResult {
   const byFolder = new Map<string, FileEntry[]>();
   const rootLevel: FileEntry[] = [];
@@ -28,22 +31,16 @@ export function groupFiles(entries: FileEntry[]): GroupResult {
   }
 
   const projects: Project[] = [];
-  const unorganized: FileEntry[] = [...rootLevel];
-
-  const folderNames = [...byFolder.keys()].sort();
-  for (const folder of folderNames) {
-    const contents = byFolder.get(folder)!;
-    const materials = contents.filter(e => e.type === 'Material');
-    const mfs = contents.filter(e => e.type === 'MaterialFunction').sort((a, b) => a.path.localeCompare(b.path));
-    const unknowns = contents.filter(e => e.type === 'Unknown');
-
-    const hasNesting = contents.some(e => e.path.split('/').length > 2);
-    if (materials.length === 1 && unknowns.length === 0 && !hasNesting) {
-      projects.push({ folder, material: materials[0], mfs });
-    } else {
-      unorganized.push(...contents);
-    }
+  for (const folder of [...byFolder.keys()].sort()) {
+    // Materials first (the main graph you click), then everything else, each
+    // group alphabetical by path.
+    const files = byFolder.get(folder)!.slice().sort((a, b) => {
+      const am = a.type === 'Material' ? 0 : 1;
+      const bm = b.type === 'Material' ? 0 : 1;
+      return am - bm || a.path.localeCompare(b.path);
+    });
+    projects.push({ folder, files });
   }
 
-  return { projects, unorganized };
+  return { projects, unorganized: rootLevel };
 }

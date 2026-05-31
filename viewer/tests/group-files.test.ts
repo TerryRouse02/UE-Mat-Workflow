@@ -4,7 +4,7 @@ import { groupFiles, type FileEntry } from '../web/src/groupFiles';
 const F = (path: string, type: FileEntry['type'] = 'Material'): FileEntry => ({ path, type });
 
 describe('groupFiles', () => {
-  it('groups one project folder containing one Material + one MF', () => {
+  it('treats any sub-folder as a project showing all its files', () => {
     const result = groupFiles([
       F('obsidian/obsidian.matgraph.json', 'Material'),
       F('obsidian/fresnel_lib.matgraph.json', 'MaterialFunction'),
@@ -12,14 +12,16 @@ describe('groupFiles', () => {
     expect(result.projects).toEqual([
       {
         folder: 'obsidian',
-        material: F('obsidian/obsidian.matgraph.json', 'Material'),
-        mfs: [F('obsidian/fresnel_lib.matgraph.json', 'MaterialFunction')],
+        files: [
+          F('obsidian/obsidian.matgraph.json', 'Material'),
+          F('obsidian/fresnel_lib.matgraph.json', 'MaterialFunction'),
+        ],
       },
     ]);
     expect(result.unorganized).toEqual([]);
   });
 
-  it('puts root-level files into unorganized', () => {
+  it('puts only root-level files (no folder) into unorganized', () => {
     const result = groupFiles([
       F('05_fresnel.matgraph.json', 'Material'),
       F('06_custom.matgraph.json', 'Material'),
@@ -31,40 +33,45 @@ describe('groupFiles', () => {
     ]);
   });
 
-  it('folder with no Material → unorganized (e.g., legacy graphs/functions/)', () => {
+  it('a folder with only MaterialFunctions is still a project', () => {
     const result = groupFiles([
       F('functions/blend_normals.matgraph.json', 'MaterialFunction'),
     ]);
-    expect(result.projects).toEqual([]);
-    expect(result.unorganized).toEqual([
-      F('functions/blend_normals.matgraph.json', 'MaterialFunction'),
+    expect(result.projects).toEqual([
+      { folder: 'functions', files: [F('functions/blend_normals.matgraph.json', 'MaterialFunction')] },
     ]);
+    expect(result.unorganized).toEqual([]);
   });
 
-  it('folder with two Materials → unorganized', () => {
+  it('a folder with two Materials is still a single project (no constraint)', () => {
     const result = groupFiles([
       F('ambiguous/a.matgraph.json', 'Material'),
       F('ambiguous/b.matgraph.json', 'Material'),
       F('ambiguous/helper.matgraph.json', 'MaterialFunction'),
     ]);
-    expect(result.projects).toEqual([]);
-    expect(result.unorganized).toEqual([
-      F('ambiguous/a.matgraph.json', 'Material'),
-      F('ambiguous/b.matgraph.json', 'Material'),
-      F('ambiguous/helper.matgraph.json', 'MaterialFunction'),
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects[0].folder).toBe('ambiguous');
+    // Both materials sort before the MF; all three files are shown.
+    expect(result.projects[0].files.map(f => f.path)).toEqual([
+      'ambiguous/a.matgraph.json',
+      'ambiguous/b.matgraph.json',
+      'ambiguous/helper.matgraph.json',
     ]);
+    expect(result.unorganized).toEqual([]);
   });
 
-  it('folder with Unknown-typed file → unorganized (cannot validate)', () => {
+  it('a folder with an Unknown-typed file is still a project (file shown)', () => {
     const result = groupFiles([
       F('mystery/something.matgraph.json', 'Unknown'),
       F('mystery/m.matgraph.json', 'Material'),
     ]);
-    expect(result.projects).toEqual([]);
-    expect(result.unorganized).toEqual([
-      F('mystery/something.matgraph.json', 'Unknown'),
-      F('mystery/m.matgraph.json', 'Material'),
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects[0].folder).toBe('mystery');
+    expect(result.projects[0].files.map(f => f.path)).toEqual([
+      'mystery/m.matgraph.json',       // Material sorts first
+      'mystery/something.matgraph.json',
     ]);
+    expect(result.unorganized).toEqual([]);
   });
 
   it('projects sorted alphabetically by folder name', () => {
@@ -77,36 +84,42 @@ describe('groupFiles', () => {
     expect(result.unorganized).toEqual([]);
   });
 
-  it('mfs within a project sorted alphabetically', () => {
+  it('within a project, Materials come first then everything else alphabetically', () => {
     const result = groupFiles([
-      F('p/main.matgraph.json', 'Material'),
       F('p/z_helper.matgraph.json', 'MaterialFunction'),
+      F('p/main.matgraph.json', 'Material'),
       F('p/a_helper.matgraph.json', 'MaterialFunction'),
     ]);
-    expect(result.projects[0].mfs.map(e => e.path)).toEqual([
+    expect(result.projects[0].files.map(e => e.path)).toEqual([
+      'p/main.matgraph.json',
       'p/a_helper.matgraph.json',
       'p/z_helper.matgraph.json',
     ]);
   });
 
-  it('deeply nested paths use only first segment as folder', () => {
+  it('nested files group under their first path segment', () => {
     const result = groupFiles([
       F('proj/sub/deep.matgraph.json', 'Material'),
+      F('proj/top.matgraph.json', 'Material'),
     ]);
-    expect(result.unorganized).toEqual([F('proj/sub/deep.matgraph.json', 'Material')]);
-    expect(result.projects).toEqual([]);
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects[0].folder).toBe('proj');
+    expect(result.projects[0].files.map(f => f.path)).toEqual([
+      'proj/sub/deep.matgraph.json',
+      'proj/top.matgraph.json',
+    ]);
+    expect(result.unorganized).toEqual([]);
   });
 
   it('empty input returns empty projects + unorganized', () => {
     expect(groupFiles([])).toEqual({ projects: [], unorganized: [] });
   });
 
-  it('folder with one Material and no MFs is a valid project', () => {
+  it('a folder with one Material and no MFs is a valid project', () => {
     const result = groupFiles([F('solo/main.matgraph.json', 'Material')]);
     expect(result.projects).toEqual([{
       folder: 'solo',
-      material: F('solo/main.matgraph.json', 'Material'),
-      mfs: [],
+      files: [F('solo/main.matgraph.json', 'Material')],
     }]);
     expect(result.unorganized).toEqual([]);
   });
