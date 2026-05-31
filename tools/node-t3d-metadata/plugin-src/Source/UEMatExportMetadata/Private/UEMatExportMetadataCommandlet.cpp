@@ -364,6 +364,149 @@ static bool WriteMakeMaterialAttributesClipboardSample(const FString& Path, FStr
     return true;
 }
 
+static bool ValidateClipboardT3D(const FString& Path, bool bImportNodes, FString& OutError)
+{
+    FString Text;
+    if (!FFileHelper::LoadFileToString(Text, *Path))
+    {
+        OutError = FString::Printf(TEXT("Failed to read clipboard T3D: %s"), *Path);
+        return false;
+    }
+
+    UMaterial* Material = NewObject<UMaterial>(
+        GetTransientPackage(),
+        TEXT("UEMatWorkflowClipboard"),
+        RF_Transient | RF_Transactional);
+    if (Material == nullptr)
+    {
+        OutError = TEXT("Failed to create transient validation material.");
+        return false;
+    }
+
+    Material->bUseMaterialAttributes = true;
+    Material->MaterialGraph = CastChecked<UMaterialGraph>(FBlueprintEditorUtils::CreateNewGraph(
+        Material,
+        FName(TEXT("MaterialGraph_0")),
+        UMaterialGraph::StaticClass(),
+        UMaterialGraphSchema::StaticClass()));
+    Material->MaterialGraph->Material = Material;
+    Material->MaterialGraph->RebuildGraph();
+
+    if (!FEdGraphUtilities::CanImportNodesFromText(Material->MaterialGraph, Text))
+    {
+        OutError = FString::Printf(TEXT("UE rejected clipboard T3D in CanImportNodesFromText: %s"), *Path);
+        return false;
+    }
+
+    if (bImportNodes)
+    {
+        TSet<UEdGraphNode*> ImportedNodes;
+        FEdGraphUtilities::ImportNodesFromText(Material->MaterialGraph, Text, ImportedNodes);
+        if (ImportedNodes.Num() == 0)
+        {
+            OutError = FString::Printf(TEXT("UE accepted clipboard T3D but imported zero nodes: %s"), *Path);
+            return false;
+        }
+        UE_LOG(LogTemp, Display, TEXT("Imported clipboard nodes: %d"), ImportedNodes.Num());
+
+        TArray<UMaterialExpression*> ImportedExpressions;
+        for (UEdGraphNode* Node : ImportedNodes)
+        {
+            UMaterialGraphNode* MaterialNode = Cast<UMaterialGraphNode>(Node);
+            UMaterialExpression* Expression = MaterialNode != nullptr ? MaterialNode->MaterialExpression : nullptr;
+            if (Expression == nullptr)
+            {
+                continue;
+            }
+
+            Expression->Material = Material;
+            Expression->Function = nullptr;
+            Expression->SubgraphExpression = Material->MaterialGraph->SubgraphExpression;
+            Material->GetExpressionCollection().AddExpression(Expression);
+            ImportedExpressions.Add(Expression);
+        }
+
+        for (UMaterialExpression* Expression : ImportedExpressions)
+        {
+            Expression->PostCopyNode(ImportedExpressions);
+        }
+
+        Material->MaterialGraph->LinkMaterialExpressionsFromGraph();
+
+        int32 MakeAttributesNodeCount = 0;
+        auto ValidateAttributesInput = [&Text, &OutError](const TCHAR* PropertyName, const FExpressionInput& Input) -> bool
+        {
+            const FString Needle = FString::Printf(TEXT("%s=(Expression="), PropertyName);
+            if (!Text.Contains(Needle))
+            {
+                return true;
+            }
+            if (Input.Expression == nullptr)
+            {
+                OutError = FString::Printf(TEXT("MakeMaterialAttributes input %s was serialized with an Expression but imported with a null Expression pointer."), PropertyName);
+                return false;
+            }
+            return true;
+        };
+
+        for (UEdGraphNode* Node : ImportedNodes)
+        {
+            UMaterialGraphNode* MaterialNode = Cast<UMaterialGraphNode>(Node);
+            UMaterialExpressionMakeMaterialAttributes* MakeAttributes = MaterialNode != nullptr
+                ? Cast<UMaterialExpressionMakeMaterialAttributes>(MaterialNode->MaterialExpression)
+                : nullptr;
+            if (MakeAttributes == nullptr)
+            {
+                continue;
+            }
+
+            ++MakeAttributesNodeCount;
+            if (!ValidateAttributesInput(TEXT("BaseColor"), MakeAttributes->BaseColor) ||
+                !ValidateAttributesInput(TEXT("Metallic"), MakeAttributes->Metallic) ||
+                !ValidateAttributesInput(TEXT("Specular"), MakeAttributes->Specular) ||
+                !ValidateAttributesInput(TEXT("Roughness"), MakeAttributes->Roughness) ||
+                !ValidateAttributesInput(TEXT("EmissiveColor"), MakeAttributes->EmissiveColor) ||
+                !ValidateAttributesInput(TEXT("Opacity"), MakeAttributes->Opacity) ||
+                !ValidateAttributesInput(TEXT("OpacityMask"), MakeAttributes->OpacityMask) ||
+                !ValidateAttributesInput(TEXT("Normal"), MakeAttributes->Normal) ||
+                !ValidateAttributesInput(TEXT("WorldPositionOffset"), MakeAttributes->WorldPositionOffset) ||
+                !ValidateAttributesInput(TEXT("Refraction"), MakeAttributes->Refraction) ||
+                !ValidateAttributesInput(TEXT("AmbientOcclusion"), MakeAttributes->AmbientOcclusion) ||
+                !ValidateAttributesInput(TEXT("PixelDepthOffset"), MakeAttributes->PixelDepthOffset) ||
+                !ValidateAttributesInput(TEXT("SubsurfaceColor"), MakeAttributes->SubsurfaceColor) ||
+                !ValidateAttributesInput(TEXT("ClearCoat"), MakeAttributes->ClearCoat) ||
+                !ValidateAttributesInput(TEXT("ClearCoatRoughness"), MakeAttributes->ClearCoatRoughness))
+            {
+                return false;
+            }
+
+            bool bHasOutputPin = false;
+            for (const UEdGraphPin* Pin : MaterialNode->Pins)
+            {
+                if (Pin != nullptr && Pin->Direction == EGPD_Output && Pin->PinName == TEXT("Output"))
+                {
+                    bHasOutputPin = true;
+                    break;
+                }
+            }
+            if (!bHasOutputPin)
+            {
+                OutError = TEXT("Imported MakeMaterialAttributes graph node did not expose UE's expected Output pin.");
+                return false;
+            }
+        }
+
+        if (Text.Contains(TEXT("MaterialExpressionMakeMaterialAttributes")) && MakeAttributesNodeCount == 0)
+        {
+            OutError = TEXT("Clipboard T3D contains MakeMaterialAttributes text, but UE did not import a MakeMaterialAttributes expression.");
+            return false;
+        }
+    }
+
+    UE_LOG(LogTemp, Display, TEXT("Clipboard T3D validated by UE: %s"), *Path);
+    return true;
+}
+
 static FString JsonStringField(const TSharedPtr<FJsonObject>& Object, const TCHAR* FieldName, const FString& DefaultValue = TEXT(""))
 {
     if (!Object.IsValid())
@@ -935,6 +1078,20 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
 {
     using namespace UE::MatExportMetadata;
 
+    FString ClipboardInPath;
+    if (FParse::Value(*Params, TEXT("ClipboardIn="), ClipboardInPath))
+    {
+        ClipboardInPath = ToAbsolutePath(ClipboardInPath);
+        const bool bImportNodes = FParse::Param(*Params, TEXT("ImportClipboard"));
+        FString Error;
+        if (!ValidateClipboardT3D(ClipboardInPath, bImportNodes, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 9;
+        }
+        return 0;
+    }
+
     FString MakeMaterialAttributesSampleOutPath;
     if (FParse::Value(*Params, TEXT("MakeMaterialAttributesSampleOut="), MakeMaterialAttributesSampleOutPath))
     {
@@ -958,6 +1115,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     {
         UE_LOG(LogTemp, Error, TEXT("Usage: -run=UEMatExportMetadata -NodeDb=<nodes-ue5.7.json> -Out=<nodes-ue5.7.export.json> [-Strict]"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -MakeMaterialAttributesSampleOut=<fixture.t3d>"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -ClipboardIn=<clipboard.t3d> [-ImportClipboard]"));
         return 2;
     }
 

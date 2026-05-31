@@ -15,7 +15,10 @@ const META: ExportMeta = {
     TextureSampleParameter2D: { ueClass: '/Script/Engine.MaterialExpressionTextureSampleParameter2D',
       inputs: { UVs: { property: 'Coordinates' } },
       outputs: { RGB: { index: 0 }, R: { index: 1 } },
-      params: { SamplerType: { property: 'SamplerType', kind: 'enum', valueMap: { Normal: 'SAMPLERTYPE_Normal' } } } },
+      params: {
+        Texture: { property: 'Texture', kind: 'texture' },
+        SamplerType: { property: 'SamplerType', kind: 'enum', valueMap: { Normal: 'SAMPLERTYPE_Normal' } },
+      } },
     BlendAngleCorrectedNormals: { ueClass: '/Script/Engine.MaterialExpressionMaterialFunctionCall',
       functionRefProperty: 'MaterialFunction',
       functionAsset: '/Engine/Functions/Engine_MaterialFunctions02/Utility/BlendAngleCorrectedNormals.BlendAngleCorrectedNormals',
@@ -83,6 +86,26 @@ describe('graphToUET3D', () => {
     expect(text).toContain('A=(Expression=MaterialExpressionTextureSampleParameter2D_0,OutputIndex=0,Mask=1,MaskR=1,MaskG=0,MaskB=0,MaskA=0)');
   });
 
+  it('formats texture parameters as UE object references', () => {
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        {
+          id: 't',
+          type: 'TextureSampleParameter2D',
+          params: {
+            Texture: '/Game/Textures/T_Mask.T_Mask',
+            SamplerType: 'Normal',
+          },
+        },
+      ],
+      connections: [],
+    };
+    const { text } = graphToUET3D(graph, layout({ t: [0, 0] }), META, NO_PINS);
+    expect(text).toContain(`Texture="/Script/Engine.Texture2D'/Game/Textures/T_Mask.T_Mask'"`);
+    expect(text).not.toContain(`Texture2D'"/Game/Textures/T_Mask.T_Mask"'`);
+  });
+
   it('auto-collects MaterialOutput attribute wires into a synthesized MakeMaterialAttributes node', () => {
     const graph: MatGraph = {
       schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
@@ -108,10 +131,31 @@ describe('graphToUET3D', () => {
     expect(text).toContain(`Roughness=(Expression="/Script/Engine.MaterialExpressionConstant'MaterialGraphNode_1.MaterialExpressionConstant_1'")`);
     // And never the bare-name form that fails to resolve on paste for this node family.
     expect(text).not.toMatch(/BaseColor=\(Expression=MaterialExpressionConstant_0,/);
-    // The collector exposes the single MaterialAttributes output pin (the one manual wire in UE).
-    expect(text).toContain('PinName="MaterialAttributes",Direction="EGPD_Output"');
+    // The collector exposes UE's real single output pin name (the one manual wire in UE).
+    expect(text).toContain('PinName="Output",Direction="EGPD_Output"');
     // Guidance points at the single-wire workflow.
     expect(warnings.some(w => /MakeMaterialAttributes|Material Attributes/i.test(w))).toBe(true);
+  });
+
+  it('serializes nested expression identity like real UE clipboard T3D', () => {
+    const fixture = readFileSync(resolve(__dirname, 'fixtures/ue-make-material-attributes.t3d'), 'utf-8');
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        { id: 'c', type: 'Constant', params: { R: 1 } },
+        { id: 'OUT', type: 'MaterialOutput' },
+      ],
+      connections: [{ from: 'c:Value', to: 'OUT:Roughness' }],
+    };
+    const { text } = graphToUET3D(graph, layout({ c: [0, 0], OUT: [300, 0] }), META, NO_PINS);
+
+    const fillExportPath = `Begin Object Name="MaterialExpressionConstant_0" ExportPath="/Script/Engine.MaterialExpressionConstant'`;
+    const materialExpressionRef = `MaterialExpression="/Script/Engine.MaterialExpressionConstant'MaterialExpressionConstant_0'"`;
+    expect(fixture, 'real UE fixture includes ExportPath on the fill object').toContain(fillExportPath);
+    expect(fixture, 'real UE fixture uses a quoted class-path MaterialExpression ref').toContain(materialExpressionRef);
+    expect(text).toContain(fillExportPath);
+    expect(text).toContain(materialExpressionRef);
+    expect(text).not.toContain(`MaterialExpression=MaterialExpressionConstant'MaterialExpressionConstant_0'`);
   });
 
   it('drops duplicate wires into the same MaterialOutput attribute pin and warns', () => {
@@ -379,7 +423,6 @@ describe('graphToUET3D', () => {
       'CustomProperties Pin (PinId=',
       'Direction="EGPD_Output"',
       'Direction="EGPD_Input"',
-      "Texture=Texture2D'\"/Game/Textures/T_Mask.T_Mask\"'",
       'SamplerType=SAMPLERTYPE_Masks',
       'TransformSourceType=TRANSFORMSOURCE_World',
       'TransformType=TRANSFORM_Tangent',
@@ -387,7 +430,6 @@ describe('graphToUET3D', () => {
       'R=True',
       'G=False',
       'Begin Object Class=/Script/UnrealEd.MaterialGraphNode_Comment',
-      "MaterialExpression=MaterialExpressionConstant'",
     ];
     for (const token of realUEInvariants) {
       expect(fixture, `fixture must contain ${token}`).toContain(token);
@@ -398,6 +440,7 @@ describe('graphToUET3D', () => {
     // default-constant params (the bug class the raymarch guard also covers).
     expect(text).toContain('A=(Expression=MaterialExpressionConstant_0,OutputIndex=0)');
     expect(text).toContain('B=(Expression=MaterialExpressionVectorParameter_2,OutputIndex=1)');
+    expect(text).toContain(`Texture="/Script/Engine.Texture2D'/Game/Textures/T_Mask.T_Mask'"`);
     expect(text).not.toMatch(/\bConst[AB]=\(Expression=/);
   });
 
