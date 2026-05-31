@@ -1,5 +1,5 @@
-import { useMemo, useEffect } from 'react';
-import ReactFlow, { type Node, type Edge, Background, Controls, MiniMap, useNodesState } from 'reactflow';
+import { useMemo, useEffect, useState } from 'react';
+import ReactFlow, { type Node, type Edge, Background, Controls, MiniMap, useNodesState, useReactFlow, ReactFlowProvider, BackgroundVariant } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { MaterialNode } from './nodes/MaterialNode';
 import { MaterialOutputNode } from './nodes/MaterialOutputNode';
@@ -10,6 +10,7 @@ import { applyLayout, computeNodeHeight, computeNodeWidth } from './layout';
 import type { GraphPayload } from './protocol';
 import type { NodeDB } from '../../server/db-types';
 import { validateConnectionPins } from './validate';
+import { pinColor } from './theme/colors';
 
 function setHandleHighlight(nodeId: string, handleId: string | null | undefined, on: boolean) {
   if (!handleId) return;
@@ -85,8 +86,11 @@ function resolveMFRelative(mfRef: string, currentPath: string): string {
   return (dir + cleaned).replace(/\/\.\//g, '/');
 }
 
-export function Graph({ payload, basePath, db, onEnterMF, onPositions }: GraphProps) {
+function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPositions }: GraphProps) {
   const { graph, derivedPins } = payload;
+
+  const rf = useReactFlow();
+  const [selId, setSelId] = useState<string | null>(null);
 
   const initialLayout = useMemo(() => {
     // Load-time validation: connections referencing pins that don't exist on the
@@ -196,7 +200,11 @@ export function Graph({ payload, basePath, db, onEnterMF, onPositions }: GraphPr
     const rfEdges: Edge[] = graph.connections.map((c, i) => {
       const [src, srcPin] = c.from.split(':');
       const [tgt, tgtPin] = c.to.split(':');
-      return { id: `e${i}`, source: src, sourceHandle: srcPin, target: tgt, targetHandle: tgtPin };
+      const srcNodeType = graph.nodes.find(n => n.id === src)?.type ?? '';
+      const srcType = derivedPins[src]?.outputs.find(o => o.name === srcPin)?.type
+        ?? db.nodes[srcNodeType]?.outputs?.find(o => o.name === srcPin)?.type;
+      return { id: `e${i}`, source: src, sourceHandle: srcPin, target: tgt, targetHandle: tgtPin,
+        style: { stroke: pinColor(srcType), strokeWidth: 2 } };
     });
 
     const clusters = (graph.comments ?? []).map(c => ({
@@ -223,6 +231,12 @@ export function Graph({ payload, basePath, db, onEnterMF, onPositions }: GraphPr
     for (const n of nodes) p[n.id] = { x: n.position.x, y: n.position.y };
     onPositions(p);
   }, [nodes, onPositions]);
+
+  // Re-fit whenever the active graph changes (so we always land on nodes, never blank)
+  useEffect(() => {
+    const id = requestAnimationFrame(() => rf.fitView({ padding: 0.2, duration: 200 }));
+    return () => cancelAnimationFrame(id);
+  }, [initialLayout.nodes, rf]);
 
   const commentNodes: Node[] = useMemo(() => {
     if (!graph.comments) return [];
@@ -288,12 +302,32 @@ export function Graph({ payload, basePath, db, onEnterMF, onPositions }: GraphPr
     }).filter((n): n is Node => n !== null);
   }, [graph.comments, nodes, initialLayout.clusterBounds]);
 
-  const allNodes = [...commentNodes, ...nodes];
+  const connSet = useMemo(() => {
+    if (!selId) return null;
+    const s = new Set<string>([selId]);
+    for (const c of graph.connections) {
+      const a = c.from.split(':')[0], b = c.to.split(':')[0];
+      if (a === selId) s.add(b);
+      if (b === selId) s.add(a);
+    }
+    return s;
+  }, [selId, graph.connections]);
+
+  const allNodes = [...commentNodes, ...nodes].map(n =>
+    connSet && !n.id.startsWith('comment-') && !connSet.has(n.id)
+      ? { ...n, style: { ...n.style, opacity: 0.3 } }
+      : n
+  );
+  const displayEdges = connSet
+    ? edges.map(e => ({ ...e, style: { ...e.style, opacity: connSet.has(e.source) && connSet.has(e.target) ? 1 : 0.15 } }))
+    : edges;
 
   return (
     <ReactFlow
-      nodes={allNodes} edges={edges} nodeTypes={NODE_TYPES}
+      nodes={allNodes} edges={displayEdges} nodeTypes={NODE_TYPES}
       onNodesChange={onNodesChange}
+      onNodeClick={(_, n) => { setSelId(n.id); onSelectNode?.(n.id); }}
+      onPaneClick={() => { setSelId(null); onSelectNode?.(null); }}
       onEdgeMouseEnter={(_, edge) => {
         setHandleHighlight(edge.source, edge.sourceHandle, true);
         setHandleHighlight(edge.target, edge.targetHandle, true);
@@ -302,11 +336,16 @@ export function Graph({ payload, basePath, db, onEnterMF, onPositions }: GraphPr
         setHandleHighlight(edge.source, edge.sourceHandle, false);
         setHandleHighlight(edge.target, edge.targetHandle, false);
       }}
-      fitView style={{ background: '#1a1a1a' }}
+      fitView
+      style={{ background: 'var(--bg0)' }}
     >
-      <Background gap={20} color="#333" />
+      <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#2a2f37" />
       <Controls />
-      <MiniMap />
+      <MiniMap pannable zoomable maskColor="rgba(0,0,0,0.6)" />
     </ReactFlow>
   );
+}
+
+export function Graph(props: GraphProps) {
+  return <ReactFlowProvider><GraphInner {...props} /></ReactFlowProvider>;
 }
