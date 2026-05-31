@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { loadGraph } from './graph-loader.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
+import { isInside } from './http-server.js';
 
 async function main() {
   const fullArgs = process.argv.slice(2);
@@ -16,6 +17,11 @@ async function main() {
   const repoRoot = process.cwd();
   const graphsRoot = resolve(repoRoot, 'graphs');
   const matgraphPath = resolve(graphsRoot, `${name}.matgraph.json`);
+  // Reject traversal escapes: <name> is argv and must stay within graphs/.
+  if (!isInside(graphsRoot, matgraphPath)) {
+    console.error(`refusing to export: ${name} escapes graphs root`);
+    process.exit(1);
+  }
 
   const loaded = await loadGraph(matgraphPath);
   if (!loaded.graph) {

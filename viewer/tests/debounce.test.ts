@@ -17,6 +17,22 @@ describe('createDebouncer', () => {
     vi.useRealTimers();
   });
 
+  it('dedups repeated items within a batch, preserving first-seen order', async () => {
+    vi.useFakeTimers();
+    const fn = vi.fn();
+    const d = createDebouncer(fn, 300);
+    d.trigger('a');
+    d.trigger('b');
+    d.trigger('a');
+    d.trigger('a');
+    d.trigger('c');
+    d.trigger('b');
+    await vi.advanceTimersByTimeAsync(301);
+    expect(fn).toHaveBeenCalledTimes(1);
+    expect(fn).toHaveBeenCalledWith(['a', 'b', 'c']);
+    vi.useRealTimers();
+  });
+
   it('fires twice if calls span beyond debounce window', async () => {
     vi.useFakeTimers();
     const fn = vi.fn();

@@ -41,6 +41,32 @@ describe('resolveMaterialFunctions', () => {
     expect(resolved.warnings).toEqual([]);
   });
 
+  it('maps a non-Float3 output type from the FunctionOutput OutputType param', async () => {
+    const root = makeRepo();
+    write(resolve(root, 'functions/foo.matgraph.json'), {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'MaterialFunction', name: 'foo',
+      nodes: [
+        { id: 'i', type: 'FunctionInput',  params: { InputName: 'A', InputType: 'Scalar' } },
+        { id: 'o', type: 'FunctionOutput', params: { OutputName: 'R', OutputType: 'Scalar' } },
+      ],
+      connections: [{ from: 'i:Input', to: 'o:Input' }],
+    });
+    write(resolve(root, 'main.matgraph.json'), {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'main',
+      nodes: [
+        { id: 'mfc', type: 'MaterialFunctionCall', params: { MaterialFunction: './functions/foo.matgraph.json' } },
+        { id: 'OUT', type: 'MaterialOutput' },
+      ],
+      connections: [{ from: 'mfc:R', to: 'OUT:BaseColor' }],
+    });
+    const r = await loadGraph(resolve(root, 'main.matgraph.json'));
+    const resolved = await resolveMaterialFunctions(r.graph!, root);
+    expect(resolved.derivedPins['mfc']).toEqual({
+      inputs: [{ name: 'A', type: 'Float1' }],
+      outputs: [{ name: 'R', type: 'Float1' }],
+    });
+  });
+
   it('warns when MF file is missing', async () => {
     const root = makeRepo();
     write(resolve(root, 'main.matgraph.json'), {

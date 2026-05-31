@@ -62,7 +62,7 @@ export async function resolveMaterialFunctions(
         .filter(n => n.type === 'FunctionOutput')
         .map(n => ({
           name: (n.params?.OutputName as string | undefined) ?? '(unnamed)',
-          type: 'Float3',
+          type: typeMapForInput(n.params?.OutputType as string | undefined),
         })),
     };
   }

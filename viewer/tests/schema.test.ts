@@ -69,4 +69,23 @@ describe('validateGraph', () => {
     });
     expect(r.errors.some(e => /nodes\[0\] must be an object/.test(e))).toBe(true);
   });
+
+  it('splits endpoints on the first colon only (pin names may contain colons)', () => {
+    const r = validateGraph({
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'x',
+      nodes: [{ id: 'a', type: 'X' }, { id: 'b', type: 'Y' }],
+      connections: [{ from: 'a:Group:Sub', to: 'b:In' }],
+    });
+    // nodeId is the part before the FIRST colon ("a"), so no unknown-node error.
+    expect(r.errors).toEqual([]);
+  });
+
+  it('rejects a node id that contains a colon', () => {
+    const r = validateGraph({
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'x',
+      nodes: [{ id: 'a:b', type: 'X' }],
+      connections: [],
+    });
+    expect(r.errors.some(e => /nodes\[0\]\.id must not contain ':'/.test(e))).toBe(true);
+  });
 });

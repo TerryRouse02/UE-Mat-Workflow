@@ -10,7 +10,9 @@ export function createDebouncer<T>(fn: (items: T[]) => void, delayMs: number): D
       buf.push(item);
       if (timer) clearTimeout(timer);
       timer = setTimeout(() => {
-        const items = buf;
+        // Dedup the batch, preserving first-seen order: a file saved N times in
+        // the window must surface once, not N identical entries.
+        const items = [...new Set(buf)];
         buf = [];
         timer = null;
         fn(items);

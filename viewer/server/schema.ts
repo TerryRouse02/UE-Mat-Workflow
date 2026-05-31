@@ -28,6 +28,7 @@ export function validateGraph(input: unknown): ValidationResult {
     if (typeof n !== 'object' || n === null) { errors.push(`nodes[${i}] must be an object`); continue; }
     if (typeof n.id !== 'string') { errors.push(`nodes[${i}].id must be string`); continue; }
     if (typeof n.type !== 'string') { errors.push(`nodes[${i}].type must be string`); continue; }
+    if (n.id.includes(':')) errors.push(`nodes[${i}].id must not contain ':'`);
     if (ids.has(n.id)) errors.push(`duplicate node id: ${n.id}`);
     ids.add(n.id);
   }
@@ -40,7 +41,8 @@ export function validateGraph(input: unknown): ValidationResult {
         errors.push(`connections[${i}].${label} must be "nodeId:pinName"`);
         return null;
       }
-      const [nodeId] = v.split(':');
+      const ci = v.indexOf(':');
+      const nodeId = v.slice(0, ci);
       if (!ids.has(nodeId)) errors.push(`connections[${i}].${label} references unknown node: ${nodeId}`);
       return nodeId;
     };
