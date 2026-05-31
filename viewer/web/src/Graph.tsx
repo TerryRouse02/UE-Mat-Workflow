@@ -188,6 +188,7 @@ export function Graph({ payload, basePath, db, onEnterMF, onPositions }: GraphPr
           inputs: finalInputs, outputs: finalOutputs,
           params: n.params,
           warning,
+          category: def?.category,
         },
       };
     });

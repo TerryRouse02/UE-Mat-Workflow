@@ -1,120 +1,33 @@
-.mat-node {
-  background: #2b2b2b;
-  border: 1px solid #555;
-  border-radius: 4px;
-  min-width: 180px;
-  font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 12px;
-  color: #ddd;
-}
-.mat-node-title {
-  padding: 6px 10px;
-  font-weight: 600;
-  background: #1e1e1e;
-  border-bottom: 1px solid #555;
-  border-radius: 4px 4px 0 0;
-}
-.mat-node-body { display: flex; padding: 6px 0; min-height: 30px; gap: 24px; }
-.mat-node-pins { flex: 1; min-width: 0; }
-.mat-inputs { padding-left: 16px; }
-.mat-outputs { padding-right: 16px; text-align: right; }
-.mat-pin { position: relative; height: 18px; line-height: 18px; white-space: nowrap; }
-.mat-pin-name { padding: 0 8px; }
-.mat-pin-type {
-  color: #777;
-  font-size: 10px;
-  font-style: italic;
-}
-.mat-node-params {
-  border-top: 1px solid #444; padding: 4px 10px;
-  background: #252525; font-size: 10px;
-}
-.mat-param { margin: 2px 0; color: #aaa; }
-.mat-param code {
-  color: #d4a050;
-  /* JSON arrays/objects have no whitespace to break on — force break-anywhere
-     so the param value wraps within the node and doesn't blow up node width
-     (which would in turn break the comment-cluster bounding box math). */
-  word-break: break-all;
-  overflow-wrap: anywhere;
-}
-.mat-node { max-width: 380px; }
+/* ---- Node anatomy ---- */
+.gnode { background: var(--bg2); border: 1px solid var(--bd); border-radius: var(--radius);
+  min-width: 180px; max-width: 380px; color: var(--fg); font-size: 12px; overflow: hidden; }
+.gnode-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--bg1); border-bottom: 1px solid var(--bd); }
+.gnode-catdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.gnode-titles { min-width: 0; flex: 1; }
+.gnode-title { font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gnode-sub { font-size: 10px; color: var(--fg-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gnode-badge { width: 16px; height: 16px; line-height: 16px; text-align: center; border-radius: 4px; font-size: 11px; flex: none; }
+.gnode-badge.warn { background: rgba(224,179,77,.18); color: var(--warn); }
+.gnode-badge.mf { background: rgba(160,107,255,.18); color: var(--accent); }
+.gnode-body { display: flex; gap: 16px; padding: 8px 0; min-height: 24px; }
+.gnode-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.gnode-in { padding-left: 12px; }
+.gnode-out { padding-right: 12px; align-items: flex-end; }
+.gpin { position: relative; display: flex; align-items: center; gap: 6px; height: 18px; white-space: nowrap; }
+.gpin-r { flex-direction: row; justify-content: flex-end; }
+.gpin-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.gpin-name { color: var(--fg-dim); }
+.gnode-warn { border-color: var(--warn); }
+.gnode-reserved .gnode-head { background: #20283a; }
 
-.mat-warn { border-color: #d4a050; }
-.mat-warn-msg { padding: 4px 10px; background: #4a3a20; color: #f0c060; font-size: 10px; }
-
-.mat-reserved { background: #2b3a4a; }
-
-.react-flow__edge-path { stroke: #888; stroke-width: 2; }
-
-/* base edge style was set above as .react-flow__edge-path: stroke #888 width 2.
-   Add hover state for disambiguation when many edges converge. */
-.react-flow__edge-path {
-  transition: stroke 0.1s ease, stroke-width 0.1s ease;
-}
+/* ---- Edges (per-edge color is set inline in a later task) ---- */
+.react-flow__edge-path { stroke: var(--fg-faint); stroke-width: 2; transition: stroke-width 0.1s ease; }
 .react-flow__edge:hover .react-flow__edge-path,
-.react-flow__edge.selected .react-flow__edge-path {
-  stroke: #f0c060 !important;
-  stroke-width: 3 !important;
-}
-/* Make the invisible click-catcher wider so hover is easy to trigger */
-.react-flow__edge-interaction {
-  stroke-width: 20;
-}
+.react-flow__edge.selected .react-flow__edge-path { stroke-width: 3 !important; }
+.react-flow__edge-interaction { stroke-width: 20; }
 
-/* Real-looking handle: filled circle on the node's outer border */
-.react-flow__handle {
-  width: 12px !important;
-  height: 12px !important;
-  background: #9aa !important;
-  border: 2px solid #1a1a1a !important;
-  border-radius: 50% !important;
-}
-.react-flow__handle.react-flow__handle-left {
-  left: -7px !important;
-}
-.react-flow__handle.react-flow__handle-right {
-  right: -7px !important;
-}
-.react-flow__handle.handle-highlighted {
-  background: #f0c060 !important;
-  border-color: #f0c060 !important;
-  box-shadow: 0 0 6px #f0c060;
-}
-
-/* Code-like params (HLSL, multi-line strings): preformatted block + copy button */
-.mat-code {
-  position: relative;
-  display: block;
-  margin-top: 4px;
-  max-width: 320px;
-}
-.mat-code pre {
-  background: #1a1a1a;
-  color: #d4a050;
-  padding: 6px 36px 6px 8px;
-  border-radius: 3px;
-  font-size: 10px;
-  line-height: 1.4;
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 200px;
-  overflow: auto;
-  font-family: 'Menlo', 'Monaco', 'Consolas', monospace;
-}
-.mat-copy-btn {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  background: #333;
-  color: #aaa;
-  border: 1px solid #555;
-  border-radius: 2px;
-  padding: 2px 6px;
-  font-size: 9px;
-  cursor: pointer;
-  pointer-events: all;
-  user-select: none;
-}
-.mat-copy-btn:hover { background: #444; color: #fff; }
+/* ---- Handles ---- */
+.react-flow__handle { width: 12px !important; height: 12px !important; background: #9aa !important; border: 2px solid var(--bg0) !important; border-radius: 50% !important; }
+.react-flow__handle.react-flow__handle-left { left: -7px !important; }
+.react-flow__handle.react-flow__handle-right { right: -7px !important; }
+.react-flow__handle.handle-highlighted { background: var(--warn) !important; border-color: var(--warn) !important; box-shadow: 0 0 6px var(--warn); }

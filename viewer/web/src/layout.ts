@@ -4,57 +4,13 @@ import type { Node, Edge } from 'reactflow';
 export const NODE_W = 220;
 const NODE_H = 100;
 
-// Kept in sync with MaterialNode's isCodeLike() — must match how the
-// component actually renders, or comment-cluster bounds will be wrong.
-function isCodeLikeValue(v: unknown): boolean {
-  return typeof v === 'string' && (v.includes('\n') || v.length > 40);
-}
-
-// Code <pre> block: ~14px per line + 12px padding, capped at 200px
-// (matches .mat-code pre CSS max-height).
-function codeBlockHeight(s: string): number {
-  const lines = (s.match(/\n/g)?.length ?? 0) + 1;
-  return Math.min(200, lines * 14 + 12);
-}
-
-// For inline <code>{JSON.stringify(v)}</code> values: estimate wrap.
-// Node body is ~220px wide; the params section has ~24px of "key:" label
-// on the left, leaving ~180px for the value. At font-size 10px monospace,
-// ~32 chars per line is a safe estimate.
-const PARAM_VALUE_CHARS_PER_LINE = 32;
-function inlineParamHeight(stringified: string): number {
-  if (!stringified) return 14;
-  const lines = Math.max(1, Math.ceil(stringified.length / PARAM_VALUE_CHARS_PER_LINE));
-  // Cap inline wrap at 5 lines (~70px) — past that the user can't read it anyway.
-  return Math.min(5, lines) * 14;
-}
-
 export function computeNodeHeight(data: any): number {
   const inputs = (data && data.inputs) || [];
   const outputs = (data && data.outputs) || [];
-  const params = (data && data.params) || {};
-
   const maxPins = Math.max(inputs.length, outputs.length);
   const pinHeight = maxPins * 18;
-
-  const paramEntries = Object.entries(params);
-  let paramHeight = 0;
-  if (paramEntries.length > 0) {
-    paramHeight = 12; // section vertical padding
-    for (const [, v] of paramEntries) {
-      if (isCodeLikeValue(v)) {
-        paramHeight += codeBlockHeight(v as string) + 4;
-      } else {
-        // Non-code values render as inline <code>{JSON.stringify(v)}</code>
-        // which wraps within the node. Arrays/objects can wrap to multiple lines.
-        paramHeight += inlineParamHeight(JSON.stringify(v));
-      }
-    }
-  }
-
   const warningHeight = data && data.warning ? 20 : 0;
-
-  return 30 + Math.max(20, pinHeight) + paramHeight + warningHeight + 12;
+  return 30 + Math.max(20, pinHeight) + warningHeight + 12;
 }
 
 export function computeNodeWidth(data: any): number {
@@ -62,24 +18,9 @@ export function computeNodeWidth(data: any): number {
   const label = data.label || '';
   const inputs = data.inputs || [];
   const outputs = data.outputs || [];
-  const params = data.params || {};
 
   const titleWidth = label.length * 8 + 24;
   let maxRowWidth = 180;
-
-  // Estimate width impact of parameters
-  const paramEntries = Object.entries(params);
-  if (paramEntries.length > 0) {
-    for (const [, v] of paramEntries) {
-      if (isCodeLikeValue(v)) {
-        // Code pre blocks are wide
-        maxRowWidth = Math.max(maxRowWidth, 320);
-      } else {
-        // Normal parameter list
-        maxRowWidth = Math.max(maxRowWidth, 220);
-      }
-    }
-  }
 
   const maxPins = Math.max(inputs.length, outputs.length);
   for (let i = 0; i < maxPins; i++) {

@@ -12,9 +12,10 @@ export interface MFCData {
 
 export function MaterialFunctionCallNode({ data }: { data: MFCData }) {
   const md: MaterialNodeData = {
-    id: data.id, label: `f() ${data.label}`,
+    id: data.id, label: 'MaterialFunctionCall',
+    subtitle: data.label,
     inputs: data.inputs, outputs: data.outputs,
-    params: data.params, warning: data.warning, isReserved: true,
+    params: data.params, warning: data.warning, isReserved: true, isMF: true,
   };
   return <div onDoubleClick={data.onDoubleClick} style={{ cursor: 'pointer' }}><MaterialNode data={md} /></div>;
 }
