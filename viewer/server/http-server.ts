@@ -26,6 +26,15 @@ const MIME: Record<string, string> = {
   '.svg': 'image/svg+xml',
 };
 
+// Wire paths are always POSIX-style ('/'). On Windows path.relative() returns
+// backslash separators, which the client's path.split('/') logic can't segment:
+// every file collapses to one segment and lands under "Unorganized". Normalize
+// at this boundary so all path consumers (grouping, base names, breadcrumbs)
+// stay platform-neutral.
+export function toPosixPath(p: string): string {
+  return p.replace(/\\/g, '/');
+}
+
 export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   const graphsRoot = resolve(opts.repoRoot, 'graphs');
 
@@ -85,7 +94,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         if (e.isDirectory()) await walk(full);
         else if (e.isFile() && e.name.endsWith('.matgraph.json')) {
           const type = await readGraphType(full);
-          out.push({ path: relative(graphsRoot, full), type });
+          out.push({ path: toPosixPath(relative(graphsRoot, full)), type });
         }
       }
     }
@@ -128,7 +137,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     for (const ws of wss.clients) {
       send(ws, { kind: 'fileList', files });
       for (const p of paths) {
-        const rel = relative(graphsRoot, p);
+        const rel = toPosixPath(relative(graphsRoot, p));
         await sendGraph(ws, rel);
       }
     }

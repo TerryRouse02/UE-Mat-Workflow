@@ -1,9 +1,26 @@
 import { describe, it, expect } from 'vitest';
-import { startServer } from '../server/http-server';
+import { startServer, toPosixPath } from '../server/http-server';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { WebSocket } from 'ws';
+
+describe('toPosixPath', () => {
+  // Regression: on Windows path.relative() returns backslashes, which broke
+  // sidebar grouping (every file fell into "Unorganized") because the client
+  // splits paths on '/'. The wire protocol must always be POSIX-style.
+  it('converts Windows backslash separators to POSIX slashes', () => {
+    expect(toPosixPath('myProject\\obsidian.matgraph.json')).toBe('myProject/obsidian.matgraph.json');
+  });
+
+  it('converts deeply nested Windows paths', () => {
+    expect(toPosixPath('proj\\sub\\deep.matgraph.json')).toBe('proj/sub/deep.matgraph.json');
+  });
+
+  it('leaves POSIX paths unchanged', () => {
+    expect(toPosixPath('myProject/obsidian.matgraph.json')).toBe('myProject/obsidian.matgraph.json');
+  });
+});
 
 describe('startServer', () => {
   it('serves WS hello with file list on connect', async () => {
