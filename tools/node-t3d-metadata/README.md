@@ -38,6 +38,12 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3
   -ProjectPath <Path\To\Project.uproject> `
   -EngineRoot <Path\To\UnrealEngine> `
   -CaptureFixtures
+
+# Capture TextureSample / TextureSampleParameter2D texture reference syntax.
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Capture-TextureSampleSources.ps1 `
+  -ProjectPath <Path\To\Project.uproject> `
+  -EngineRoot <Path\To\UnrealEngine> `
+  -TextureAsset /Game/Textures/T_Mask.T_Mask
 ```
 
 Logs are written under this repo's `Logs\UE`; the host UE project is not modified by the default external-plugin workflow.

@@ -8,6 +8,7 @@
 #include "MaterialGraph/MaterialGraph.h"
 #include "MaterialGraph/MaterialGraphNode.h"
 #include "MaterialGraph/MaterialGraphSchema.h"
+#include "Engine/Texture2D.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpression.h"
 #include "Materials/MaterialExpressionConstant.h"
@@ -15,6 +16,7 @@
 #include "Materials/MaterialExpressionMakeMaterialAttributes.h"
 #include "Materials/MaterialExpressionMultiply.h"
 #include "Materials/MaterialExpressionTextureSample.h"
+#include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Policies/PrettyJsonPrintPolicy.h"
@@ -361,6 +363,116 @@ static bool WriteMakeMaterialAttributesClipboardSample(const FString& Path, FStr
     }
 
     UE_LOG(LogTemp, Display, TEXT("Wrote MakeMaterialAttributes clipboard sample: %s"), *Path);
+    return true;
+}
+
+static bool WriteTextureSampleClipboardSample(const FString& Path, const FString& TextureAssetPath, FString& OutError)
+{
+    UTexture2D* Texture = LoadObject<UTexture2D>(nullptr, *TextureAssetPath);
+    if (Texture == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Failed to load Texture2D asset: %s"), *TextureAssetPath);
+        return false;
+    }
+
+    UMaterial* Material = NewObject<UMaterial>(
+        GetTransientPackage(),
+        TEXT("UEMatWorkflowClipboard"),
+        RF_Transient | RF_Transactional);
+    if (Material == nullptr)
+    {
+        OutError = TEXT("Failed to create transient material.");
+        return false;
+    }
+
+    Material->MaterialGraph = CastChecked<UMaterialGraph>(FBlueprintEditorUtils::CreateNewGraph(
+        Material,
+        FName(TEXT("MaterialGraph_0")),
+        UMaterialGraph::StaticClass(),
+        UMaterialGraphSchema::StaticClass()));
+    Material->MaterialGraph->Material = Material;
+
+    UMaterialExpressionTextureSample* TextureSample = NewObject<UMaterialExpressionTextureSample>(
+        Material,
+        NAME_None,
+        RF_Transactional);
+    UMaterialExpressionTextureSampleParameter2D* TextureParameter = NewObject<UMaterialExpressionTextureSampleParameter2D>(
+        Material,
+        NAME_None,
+        RF_Transactional);
+    if (TextureSample == nullptr || TextureParameter == nullptr)
+    {
+        OutError = TEXT("Failed to create texture sample expressions.");
+        return false;
+    }
+
+    TextureSample->Material = Material;
+    TextureSample->Texture = Texture;
+    TextureSample->MaterialExpressionEditorX = -320;
+    TextureSample->MaterialExpressionEditorY = -120;
+    TextureSample->AutoSetSampleType();
+    Material->GetExpressionCollection().AddExpression(TextureSample);
+
+    TextureParameter->Material = Material;
+    TextureParameter->Texture = Texture;
+    TextureParameter->ParameterName = TEXT("WF_TextureProbe");
+    TextureParameter->MaterialExpressionEditorX = -320;
+    TextureParameter->MaterialExpressionEditorY = 120;
+    TextureParameter->AutoSetSampleType();
+    Material->GetExpressionCollection().AddExpression(TextureParameter);
+
+    Material->MaterialGraph->RebuildGraph();
+
+    TArray<UMaterialExpression*> ExpressionsToCopy = {
+        TextureSample,
+        TextureParameter
+    };
+    TSet<UObject*> NodesToExport;
+    for (UMaterialExpression* Expression : ExpressionsToCopy)
+    {
+        UEdGraphNode* GraphNode = Cast<UEdGraphNode>(Expression->GraphNode);
+        if (GraphNode == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to create graph node for %s."), *Expression->GetName());
+            return false;
+        }
+        NodesToExport.Add(GraphNode);
+    }
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UEdGraphNode* Node = Cast<UEdGraphNode>(NodeObject))
+        {
+            Node->PrepareForCopying();
+        }
+    }
+
+    FString ExportedText;
+    FEdGraphUtilities::ExportNodesToText(NodesToExport, ExportedText);
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UMaterialGraphNode* Node = Cast<UMaterialGraphNode>(NodeObject))
+        {
+            Node->PostCopyNode();
+        }
+    }
+
+    if (ExportedText.IsEmpty())
+    {
+        OutError = TEXT("UE exported an empty texture sample clipboard sample.");
+        return false;
+    }
+
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    if (!FFileHelper::SaveStringToFile(ExportedText, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+    {
+        OutError = FString::Printf(TEXT("Failed to write texture sample clipboard sample: %s"), *Path);
+        return false;
+    }
+
+    UE_LOG(LogTemp, Display, TEXT("Texture sample source asset: %s"), *Texture->GetPathName());
+    UE_LOG(LogTemp, Display, TEXT("Wrote TextureSample clipboard sample: %s"), *Path);
     return true;
 }
 
@@ -1092,6 +1204,26 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         return 0;
     }
 
+    FString TextureSampleSourcesOutPath;
+    if (FParse::Value(*Params, TEXT("TextureSampleSourcesOut="), TextureSampleSourcesOutPath))
+    {
+        TextureSampleSourcesOutPath = ToAbsolutePath(TextureSampleSourcesOutPath);
+        FString TextureAssetPath;
+        if (!FParse::Value(*Params, TEXT("TextureAsset="), TextureAssetPath) || TextureAssetPath.IsEmpty())
+        {
+            UE_LOG(LogTemp, Error, TEXT("TextureAsset is required when using TextureSampleSourcesOut."));
+            return 10;
+        }
+
+        FString Error;
+        if (!WriteTextureSampleClipboardSample(TextureSampleSourcesOutPath, TextureAssetPath, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 10;
+        }
+        return 0;
+    }
+
     FString MakeMaterialAttributesSampleOutPath;
     if (FParse::Value(*Params, TEXT("MakeMaterialAttributesSampleOut="), MakeMaterialAttributesSampleOutPath))
     {
@@ -1115,6 +1247,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     {
         UE_LOG(LogTemp, Error, TEXT("Usage: -run=UEMatExportMetadata -NodeDb=<nodes-ue5.7.json> -Out=<nodes-ue5.7.export.json> [-Strict]"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -MakeMaterialAttributesSampleOut=<fixture.t3d>"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -TextureSampleSourcesOut=<fixture.t3d> -TextureAsset=<Texture2D object path>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -ClipboardIn=<clipboard.t3d> [-ImportClipboard]"));
         return 2;
     }

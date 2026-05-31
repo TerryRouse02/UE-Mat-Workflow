@@ -30,6 +30,19 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Sc
 This writes `viewer\tests\fixtures\ue-make-material-attributes.t3d` by creating
 the nodes inside UE and exporting them through UE's native graph clipboard path.
 
+To capture the ground-truth texture reference syntax for `TextureSample` and
+`TextureSampleParameter2D`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Capture-TextureSampleSources.ps1 `
+  -ProjectPath <Path\To\Project.uproject> `
+  -EngineRoot <Path\To\UnrealEngine> `
+  -TextureAsset /Game/Textures/T_Mask.T_Mask
+```
+
+This writes `viewer\tests\fixtures\ue-texture-sample-sources.t3d` through UE's
+native graph clipboard path.
+
 The normal workflow uses the compiled external plugin and writes logs under
 `Logs\UE`. Do not leave a duplicate
 `<ProjectDir>\Plugins\UEMatExportMetadata\UEMatExportMetadata.uplugin` project

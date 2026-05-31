@@ -106,6 +106,47 @@ describe('graphToUET3D', () => {
     expect(text).not.toContain(`Texture2D'"/Game/Textures/T_Mask.T_Mask"'`);
   });
 
+  it('matches UE 5.7 captured texture reference syntax for TextureSample nodes', () => {
+    const exportMeta = JSON.parse(readFileSync(
+      resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'), 'utf-8',
+    )) as ExportMeta;
+    const fixture = readFileSync(resolve(__dirname, 'fixtures/ue-texture-sample-sources.t3d'), 'utf-8');
+    const textureLineFor = (text: string, ueClass: string): string => {
+      const lines = text.split(/\r?\n/);
+      const start = lines.findIndex(line => line.includes(`Begin Object Class=/Script/Engine.${ueClass} `));
+      if (start < 0) throw new Error(`missing ${ueClass}`);
+      const line = lines.slice(start).find(candidate => candidate.trim().startsWith('Texture='));
+      if (!line) throw new Error(`missing ${ueClass} Texture= line`);
+      return line.trim();
+    };
+    const assetPathFrom = (line: string): string => {
+      const match = /\/Game\/[^"']+/.exec(line);
+      if (!match) throw new Error(`missing /Game texture asset path in: ${line}`);
+      return match[0];
+    };
+    const emittedTextureLine = (type: 'TextureSample' | 'TextureSampleParameter2D', textureLine: string): string => {
+      const graph: MatGraph = {
+        schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'textureprobe',
+        nodes: [{
+          id: 't',
+          type,
+          params: {
+            Texture: assetPathFrom(textureLine),
+            ...(type === 'TextureSampleParameter2D' ? { ParameterName: 'WF_TextureProbe' } : {}),
+          },
+        }],
+        connections: [],
+      };
+      return textureLineFor(graphToUET3D(graph, layout({ t: [0, 0] }), exportMeta, NO_PINS).text, `MaterialExpression${type}`);
+    };
+
+    const textureSampleLine = textureLineFor(fixture, 'MaterialExpressionTextureSample');
+    const textureSampleParameterLine = textureLineFor(fixture, 'MaterialExpressionTextureSampleParameter2D');
+
+    expect(emittedTextureLine('TextureSample', textureSampleLine)).toBe(textureSampleLine);
+    expect(emittedTextureLine('TextureSampleParameter2D', textureSampleParameterLine)).toBe(textureSampleParameterLine);
+  });
+
   it('auto-collects MaterialOutput attribute wires into a synthesized MakeMaterialAttributes node', () => {
     const graph: MatGraph = {
       schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
