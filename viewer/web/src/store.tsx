@@ -8,6 +8,8 @@ interface State {
   breadcrumb: string[];
   graphs: Record<string, GraphPayload>;
   errors: Record<string, string[]>;
+  connection: 'live' | 'reconnecting' | 'snapshot';
+  lastUpdate: number | null;
 }
 
 type Action =
@@ -17,19 +19,26 @@ type Action =
   | { type: 'graphError'; path: string; errors: string[] }
   | { type: 'open'; path: string }
   | { type: 'enterMF'; mfPath: string }
-  | { type: 'popBreadcrumb'; toIndex: number };
+  | { type: 'popBreadcrumb'; toIndex: number }
+  | { type: 'wsOpen' }
+  | { type: 'wsClosed' }
+  | { type: 'snapshot' };
 
 const initial: State = {
   files: [], currentPath: null, breadcrumb: [], graphs: {}, errors: {},
+  connection: 'reconnecting', lastUpdate: null,
 };
 
 function reducer(s: State, a: Action): State {
   switch (a.type) {
+    case 'wsOpen':   return { ...s, connection: 'live' };
+    case 'wsClosed': return { ...s, connection: 'reconnecting' };
+    case 'snapshot': return { ...s, connection: 'snapshot' };
     case 'hello':
     case 'fileList':
-      return { ...s, files: a.files };
+      return { ...s, files: a.files, lastUpdate: Date.now() };
     case 'graph':
-      return { ...s, graphs: { ...s.graphs, [a.path]: a.payload }, errors: { ...s.errors, [a.path]: [] } };
+      return { ...s, graphs: { ...s.graphs, [a.path]: a.payload }, errors: { ...s.errors, [a.path]: [] }, lastUpdate: Date.now() };
     case 'graphError':
       return { ...s, errors: { ...s.errors, [a.path]: a.errors } };
     case 'open':
@@ -77,13 +86,18 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         });
       }
       dispatch({ type: 'open', path: exportData.entry });
+      dispatch({ type: 'snapshot' });
       return;
     }
-    const ws = connect((m: ServerMessage) => {
-      if (m.kind === 'hello') dispatch({ type: 'hello', files: m.files });
-      else if (m.kind === 'fileList') dispatch({ type: 'fileList', files: m.files });
-      else if (m.kind === 'graph') dispatch({ type: 'graph', path: m.path, payload: m.payload });
-      else if (m.kind === 'graphError') dispatch({ type: 'graphError', path: m.path, errors: m.errors });
+    const ws = connect({
+      onOpen: () => dispatch({ type: 'wsOpen' }),
+      onClose: () => dispatch({ type: 'wsClosed' }),
+      onMessage: (m: ServerMessage) => {
+        if (m.kind === 'hello') dispatch({ type: 'hello', files: m.files });
+        else if (m.kind === 'fileList') dispatch({ type: 'fileList', files: m.files });
+        else if (m.kind === 'graph') dispatch({ type: 'graph', path: m.path, payload: m.payload });
+        else if (m.kind === 'graphError') dispatch({ type: 'graphError', path: m.path, errors: m.errors });
+      },
     });
     wsRef.current = ws;
     return () => ws.close();
