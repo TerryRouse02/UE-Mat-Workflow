@@ -61,7 +61,12 @@ function fmtParam(value: unknown, p: ParamMeta, node: NodeJson): string | null {
     case 'enum': return p.valueMap?.[String(value)] ?? String(value);
     case 'texture': {
       const path = typeof value === 'string' ? value.trim() : '';
-      return path ? `Texture2D'${quote(path)}'` : 'None';
+      if (!path) return 'None';
+      if (path.startsWith('/Script/') && path.includes("'")) return quote(path);
+      const objectPath = path.startsWith("Texture2D'")
+        ? `/Script/Engine.${path}`
+        : `/Script/Engine.Texture2D'${path}'`;
+      return quote(objectPath);
     }
     case 'vector2':
     case 'vector3':
@@ -134,7 +139,15 @@ function guidFor(seed: string): string {
 }
 
 function objectRef(classPath: string, objectName: string): string {
-  return `${ueClassName(classPath)}'${objectName}'`;
+  return quote(`${classPath}'${objectName}'`);
+}
+
+function expressionExportPath(item: EmittedExpression): string {
+  return `${item.meta.ueClass}'${GRAPH_ROOT}.${item.graphNodeName}.${item.expressionName}'`;
+}
+
+function commentExportPath(comment: EmittedComment): string {
+  return `/Script/Engine.MaterialExpressionComment'${GRAPH_ROOT}.${comment.graphNodeName}.${comment.expressionName}'`;
 }
 
 function pinId(nodeId: string, pinName: string, direction: 'input' | 'output'): string {
@@ -148,6 +161,9 @@ function nodeOutputPins(node: NodeJson, meta: NodeExportMeta, derivedPins: Recor
   }
   if (node.type === 'MaterialFunctionCall') {
     return (derivedPins[node.id]?.outputs ?? []).map(pin => pin.name);
+  }
+  if (node.type === 'MakeMaterialAttributes') {
+    return ['Output'];
   }
   return Object.entries(meta.outputs)
     .sort(([, a], [, b]) => a.index - b.index)
@@ -205,8 +221,8 @@ const MATERIAL_ATTRIBUTE_PINS = [
 // UE's root material node cannot be copied to the clipboard, so any wires the author drew into a
 // MaterialOutput's attribute pins would be lost on paste. To preserve them we synthesize one
 // MakeMaterialAttributes expression per MaterialOutput, reroute those attribute wires into it, and
-// leave its single MaterialAttributes output for the user to connect to the root (enable "Use
-// Material Attributes"). This turns N broken manual reconnections into exactly one.
+// leave its single Output pin for the user to connect to the root Material Attributes input
+// (enable "Use Material Attributes"). This turns N broken manual reconnections into exactly one.
 function collectMaterialOutputs(
   graph: MatGraph,
   layout: Record<string, { x: number; y: number }>,
@@ -251,7 +267,7 @@ function collectMaterialOutputs(
   for (const [outId, collectorId] of collectorFor) {
     const count = countFor.get(collectorId) ?? 0;
     if (count > 0) {
-      warnings.push(`MaterialOutput "${outId}": auto-collected ${count} attribute(s) into MakeMaterialAttributes "${collectorId}". In UE, connect its MaterialAttributes output to the material's root pin and enable "Use Material Attributes".`);
+      warnings.push(`MaterialOutput "${outId}": auto-collected ${count} attribute(s) into MakeMaterialAttributes "${collectorId}". In UE, connect its Output pin to the material's Material Attributes root pin and enable "Use Material Attributes".`);
     }
   }
 
@@ -400,9 +416,9 @@ export function graphToUET3D(
     }
 
     lines.push(`Begin Object Class=/Script/UnrealEd.MaterialGraphNode_Comment Name="${comment.graphNodeName}" ExportPath="/Script/UnrealEd.MaterialGraphNode_Comment'${GRAPH_ROOT}.${comment.graphNodeName}'"`);
-    lines.push(`${I}Begin Object Class=/Script/Engine.MaterialExpressionComment Name="${comment.expressionName}" ExportPath="/Script/Engine.MaterialExpressionComment'${GRAPH_ROOT}.${comment.graphNodeName}.${comment.expressionName}'"`);
+    lines.push(`${I}Begin Object Class=/Script/Engine.MaterialExpressionComment Name="${comment.expressionName}" ExportPath="${commentExportPath(comment)}"`);
     lines.push(`${I}End Object`);
-    lines.push(`${I}Begin Object Name="${comment.expressionName}"`);
+    lines.push(`${I}Begin Object Name="${comment.expressionName}" ExportPath="${commentExportPath(comment)}"`);
     lines.push(`${I}${I}Text=${quote(comment.text)}`);
     lines.push(`${I}${I}CommentColor=${hexToRGBA(comment.color ?? '#888888')}`);
     lines.push(`${I}${I}SizeX=${w}`);
@@ -426,9 +442,9 @@ export function graphToUET3D(
     const pos = effectiveLayout[node.id] ?? { x: 0, y: 0 };
 
     lines.push(`Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="${item.graphNodeName}" ExportPath="/Script/UnrealEd.MaterialGraphNode'${GRAPH_ROOT}.${item.graphNodeName}'"`);
-    lines.push(`${I}Begin Object Class=${nodeMeta.ueClass} Name="${item.expressionName}" ExportPath="${nodeMeta.ueClass}'${GRAPH_ROOT}.${item.graphNodeName}.${item.expressionName}'"`);
+    lines.push(`${I}Begin Object Class=${nodeMeta.ueClass} Name="${item.expressionName}" ExportPath="${expressionExportPath(item)}"`);
     lines.push(`${I}End Object`);
-    lines.push(`${I}Begin Object Name="${item.expressionName}"`);
+    lines.push(`${I}Begin Object Name="${item.expressionName}" ExportPath="${expressionExportPath(item)}"`);
 
     for (const [paramName, value] of Object.entries(node.params ?? {})) {
       const paramMeta = nodeMeta.params[paramName];
