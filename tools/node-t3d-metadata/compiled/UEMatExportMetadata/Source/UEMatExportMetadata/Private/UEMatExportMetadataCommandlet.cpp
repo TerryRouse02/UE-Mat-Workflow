@@ -19,6 +19,7 @@
 #include "Materials/MaterialExpressionConstant3Vector.h"
 #include "Materials/MaterialExpressionMakeMaterialAttributes.h"
 #include "Materials/MaterialExpressionMultiply.h"
+#include "Materials/MaterialExpressionNamedReroute.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Materials/MaterialExpressionTransform.h"
@@ -646,6 +647,123 @@ static bool WriteTextureSampleClipboardSample(const FString& Path, const FString
 
     UE_LOG(LogTemp, Display, TEXT("Texture sample source asset: %s"), *Texture->GetPathName());
     UE_LOG(LogTemp, Display, TEXT("Wrote TextureSample clipboard sample: %s"), *Path);
+    return true;
+}
+
+static bool WriteNamedRerouteClipboardSample(const FString& Path, FString& OutError)
+{
+    UMaterial* Material = NewObject<UMaterial>(
+        GetTransientPackage(),
+        TEXT("UEMatWorkflowClipboard"),
+        RF_Transient | RF_Transactional);
+    if (Material == nullptr)
+    {
+        OutError = TEXT("Failed to create transient material.");
+        return false;
+    }
+
+    Material->MaterialGraph = CastChecked<UMaterialGraph>(FBlueprintEditorUtils::CreateNewGraph(
+        Material,
+        FName(TEXT("MaterialGraph_0")),
+        UMaterialGraph::StaticClass(),
+        UMaterialGraphSchema::StaticClass()));
+    Material->MaterialGraph->Material = Material;
+
+    UMaterialExpressionConstant* Constant = NewObject<UMaterialExpressionConstant>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionNamedRerouteDeclaration* Declaration = NewObject<UMaterialExpressionNamedRerouteDeclaration>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionNamedRerouteUsage* Usage = NewObject<UMaterialExpressionNamedRerouteUsage>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionAdd* Add = NewObject<UMaterialExpressionAdd>(Material, NAME_None, RF_Transactional);
+    if (Constant == nullptr || Declaration == nullptr || Usage == nullptr || Add == nullptr)
+    {
+        OutError = TEXT("Failed to create named reroute clipboard material expressions.");
+        return false;
+    }
+
+    Constant->Material = Material;
+    Constant->R = 1.0f;
+    Constant->MaterialExpressionEditorX = -700;
+    Constant->MaterialExpressionEditorY = 0;
+    Material->GetExpressionCollection().AddExpression(Constant);
+
+    Declaration->Material = Material;
+    Declaration->Name = TEXT("WF_Name");
+    Declaration->NodeColor = FLinearColor(0.1f, 0.4f, 0.8f, 1.0f);
+    Declaration->VariableGuid = FGuid(0x12345678, 0x90abcdef, 0x13572468, 0x24681357);
+    Declaration->Input.Connect(0, Constant);
+    Declaration->MaterialExpressionEditorX = -420;
+    Declaration->MaterialExpressionEditorY = 0;
+    Material->GetExpressionCollection().AddExpression(Declaration);
+
+    Usage->Material = Material;
+    Usage->Declaration = Declaration;
+    Usage->DeclarationGuid = Declaration->VariableGuid;
+    Usage->MaterialExpressionEditorX = -160;
+    Usage->MaterialExpressionEditorY = 0;
+    Material->GetExpressionCollection().AddExpression(Usage);
+
+    Add->Material = Material;
+    Add->A.Connect(0, Usage);
+    Add->ConstB = 2.0f;
+    Add->MaterialExpressionEditorX = 120;
+    Add->MaterialExpressionEditorY = 0;
+    Material->GetExpressionCollection().AddExpression(Add);
+
+    FExpressionInput* EmissiveInput = Material->GetExpressionInputForProperty(MP_EmissiveColor);
+    if (EmissiveInput == nullptr)
+    {
+        OutError = TEXT("Failed to resolve the root Emissive Color input.");
+        return false;
+    }
+    EmissiveInput->Connect(0, Add);
+    Material->MaterialGraph->RebuildGraph();
+
+    TArray<UMaterialExpression*> ExpressionsToCopy = { Constant, Declaration, Usage, Add };
+    TSet<UObject*> NodesToExport;
+    for (UMaterialExpression* Expression : ExpressionsToCopy)
+    {
+        UEdGraphNode* GraphNode = Cast<UEdGraphNode>(Expression->GraphNode);
+        if (GraphNode == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to create graph node for %s."), *Expression->GetName());
+            return false;
+        }
+        NodesToExport.Add(GraphNode);
+    }
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UEdGraphNode* Node = Cast<UEdGraphNode>(NodeObject))
+        {
+            Node->PrepareForCopying();
+        }
+    }
+
+    FString ExportedText;
+    FEdGraphUtilities::ExportNodesToText(NodesToExport, ExportedText);
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UMaterialGraphNode* Node = Cast<UMaterialGraphNode>(NodeObject))
+        {
+            Node->PostCopyNode();
+        }
+    }
+
+    if (ExportedText.IsEmpty())
+    {
+        OutError = TEXT("UE exported an empty named reroute clipboard sample.");
+        return false;
+    }
+
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    if (!FFileHelper::SaveStringToFile(ExportedText, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+    {
+        OutError = FString::Printf(TEXT("Failed to write named reroute clipboard sample: %s"), *Path);
+        return false;
+    }
+
+    UE_LOG(LogTemp, Display, TEXT("Named reroute declaration guid: %s"), *Declaration->VariableGuid.ToString());
+    UE_LOG(LogTemp, Display, TEXT("Wrote NamedReroute clipboard sample: %s"), *Path);
     return true;
 }
 
@@ -1417,6 +1535,19 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         return 0;
     }
 
+    FString NamedRerouteSampleOutPath;
+    if (FParse::Value(*Params, TEXT("NamedRerouteSampleOut="), NamedRerouteSampleOutPath))
+    {
+        NamedRerouteSampleOutPath = ToAbsolutePath(NamedRerouteSampleOutPath);
+        FString Error;
+        if (!WriteNamedRerouteClipboardSample(NamedRerouteSampleOutPath, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 12;
+        }
+        return 0;
+    }
+
     FString MakeMaterialAttributesSampleOutPath;
     if (FParse::Value(*Params, TEXT("MakeMaterialAttributesSampleOut="), MakeMaterialAttributesSampleOutPath))
     {
@@ -1442,6 +1573,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -MakeMaterialAttributesSampleOut=<fixture.t3d>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -CoreClipboardOut=<fixture.t3d> -TextureAsset=<Texture2D object path>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -TextureSampleSourcesOut=<fixture.t3d> -TextureAsset=<Texture2D object path>"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -NamedRerouteSampleOut=<fixture.t3d>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -ClipboardIn=<clipboard.t3d> [-ImportClipboard]"));
         return 2;
     }

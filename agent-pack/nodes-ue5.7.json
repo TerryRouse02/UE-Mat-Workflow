@@ -3286,6 +3286,46 @@
       ],
       "verified": true
     },
+    "NamedRerouteDeclaration": {
+      "category": "Utility",
+      "description": "Declares a named reroute value. UE displays the default node title as Name and linked usage nodes can read the captured input without visible wires.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Any",
+          "required": true
+        }
+      ],
+      "outputs": [],
+      "verified": true,
+      "params": [
+        {
+          "name": "Name",
+          "type": "Name",
+          "default": "Name"
+        },
+        {
+          "name": "NodeColor",
+          "type": "Float4",
+          "default": [0.25, 0.25, 0.25, 1.0]
+        }
+      ],
+      "pinInfo": "This is UE's Named Reroute Declaration node. Wire the captured value into Input, set params.Name to the visible reroute name, and pair it with one or more NamedRerouteUsage nodes that reference the declaration by UE's Declaration/DeclarationGuid fields."
+    },
+    "NamedRerouteUsage": {
+      "category": "Utility",
+      "description": "Uses a Named Reroute Declaration value elsewhere in the material graph.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Value",
+          "type": "Any"
+        }
+      ],
+      "verified": true,
+      "params": [],
+      "pinInfo": "This node has no visible input pins. UE links it to a NamedRerouteDeclaration through Declaration and DeclarationGuid object fields; see viewer/tests/fixtures/ue-named-reroute.t3d for the real clipboard format."
+    },
     "AntialiasedTextureMask": {
       "category": "Utility",
       "description": "Samples a texture channel as an anti-aliased threshold mask.",

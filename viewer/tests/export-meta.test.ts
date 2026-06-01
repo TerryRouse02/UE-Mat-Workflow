@@ -95,4 +95,32 @@ describe('nodes-ue5.7.export.json', () => {
     expect(c.params.Inputs).toBeUndefined();
     expect(c.params.AdditionalOutputs).toBeUndefined();
   });
+
+  it('includes UE Named Reroute declaration and usage nodes with a real clipboard fixture', () => {
+    for (const t of ['NamedRerouteDeclaration', 'NamedRerouteUsage']) {
+      expect(db.nodes[t], `missing authoring DB entry for ${t}`).toBeTruthy();
+      expect(exp.nodes[t], `missing export meta for ${t}`).toBeTruthy();
+      expect(exp.nodes[t].ueClass).toBe(`/Script/Engine.MaterialExpression${t}`);
+      expect(exp.nodes[t].verified).toBe(true);
+    }
+
+    expect(exp.nodes.NamedRerouteDeclaration.inputs.Input.property).toBe('Input');
+    expect(exp.nodes.NamedRerouteDeclaration.params.Name.kind).toBe('name');
+    expect(exp.nodes.NamedRerouteDeclaration.params.NodeColor.kind).toBe('vector4');
+    expect(exp.nodes.NamedRerouteUsage.outputs.Value.index).toBe(0);
+
+    const fixturePath = resolve(__dirname, 'fixtures/ue-named-reroute.t3d');
+    expect(existsSync(fixturePath)).toBe(true);
+    const fixture = readFileSync(fixturePath, 'utf-8');
+    for (const token of [
+      '/Script/Engine.MaterialExpressionNamedRerouteDeclaration',
+      '/Script/Engine.MaterialExpressionNamedRerouteUsage',
+      'Name="WF_Name"',
+      'Input=(Expression=',
+      'Declaration=',
+      'DeclarationGuid=',
+    ]) {
+      expect(fixture, token).toContain(token);
+    }
+  });
 });
