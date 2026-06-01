@@ -4,6 +4,8 @@ import { writeFileSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolveMaterialFunctions } from '../server/mf-resolver';
 import { loadGraph } from '../server/graph-loader';
+import type { MatGraph } from '../server/types';
+import type { WorkMfIndex } from '../server/workmf-index';
 
 function makeRepo() {
   const root = mkdtempSync(resolve(tmpdir(), 'mfres-'));
@@ -108,5 +110,79 @@ describe('resolveMaterialFunctions', () => {
     const r = await loadGraph(resolve(root, 'main.matgraph.json'));
     const resolved = await resolveMaterialFunctions(r.graph!, root);
     expect(resolved.warnings.some(w => /circular/i.test(w))).toBe(true);
+  });
+});
+
+describe('resolveMaterialFunctions — work-project MF asset paths', () => {
+  const index: WorkMfIndex = {
+    schemaVersion: '1.0', kind: 'workmf-index', ueVersion: '5.7',
+    functions: {
+      '/Game/Functions/MF_Foo.MF_Foo': {
+        assetPath: '/Game/Functions/MF_Foo.MF_Foo', displayName: 'MF_Foo',
+        inputs: [{ name: 'UV', type: 'Float2', index: 0 }, { name: 'Mask', type: 'Float1', index: 1 }],
+        outputs: [{ name: 'Result', type: 'Float3', index: 0 }],
+      },
+    },
+  };
+
+  const mat = (mfPath: string): MatGraph => ({
+    schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'main',
+    nodes: [{ id: 'mfc', type: 'MaterialFunctionCall', params: { MaterialFunction: mfPath } }],
+    connections: [],
+  });
+
+  it('derives MFC pins from the work-MF index for a /Game asset path (declared order)', async () => {
+    const resolved = await resolveMaterialFunctions(mat('/Game/Functions/MF_Foo.MF_Foo'), '/irrelevant', new Set(), { workMfIndex: index });
+    expect(resolved.derivedPins['mfc']).toEqual({
+      inputs: [{ name: 'UV', type: 'Float2' }, { name: 'Mask', type: 'Float1' }],
+      outputs: [{ name: 'Result', type: 'Float3' }],
+    });
+    expect(resolved.warnings).toEqual([]);
+  });
+
+  it('warns (and empties pins) when a /Game asset path is not in the index', async () => {
+    const resolved = await resolveMaterialFunctions(mat('/Game/Functions/MF_Missing.MF_Missing'), '/irrelevant', new Set(), { workMfIndex: index });
+    expect(resolved.derivedPins['mfc']).toEqual({ inputs: [], outputs: [] });
+    expect(resolved.warnings.some(w => /not in index/i.test(w))).toBe(true);
+  });
+
+  it('treats an /Engine built-in MF path as resolvable (no error, empty local pins)', async () => {
+    const resolved = await resolveMaterialFunctions(mat('/Engine/Functions/Engine_MaterialFunctions02/Utility/Foo.Foo'), '/irrelevant', new Set(), { workMfIndex: index });
+    expect(resolved.derivedPins['mfc']).toEqual({ inputs: [], outputs: [] });
+    expect(resolved.warnings).toEqual([]);
+  });
+
+  it('still warns for an asset path when no index is provided', async () => {
+    const resolved = await resolveMaterialFunctions(mat('/Game/Functions/MF_Foo.MF_Foo'), '/irrelevant');
+    expect(resolved.derivedPins['mfc']).toEqual({ inputs: [], outputs: [] });
+    expect(resolved.warnings.some(w => /not in index/i.test(w))).toBe(true);
+  });
+
+  it('keeps pins for a work-MF MaterialFunctionCall nested inside a referenced MF', async () => {
+    const root = makeRepo();
+    write(resolve(root, 'functions/inner.matgraph.json'), {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'MaterialFunction', name: 'inner',
+      nodes: [
+        { id: 'in', type: 'FunctionInput', params: { InputName: 'A' } },
+        { id: 'nested', type: 'MaterialFunctionCall', params: { MaterialFunction: '/Game/Functions/MF_Foo.MF_Foo' } },
+        { id: 'out', type: 'FunctionOutput', params: { OutputName: 'R' } },
+      ],
+      connections: [],
+    });
+    write(resolve(root, 'main.matgraph.json'), {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'main',
+      nodes: [
+        { id: 'mfc', type: 'MaterialFunctionCall', params: { MaterialFunction: './functions/inner.matgraph.json' } },
+        { id: 'OUT', type: 'MaterialOutput' },
+      ],
+      connections: [],
+    });
+    const r = await loadGraph(resolve(root, 'main.matgraph.json'));
+    const resolved = await resolveMaterialFunctions(r.graph!, root, new Set(), { workMfIndex: index });
+    // the nested MFC (declared inside inner.matgraph.json) must still get its work-MF pins
+    expect(resolved.derivedPins['nested']).toEqual({
+      inputs: [{ name: 'UV', type: 'Float2' }, { name: 'Mask', type: 'Float1' }],
+      outputs: [{ name: 'Result', type: 'Float3' }],
+    });
   });
 });

@@ -381,6 +381,16 @@ export function graphToUET3D(
     byNodeId.set(node.id, item);
   }
 
+  // Named Reroute: a Usage links to its Declaration by a shared GUID, not a wire.
+  // Map each Declaration's visible Name to its emitted expression so a Usage
+  // (carrying params.rerouteName == that Name) can emit Declaration=/DeclarationGuid=.
+  const declByName = new Map<string, EmittedExpression>();
+  for (const item of emitted) {
+    if (item.node.type === 'NamedRerouteDeclaration') {
+      declByName.set(String(item.node.params?.Name ?? 'Name'), item);
+    }
+  }
+
   const comments: EmittedComment[] = (graph.comments ?? []).map((comment, i) => ({
     ...comment,
     graphNodeName: `MaterialGraphNode_Comment_${i}`,
@@ -409,7 +419,13 @@ export function graphToUET3D(
     const [dstId, dstPin] = splitRef(connection.to);
     const src = byNodeId.get(srcId);
     const dst = byNodeId.get(dstId);
-    if (!src || !dst) continue;
+    if (!dst) continue;
+    if (!src) {
+      // The destination is exported but its source was skipped (a dynamicExport
+      // node, etc.). Don't drop the wire silently — surface it.
+      warnings.push(`Node "${dstId}" input "${dstPin}" dropped: source "${srcId}" (${byId.get(srcId)?.type ?? 'unknown'}) was not exported.`);
+      continue;
+    }
 
     const incomingForNode = incoming.get(dstId);
     const incomingItem = { srcId, srcPin, dstPin };
@@ -516,9 +532,15 @@ export function graphToUET3D(
         lines.push(`${I}${I}AdditionalOutputs(${i})=(OutputName=${quote(o.OutputName)},OutputType=${o.OutputType ?? 'CMOT_Float1'})`);
       });
     } else {
+      const seenInputPins = new Set<string>();
       for (const connection of incoming.get(node.id) ?? []) {
         const src = byNodeId.get(connection.srcId);
         if (!src) continue;
+        if (seenInputPins.has(connection.dstPin)) {
+          warnings.push(`Node "${node.id}" input "${connection.dstPin}" wired more than once - keeping the first (UE allows one wire per input).`);
+          continue;
+        }
+        seenInputPins.add(connection.dstPin);
         const { index, mask } = srcRef(connection.srcId, connection.srcPin);
         const ref = `Expression=${src.expressionName},OutputIndex=${index}${maskBits(mask)}`;
         if (nodeMeta.functionRefProperty) {
@@ -543,6 +565,19 @@ export function graphToUET3D(
       }
     }
 
+    if (node.type === 'NamedRerouteDeclaration') {
+      // Stable per-name GUID so every Usage of this name resolves back here.
+      lines.push(`${I}${I}VariableGuid=${guidFor('reroute:' + String(node.params?.Name ?? 'Name'))}`);
+    } else if (node.type === 'NamedRerouteUsage') {
+      const rrName = String(node.params?.rerouteName ?? '');
+      const decl = rrName ? declByName.get(rrName) : undefined;
+      if (decl) {
+        lines.push(`${I}${I}Declaration=${fqExpressionRef(decl)}`);
+        lines.push(`${I}${I}DeclarationGuid=${guidFor('reroute:' + rrName)}`);
+      } else {
+        warnings.push(`NamedRerouteUsage "${node.id}": params.rerouteName "${rrName}" matches no NamedRerouteDeclaration Name - orphaned on paste.`);
+      }
+    }
     lines.push(`${I}${I}MaterialExpressionEditorX=${Math.round(pos.x)}`);
     lines.push(`${I}${I}MaterialExpressionEditorY=${Math.round(pos.y)}`);
     lines.push(`${I}End Object`);

@@ -395,6 +395,29 @@ describe('graphToUET3D', () => {
     expect(warnings.some(w => /blend_normals.*auto-link|create.*blend_normals/i.test(w))).toBe(true);
   });
 
+  it('emits a work-project MaterialFunctionCall (UE asset path) from index-derived pins, no auto-link warning', () => {
+    // A user's OWN project MF, referenced by UE asset path. The server's mf-resolver
+    // fills derivedPins from agent-pack/workmf-index.json; the exporter is unchanged.
+    // This locks in that asset-path MFC export already works end to end.
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        { id: 'src', type: 'Constant', params: { R: 1 } },
+        { id: 'mfc', type: 'MaterialFunctionCall', params: { MaterialFunction: '/Game/Functions/MF_Foo.MF_Foo' } },
+      ],
+      connections: [{ from: 'src:Value', to: 'mfc:UV' }],
+    };
+    const derived: Record<string, DerivedPins> = {
+      mfc: { inputs: [{ name: 'UV', type: 'Float2' }], outputs: [{ name: 'Result', type: 'Float3' }] },
+    };
+    const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], mfc: [200, 0] }), META, derived, { mfContentRoot: '/Game/' });
+    expect(text).toContain("MaterialFunction=MaterialFunction'\"/Game/Functions/MF_Foo.MF_Foo\"'");
+    expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,OutputIndex=0))');
+    expect(text).toContain('PinName="Result"');
+    // Asset path already starts with '/', so the "create MF in UE for auto-link" warning must NOT fire.
+    expect(warnings.some(w => /auto-link/i.test(w))).toBe(false);
+  });
+
   it('resolves a MaterialFunctionCall input pin index from FunctionInputs(n) metadata', () => {
     // BlendAngleCorrectedNormals carries explicit FunctionInputs(n) mappings, so the
     // index comes from metadata (the authoritative path) - not from derived-pin order.

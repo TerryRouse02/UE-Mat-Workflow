@@ -2,6 +2,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { loadGraph } from './graph-loader.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
+import { loadWorkMfIndex } from './workmf-index.js';
 import { isInside } from './http-server.js';
 
 async function main() {
@@ -30,7 +31,9 @@ async function main() {
   }
   // Resolve MF references relative to the material file's own directory
   // (project-folder convention), matching the resolver's recursive behavior.
-  const resolved = await resolveMaterialFunctions(loaded.graph, dirname(matgraphPath));
+  // Work-project MFs (UE asset paths) get their pins from the local work-MF index.
+  const { index: workMfIndex, warnings: indexWarnings } = await loadWorkMfIndex(resolve(repoRoot, 'agent-pack', 'workmf-index.json'));
+  const resolved = await resolveMaterialFunctions(loaded.graph, dirname(matgraphPath), new Set(), { workMfIndex });
 
   // Collect all referenced MFs recursively
   const allFiles: Record<string, unknown> = { [`${name}.matgraph.json`]: loaded.graph };
@@ -41,6 +44,9 @@ async function main() {
       if (node.type !== 'MaterialFunctionCall') continue;
       const rel = (node.params?.MaterialFunction as string | undefined) ?? '';
       if (!rel) continue;
+      // UE asset paths (/Game work MFs, /Engine built-ins) have no local sub-graph
+      // file to inline; their pins come from the work-MF index, not from disk.
+      if (rel.startsWith('/')) continue;
       const cleaned = (currentDir + rel.replace(/^\.\//, '')).replace(/\/\.\//g, '/');
       if (allFiles[cleaned]) continue;
       const sub = await loadGraph(resolve(graphsRoot, cleaned));
@@ -56,7 +62,7 @@ async function main() {
     entry: `${name}.matgraph.json`,
     files: allFiles,
     derivedPins: resolved.derivedPins,
-    warnings: resolved.warnings,
+    warnings: [...indexWarnings, ...resolved.warnings],
   })};</script>`;
   const final = inlined.replace('</body>', `${dataInject}</body>`);
 

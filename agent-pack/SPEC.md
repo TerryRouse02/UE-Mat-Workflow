@@ -118,6 +118,22 @@ Only one wire per attribute pin is kept: if two sources are wired into the same
 `MaterialOutput` pin, export keeps the first and warns (UE allows one connection
 per input).
 
+## Work-project Material Functions (your own project MFs)
+
+A `MaterialFunctionCall` can reference a Material Function three ways:
+
+1. **A sibling `.matgraph.json`** (e.g. `"./blend_normals.matgraph.json"`) — authored in this repo; the viewer resolves and previews it. (See hard rule 8.)
+2. **An engine built-in** (e.g. `/Engine/Functions/.../BlendAngleCorrectedNormals.BlendAngleCorrectedNormals`) — pastes resolved in UE; not previewable here.
+3. **One of your own project's Material Functions, by UE asset path** (e.g. `/Game/Functions/MF_Foo.MF_Foo`) — a `.uasset` in your UE project that this repo cannot read directly.
+
+For case 3, the function's pin signature lives in **`agent-pack/workmf-index.json`** — a local, gitignored index your UE machine generates with the WorkMF crawl (`tools/node-t3d-metadata`, mode `WorkMF`). When you author or optimize a material that calls one of your own project MFs:
+
+- **Look it up** in `agent-pack/workmf-index.json` under `functions["<assetPath>"]`. Use its `inputs[].name` / `outputs[].name` for connections, exactly as you would the pin names of a built-in node.
+- Set `params.MaterialFunction` to the **UE asset path** (`/Game/...`), not a `.matgraph.json` path.
+- **If the MF is not in the index, stop and ask the user to run the WorkMF crawl** — do not invent pin names. (`/Engine/...` built-ins are the one exception: not indexed, not previewable, but still export.)
+
+Only the user's own project MFs are indexed; official/engine MFs are not. The index is never committed and never bundled into the web build.
+
 ## Soft rules (best practice)
 
 - Group related nodes with `comments` for clarity.

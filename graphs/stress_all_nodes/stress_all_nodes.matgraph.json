@@ -3,7 +3,7 @@
   "ueVersion": "5.7",
   "type": "Material",
   "name": "stress_all_nodes",
-  "description": "Stress test: one of every exportable node type, zero warnings.",
+  "description": "Multi-dimensional EXPORT stress test of the final UE T3D output. Covers every currently-exportable node type PLUS known export-gap nodes: Named Reroute (Declaration/Usage, heavy use), and the dynamic-pin nodes SetMaterialAttributes / GetMaterialAttributes / LandscapeLayerBlend. Also stresses emitter edge cases: long linear chains, high fan-out, duplicate-into-one-OUT-pin (dup-drop warning), float extremes (1e-7 / 1e21), special characters in Custom.Code/Description and comment text, ComponentMask/AppendVector channel masks, and every MaterialOutput attribute pin wired. NOTE: this material intentionally surfaces export warnings (it is no longer \"zero warnings\").",
   "nodes": [
     {
       "id": "OUT",
@@ -633,6 +633,424 @@
     {
       "id": "N_PreSkinnedLocalPosition",
       "type": "PreSkinnedLocalPosition"
+    },
+    {
+      "id": "RR_AlbedoDecl",
+      "type": "NamedRerouteDeclaration",
+      "params": {
+        "Name": "RR_Albedo",
+        "NodeColor": [
+          0.9,
+          0.2,
+          0.2,
+          1
+        ]
+      }
+    },
+    {
+      "id": "RR_RoughDecl",
+      "type": "NamedRerouteDeclaration",
+      "params": {
+        "Name": "RR_Rough",
+        "NodeColor": [
+          0.2,
+          0.7,
+          0.3,
+          1
+        ]
+      }
+    },
+    {
+      "id": "RR_UVDecl",
+      "type": "NamedRerouteDeclaration",
+      "params": {
+        "Name": "RR_UV",
+        "NodeColor": [
+          0.2,
+          0.4,
+          0.9,
+          1
+        ]
+      }
+    },
+    {
+      "id": "RR_TimeDecl",
+      "type": "NamedRerouteDeclaration",
+      "params": {
+        "Name": "RR_Time",
+        "NodeColor": [
+          0.8,
+          0.6,
+          0.1,
+          1
+        ]
+      }
+    },
+    {
+      "id": "RR_MetalDecl",
+      "type": "NamedRerouteDeclaration",
+      "params": {
+        "Name": "RR_Metal",
+        "NodeColor": [
+          0.5,
+          0.5,
+          0.55,
+          1
+        ]
+      }
+    },
+    {
+      "id": "RR_SpecialDecl",
+      "type": "NamedRerouteDeclaration",
+      "params": {
+        "Name": "RR \"Quote\"\\Slash",
+        "NodeColor": [
+          0.6,
+          0.1,
+          0.7,
+          1
+        ]
+      }
+    },
+    {
+      "id": "RR_AlbedoUse1",
+      "type": "NamedRerouteUsage",
+      "params": {
+        "rerouteName": "RR_Albedo"
+      }
+    },
+    {
+      "id": "RR_AlbedoUse2",
+      "type": "NamedRerouteUsage",
+      "params": {
+        "rerouteName": "RR_Albedo"
+      }
+    },
+    {
+      "id": "RR_AlbedoUse3",
+      "type": "NamedRerouteUsage",
+      "params": {
+        "rerouteName": "RR_Albedo"
+      }
+    },
+    {
+      "id": "RR_AlbedoUse4",
+      "type": "NamedRerouteUsage",
+      "params": {
+        "rerouteName": "RR_Albedo"
+      }
+    },
+    {
+      "id": "RR_RoughUse1",
+      "type": "NamedRerouteUsage",
+      "params": {
+        "rerouteName": "RR_Rough"
+      }
+    },
+    {
+      "id": "RR_RoughUse2",
+      "type": "NamedRerouteUsage",
+      "params": {
+        "rerouteName": "RR_Rough"
+      }
+    },
+    {
+      "id": "RR_UVUse1",
+      "type": "NamedRerouteUsage",
+      "params": {
+        "rerouteName": "RR_UV"
+      }
+    },
+    {
+      "id": "RR_UVUse2",
+      "type": "NamedRerouteUsage",
+      "params": {
+        "rerouteName": "RR_UV"
+      }
+    },
+    {
+      "id": "RR_TimeUse1",
+      "type": "NamedRerouteUsage",
+      "params": {
+        "rerouteName": "RR_Time"
+      }
+    },
+    {
+      "id": "RR_MetalUse1",
+      "type": "NamedRerouteUsage",
+      "params": {
+        "rerouteName": "RR_Metal"
+      }
+    },
+    {
+      "id": "RR_SpecialUse1",
+      "type": "NamedRerouteUsage",
+      "params": {
+        "rerouteName": "RR \"Quote\"\\Slash"
+      }
+    },
+    {
+      "id": "RR_ConsumerAdd",
+      "type": "Add"
+    },
+    {
+      "id": "RR_ConsumerMul",
+      "type": "Multiply"
+    },
+    {
+      "id": "RR_ConsumerLerp",
+      "type": "Lerp"
+    },
+    {
+      "id": "RR_SpecularSat",
+      "type": "Saturate"
+    },
+    {
+      "id": "RR_TailMax",
+      "type": "Max"
+    },
+    {
+      "id": "RR_TailAdd",
+      "type": "Add"
+    },
+    {
+      "id": "RR_SpecialSink",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_SetMaterialAttributes",
+      "type": "SetMaterialAttributes",
+      "params": {
+        "AttributeNames": [
+          "BaseColor",
+          "Roughness",
+          "Metallic",
+          "Normal"
+        ]
+      }
+    },
+    {
+      "id": "N_GetMaterialAttributes",
+      "type": "GetMaterialAttributes",
+      "params": {
+        "AttributeNames": [
+          "BaseColor",
+          "Roughness",
+          "EmissiveColor"
+        ]
+      }
+    },
+    {
+      "id": "N_LandscapeLayerBlend",
+      "type": "LandscapeLayerBlend",
+      "params": {
+        "Layers": [
+          {
+            "Name": "Dirt"
+          },
+          {
+            "Name": "Grass"
+          },
+          {
+            "Name": "Rock Layer"
+          }
+        ]
+      }
+    },
+    {
+      "id": "N_DynSink",
+      "type": "Add"
+    },
+    {
+      "id": "N_FloatTiny",
+      "type": "Constant",
+      "params": {
+        "R": 1e-7
+      }
+    },
+    {
+      "id": "N_FloatHuge",
+      "type": "Constant",
+      "params": {
+        "R": 1e+21
+      }
+    },
+    {
+      "id": "N_FloatNegTiny",
+      "type": "Constant",
+      "params": {
+        "R": -3.5e-9
+      }
+    },
+    {
+      "id": "N_FloatVec",
+      "type": "Constant3Vector",
+      "params": {
+        "R": 1e-7,
+        "G": 1e+21,
+        "B": -2.5e-12
+      }
+    },
+    {
+      "id": "N_FloatScalarParam",
+      "type": "ScalarParameter",
+      "params": {
+        "ParameterName": "StressTinyScalar",
+        "DefaultValue": 1e-7
+      }
+    },
+    {
+      "id": "N_FloatSink",
+      "type": "Add"
+    },
+    {
+      "id": "N_FloatSink2",
+      "type": "Multiply"
+    },
+    {
+      "id": "N_FloatSink3",
+      "type": "Add"
+    },
+    {
+      "id": "CUSTOM_SPECIAL",
+      "type": "Custom",
+      "params": {
+        "Code": "// \"quoted\" \\ backslash\nfloat v = UV.x;\nreturn float3(v, v, \"0\" == 0 ? 0.0 : v);",
+        "OutputType": "CMOT_Float3",
+        "Description": "Stress \"Quoted\" \\Back\\Slash Desc",
+        "Inputs": [
+          {
+            "InputName": "UV"
+          }
+        ],
+        "AdditionalOutputs": [
+          {
+            "OutputName": "ExtraSpecial",
+            "OutputType": "CMOT_Float1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "CUSTOM_SPECIAL_Sink",
+      "type": "Add"
+    },
+    {
+      "id": "N_Chain0",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_Chain1",
+      "type": "Abs"
+    },
+    {
+      "id": "N_Chain2",
+      "type": "Saturate"
+    },
+    {
+      "id": "N_Chain3",
+      "type": "Frac"
+    },
+    {
+      "id": "N_Chain4",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_Chain5",
+      "type": "Abs"
+    },
+    {
+      "id": "N_Chain6",
+      "type": "Saturate"
+    },
+    {
+      "id": "N_Chain7",
+      "type": "Frac"
+    },
+    {
+      "id": "N_Chain8",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_Chain9",
+      "type": "Abs"
+    },
+    {
+      "id": "N_Chain10",
+      "type": "Saturate"
+    },
+    {
+      "id": "N_Chain11",
+      "type": "Frac"
+    },
+    {
+      "id": "N_ChainSink",
+      "type": "Add"
+    },
+    {
+      "id": "N_FanSource",
+      "type": "Constant",
+      "params": {
+        "R": 0.5
+      }
+    },
+    {
+      "id": "N_Fan0",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_Fan1",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_Fan2",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_Fan3",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_Fan4",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_Fan5",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_Fan6",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_Fan7",
+      "type": "OneMinus"
+    },
+    {
+      "id": "N_FanCollapse",
+      "type": "Add"
+    },
+    {
+      "id": "N_MaskGB",
+      "type": "ComponentMask",
+      "params": {
+        "R": false,
+        "G": true,
+        "B": true,
+        "A": false
+      }
+    },
+    {
+      "id": "N_AppendXY",
+      "type": "AppendVector"
+    },
+    {
+      "id": "N_MaskMMA",
+      "type": "MakeMaterialAttributes"
+    },
+    {
+      "id": "N_DoubleInput",
+      "type": "Add"
     }
   ],
   "connections": [
@@ -643,10 +1061,6 @@
     {
       "from": "N_OneMinus:Result",
       "to": "OUT:Roughness"
-    },
-    {
-      "from": "N_Cosine:Result",
-      "to": "OUT:Metallic"
     },
     {
       "from": "N_BreakMaterialAttributes:Normal",
@@ -683,10 +1097,6 @@
     {
       "from": "N_DistanceToNearestSurface:Distance",
       "to": "OUT:ClearCoatRoughness"
-    },
-    {
-      "from": "N_Fresnel:Result",
-      "to": "OUT:Specular"
     },
     {
       "from": "N_RotateAboutAxis:Result",
@@ -1359,6 +1769,318 @@
     {
       "from": "N_PreSkinnedLocalNormal:XYZ",
       "to": "N_MakeMaterialAttributes:ClearCoatRoughness"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "RR_AlbedoDecl:Input"
+    },
+    {
+      "from": "N_OneMinus:Result",
+      "to": "RR_RoughDecl:Input"
+    },
+    {
+      "from": "N_TextureCoordinate:UVs",
+      "to": "RR_UVDecl:Input"
+    },
+    {
+      "from": "N_Time:Value",
+      "to": "RR_TimeDecl:Input"
+    },
+    {
+      "from": "N_Cosine:Result",
+      "to": "RR_MetalDecl:Input"
+    },
+    {
+      "from": "N_Fresnel:Result",
+      "to": "RR_SpecialDecl:Input"
+    },
+    {
+      "from": "RR_AlbedoUse1:Value",
+      "to": "RR_ConsumerAdd:A"
+    },
+    {
+      "from": "RR_AlbedoUse2:Value",
+      "to": "RR_ConsumerAdd:B"
+    },
+    {
+      "from": "RR_ConsumerAdd:Result",
+      "to": "RR_ConsumerMul:A"
+    },
+    {
+      "from": "RR_UVUse1:Value",
+      "to": "RR_ConsumerMul:B"
+    },
+    {
+      "from": "RR_AlbedoUse3:Value",
+      "to": "RR_ConsumerLerp:A"
+    },
+    {
+      "from": "RR_RoughUse1:Value",
+      "to": "RR_ConsumerLerp:B"
+    },
+    {
+      "from": "RR_TimeUse1:Value",
+      "to": "RR_ConsumerLerp:Alpha"
+    },
+    {
+      "from": "RR_MetalUse1:Value",
+      "to": "OUT:Metallic"
+    },
+    {
+      "from": "N_Fresnel:Result",
+      "to": "RR_SpecularSat:Input"
+    },
+    {
+      "from": "RR_AlbedoUse4:Value",
+      "to": "OUT:Specular"
+    },
+    {
+      "from": "RR_RoughUse2:Value",
+      "to": "RR_TailMax:A"
+    },
+    {
+      "from": "RR_UVUse2:Value",
+      "to": "RR_TailMax:B"
+    },
+    {
+      "from": "RR_SpecularSat:Result",
+      "to": "RR_TailAdd:A"
+    },
+    {
+      "from": "RR_TailMax:Result",
+      "to": "RR_TailAdd:B"
+    },
+    {
+      "from": "RR_SpecialUse1:Value",
+      "to": "RR_SpecialSink:Input"
+    },
+    {
+      "from": "N_MakeMaterialAttributes:MaterialAttributes",
+      "to": "N_SetMaterialAttributes:MaterialAttributes"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_SetMaterialAttributes:BaseColor"
+    },
+    {
+      "from": "N_OneMinus:Result",
+      "to": "N_SetMaterialAttributes:Roughness"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_SetMaterialAttributes:Metallic"
+    },
+    {
+      "from": "N_VertexNormalWS:XYZ",
+      "to": "N_SetMaterialAttributes:Normal"
+    },
+    {
+      "from": "N_SetMaterialAttributes:MaterialAttributes",
+      "to": "N_GetMaterialAttributes:MaterialAttributes"
+    },
+    {
+      "from": "N_Constant3Vector:RGB",
+      "to": "N_LandscapeLayerBlend:Layer Dirt"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_LandscapeLayerBlend:Height Dirt"
+    },
+    {
+      "from": "N_VertexColor:RGB",
+      "to": "N_LandscapeLayerBlend:Layer Grass"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_LandscapeLayerBlend:Height Grass"
+    },
+    {
+      "from": "N_VectorParameter:RGB",
+      "to": "N_LandscapeLayerBlend:Layer Rock Layer"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_LandscapeLayerBlend:Height Rock Layer"
+    },
+    {
+      "from": "N_GetMaterialAttributes:BaseColor",
+      "to": "N_DynSink:A"
+    },
+    {
+      "from": "N_LandscapeLayerBlend:Result",
+      "to": "N_DynSink:B"
+    },
+    {
+      "from": "N_FloatTiny:Value",
+      "to": "N_FloatSink:A"
+    },
+    {
+      "from": "N_FloatHuge:Value",
+      "to": "N_FloatSink:B"
+    },
+    {
+      "from": "N_FloatNegTiny:Value",
+      "to": "N_FloatSink2:A"
+    },
+    {
+      "from": "N_FloatVec:R",
+      "to": "N_FloatSink2:B"
+    },
+    {
+      "from": "N_FloatScalarParam:Value",
+      "to": "N_FloatSink3:A"
+    },
+    {
+      "from": "N_FloatSink:Result",
+      "to": "N_FloatSink3:B"
+    },
+    {
+      "from": "N_TextureCoordinate:UVs",
+      "to": "CUSTOM_SPECIAL:UV"
+    },
+    {
+      "from": "CUSTOM_SPECIAL:Output",
+      "to": "CUSTOM_SPECIAL_Sink:A"
+    },
+    {
+      "from": "CUSTOM_SPECIAL:ExtraSpecial",
+      "to": "CUSTOM_SPECIAL_Sink:B"
+    },
+    {
+      "from": "N_FloatSink3:Result",
+      "to": "N_Chain0:Input"
+    },
+    {
+      "from": "N_Chain0:Result",
+      "to": "N_Chain1:Input"
+    },
+    {
+      "from": "N_Chain1:Result",
+      "to": "N_Chain2:Input"
+    },
+    {
+      "from": "N_Chain2:Result",
+      "to": "N_Chain3:Input"
+    },
+    {
+      "from": "N_Chain3:Result",
+      "to": "N_Chain4:Input"
+    },
+    {
+      "from": "N_Chain4:Result",
+      "to": "N_Chain5:Input"
+    },
+    {
+      "from": "N_Chain5:Result",
+      "to": "N_Chain6:Input"
+    },
+    {
+      "from": "N_Chain6:Result",
+      "to": "N_Chain7:Input"
+    },
+    {
+      "from": "N_Chain7:Result",
+      "to": "N_Chain8:Input"
+    },
+    {
+      "from": "N_Chain8:Result",
+      "to": "N_Chain9:Input"
+    },
+    {
+      "from": "N_Chain9:Result",
+      "to": "N_Chain10:Input"
+    },
+    {
+      "from": "N_Chain10:Result",
+      "to": "N_Chain11:Input"
+    },
+    {
+      "from": "N_Chain11:Result",
+      "to": "N_ChainSink:A"
+    },
+    {
+      "from": "N_FanSource:Value",
+      "to": "N_Fan0:Input"
+    },
+    {
+      "from": "N_FanSource:Value",
+      "to": "N_Fan1:Input"
+    },
+    {
+      "from": "N_FanSource:Value",
+      "to": "N_Fan2:Input"
+    },
+    {
+      "from": "N_FanSource:Value",
+      "to": "N_Fan3:Input"
+    },
+    {
+      "from": "N_FanSource:Value",
+      "to": "N_Fan4:Input"
+    },
+    {
+      "from": "N_FanSource:Value",
+      "to": "N_Fan5:Input"
+    },
+    {
+      "from": "N_FanSource:Value",
+      "to": "N_Fan6:Input"
+    },
+    {
+      "from": "N_FanSource:Value",
+      "to": "N_Fan7:Input"
+    },
+    {
+      "from": "N_Fan0:Result",
+      "to": "N_FanCollapse:A"
+    },
+    {
+      "from": "N_Fan1:Result",
+      "to": "N_FanCollapse:B"
+    },
+    {
+      "from": "N_Constant4Vector:RGBA",
+      "to": "N_MaskGB:Input"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_AppendXY:A"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_AppendXY:B"
+    },
+    {
+      "from": "N_Constant4Vector:R",
+      "to": "N_MaskMMA:Metallic"
+    },
+    {
+      "from": "N_Constant4Vector:RGB",
+      "to": "N_MaskMMA:BaseColor"
+    },
+    {
+      "from": "N_MaskGB:Result",
+      "to": "N_MaskMMA:EmissiveColor"
+    },
+    {
+      "from": "N_AppendXY:Result",
+      "to": "N_MaskMMA:Opacity"
+    },
+    {
+      "from": "N_Constant:Value",
+      "to": "N_DoubleInput:A"
+    },
+    {
+      "from": "N_Constant3Vector:R",
+      "to": "N_DoubleInput:A"
+    },
+    {
+      "from": "N_VertexColor:RGB",
+      "to": "OUT:BaseColor"
+    },
+    {
+      "from": "N_GetMaterialAttributes:BaseColor",
+      "to": "OUT:EmissiveColor"
     }
   ],
   "comments": [
@@ -1542,6 +2264,89 @@
         "N_BlendMaterialAttributes",
         "CUSTOM",
         "MFC"
+      ]
+    },
+    {
+      "id": "CMT_NamedReroute",
+      "text": "Named Reroute \"stress\" — decls + usages \\ heavy fan-out",
+      "color": "#a02020",
+      "contains": [
+        "RR_AlbedoDecl",
+        "RR_RoughDecl",
+        "RR_UVDecl",
+        "RR_TimeDecl",
+        "RR_MetalDecl",
+        "RR_SpecialDecl",
+        "RR_AlbedoUse1",
+        "RR_AlbedoUse2",
+        "RR_AlbedoUse3",
+        "RR_AlbedoUse4",
+        "RR_RoughUse1",
+        "RR_RoughUse2",
+        "RR_UVUse1",
+        "RR_UVUse2",
+        "RR_TimeUse1",
+        "RR_MetalUse1",
+        "RR_SpecialUse1",
+        "RR_ConsumerAdd",
+        "RR_ConsumerMul",
+        "RR_ConsumerLerp",
+        "RR_SpecularSat",
+        "RR_TailMax"
+      ]
+    },
+    {
+      "id": "CMT_Dynamic",
+      "text": "Dynamic-pin nodes (export-gap): Set/Get/LayerBlend",
+      "color": "#205020",
+      "contains": [
+        "N_SetMaterialAttributes",
+        "N_GetMaterialAttributes",
+        "N_LandscapeLayerBlend",
+        "N_DynSink"
+      ]
+    },
+    {
+      "id": "CMT_EdgeCases",
+      "text": "Edge cases: float extremes \\ special chars \"x\" \\ deep chain \\ fan-out \\ masks",
+      "color": "#503070",
+      "contains": [
+        "N_FloatTiny",
+        "N_FloatHuge",
+        "N_FloatNegTiny",
+        "N_FloatVec",
+        "N_FloatScalarParam",
+        "N_FloatSink",
+        "N_FloatSink2",
+        "N_FloatSink3",
+        "CUSTOM_SPECIAL",
+        "CUSTOM_SPECIAL_Sink",
+        "N_FanSource",
+        "N_FanCollapse",
+        "N_Fan0",
+        "N_Fan1",
+        "N_Fan2",
+        "N_Fan3",
+        "N_Fan4",
+        "N_Fan5",
+        "N_Fan6",
+        "N_Fan7",
+        "N_MaskGB",
+        "N_AppendXY",
+        "N_MaskMMA",
+        "N_ChainSink",
+        "N_Chain0",
+        "N_Chain1",
+        "N_Chain2",
+        "N_Chain3",
+        "N_Chain4",
+        "N_Chain5",
+        "N_Chain6",
+        "N_Chain7",
+        "N_Chain8",
+        "N_Chain9",
+        "N_Chain10",
+        "N_Chain11"
       ]
     }
   ]

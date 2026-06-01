@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { loadDB, validateDB } from '../server/db-loader';
+import { loadDB, validateDB, OUTPUTLESS_NODES } from '../server/db-loader';
 
 const AGENT_PACK = resolve(__dirname, '../../agent-pack');
 
@@ -26,9 +26,10 @@ describe('db-loader — all shipped version DBs', () => {
         expect(Object.keys(db.nodes).length).toBeGreaterThanOrEqual(10);
       });
 
-      it('every node has at least one output', () => {
+      it('every node has an output (except declared output-less sinks like NamedRerouteDeclaration)', () => {
         const db = loadDB(path);
         for (const [n, def] of Object.entries(db.nodes)) {
+          if (OUTPUTLESS_NODES.has(n)) continue;
           expect(def.outputs.length, `${n} must have outputs`).toBeGreaterThan(0);
         }
       });

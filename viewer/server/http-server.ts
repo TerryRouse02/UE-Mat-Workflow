@@ -5,6 +5,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { watchGraphs } from './watcher.js';
 import { loadGraph } from './graph-loader.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
+import { loadWorkMfIndex } from './workmf-index.js';
 import type { ServerMessage, ClientMessage, FileEntry } from './ws-protocol.js';
 
 export interface ServerOpts {
@@ -53,6 +54,7 @@ export function toPosixPath(p: string): string {
 
 export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   const graphsRoot = resolve(opts.repoRoot, 'graphs');
+  const workMfIndexPath = resolve(opts.repoRoot, 'agent-pack', 'workmf-index.json');
 
   const http: Server = createServer(async (req, res) => {
     if (!opts.webDist) { res.writeHead(404); res.end(); return; }
@@ -133,12 +135,15 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (!loaded.graph) {
       return { kind: 'graphError', path: relPath, errors: loaded.errors };
     }
+    // Work-project MFs referenced by UE asset path get their pins from the local
+    // index (re-read per build so a fresh WorkMF crawl shows up without a restart).
+    const { index: workMfIndex, warnings: indexWarnings } = await loadWorkMfIndex(workMfIndexPath);
     // MaterialFunction paths are relative to the material file's own directory
     // (project-folder convention), not the graphs root.
-    const resolved = await resolveMaterialFunctions(loaded.graph, dirname(abs));
+    const resolved = await resolveMaterialFunctions(loaded.graph, dirname(abs), new Set(), { workMfIndex });
     return {
       kind: 'graph', path: relPath,
-      payload: { graph: resolved.graph, derivedPins: resolved.derivedPins, warnings: resolved.warnings },
+      payload: { graph: resolved.graph, derivedPins: resolved.derivedPins, warnings: [...indexWarnings, ...resolved.warnings] },
     };
   }
 

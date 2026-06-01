@@ -10,3 +10,5 @@ When asked to design or modify a UE5 material, follow the spec:
 Examples: @examples/01_basic_pbr/01_basic_pbr.matgraph.json, @examples/02_with_function/02_with_function.matgraph.json
 
 Write output to `graphs/<project>/`: one folder per project, containing the Material and any MaterialFunctions it uses. By convention the folder name matches the material name.
+
+**Work-project Material Functions:** if a material calls one of the user's own project MFs by UE asset path (`/Game/...`), look it up in `agent-pack/workmf-index.json` (`functions[<assetPath>]`) and use its `inputs[].name` / `outputs[].name` for connections — same rule as built-in pin names. If it isn't in the index, stop and ask the user to run the WorkMF crawl; don't invent pin names. (`/Engine/...` built-ins are the exception: not indexed, but still export.) Full rule in SPEC.md → "Work-project Material Functions".
