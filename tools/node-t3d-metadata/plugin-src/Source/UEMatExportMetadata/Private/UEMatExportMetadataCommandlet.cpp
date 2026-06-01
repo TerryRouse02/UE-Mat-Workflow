@@ -17,9 +17,12 @@
 #include "Materials/MaterialExpressionComponentMask.h"
 #include "Materials/MaterialExpressionConstant.h"
 #include "Materials/MaterialExpressionConstant3Vector.h"
+#include "Materials/MaterialExpressionGetMaterialAttributes.h"
+#include "Materials/MaterialExpressionLandscapeLayerBlend.h"
 #include "Materials/MaterialExpressionMakeMaterialAttributes.h"
 #include "Materials/MaterialExpressionMultiply.h"
 #include "Materials/MaterialExpressionNamedReroute.h"
+#include "Materials/MaterialExpressionSetMaterialAttributes.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Materials/MaterialExpressionTransform.h"
@@ -765,6 +768,342 @@ static bool WriteNamedRerouteClipboardSample(const FString& Path, FString& OutEr
     UE_LOG(LogTemp, Display, TEXT("Named reroute declaration guid: %s"), *Declaration->VariableGuid.ToString());
     UE_LOG(LogTemp, Display, TEXT("Wrote NamedReroute clipboard sample: %s"), *Path);
     return true;
+}
+
+static UMaterial* CreateTransientClipboardMaterial(bool bUseMaterialAttributes, FString& OutError)
+{
+    UMaterial* Material = NewObject<UMaterial>(
+        GetTransientPackage(),
+        TEXT("UEMatWorkflowClipboard"),
+        RF_Transient | RF_Transactional);
+    if (Material == nullptr)
+    {
+        OutError = TEXT("Failed to create transient material.");
+        return nullptr;
+    }
+
+    Material->bUseMaterialAttributes = bUseMaterialAttributes;
+    Material->MaterialGraph = CastChecked<UMaterialGraph>(FBlueprintEditorUtils::CreateNewGraph(
+        Material,
+        FName(TEXT("MaterialGraph_0")),
+        UMaterialGraph::StaticClass(),
+        UMaterialGraphSchema::StaticClass()));
+    Material->MaterialGraph->Material = Material;
+    return Material;
+}
+
+static bool ExportExpressionsToClipboardSample(
+    const FString& Path,
+    const TArray<UMaterialExpression*>& ExpressionsToCopy,
+    const TCHAR* SampleName,
+    FString& OutError)
+{
+    TSet<UObject*> NodesToExport;
+    for (UMaterialExpression* Expression : ExpressionsToCopy)
+    {
+        if (Expression == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Null expression in %s clipboard sample."), SampleName);
+            return false;
+        }
+
+        UEdGraphNode* GraphNode = Cast<UEdGraphNode>(Expression->GraphNode);
+        if (GraphNode == nullptr)
+        {
+            OutError = FString::Printf(TEXT("Failed to create graph node for %s."), *Expression->GetName());
+            return false;
+        }
+        NodesToExport.Add(GraphNode);
+    }
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UEdGraphNode* Node = Cast<UEdGraphNode>(NodeObject))
+        {
+            Node->PrepareForCopying();
+        }
+    }
+
+    FString ExportedText;
+    FEdGraphUtilities::ExportNodesToText(NodesToExport, ExportedText);
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UMaterialGraphNode* Node = Cast<UMaterialGraphNode>(NodeObject))
+        {
+            Node->PostCopyNode();
+        }
+    }
+
+    if (ExportedText.IsEmpty())
+    {
+        OutError = FString::Printf(TEXT("UE exported an empty %s clipboard sample."), SampleName);
+        return false;
+    }
+
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    if (!FFileHelper::SaveStringToFile(ExportedText, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+    {
+        OutError = FString::Printf(TEXT("Failed to write %s clipboard sample: %s"), SampleName, *Path);
+        return false;
+    }
+
+    UE_LOG(LogTemp, Display, TEXT("Wrote %s clipboard sample: %s"), SampleName, *Path);
+    return true;
+}
+
+static bool WriteSetMaterialAttributesClipboardSample(const FString& Path, FString& OutError)
+{
+    UMaterial* Material = CreateTransientClipboardMaterial(true, OutError);
+    if (Material == nullptr)
+    {
+        return false;
+    }
+
+    UMaterialExpressionMakeMaterialAttributes* SourceAttributes = NewObject<UMaterialExpressionMakeMaterialAttributes>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant3Vector* BaseColor = NewObject<UMaterialExpressionConstant3Vector>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant* Roughness = NewObject<UMaterialExpressionConstant>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant* Metallic = NewObject<UMaterialExpressionConstant>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionSetMaterialAttributes* SetAttributes = NewObject<UMaterialExpressionSetMaterialAttributes>(Material, NAME_None, RF_Transactional);
+    if (SourceAttributes == nullptr || BaseColor == nullptr || Roughness == nullptr || Metallic == nullptr || SetAttributes == nullptr)
+    {
+        OutError = TEXT("Failed to create SetMaterialAttributes clipboard material expressions.");
+        return false;
+    }
+
+    SourceAttributes->Material = Material;
+    SourceAttributes->MaterialExpressionEditorX = -760;
+    SourceAttributes->MaterialExpressionEditorY = -120;
+    Material->GetExpressionCollection().AddExpression(SourceAttributes);
+
+    BaseColor->Material = Material;
+    BaseColor->Constant = FLinearColor(0.1f, 0.45f, 0.9f, 1.0f);
+    BaseColor->MaterialExpressionEditorX = -760;
+    BaseColor->MaterialExpressionEditorY = 120;
+    Material->GetExpressionCollection().AddExpression(BaseColor);
+
+    Roughness->Material = Material;
+    Roughness->R = 0.35f;
+    Roughness->MaterialExpressionEditorX = -760;
+    Roughness->MaterialExpressionEditorY = 300;
+    Material->GetExpressionCollection().AddExpression(Roughness);
+
+    Metallic->Material = Material;
+    Metallic->R = 0.8f;
+    Metallic->MaterialExpressionEditorX = -760;
+    Metallic->MaterialExpressionEditorY = 460;
+    Material->GetExpressionCollection().AddExpression(Metallic);
+
+    SetAttributes->Material = Material;
+    SetAttributes->MaterialExpressionEditorX = -300;
+    SetAttributes->MaterialExpressionEditorY = 140;
+    SetAttributes->Inputs[0].Connect(0, SourceAttributes);
+    SetAttributes->ConnectInputAttribute(MP_BaseColor, BaseColor);
+    SetAttributes->ConnectInputAttribute(MP_Roughness, Roughness);
+    SetAttributes->ConnectInputAttribute(MP_Metallic, Metallic);
+    Material->GetExpressionCollection().AddExpression(SetAttributes);
+
+    if (FExpressionInput* MaterialAttributesInput = Material->GetExpressionInputForProperty(MP_MaterialAttributes))
+    {
+        MaterialAttributesInput->Connect(0, SetAttributes);
+    }
+
+    Material->MaterialGraph->RebuildGraph();
+
+    if (UMaterialGraphNode* SetNode = Cast<UMaterialGraphNode>(SetAttributes->GraphNode))
+    {
+        for (const UEdGraphPin* Pin : SetNode->Pins)
+        {
+            UE_LOG(
+                LogTemp,
+                Display,
+                TEXT("SetMaterialAttributes pin: Direction=%s SourceIndex=%d PinName=\"%s\""),
+                Pin->Direction == EGPD_Input ? TEXT("Input") : TEXT("Output"),
+                Pin->SourceIndex,
+                *Pin->PinName.ToString());
+        }
+    }
+
+    return ExportExpressionsToClipboardSample(
+        Path,
+        { SourceAttributes, BaseColor, Roughness, Metallic, SetAttributes },
+        TEXT("SetMaterialAttributes"),
+        OutError);
+}
+
+static bool WriteGetMaterialAttributesClipboardSample(const FString& Path, FString& OutError)
+{
+    UMaterial* Material = CreateTransientClipboardMaterial(true, OutError);
+    if (Material == nullptr)
+    {
+        return false;
+    }
+
+    UMaterialExpressionMakeMaterialAttributes* SourceAttributes = NewObject<UMaterialExpressionMakeMaterialAttributes>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionGetMaterialAttributes* GetAttributes = NewObject<UMaterialExpressionGetMaterialAttributes>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionComponentMask* BaseColorR = NewObject<UMaterialExpressionComponentMask>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionMultiply* RoughnessScale = NewObject<UMaterialExpressionMultiply>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionAdd* MetallicOffset = NewObject<UMaterialExpressionAdd>(Material, NAME_None, RF_Transactional);
+    if (SourceAttributes == nullptr || GetAttributes == nullptr || BaseColorR == nullptr || RoughnessScale == nullptr || MetallicOffset == nullptr)
+    {
+        OutError = TEXT("Failed to create GetMaterialAttributes clipboard material expressions.");
+        return false;
+    }
+
+    SourceAttributes->Material = Material;
+    SourceAttributes->MaterialExpressionEditorX = -760;
+    SourceAttributes->MaterialExpressionEditorY = 60;
+    Material->GetExpressionCollection().AddExpression(SourceAttributes);
+
+    GetAttributes->Material = Material;
+    GetAttributes->MaterialAttributes.Connect(0, SourceAttributes);
+    const int32 BaseColorOutput = GetAttributes->CreateOrGetOutputAttribute(MP_BaseColor);
+    const int32 RoughnessOutput = GetAttributes->CreateOrGetOutputAttribute(MP_Roughness);
+    const int32 MetallicOutput = GetAttributes->CreateOrGetOutputAttribute(MP_Metallic);
+    GetAttributes->MaterialExpressionEditorX = -420;
+    GetAttributes->MaterialExpressionEditorY = 60;
+    Material->GetExpressionCollection().AddExpression(GetAttributes);
+
+    BaseColorR->Material = Material;
+    BaseColorR->Input.Connect(BaseColorOutput, GetAttributes);
+    BaseColorR->R = 1;
+    BaseColorR->G = 0;
+    BaseColorR->B = 0;
+    BaseColorR->A = 0;
+    BaseColorR->MaterialExpressionEditorX = -80;
+    BaseColorR->MaterialExpressionEditorY = -120;
+    Material->GetExpressionCollection().AddExpression(BaseColorR);
+
+    RoughnessScale->Material = Material;
+    RoughnessScale->A.Connect(RoughnessOutput, GetAttributes);
+    RoughnessScale->ConstB = 0.5f;
+    RoughnessScale->MaterialExpressionEditorX = -80;
+    RoughnessScale->MaterialExpressionEditorY = 80;
+    Material->GetExpressionCollection().AddExpression(RoughnessScale);
+
+    MetallicOffset->Material = Material;
+    MetallicOffset->A.Connect(MetallicOutput, GetAttributes);
+    MetallicOffset->ConstB = 0.1f;
+    MetallicOffset->MaterialExpressionEditorX = -80;
+    MetallicOffset->MaterialExpressionEditorY = 280;
+    Material->GetExpressionCollection().AddExpression(MetallicOffset);
+
+    Material->MaterialGraph->RebuildGraph();
+
+    if (UMaterialGraphNode* GetNode = Cast<UMaterialGraphNode>(GetAttributes->GraphNode))
+    {
+        for (const UEdGraphPin* Pin : GetNode->Pins)
+        {
+            UE_LOG(
+                LogTemp,
+                Display,
+                TEXT("GetMaterialAttributes pin: Direction=%s SourceIndex=%d PinName=\"%s\""),
+                Pin->Direction == EGPD_Input ? TEXT("Input") : TEXT("Output"),
+                Pin->SourceIndex,
+                *Pin->PinName.ToString());
+        }
+    }
+
+    return ExportExpressionsToClipboardSample(
+        Path,
+        { SourceAttributes, GetAttributes, BaseColorR, RoughnessScale, MetallicOffset },
+        TEXT("GetMaterialAttributes"),
+        OutError);
+}
+
+static bool WriteLandscapeLayerBlendClipboardSample(const FString& Path, FString& OutError)
+{
+    UMaterial* Material = CreateTransientClipboardMaterial(false, OutError);
+    if (Material == nullptr)
+    {
+        return false;
+    }
+
+    UMaterialExpressionConstant3Vector* DirtColor = NewObject<UMaterialExpressionConstant3Vector>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant* DirtHeight = NewObject<UMaterialExpressionConstant>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant3Vector* GrassColor = NewObject<UMaterialExpressionConstant3Vector>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant* GrassHeight = NewObject<UMaterialExpressionConstant>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionLandscapeLayerBlend* LayerBlend = NewObject<UMaterialExpressionLandscapeLayerBlend>(Material, NAME_None, RF_Transactional);
+    if (DirtColor == nullptr || DirtHeight == nullptr || GrassColor == nullptr || GrassHeight == nullptr || LayerBlend == nullptr)
+    {
+        OutError = TEXT("Failed to create LandscapeLayerBlend clipboard material expressions.");
+        return false;
+    }
+
+    DirtColor->Material = Material;
+    DirtColor->Constant = FLinearColor(0.28f, 0.18f, 0.08f, 1.0f);
+    DirtColor->MaterialExpressionEditorX = -760;
+    DirtColor->MaterialExpressionEditorY = -120;
+    Material->GetExpressionCollection().AddExpression(DirtColor);
+
+    DirtHeight->Material = Material;
+    DirtHeight->R = 0.25f;
+    DirtHeight->MaterialExpressionEditorX = -760;
+    DirtHeight->MaterialExpressionEditorY = 40;
+    Material->GetExpressionCollection().AddExpression(DirtHeight);
+
+    GrassColor->Material = Material;
+    GrassColor->Constant = FLinearColor(0.04f, 0.42f, 0.12f, 1.0f);
+    GrassColor->MaterialExpressionEditorX = -760;
+    GrassColor->MaterialExpressionEditorY = 220;
+    Material->GetExpressionCollection().AddExpression(GrassColor);
+
+    GrassHeight->Material = Material;
+    GrassHeight->R = 0.75f;
+    GrassHeight->MaterialExpressionEditorX = -760;
+    GrassHeight->MaterialExpressionEditorY = 380;
+    Material->GetExpressionCollection().AddExpression(GrassHeight);
+
+    FLayerBlendInput DirtLayer;
+    DirtLayer.LayerName = TEXT("Dirt");
+    DirtLayer.BlendType = LB_HeightBlend;
+    DirtLayer.PreviewWeight = 0.35f;
+    DirtLayer.ConstLayerInput = FVector(0.2f, 0.1f, 0.05f);
+    DirtLayer.ConstHeightInput = 0.2f;
+    DirtLayer.LayerInput.Connect(0, DirtColor);
+    DirtLayer.HeightInput.Connect(0, DirtHeight);
+
+    FLayerBlendInput GrassLayer;
+    GrassLayer.LayerName = TEXT("Grass");
+    GrassLayer.BlendType = LB_HeightBlend;
+    GrassLayer.PreviewWeight = 0.65f;
+    GrassLayer.ConstLayerInput = FVector(0.05f, 0.35f, 0.08f);
+    GrassLayer.ConstHeightInput = 0.8f;
+    GrassLayer.LayerInput.Connect(0, GrassColor);
+    GrassLayer.HeightInput.Connect(0, GrassHeight);
+
+    LayerBlend->Material = Material;
+    LayerBlend->Layers = { DirtLayer, GrassLayer };
+    LayerBlend->MaterialExpressionEditorX = -320;
+    LayerBlend->MaterialExpressionEditorY = 80;
+    Material->GetExpressionCollection().AddExpression(LayerBlend);
+
+    if (FExpressionInput* BaseColorInput = Material->GetExpressionInputForProperty(MP_BaseColor))
+    {
+        BaseColorInput->Connect(0, LayerBlend);
+    }
+
+    Material->MaterialGraph->RebuildGraph();
+
+    if (UMaterialGraphNode* BlendNode = Cast<UMaterialGraphNode>(LayerBlend->GraphNode))
+    {
+        for (const UEdGraphPin* Pin : BlendNode->Pins)
+        {
+            UE_LOG(
+                LogTemp,
+                Display,
+                TEXT("LandscapeLayerBlend pin: Direction=%s SourceIndex=%d PinName=\"%s\""),
+                Pin->Direction == EGPD_Input ? TEXT("Input") : TEXT("Output"),
+                Pin->SourceIndex,
+                *Pin->PinName.ToString());
+        }
+    }
+
+    return ExportExpressionsToClipboardSample(
+        Path,
+        { DirtColor, DirtHeight, GrassColor, GrassHeight, LayerBlend },
+        TEXT("LandscapeLayerBlend"),
+        OutError);
 }
 
 static bool ValidateClipboardT3D(const FString& Path, bool bImportNodes, FString& OutError)
@@ -1561,6 +1900,45 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         return 0;
     }
 
+    FString SetMaterialAttributesSampleOutPath;
+    if (FParse::Value(*Params, TEXT("SetMaterialAttributesSampleOut="), SetMaterialAttributesSampleOutPath))
+    {
+        SetMaterialAttributesSampleOutPath = ToAbsolutePath(SetMaterialAttributesSampleOutPath);
+        FString Error;
+        if (!WriteSetMaterialAttributesClipboardSample(SetMaterialAttributesSampleOutPath, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 13;
+        }
+        return 0;
+    }
+
+    FString GetMaterialAttributesSampleOutPath;
+    if (FParse::Value(*Params, TEXT("GetMaterialAttributesSampleOut="), GetMaterialAttributesSampleOutPath))
+    {
+        GetMaterialAttributesSampleOutPath = ToAbsolutePath(GetMaterialAttributesSampleOutPath);
+        FString Error;
+        if (!WriteGetMaterialAttributesClipboardSample(GetMaterialAttributesSampleOutPath, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 14;
+        }
+        return 0;
+    }
+
+    FString LandscapeLayerBlendSampleOutPath;
+    if (FParse::Value(*Params, TEXT("LandscapeLayerBlendSampleOut="), LandscapeLayerBlendSampleOutPath))
+    {
+        LandscapeLayerBlendSampleOutPath = ToAbsolutePath(LandscapeLayerBlendSampleOutPath);
+        FString Error;
+        if (!WriteLandscapeLayerBlendClipboardSample(LandscapeLayerBlendSampleOutPath, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 15;
+        }
+        return 0;
+    }
+
     FString NodeDbPath;
     FString OutPath;
     const bool bHasNodeDb = FParse::Value(*Params, TEXT("NodeDb="), NodeDbPath);
@@ -1574,6 +1952,9 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -CoreClipboardOut=<fixture.t3d> -TextureAsset=<Texture2D object path>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -TextureSampleSourcesOut=<fixture.t3d> -TextureAsset=<Texture2D object path>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -NamedRerouteSampleOut=<fixture.t3d>"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -SetMaterialAttributesSampleOut=<fixture.t3d>"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -GetMaterialAttributesSampleOut=<fixture.t3d>"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -LandscapeLayerBlendSampleOut=<fixture.t3d>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -ClipboardIn=<clipboard.t3d> [-ImportClipboard]"));
         return 2;
     }
