@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1.0",
+  "kind": "workmf-index",
+  "ueVersion": "5.7",
+  "provenance": {
+    "generatedBy": "placeholder",
+    "note": "Official engine Material Function index (/Engine/Functions/**). Regenerate on a UE 5.7 machine with tools/node-t3d-metadata/plugin-src/Scripts/Run-EngineMfIndex.ps1, then commit the result. Until then, materials that call official MFs import/export with those MF pins unresolved (a warning, not a crash)."
+  },
+  "functions": {}
+}

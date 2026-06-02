@@ -36,6 +36,10 @@ The same plugin has two more modes (separate runners):
   until hand-checked; the audit allows those to lag export coverage. See `docs\NODE_DISCOVERY.md`.
 - **WorkMF** — `plugin-src\Scripts\Run-WorkMfIndex.ps1` indexes a project's own Material
   Functions into the local, gitignored `agent-pack\workmf-index.json`. See `docs\WORKMF.md`.
+- **Engine MF** — `plugin-src\Scripts\Run-EngineMfIndex.ps1` runs the same crawl over the
+  official `/Engine/Functions` library and writes the **committed**
+  `agent-pack\enginemf-index-ue5.7.json`, so materials that call built-in MFs round-trip with
+  correct pins. See `docs\ENGINE_MF.md`.
 
 Verify:
 

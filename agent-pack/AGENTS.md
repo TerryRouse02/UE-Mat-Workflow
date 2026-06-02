@@ -6,6 +6,6 @@ For UE5 material work: read `agent-pack/SPEC.md` and the version-matched DB pair
 
 Output location: `graphs/<project>/`. Each project folder contains one Material and any MaterialFunctions it references. By convention the folder name matches the material name.
 
-**Work-project Material Functions:** if a material calls one of the user's own project MFs by UE asset path (`/Game/...`), look it up in `agent-pack/workmf-index.json` (`functions[<assetPath>]`) and use its `inputs[].name` / `outputs[].name` for connections. If it isn't in the index, stop and ask the user to run the WorkMF crawl — don't invent pin names. (`/Engine/...` built-ins are the exception: not indexed.) See SPEC.md → "Work-project Material Functions".
+**Material Functions:** if a material calls an MF by UE asset path, look it up under `functions[<assetPath>]` and use its `inputs[].name` / `outputs[].name` for connections — official `/Engine/...` MFs in the committed `agent-pack/enginemf-index-ue5.7.json`, the user's own `/Game/...` MFs in `agent-pack/workmf-index.json`. If it isn't in the matching index, stop and ask the user to run the matching crawl (Engine MF for `/Engine/...`, WorkMF for `/Game/...`) — don't invent pin names. See SPEC.md → "Work-project Material Functions".
 
 Examples in `agent-pack/examples/`.

@@ -86,3 +86,20 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3
 
 Full details, schema, content-root options, and the Codex hand-off prompt are in
 `docs/WORKMF.md`.
+
+## Engine-MF mode (index the official `/Engine/Functions` Material Functions)
+
+Built-in Material Functions (`/Engine/Functions/**`) are shipped assets, not C++ expressions,
+so neither the node DB nor node-discovery covers them. Without an index, a material that calls
+one exports with every `FunctionInputs(n)` collapsed onto index 0 (broken wires on paste). The
+engine-MF crawl is the same WorkMF crawl pointed at the engine, but its output **is committed**
+(stable shipped data shared by all users):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-EngineMfIndex.ps1 `
+  -EngineRoot <Path\To\UnrealEngine>
+```
+
+`-ProjectPath` is optional (defaults to the bundled minimal host). Output:
+`agent-pack/enginemf-index-ue5.7.json` — review the diff and commit it. Full details and the
+hand-off prompt are in `docs/ENGINE_MF.md`.

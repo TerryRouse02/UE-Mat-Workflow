@@ -101,6 +101,7 @@ const isMatGraph = (g: unknown): g is { type: string; name?: string; nodes: unkn
 export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   const graphsRoot = resolve(opts.repoRoot, 'graphs');
   const workMfIndexPath = resolve(opts.repoRoot, 'agent-pack', 'workmf-index.json');
+  const engineMfIndexPath = resolve(opts.repoRoot, 'agent-pack', 'enginemf-index-ue5.7.json');
 
   const sendJson = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -227,12 +228,15 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // Work-project MFs referenced by UE asset path get their pins from the local
     // index (re-read per build so a fresh WorkMF crawl shows up without a restart).
     const { index: workMfIndex, warnings: indexWarnings } = await loadWorkMfIndex(workMfIndexPath);
+    // Official /Engine MFs resolve from the committed engine-MF index (same shape,
+    // shipped in the repo). Re-read per build so a regenerated index shows up live.
+    const { index: engineMfIndex, warnings: engineWarnings } = await loadWorkMfIndex(engineMfIndexPath);
     // MaterialFunction paths are relative to the material file's own directory
     // (project-folder convention), not the graphs root.
-    const resolved = await resolveMaterialFunctions(loaded.graph, dirname(abs), new Set(), { workMfIndex });
+    const resolved = await resolveMaterialFunctions(loaded.graph, dirname(abs), new Set(), { workMfIndex, engineMfIndex });
     return {
       kind: 'graph', path: relPath,
-      payload: { graph: resolved.graph, derivedPins: resolved.derivedPins, warnings: [...indexWarnings, ...resolved.warnings] },
+      payload: { graph: resolved.graph, derivedPins: resolved.derivedPins, warnings: [...indexWarnings, ...engineWarnings, ...resolved.warnings] },
     };
   }
 

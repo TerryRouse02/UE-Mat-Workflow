@@ -146,10 +146,35 @@ describe('resolveMaterialFunctions — work-project MF asset paths', () => {
     expect(resolved.warnings.some(w => /not in index/i.test(w))).toBe(true);
   });
 
-  it('treats an /Engine built-in MF path as resolvable (no error, empty local pins)', async () => {
-    const resolved = await resolveMaterialFunctions(mat('/Engine/Functions/Engine_MaterialFunctions02/Utility/Foo.Foo'), '/irrelevant', new Set(), { workMfIndex: index });
-    expect(resolved.derivedPins['mfc']).toEqual({ inputs: [], outputs: [] });
+  it('derives MFC pins from the engine-MF index for an /Engine asset path', async () => {
+    const engineMfIndex: WorkMfIndex = {
+      schemaVersion: '1.0', kind: 'workmf-index', ueVersion: '5.7',
+      functions: {
+        '/Engine/Functions/Engine_MaterialFunctions02/Utility/Foo.Foo': {
+          assetPath: '/Engine/Functions/Engine_MaterialFunctions02/Utility/Foo.Foo', displayName: 'Foo',
+          inputs: [{ name: 'In', type: 'Float3', index: 0 }],
+          outputs: [{ name: 'Result', type: 'Float3', index: 0 }],
+        },
+      },
+    };
+    const resolved = await resolveMaterialFunctions(
+      mat('/Engine/Functions/Engine_MaterialFunctions02/Utility/Foo.Foo'), '/irrelevant', new Set(),
+      { workMfIndex: index, engineMfIndex },
+    );
+    expect(resolved.derivedPins['mfc']).toEqual({
+      inputs: [{ name: 'In', type: 'Float3' }],
+      outputs: [{ name: 'Result', type: 'Float3' }],
+    });
     expect(resolved.warnings).toEqual([]);
+  });
+
+  it('warns to regenerate the engine index when an /Engine MF is not indexed', async () => {
+    const resolved = await resolveMaterialFunctions(
+      mat('/Engine/Functions/Engine_MaterialFunctions02/Utility/Foo.Foo'), '/irrelevant', new Set(),
+      { workMfIndex: index, engineMfIndex: null },
+    );
+    expect(resolved.derivedPins['mfc']).toEqual({ inputs: [], outputs: [] });
+    expect(resolved.warnings.some(w => /engine index/i.test(w))).toBe(true);
   });
 
   it('still warns for an asset path when no index is provided', async () => {

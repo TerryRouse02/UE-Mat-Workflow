@@ -10,11 +10,13 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 - `plugin-src/`: UE editor plugin source for the `UEMatExportMetadata` commandlet.
 - `plugin-src/Scripts/Run-NodeDiscovery.ps1`: enumerate engine expressions and diff vs the DB.
 - `plugin-src/Scripts/Run-WorkMfIndex.ps1`: index a project's own Material Functions (WorkMF).
+- `plugin-src/Scripts/Run-EngineMfIndex.ps1`: index the official `/Engine/Functions` Material Functions into a committed index.
 - `compiled/UEMatExportMetadata/`: compiled Win64 plugin package usable without adding a project plugin.
 - `host/NodeDiscoveryHost.uproject`: bundled minimal UE host project for node discovery (no game project needed; disables the fragile default engine plugins).
 - `docs/AGENT_WORKFLOW.md`: agent-facing workflow for updating `agent-pack\nodes-ue5.7.export.json`.
 - `docs/NODE_DISCOVERY.md`: find which engine expressions the DB is missing (node discovery).
 - `docs/WORKMF.md`: index a project's own Material Functions for the viewer/exporter/agent.
+- `docs/ENGINE_MF.md`: index the official `/Engine/Functions` Material Functions (committed).
 - `docs/VERIFICATION.md`: required audit and test commands.
 - `skill/node-t3d-metadata/SKILL.md`: portable skill instructions for Codex, Claude, or other agents.
 
@@ -70,6 +72,10 @@ The same commandlet/plugin powers two more modes (each with a one-command runner
 - **WorkMF** — index a project's own Material Functions (by UE asset path) so the viewer,
   exporter, and authoring agent can use them. Run `plugin-src\Scripts\Run-WorkMfIndex.ps1`;
   details in `docs\WORKMF.md`. The output stays local and gitignored.
+- **Engine MF** — the same crawl pointed at the official `/Engine/Functions` library, so
+  materials that call built-in MFs (CustomRotator, BumpOffset_Advanced, …) round-trip with
+  correct pins. Run `plugin-src\Scripts\Run-EngineMfIndex.ps1`; details in `docs\ENGINE_MF.md`.
+  Its output **is** committed (stable shipped data shared by all users).
 
 ## Agent Skill
 
