@@ -46,10 +46,13 @@ agent-pack/workmf-index.export.json
 # Per-machine tooling config (project/engine paths)
 tools/node-t3d-metadata/local.config.json
 
-# UE editor-host scratch generated while running commandlets (host project under
-# the tool's Test/ dir). Keep a committed minimal .uproject, drop everything UE
-# regenerates.
+# One-time tool outputs: regenerable reports, not committed. Written next to the
+# tool when you run node discovery / build-db-candidates.
+tools/node-t3d-metadata/node-discovery.json
+tools/node-t3d-metadata/db-candidates.json
+
+# UE editor-host scratch generated while running commandlets. Keep the committed
+# minimal host .uproject (tools/node-t3d-metadata/host/), drop everything UE regenerates.
 **/Saved/
 **/Intermediate/
 **/DerivedDataCache/
-tools/node-t3d-metadata/Test/NodeDiscoveryHost/Binaries/

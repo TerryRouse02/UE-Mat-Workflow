@@ -83,5 +83,6 @@ Wrote node discovery report: ...\node-discovery.json (N engine expressions, K in
 
 - The report is just data; it does not modify the DB. Adding nodes is a deliberate,
   reviewed step (so a bad reflection never silently lands in the AI's vocabulary).
-- `node-discovery.json` is not bundled into the web build (the `dbRegistry` glob only
-  matches `nodes-ue*.json`). Commit it for tracking or discard it — your call.
+- `node-discovery.json` (and the `db-candidates.json` that `build-db-candidates.js` derives
+  from it) are gitignored, regenerable outputs — not committed, not bundled into the web build
+  (the `dbRegistry` glob only matches `nodes-ue*.json`). Re-run the crawl to regenerate them.
