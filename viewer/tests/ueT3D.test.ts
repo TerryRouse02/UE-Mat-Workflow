@@ -48,6 +48,47 @@ const layout = (m: Record<string, [number, number]>) =>
   Object.fromEntries(Object.entries(m).map(([k, [x, y]]) => [k, { x, y }]));
 
 describe('graphToUET3D', () => {
+  it('emits no dangling LinkedTo pin references (MakeMaterialAttributes output)', () => {
+    // A consumer wired from MakeMaterialAttributes' output: the consumer's input pin
+    // LinkedTo must reference a PinId that actually exists on the Make graph node.
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        { id: 'c', type: 'Constant', params: { R: 1 } },
+        { id: 'make', type: 'MakeMaterialAttributes' },
+        { id: 'cons', type: 'Multiply' },
+      ],
+      connections: [
+        { from: 'c:Value', to: 'make:BaseColor' },
+        { from: 'make:MaterialAttributes', to: 'cons:A' },
+      ],
+    };
+    const { text } = graphToUET3D(graph, layout({ c: [0, 0], make: [100, 0], cons: [200, 0] }), META, NO_PINS);
+
+    // Parse each graph node's pin ids and every LinkedTo reference, then assert each
+    // reference resolves to a real pin on the named node (no phantom PinIds).
+    const pinsByNode = new Map<string, Set<string>>();
+    const refs: { node: string; pinId: string }[] = [];
+    let current = '';
+    for (const line of text.split('\n')) {
+      const begin = /^Begin Object Class=\/Script\/UnrealEd\.MaterialGraphNode(?:_Comment)? Name="([^"]+)"/.exec(line.trim());
+      if (begin) { current = begin[1]; pinsByNode.set(current, new Set()); continue; }
+      const pin = /CustomProperties Pin \(PinId=([0-9A-Fa-f]+)/.exec(line);
+      if (pin) pinsByNode.get(current)!.add(pin[1]);
+      const linked = /LinkedTo=\(([^)]*)\)/.exec(line);
+      if (linked) {
+        for (const entry of linked[1].split(',').map(s => s.trim()).filter(Boolean)) {
+          const [node, pinId] = entry.split(/\s+/);
+          if (node && pinId) refs.push({ node, pinId });
+        }
+      }
+    }
+    const dangling = refs.filter(r => !pinsByNode.get(r.node)?.has(r.pinId));
+    expect(dangling).toEqual([]);
+    // And the Make output pin must carry the reciprocal LinkedTo (not be left empty).
+    expect(refs.length).toBeGreaterThan(0);
+  });
+
   it('emits two-pass objects with params, positions, and a connection', () => {
     const graph: MatGraph = {
       schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
