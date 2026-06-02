@@ -8,6 +8,13 @@ The plugin exposes a commandlet:
 UnrealEditor-Cmd.exe <Path\To\Project.uproject> -run=UEMatExportMetadata -NodeDb=<nodes-ue5.7.json> -Out=<nodes-ue5.7.export.json>
 ```
 
+The same commandlet also has a **WorkMF mode** that crawls the project's own Material
+Functions into the local, gitignored `agent-pack/workmf-index.json` (see `../docs/WORKMF.md`):
+
+```powershell
+UnrealEditor-Cmd.exe <Path\To\Project.uproject> -run=UEMatExportMetadata -WorkMfOut=<workmf-index.json> [-ContentRoots=/Game]
+```
+
 Recommended repo-level wrapper:
 
 ```powershell

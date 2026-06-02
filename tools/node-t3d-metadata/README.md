@@ -15,7 +15,7 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 - `host/NodeDiscoveryHost.uproject`: bundled minimal UE host project for node discovery (no game project needed; disables the fragile default engine plugins).
 - `docs/AGENT_WORKFLOW.md`: agent-facing workflow for updating `agent-pack\nodes-ue5.7.export.json`.
 - `docs/NODE_DISCOVERY.md`: find which engine expressions the DB is missing (node discovery).
-- `docs/WORKMF.md`: index a project's own Material Functions for the viewer/exporter/agent.
+- `docs/WORKMF.md`: WorkMF mode — index the project's own Material Functions into `agent-pack\workmf-index.json` (local, gitignored).
 - `docs/ENGINE_MF.md`: index the official `/Engine/Functions` Material Functions (committed).
 - `docs/VERIFICATION.md`: required audit and test commands.
 - `skill/node-t3d-metadata/SKILL.md`: portable skill instructions for Codex, Claude, or other agents.
@@ -46,6 +46,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3
   -ProjectPath <Path\To\Project.uproject> `
   -EngineRoot <Path\To\UnrealEngine> `
   -CaptureFixtures
+
+# Crawl THIS project's own Material Functions into agent-pack\workmf-index.json
+# (local + gitignored). Only needed if your graphs reference your own /Game MFs by
+# asset path; runs the crawl only, not the node-metadata regen. See docs/WORKMF.md.
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
+  -ProjectPath <Path\To\Project.uproject> `
+  -EngineRoot <Path\To\UnrealEngine> `
+  -WorkMF
 
 # Capture the core MaterialGraphNode clipboard calibration fixture.
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Capture-CoreClipboardSample.ps1 `
