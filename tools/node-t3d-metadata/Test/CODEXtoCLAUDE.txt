@@ -1,0 +1,48 @@
+核心产物已经写出来了：node-discovery.json 已生成。UE 进程最后因为 DDC warning/error summary 返回了非零码，但 commandlet 本身已经打印 Wrote node discovery report，所以我现在解析报告内容，重点核对 counts、missing[] 以及提示里点名的三个节点。
+
+
+Ran 4 commands
+完成了，产物在 node-discovery.json。
+
+结果
+
+{
+  "engineExpressions": 310,
+  "inDb": 139,
+  "missing": 171,
+  "deprecated": 0,
+  "orphansInDb": 5
+}
+点名检查的 3 个都在 missing[] 里：
+
+[
+  {
+    "type": "MeshPaintTextureReplace",
+    "ueClass": "/Script/Engine.MaterialExpressionMeshPaintTextureReplace",
+    "caption": "Mesh Paint Texture Replace",
+    "inputs": ["Default", "MeshPaintTexture"],
+    "outputs": ["None"]
+  },
+  {
+    "type": "RuntimeVirtualTextureOutput",
+    "ueClass": "/Script/Engine.MaterialExpressionRuntimeVirtualTextureOutput",
+    "caption": "Runtime Virtual Texture Output",
+    "inputs": ["BaseColor", "Specular", "Roughness", "Normal", "WorldHeight", "Opacity", "Mask", "Displacement", "Mask4"],
+    "outputs": []
+  },
+  {
+    "type": "MeshPaintTextureObject",
+    "ueClass": "/Script/Engine.MaterialExpressionMeshPaintTextureObject",
+    "caption": "Mesh Paint Texture Object",
+    "inputs": [],
+    "outputs": ["None"]
+  }
+]
+missing[] 类型清单比较长，核心是 171 个；完整 pins 都在 JSON 里。前面一串包括：
+LandscapeLayerSample, Aggregate, BindlessSwitch, BlackBody, Blend, Parameter, CollectionTransform, ColorRamp, Comment, Composite, Convert, ... MeshPaintTextureReplace, ... RuntimeVirtualTextureOutput, ... MeshPaintTextureObject, ... Substrate*, SparseVolumeTexture*, TextureSampleParameter*
+
+orphansInDb 是：
+
+["Lerp", "BlendAngleCorrectedNormals", "TextureSampleParameterMovie", "PreSkinnedLocalNormal", "PreSkinnedLocalPosition"]
+卡点
+我没有改 agent-pack/nodes-ue5.7.json。运行中主要卡点是：compiled 插件不是最新，所以先重打包；UE 的 DDC/Zen 本地缓存不可写/不可用，所以加了 -DDC-ForceMemoryCache；当前 Engine 默认插件里 Metasound / Interchange 有 BuildId 或模块加载问题，所以最后用最小 host project + -NoEnginePlugins + 显式 -EnablePlugins=UEMatExportMetadata 跑通。日志最后仍因 DDC summary 返回非零码，但 commandlet 已明确写出报告。

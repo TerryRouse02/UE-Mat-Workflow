@@ -1,0 +1,21 @@
+User:
+目前这个工具你的使用感觉怎么样？需要优化吗？
+
+Codex:
+整体感觉：工具方向是对的，WriteNodeDiscovery 这条 commandlet 很有价值，最后确实能把 Engine 里的遗漏节点抓出来。但当前“从说明到跑通”的摩擦偏大，建议优化一下。
+
+最值得改的点：
+
+Run-NodeDiscovery.ps1 文档说会自动重打包，但脚本实际没有做。建议检测 plugin-src 比 compiled 新时自动调用 Package-Plugin.ps1，或者至少报明确提示。
+
+packaged .uplugin 被写入 "EngineVersion": "5.7.0"，在 5.7.4 上 unattended 会直接拒载。建议打包后移除 EngineVersion，或脚本自动 patch compiled manifest。
+
+DDC 这里很容易卡：日志提示要 -DDC-ForceMemoryCache。建议 Run-NodeDiscovery.ps1 默认加这个参数，或者提供 -UseMemoryDDC 默认开启。
+
+当前机器的默认 Engine 插件有版本/模块问题，Metasound、Interchange 会阻止 commandlet 启动。建议脚本支持创建/使用一个最小 host project，并加 -NoEnginePlugins -EnablePlugins=UEMatExportMetadata 的 fallback。
+
+commandlet 已写出 node-discovery.json 后，因为 UE warning/error summary 返回非零，脚本会把它当失败。建议脚本在 exit code 非零时检查报告是否存在、日志是否包含 Wrote node discovery report，存在就按“成功但有 warnings”处理。
+
+hand-off markdown 有明显乱码，实际读起来吃力。建议统一保存为 UTF-8，或者附一份英文/简中纯 ASCII 路径版命令块。
+
+还有一个结果上的注意：我最后用 -NoEnginePlugins 跑通，所以报告主要覆盖 Engine 模块里的 UMaterialExpression。这对 RuntimeVirtualTextureOutput、MeshPaintTextureObject、MeshPaintTextureReplace 是够的，因为它们在 Engine 里；但如果目标真的是“所有默认插件也算”的全量 discovery，就需要修好/重建当前 Engine 默认插件，至少 Interchange/Paper2D 这类插件里的 material expression 才会被纳入。

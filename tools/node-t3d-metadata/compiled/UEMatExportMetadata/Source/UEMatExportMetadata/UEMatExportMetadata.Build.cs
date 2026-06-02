@@ -15,6 +15,7 @@ public class UEMatExportMetadata : ModuleRules
 
         PrivateDependencyModuleNames.AddRange(new[]
         {
+            "AssetRegistry", // WorkMF crawl: enumerate the project's UMaterialFunction assets
             "Json",
             "JsonUtilities",
             "Landscape",
