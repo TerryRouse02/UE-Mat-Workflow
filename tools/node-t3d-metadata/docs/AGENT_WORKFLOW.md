@@ -51,6 +51,23 @@ Success - 0 error(s), 0 warning(s)
 
 Then run or review the checks in `docs/VERIFICATION.md`.
 
+## Node discovery mode (find what the DB is missing)
+
+Before adding nodes, find out which ones the engine has that the DB doesn't. Discovery
+enumerates every `UMaterialExpression` by reflection and diffs against the DB:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-NodeDiscovery.ps1 `
+  -ProjectPath <Path\To\Project.uproject> `
+  -EngineRoot  <Path\To\UnrealEngine>
+```
+
+Then `node tools\node-t3d-metadata\build-db-candidates.js` turns the report into candidate
+authoring entries. Newly added nodes stay **`verified: false`** until hand-checked — pin
+**names** are reflected (safe), but **types** are placeholders. The audit permits
+`verified: false` nodes to lag export coverage; `verified: true` nodes must be in the export
+metadata. Full details in `docs/NODE_DISCOVERY.md`.
+
 ## WorkMF mode (index the project's own Material Functions)
 
 A separate mode crawls the user's **own** project Material Functions into the local,

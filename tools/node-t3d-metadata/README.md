@@ -6,9 +6,14 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 
 - `Invoke-NodeT3DMetadataMaintenance.ps1`: one-command metadata maintenance entrypoint.
 - `audit-export-meta.js`: reusable metadata audit command.
+- `build-db-candidates.js`: turn a node-discovery report into reviewable candidate DB entries.
 - `plugin-src/`: UE editor plugin source for the `UEMatExportMetadata` commandlet.
+- `plugin-src/Scripts/Run-NodeDiscovery.ps1`: enumerate engine expressions and diff vs the DB.
+- `plugin-src/Scripts/Run-WorkMfIndex.ps1`: index a project's own Material Functions (WorkMF).
 - `compiled/UEMatExportMetadata/`: compiled Win64 plugin package usable without adding a project plugin.
 - `docs/AGENT_WORKFLOW.md`: agent-facing workflow for updating `agent-pack\nodes-ue5.7.export.json`.
+- `docs/NODE_DISCOVERY.md`: find which engine expressions the DB is missing (node discovery).
+- `docs/WORKMF.md`: index a project's own Material Functions for the viewer/exporter/agent.
 - `docs/VERIFICATION.md`: required audit and test commands.
 - `skill/node-t3d-metadata/SKILL.md`: portable skill instructions for Codex, Claude, or other agents.
 
@@ -53,6 +58,17 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Sc
 ```
 
 Logs are written under this repo's `Logs\UE`; the host UE project is not modified by the default external-plugin workflow.
+
+## Other modes
+
+The same commandlet/plugin powers two more modes (each with a one-command runner):
+
+- **Node discovery** — enumerate every `UMaterialExpression` the engine compiles in and diff
+  it against the authoring DB, so you get a report of exactly which nodes are missing. Run
+  `plugin-src\Scripts\Run-NodeDiscovery.ps1`; details in `docs\NODE_DISCOVERY.md`.
+- **WorkMF** — index a project's own Material Functions (by UE asset path) so the viewer,
+  exporter, and authoring agent can use them. Run `plugin-src\Scripts\Run-WorkMfIndex.ps1`;
+  details in `docs\WORKMF.md`. The output stays local and gitignored.
 
 ## Agent Skill
 

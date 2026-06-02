@@ -9,7 +9,7 @@ AI 與人協作 UE 5.7 材質節點圖的統一工作流。AI 輸出標準 `.mat
 ## 為什麼用這套
 
 - **不要再用文字牆描述節點圖了。** AI 用嚴格 JSON schema 描述材質，viewer 渲染成像真的 UE 節點。
-- **不要再讓 AI 亂編節點名了。** 釘住的 UE 5.7 節點 DB（142 個 expression）是 single source of truth——AI 必須用已存在的節點型別、精確的 pin 名稱、精確的 param 名稱。viewer 還會標出「連到不存在 pin」的連線。
+- **不要再讓 AI 亂編節點名了。** 釘住的 UE 5.7 節點 DB（299 個 expression——幾乎是引擎完整集合）是 single source of truth——AI 必須用已存在的節點型別、精確的 pin 名稱、精確的 param 名稱。viewer 還會標出「連到不存在 pin」的連線。
 - **最終輸出不再斷線。** 你把結果直接接進 `MaterialOutput` 節點；導出時 emitter 會自動把它們收進一個 `MakeMaterialAttributes` 節點，貼進 UE 只需接 1 根線，而不是每個屬性接一根。
 - **一套格式跨 AI 工具。** 同一個 `agent-pack/` 在 Claude Code、Cursor、Copilot CLI、Gemini CLI 或任何能讀 agent rules 的工具裡都能用。
 
@@ -117,6 +117,17 @@ node viewer/dist/server/html-export.js export <project>/<name> --out ./shared.ht
 
 ---
 
+## 從 UE 匯入
+
+剪貼板橋接是**雙向**的。在 viewer 點 **導入**，把 UE 的材質選取貼進來——在 Material Editor
+選取節點、`Ctrl+C`，貼到輸入框。viewer 會**完全在本地**（不需要 Unreal）把它還原成
+`.matgraph.json`（節點型別、params、連線、註釋、reroute），寫成 `graphs/` 下的新專案資料夾並開啟。
+
+無法對映的東西——節點 DB 裡沒有的 UE class、或 pin 名需要函數定義的 Material Function——會以
+warning 呈現，絕不臆造。（Reroute「knot」直通節點會被收合：連線改接到 reroute 真正的來源，不會斷線。）
+
+---
+
 ## 範例
 
 `agent-pack/examples/` 的參考檔每個都已是合規專案資料夾（`<name>/<name>.matgraph.json`，引用的 MaterialFunction 複製在同資料夾、不共享）。要試用某個，直接整個資料夾複製到 `graphs/`：
@@ -146,12 +157,15 @@ viewer 會在左側欄把它歸為一個專案，導出到 UE 也直接可用，
 
 ## 補充節點 DB
 
-DB 依版本切分：編輯你目標版本的那一份（例如 `agent-pack/nodes-ue5.7.json`，目前有 142 個 expression）。要新增：
+DB 依版本切分：編輯你目標版本的那一份（例如 `agent-pack/nodes-ue5.7.json`，目前有 299 個 expression）。要新增：
 
 1. 從 [UE Material Expression Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference) 查節點。
 2. 仿照現有條目格式新增到 `nodes.<NodeName>`（inputs、outputs、params、category、description）。
-3. `verified: true` 只在你親自核對過後才設。
+3. `verified: true` 只在你親自核對過後才設。（自動發現、尚未人工核對的節點維持 `verified: false`——pin 名是從 UE 反射來的，但型別可能是佔位值。）
 4. 跑 `pnpm test` 確認 DB 仍合法。
+
+**不知道缺哪些節點？** commandlet 會告訴你。它的節點發現模式會枚舉引擎內所有 `UMaterialExpression`，
+跟 DB 比對，產出「缺哪些節點」的報告——見 `tools/node-t3d-metadata/docs/NODE_DISCOVERY.md`。
 
 （若要支援一個全新的 UE 版本，而不是擴充現有版本，請見 [多版本 UE 支援](#多版本-ue-支援) —— 用 commandlet 產出該版本的成對檔案，不要手動編輯。）
 

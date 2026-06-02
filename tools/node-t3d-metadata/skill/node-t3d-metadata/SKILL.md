@@ -28,6 +28,15 @@ The entrypoint rebuilds the plugin when needed, generates metadata, audits the o
 
 Use `-CaptureFixtures` only when calibrating UE clipboard/T3D emitter behavior.
 
+The same plugin has two more modes (separate runners):
+
+- **Node discovery** — `plugin-src\Scripts\Run-NodeDiscovery.ps1` enumerates every engine
+  `UMaterialExpression` and diffs it against the DB, reporting what's missing. Nodes added
+  from a discovery report stay `verified: false` (pin names reflected, types placeholder)
+  until hand-checked; the audit allows those to lag export coverage. See `docs\NODE_DISCOVERY.md`.
+- **WorkMF** — `plugin-src\Scripts\Run-WorkMfIndex.ps1` indexes a project's own Material
+  Functions into the local, gitignored `agent-pack\workmf-index.json`. See `docs\WORKMF.md`.
+
 Verify:
 
 ```powershell

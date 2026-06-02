@@ -1,10 +1,13 @@
 # Node discovery — find which engine expressions the DB is missing
 
-The authoring DB (`agent-pack/nodes-ue5.7.json`, 144 nodes) is a **hand-written list**.
-The metadata commandlet's default mode only fills in detail for the names already on
-that list — it never discovers new ones. So the DB can silently lag behind the engine,
-and a real material that uses an unlisted node imports with that node **skipped** (its
-wires drop).
+The authoring DB (`agent-pack/nodes-ue5.7.json`) began as a **hand-written list** of 144
+nodes. The metadata commandlet's default mode only fills in detail for the names already on
+that list — it never discovers new ones. So the DB can silently lag behind the engine, and a
+real material that uses an unlisted node imports with that node **skipped** (its wires drop).
+
+> Discovery has since been run against UE 5.7.4: the engine ships **310** material
+> expressions, and the DB was expanded to **~300** (the remainder are reserved/abstract/alias
+> types). Re-run it after an engine upgrade, or when a pasted material reports a skipped node.
 
 **Node discovery** closes that gap. Unlike WorkMF (which crawls `/Game` *assets* via the
 Asset Registry), material expressions are compiled C++ `UCLASS`es, so discovery enumerates
@@ -25,7 +28,7 @@ Defaults: diffs against `agent-pack\nodes-ue5.7.json`, writes the report to
 The commandlet log ends with, e.g.:
 
 ```text
-Wrote node discovery report: ...\node-discovery.json (NNN engine expressions, 144 in DB, MM missing, DD deprecated, OO orphans)
+Wrote node discovery report: ...\node-discovery.json (N engine expressions, K in DB, M missing, D deprecated, O orphans)
 ```
 
 ## Report shape
@@ -35,7 +38,7 @@ Wrote node discovery report: ...\node-discovery.json (NNN engine expressions, 14
   "schemaVersion": "1.0",
   "kind": "node-discovery",
   "engineVersion": "5.7.4-...",
-  "counts": { "engineExpressions": 0, "inDb": 144, "missing": 0, "deprecated": 0, "orphansInDb": 0 },
+  "counts": { "engineExpressions": 310, "inDb": 299, "missing": 0, "deprecated": 0, "orphansInDb": 0 },
   "missing": [
     {
       "type": "RuntimeVirtualTextureOutput",

@@ -34,6 +34,8 @@ node tools\node-t3d-metadata\audit-export-meta.js
 
 Passing output has zero `missing`, `orphans`, `unresolved`, and `badShape`. The exact node counts are intentionally not hard-coded here because they change when the node database changes.
 
+`verified: false` authoring nodes (e.g. ones just added by node discovery, pin names reflected but types not yet hand-checked) are **provisional**: the audit lets them lag export coverage, so they are not counted as `missing`. `verified: true` nodes must be present in the export metadata.
+
 For machine-readable output:
 
 ```powershell

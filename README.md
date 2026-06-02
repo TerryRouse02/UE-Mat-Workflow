@@ -9,7 +9,7 @@ A unified workflow for AI + human collaboration on UE 5.7 material node graphs. 
 ## Why
 
 - **No more text-wall node graphs.** AI describes materials in a strict JSON schema; the viewer renders them as real-looking UE nodes.
-- **No more hallucinated node names.** A pinned UE 5.7 node DB (142 expressions) is the source of truth — AI must use existing types, exact pin names, exact param names. The viewer flags connections that reference a pin which doesn't exist on its node.
+- **No more hallucinated node names.** A pinned UE 5.7 node DB (299 expressions — effectively the full engine set) is the source of truth — AI must use existing types, exact pin names, exact param names. The viewer flags connections that reference a pin which doesn't exist on its node.
 - **Final outputs survive export.** You wire results straight into the `MaterialOutput` node; on export the emitter auto-collects them into a `MakeMaterialAttributes` node, so a pasted material needs one wire in UE instead of one per attribute.
 - **One format across AI tools.** Same `agent-pack/` works in Claude Code, Cursor, Copilot CLI, Gemini CLI, or anything that reads agent rules.
 
@@ -117,6 +117,20 @@ Produces a single self-contained `.html` file. Double-click to view.
 
 ---
 
+## Import from UE
+
+The clipboard bridge is **bidirectional**. In the viewer, click **導入 (Import)**, then
+paste a UE material selection — select nodes in the Material Editor, `Ctrl+C`, and paste
+into the box. The viewer reconstructs a `.matgraph.json` (node types, params, connections,
+comments, and reroutes) **fully locally — no Unreal needed**, writes it as a new project
+folder under `graphs/`, and opens it.
+
+Anything it can't map — a UE class not in the node DB, or a Material Function whose pin
+names need its definition — is surfaced as a warning, never invented. (Reroute "knot" nodes
+are collapsed: the wire is re-pointed at the reroute's real source so nothing dangles.)
+
+---
+
 ## Examples
 
 `agent-pack/examples/` holds reference graphs, each already a compliant project folder (`<name>/<name>.matgraph.json`, with any MaterialFunction copied alongside it — not shared). To try one, copy its whole folder into `graphs/`:
@@ -146,12 +160,16 @@ Today that's `nodes-ue5.7.json` + `nodes-ue5.7.export.json`; later `nodes-ue5.8.
 
 ## Adding to the node DB
 
-The DB is version-scoped: edit the pair for the version you target (e.g. `agent-pack/nodes-ue5.7.json`, currently 142 expressions). To add more:
+The DB is version-scoped: edit the pair for the version you target (e.g. `agent-pack/nodes-ue5.7.json`, currently 299 expressions). To add more:
 
 1. Find the node in the [UE Material Expression Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference).
 2. Match the existing entry format under `nodes.<NodeName>` (inputs, outputs, params, category, description).
-3. Set `verified: true` only after you've cross-checked against UE.
+3. Set `verified: true` only after you've cross-checked against UE. (Auto-discovered nodes that haven't been hand-checked stay `verified: false` — pin names are reflected from UE, but types may be placeholders.)
 4. Run `pnpm test` to confirm the DB still validates.
+
+**Don't know what's missing?** The commandlet can tell you. Its node-discovery mode enumerates
+every `UMaterialExpression` the engine compiles in and diffs it against the DB, so you get a
+report of exactly which nodes are absent — see `tools/node-t3d-metadata/docs/NODE_DISCOVERY.md`.
 
 (To support a whole new UE version instead of extending an existing one, see [Multi-version UE support](#multi-version-ue-support) — generate the version pair via the commandlet rather than editing by hand.)
 

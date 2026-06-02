@@ -251,9 +251,15 @@ It runs **fully locally** (no Unreal needed) and is the exact inverse of the exp
 path it mirrors, validated against the real UE 5.7 captures in
 `viewer/tests/fixtures/*.t3d` (including full `LandscapeLayerBlend` per-layer fidelity,
 `Make`/`Set`/`GetMaterialAttributes`, `Custom`, and comment grouping recovered
-geometrically). Anything it can't map (an unknown UE class, an MF whose pin names need
-the function definition) is surfaced as a warning, never invented. Pin/param values UE
-omits as defaults fall back to the DB defaults, same as authored graphs.
+geometrically). **Reroute "knot" nodes are collapsed** — a wire sourced from a reroute is
+re-pointed at the reroute's own upstream (transitively), so nothing dangles and the reroute
+itself is not re-emitted. Anything it can't map (a UE class not in the node DB, an MF whose
+pin names need the function definition) is surfaced as a warning, never invented. Pin/param
+values UE omits as defaults fall back to the DB defaults, same as authored graphs.
+
+> The node DB now covers the engine's full material-expression set (~300 entries). Nodes
+> added by automated discovery carry `verified: false` until hand-checked: their pin **names**
+> are reflected from UE (safe to author against), but their pin **types** may be placeholders.
 
 ## Examples
 
