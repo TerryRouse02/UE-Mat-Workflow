@@ -27,7 +27,7 @@
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Materials/MaterialExpressionTransform.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
-#include "MaterialShared.h" // FMaterialAttributeDefinitionMap (MaterialAttributes name<->GUID registry)
+#include "Materials/MaterialAttributeDefinitionMap.h" // FMaterialAttributeDefinitionMap (MaterialAttributes name<->GUID registry)
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Policies/PrettyJsonPrintPolicy.h"
@@ -1815,16 +1815,19 @@ static TSharedRef<FJsonObject> BuildReservedObject(const TSharedPtr<FJsonObject>
 // material-attribute-guids.ts fallback used when this section is absent).
 //
 // API NOTE (verify against the installed engine headers when compiling): this uses
-// FMaterialAttributeDefinitionMap::GetAttributeNameToIDList, the same registry the Set/Get
-// attribute pickers read. If that symbol differs in this UE version, the equivalent is to call
-// GetAttributeList(TArray<FGuid>&) and GetAttributeName(const FGuid&) per entry. FGuid::ToString()
+// the same registry the Set/Get attribute pickers read. FGuid::ToString()
 // (default = EGuidFormats::Digits, 32 hex) already matches the fixture GUID format.
 static TArray<TSharedPtr<FJsonValue>> BuildMaterialAttributesArray()
 {
     TArray<TSharedPtr<FJsonValue>> Out;
 
     TArray<TPair<FString, FGuid>> NameToId;
-    FMaterialAttributeDefinitionMap::GetAttributeNameToIDList(NameToId);
+    const TArray<FGuid>& AttributeIds = FMaterialAttributeDefinitionMap::GetOrderedVisibleAttributeList();
+    NameToId.Reserve(AttributeIds.Num());
+    for (const FGuid& AttributeId : AttributeIds)
+    {
+        NameToId.Emplace(FMaterialAttributeDefinitionMap::GetAttributeName(AttributeId), AttributeId);
+    }
     NameToId.Sort([](const TPair<FString, FGuid>& A, const TPair<FString, FGuid>& B)
     {
         return A.Key < B.Key;
