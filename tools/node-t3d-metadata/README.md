@@ -11,6 +11,7 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 - `plugin-src/Scripts/Run-NodeDiscovery.ps1`: enumerate engine expressions and diff vs the DB.
 - `plugin-src/Scripts/Run-WorkMfIndex.ps1`: index a project's own Material Functions (WorkMF).
 - `compiled/UEMatExportMetadata/`: compiled Win64 plugin package usable without adding a project plugin.
+- `host/NodeDiscoveryHost.uproject`: bundled minimal UE host project for node discovery (no game project needed; disables the fragile default engine plugins).
 - `docs/AGENT_WORKFLOW.md`: agent-facing workflow for updating `agent-pack\nodes-ue5.7.export.json`.
 - `docs/NODE_DISCOVERY.md`: find which engine expressions the DB is missing (node discovery).
 - `docs/WORKMF.md`: index a project's own Material Functions for the viewer/exporter/agent.

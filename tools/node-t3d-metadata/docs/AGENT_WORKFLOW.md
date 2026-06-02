@@ -58,9 +58,13 @@ enumerates every `UMaterialExpression` by reflection and diffs against the DB:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-NodeDiscovery.ps1 `
-  -ProjectPath <Path\To\Project.uproject> `
-  -EngineRoot  <Path\To\UnrealEngine>
+  -EngineRoot <Path\To\UnrealEngine>
 ```
+
+`-ProjectPath` is optional here — discovery enumerates engine C++ classes, so when it is omitted
+the script uses the bundled minimal host (`host\NodeDiscoveryHost.uproject`), which also sidesteps
+the default engine plugins that abort the commandlet on some installs. Pass your own `-ProjectPath`
+to run against a specific project.
 
 Then `node tools\node-t3d-metadata\build-db-candidates.js` turns the report into candidate
 authoring entries. Newly added nodes stay **`verified: false`** until hand-checked — pin

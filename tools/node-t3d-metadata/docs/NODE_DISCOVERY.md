@@ -18,12 +18,22 @@ against the DB, and writes a report of what's missing.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-NodeDiscovery.ps1 `
-  -ProjectPath <Path\To\Project.uproject> `
-  -EngineRoot  <Path\To\UnrealEngine>
+  -EngineRoot <Path\To\UnrealEngine>
 ```
+
+`-ProjectPath` is **optional** for discovery: it only enumerates engine C++
+`UMaterialExpression` classes, so no game project is needed. When omitted, the script uses the
+bundled minimal host at `tools\node-t3d-metadata\host\NodeDiscoveryHost.uproject`, which also
+disables the few default engine plugins (Metasound, Interchange) that abort the unattended
+commandlet on some installs. None of those plugins provide material expressions, so coverage is
+unaffected. Pass `-ProjectPath <Path\To\Project.uproject>` to run against your own project instead.
 
 Defaults: diffs against `agent-pack\nodes-ue5.7.json`, writes the report to
 `tools\node-t3d-metadata\node-discovery.json`. Override with `-NodeDb` / `-Out`.
+
+If even your own project's default engine plugins fail to load, `-NoEnginePlugins` boots a bare
+editor with only this plugin — but that drops *plugin-provided* material expressions, so prefer
+the bundled host (or fix the broken plugins) when you want full coverage.
 
 The commandlet log ends with, e.g.:
 

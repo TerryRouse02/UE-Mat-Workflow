@@ -1,0 +1,13 @@
+{
+  "FileVersion": 3,
+  "EngineAssociation": "5.7",
+  "Category": "",
+  "Description": "Minimal host project for the UEMatExportMetadata commandlet (node discovery / metadata). Disables a few default engine plugins (Metasound, Interchange) that abort the unattended commandlet on some installs. None of them provide UMaterialExpression classes, so material-expression coverage is unaffected.",
+  "Plugins": [
+    { "Name": "Metasound", "Enabled": false },
+    { "Name": "Interchange", "Enabled": false },
+    { "Name": "InterchangeAssets", "Enabled": false },
+    { "Name": "InterchangeEditor", "Enabled": false },
+    { "Name": "InterchangeTests", "Enabled": false }
+  ]
+}

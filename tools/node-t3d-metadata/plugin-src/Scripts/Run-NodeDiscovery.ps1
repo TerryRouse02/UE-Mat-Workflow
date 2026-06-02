@@ -52,8 +52,16 @@ $BundleRoot = Split-Path -Parent $PluginRoot            # ...\node-t3d-metadata
 if ([string]::IsNullOrWhiteSpace($WorkflowRoot)) {
     $WorkflowRoot = Find-RepoRoot $BundleRoot
 }
+# Discovery only enumerates engine C++ UMaterialExpression classes, so it does not need a
+# real game project. Default to the bundled minimal host, which also disables the few default
+# engine plugins (Metasound/Interchange) that abort the unattended commandlet on some installs
+# without dropping any material-expression coverage. Pass -ProjectPath to use your own project.
 if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
-    throw "ProjectPath is required. Pass -ProjectPath <path-to-.uproject>."
+    $ProjectPath = Join-Path $BundleRoot "host\NodeDiscoveryHost.uproject"
+    if (-not (Test-Path $ProjectPath)) {
+        throw "ProjectPath not given and bundled host project is missing: $ProjectPath"
+    }
+    Write-Host "No -ProjectPath given; using bundled minimal host: $ProjectPath"
 }
 if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
     throw "EngineRoot is required. Pass -EngineRoot <path-to-UnrealEngine>."
