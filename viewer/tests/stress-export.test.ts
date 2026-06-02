@@ -12,23 +12,24 @@ import type { MatGraph, DerivedPins } from '../web/src/protocol';
 //
 // This drives the REAL exporter (graphToUET3D) over the REAL stress graph
 // (graphs/stress_all_nodes/stress_all_nodes.matgraph.json) with the REAL export
-// metadata (agent-pack/nodes-ue5.7.export.json) and the REAL MF resolver. It
+// metadata (agent-pack/nodes-ue5.7.export.json) and the REAL MF resolver,
 // turning the hand-authored stress artifact into an executable regression guard.
 //
-// FIXED here: Named Reroute linkage — every Declaration now emits a stable
-// VariableGuid and every Usage emits Declaration=/DeclarationGuid= (via the
-// params.rerouteName convention), so a Usage resolves back to its Declaration.
+// FIXED: Named Reroute linkage — every Declaration emits a stable VariableGuid and
+// every Usage emits Declaration=/DeclarationGuid= (via the params.rerouteName
+// convention), so a Usage resolves back to its Declaration.
 //
-// REMAINING gap (UE-capture-gated, P1): SetMaterialAttributes /
-// GetMaterialAttributes / LandscapeLayerBlend are dynamicExport nodes still
-// skipped with a warning (their exact T3D format needs a real UE capture). Any
-// ordinary input fed by one of these now reports a "dropped" warning instead of
-// vanishing silently.
+// FIXED: the dynamic-pin nodes SetMaterialAttributes / GetMaterialAttributes /
+// LandscapeLayerBlend now export against their real UE 5.7 clipboard fixtures
+// (tests/fixtures/ue-{set,get}-material-attributes.t3d, ue-landscape-layer-blend.t3d).
+// An attribute whose FGuid was never captured (Normal here for Set, EmissiveColor for
+// Get) is dropped with a warning rather than invented — see material-attribute-guids.
 // ---------------------------------------------------------------------------
 
 const REPO = resolve(__dirname, '../..');
 const MATERIAL_PATH = resolve(REPO, 'graphs/stress_all_nodes/stress_all_nodes.matgraph.json');
 const EXPORT_META_PATH = resolve(REPO, 'agent-pack/nodes-ue5.7.export.json');
+const FIXTURES = resolve(__dirname, 'fixtures');
 
 const EXPORT_META = JSON.parse(readFileSync(EXPORT_META_PATH, 'utf-8')) as ExportMeta;
 
@@ -65,11 +66,10 @@ describe('stress_all_nodes export', () => {
   it('emits one MaterialGraphNode block per exportable expression', async () => {
     const { graph, text } = await buildExport();
 
-    // Every node that is NOT a MaterialOutput and NOT a dynamicExport-skipped
-    // type should produce a MaterialGraphNode block. The auto-collected
+    // Every node that is NOT a MaterialOutput now produces a MaterialGraphNode block
+    // (the three dynamic-pin nodes are no longer skipped). The auto-collected
     // MakeMaterialAttributes adds one more block (the synthesized collector).
-    const SKIPPED = new Set(['SetMaterialAttributes', 'GetMaterialAttributes', 'LandscapeLayerBlend']);
-    const exportable = graph.nodes.filter(n => n.type !== 'MaterialOutput' && !SKIPPED.has(n.type));
+    const exportable = graph.nodes.filter(n => n.type !== 'MaterialOutput');
     const blocks = (text.match(/Begin Object Class=\/Script\/UnrealEd\.MaterialGraphNode /g) ?? []).length;
 
     // +1 synthesized MakeMaterialAttributes collector for the single MaterialOutput.
@@ -90,17 +90,16 @@ describe('stress_all_nodes export', () => {
     expect(warnings.some(w => /pin "EmissiveColor" wired more than once/.test(w))).toBe(true);
     expect(warnings.some(w => /N_DoubleInput" input "A" wired more than once/.test(w))).toBe(true);
 
-    // Exactly the three dynamic-pin nodes are skipped (dynamicExport, UE-capture-gated).
-    for (const type of ['SetMaterialAttributes', 'GetMaterialAttributes', 'LandscapeLayerBlend']) {
-      expect(warnings.some(w => new RegExp(`type ${type}\\) not exportable yet - skipped`).test(w))).toBe(true);
-    }
-    expect(warnings.filter(w => /not exportable yet - skipped/.test(w))).toHaveLength(3);
+    // Two uncaptured-attribute drops: Set lists Normal, Get lists EmissiveColor — neither
+    // has a captured GUID, so each is dropped with a warning (never invented).
+    expect(warnings.filter(w => /has no captured GUID - dropped/.test(w))).toHaveLength(2);
+    expect(warnings.some(w => /SetMaterialAttributes "N_SetMaterialAttributes": attribute "Normal" has no captured GUID/.test(w))).toBe(true);
+    expect(warnings.some(w => /GetMaterialAttributes "N_GetMaterialAttributes": attribute "EmissiveColor" has no captured GUID/.test(w))).toBe(true);
 
-    // Both wires into N_DynSink (fed only by skipped dynamic nodes) are reported
-    // as dropped rather than vanishing silently.
-    expect(warnings.filter(w => /dropped: source .* was not exported/.test(w))).toHaveLength(2);
-    expect(warnings.some(w => /N_DynSink" input "A" dropped: source "N_GetMaterialAttributes"/.test(w))).toBe(true);
-    expect(warnings.some(w => /N_DynSink" input "B" dropped: source "N_LandscapeLayerBlend"/.test(w))).toBe(true);
+    // The dynamic-pin nodes are now exported, so NOTHING is "not exportable yet" and
+    // no wire is "dropped: source was not exported" (N_DynSink now resolves both inputs).
+    expect(warnings.filter(w => /not exportable yet - skipped/.test(w))).toHaveLength(0);
+    expect(warnings.filter(w => /dropped: source .* was not exported/.test(w))).toHaveLength(0);
 
     // The auto-collect guidance warning for the single MaterialOutput.
     expect(warnings.some(w => /auto-collected \d+ attribute\(s\) into MakeMaterialAttributes/.test(w))).toBe(true);
@@ -111,8 +110,7 @@ describe('stress_all_nodes export', () => {
     // No OTHER warning classes leaked in (e.g. unmapped pins, missing metadata).
     const unexpected = warnings.filter(w =>
       !/wired more than once/.test(w) &&
-      !/not exportable yet - skipped/.test(w) &&
-      !/dropped: source .* was not exported/.test(w) &&
+      !/has no captured GUID - dropped/.test(w) &&
       !/auto-collected \d+ attribute\(s\)/.test(w) &&
       !/auto-link/.test(w),
     );
@@ -176,12 +174,7 @@ describe('stress_all_nodes export', () => {
   });
 
   // =========================================================================
-  // P0 — NAMED REROUTE LINKAGE GAP (documented as CURRENT behavior).
-  //
-  // The exporter has NO special Named Reroute handling. It emits the generic
-  // expression for each node, which is missing the fields UE needs to link a
-  // Usage to its Declaration. We assert the CURRENT (broken) reality so a future
-  // fix forces this test to be updated alongside it.
+  // Named Reroute linkage (FIXED).
   // =========================================================================
   it('[FIXED] emits a VariableGuid on every Named Reroute Declaration', async () => {
     const { graph, text } = await buildExport();
@@ -197,8 +190,8 @@ describe('stress_all_nodes export', () => {
     expect(text).toContain('Name="RR_Albedo"');
     expect(text).toMatch(/Input=\(Expression=MaterialExpressionConstant3Vector_\d+,OutputIndex=0\)/);
 
-    // ...and now each carries a stable VariableGuid (one per declaration) that a
-    // Usage references to resolve back here.
+    // ...and each carries a stable VariableGuid (one per declaration) that a Usage
+    // references to resolve back here.
     const guids = text.match(/VariableGuid=[0-9A-F]{32}/g) ?? [];
     expect(guids.length).toBe(declCount);
   });
@@ -206,7 +199,6 @@ describe('stress_all_nodes export', () => {
   it('[FIXED] emits Declaration= + DeclarationGuid= on every Named Reroute Usage', async () => {
     const { text } = await buildExport();
 
-    // Usage expressions now link back to their Declaration by object path + guid.
     expect(text).toContain('Begin Object Class=/Script/Engine.MaterialExpressionNamedRerouteUsage');
     expect(text).toMatch(/Declaration="\/Script\/Engine\.MaterialExpressionNamedRerouteDeclaration'[^']+'"/);
     expect(text).toMatch(/DeclarationGuid=[0-9A-F]{32}/);
@@ -216,65 +208,117 @@ describe('stress_all_nodes export', () => {
     expect(text).not.toContain('rerouteName');
   });
 
-  it('[FIXED] a final-output attribute routed through a Usage resolves via a linked Usage', async () => {
-    const { text } = await buildExport();
-
-    // OUT:Metallic is wired from a NamedRerouteUsage; after auto-collect it lands
-    // on the synthesized MakeMaterialAttributes' Metallic input, referencing the
-    // Usage expression — which now carries a Declaration link, so Metallic resolves
-    // correctly on paste instead of going null.
-    expect(text).toMatch(/Metallic=\(Expression="\/Script\/Engine\.MaterialExpressionNamedRerouteUsage'[^']+'"\)/);
-  });
-
   it('[FIXED] every Usage DeclarationGuid matches a real Declaration VariableGuid', async () => {
     const { text } = await buildExport();
-    // Every usage's DeclarationGuid must be one of the declaration VariableGuids —
-    // i.e. each usage resolves to a real declaration via the shared guid UE links on.
     const declGuids = new Set([...text.matchAll(/VariableGuid=([0-9A-F]{32})/g)].map(m => m[1]));
     const useGuids = [...text.matchAll(/DeclarationGuid=([0-9A-F]{32})/g)].map(m => m[1]);
     expect(declGuids.size).toBeGreaterThanOrEqual(5);
     expect(useGuids.length).toBeGreaterThanOrEqual(8);
     expect(useGuids.every(g => declGuids.has(g))).toBe(true);
-    // And every Declaration= object path points at a NamedRerouteDeclaration expr.
     for (const m of text.matchAll(/Declaration=("[^"]+")/g)) {
       expect(m[1]).toContain("MaterialExpressionNamedRerouteDeclaration'");
     }
   });
 
   // =========================================================================
-  // P1 — dynamicExport SKIP (Set/Get/LayerBlend) + silent downstream drop.
+  // Dynamic-pin nodes (FIXED) — Set / Get / LandscapeLayerBlend, verified
+  // against the real UE 5.7 clipboard fixtures the formats were built from.
   // =========================================================================
-  it('[GAP P1] skips SetMaterialAttributes / GetMaterialAttributes / LandscapeLayerBlend entirely', async () => {
-    const { text } = await buildExport();
-    // None of the three dynamic-pin classes appear in the output at all.
-    expect(text).not.toContain('MaterialExpressionSetMaterialAttributes');
-    expect(text).not.toContain('MaterialExpressionGetMaterialAttributes');
-    expect(text).not.toContain('MaterialExpressionLandscapeLayerBlend');
-  });
 
-  it('[FIXED] warns (instead of silently dropping) when an input wire feeds from a skipped dynamic node', async () => {
-    const { graph, text, warnings } = await buildExport();
+  // The captured attribute FGuids the emitter is allowed to use, read straight from
+  // the fixtures so the constant table can never silently drift from ground truth.
+  const fixtureGuids = (file: string, key: 'AttributeSetTypes' | 'AttributeGetTypes') =>
+    new Set([...readFileSync(resolve(FIXTURES, file), 'utf-8')
+      .matchAll(new RegExp(`${key}\\(\\d+\\)=([0-9A-F]{32})`, 'g'))].map(m => m[1]));
+
+  it('[FIXED] SetMaterialAttributes emits Inputs + AttributeSetTypes matching the fixture', async () => {
+    const { text } = await buildExport();
     const lines = trimmedLines(text);
 
-    // N_DynSink (an Add) is fed only by outputs of skipped dynamic nodes
-    // (GetMaterialAttributes + LandscapeLayerBlend). The wires still cannot be
-    // emitted (their sources aren't exportable), so the Add's fill object has no
-    // A=/B= expression — but each dropped wire is now surfaced as a warning
-    // instead of vanishing silently.
-    expect(graph.nodes.some(n => n.id === 'N_DynSink')).toBe(true);
+    expect(text).toContain('Begin Object Class=/Script/Engine.MaterialExpressionSetMaterialAttributes');
+    // Inputs(0) is the base MaterialAttributes (fully-qualified ref, no InputName).
+    expect(lines.some(l => /^Inputs\(0\)=\(Expression="\/Script\/Engine\.MaterialExpressionMakeMaterialAttributes'[^']+'"\)$/.test(l))).toBe(true);
+    // Inputs(1) sets Base Color from a vector source: InputName before the RGB mask (fixture order).
+    expect(lines.some(l => /^Inputs\(1\)=\(Expression="[^"]+",InputName="Base Color",Mask=1,MaskR=1,MaskG=1,MaskB=1\)$/.test(l))).toBe(true);
+    // Scalar attributes carry an InputName but no mask.
+    expect(lines).toContain('Inputs(2)=(Expression="/Script/Engine.MaterialExpressionOneMinus\'MaterialGraphNode_4.MaterialExpressionOneMinus_4\'",InputName="Roughness")');
 
-    const addFillStarts = lines
+    // Exactly three AttributeSetTypes (BaseColor, Roughness, Metallic) — Normal was dropped.
+    const setTypes = [...text.matchAll(/AttributeSetTypes\(\d+\)=([0-9A-F]{32})/g)].map(m => m[1]);
+    expect(setTypes).toEqual([
+      '69B8D33616ED4D499AA497292F050F7A', // Base Color
+      'D1DD967C4CAD47D39E6346FB08ECF210', // Roughness
+      '57C3A1617F064296B00B24A5A496F34C', // Metallic
+    ]);
+    // ...and every emitted GUID is one really present in the captured fixture.
+    const ground = fixtureGuids('ue-set-material-attributes.t3d', 'AttributeSetTypes');
+    expect(setTypes.every(g => ground.has(g))).toBe(true);
+
+    // The uncaptured attribute is genuinely absent (not invented under a guessed GUID).
+    expect(text).not.toContain('InputName="Normal"');
+  });
+
+  it('[FIXED] GetMaterialAttributes emits MaterialAttributes + AttributeGetTypes + Outputs matching the fixture', async () => {
+    const { text } = await buildExport();
+    const lines = trimmedLines(text);
+
+    expect(text).toContain('Begin Object Class=/Script/Engine.MaterialExpressionGetMaterialAttributes');
+    // The single MaterialAttributes input is a fully-qualified ref (here fed by the Set node).
+    expect(lines.some(l => /^MaterialAttributes=\(Expression="\/Script\/Engine\.MaterialExpressionSetMaterialAttributes'[^']+'"\)$/.test(l))).toBe(true);
+
+    // Two captured attributes (BaseColor, Roughness); EmissiveColor was dropped.
+    const getTypes = [...text.matchAll(/AttributeGetTypes\(\d+\)=([0-9A-F]{32})/g)].map(m => m[1]);
+    expect(getTypes).toEqual([
+      '69B8D33616ED4D499AA497292F050F7A', // Base Color
+      'D1DD967C4CAD47D39E6346FB08ECF210', // Roughness
+    ]);
+    const ground = fixtureGuids('ue-get-material-attributes.t3d', 'AttributeGetTypes');
+    expect(getTypes.every(g => ground.has(g))).toBe(true);
+
+    // Named outputs start at index 1 (index 0 is the MaterialAttributes pass-through).
+    expect(lines).toContain('Outputs(1)=(OutputName="Base Color")');
+    expect(lines).toContain('Outputs(2)=(OutputName="Roughness")');
+    expect(text).not.toContain('OutputName="Emissive Color"');
+    expect(text).not.toContain('AttributeGetTypes(2)='); // only two captured
+  });
+
+  it('[FIXED] LandscapeLayerBlend emits one Layers(i) struct per layer with Layer/Height inputs', async () => {
+    const { text } = await buildExport();
+    const lines = trimmedLines(text);
+
+    expect(text).toContain('Begin Object Class=/Script/Landscape.MaterialExpressionLandscapeLayerBlend');
+
+    // Three layers, including one whose name contains a space ("Rock Layer").
+    expect(lines.some(l => /^Layers\(0\)=\(LayerName="Dirt",BlendType=LB_HeightBlend,LayerInput=\(Expression="[^"]+",Mask=1,MaskR=1,MaskG=1,MaskB=1\),HeightInput=\(Expression="[^"]+"\)\)$/.test(l))).toBe(true);
+    expect(lines.some(l => /^Layers\(2\)=\(LayerName="Rock Layer",BlendType=LB_HeightBlend,/.test(l))).toBe(true);
+    expect((text.match(/Layers\(\d+\)=\(LayerName=/g) ?? []).length).toBe(3);
+
+    // The graph (internal) pin name "Layer Rock Layer" survives intact (split on first colon).
+    expect(text).toContain('PinName="Layer Rock Layer"');
+  });
+
+  it('[FIXED] ordinary nodes fed by a dynamic node use a fully-qualified Expression ref', async () => {
+    const { graph, text } = await buildExport();
+    const lines = trimmedLines(text);
+
+    // N_DynSink (an Add) is now fully wired: A from Get:BaseColor (output index 1),
+    // B from LandscapeLayerBlend:Result (index 0). Both must be fully-qualified refs
+    // (the dynamic source's pins are rebuilt on paste, so a bare ref would not resolve).
+    expect(graph.nodes.some(n => n.id === 'N_DynSink')).toBe(true);
+    expect(lines.some(l => /^A=\(Expression="\/Script\/Engine\.MaterialExpressionGetMaterialAttributes'[^']+'",OutputIndex=1\)$/.test(l))).toBe(true);
+    expect(lines.some(l => /^B=\(Expression="\/Script\/Landscape\.MaterialExpressionLandscapeLayerBlend'[^']+'"\)$/.test(l))).toBe(true);
+
+    // No Add fill object is left with both inputs missing (the old silent-drop symptom).
+    const addStarts = lines
       .map((l, i) => ({ l, i }))
       .filter(({ l }) => l.startsWith('Begin Object Name="MaterialExpressionAdd_'));
-    const hasInputlessAdd = addFillStarts.some(({ i }) => {
+    const dynSinkInputless = addStarts.some(({ i }) => {
       const end = lines.slice(i).findIndex(l => l === 'End Object');
       const body = lines.slice(i + 1, i + end);
-      return !body.some(l => /^A=\(Expression=/.test(l) || /^B=\(Expression=/.test(l));
+      const hasGetA = body.some(l => /^A=\(Expression="[^"]*GetMaterialAttributes/.test(l));
+      const hasBlendB = body.some(l => /^B=\(Expression="[^"]*LandscapeLayerBlend/.test(l));
+      return hasGetA && hasBlendB;
     });
-    expect(hasInputlessAdd, 'expected an Add fill object with both inputs dropped').toBe(true);
-
-    // ...and both drops are now reported.
-    expect(warnings.some(w => /N_DynSink" input "A" dropped: source "N_GetMaterialAttributes"/.test(w))).toBe(true);
-    expect(warnings.some(w => /N_DynSink" input "B" dropped: source "N_LandscapeLayerBlend"/.test(w))).toBe(true);
+    expect(dynSinkInputless, 'N_DynSink should be the Add wired from Get + LayerBlend').toBe(true);
   });
 });

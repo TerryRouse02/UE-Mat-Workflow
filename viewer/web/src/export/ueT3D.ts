@@ -2,6 +2,7 @@ import type { MatGraph, NodeJson, DerivedPins } from '../protocol';
 import type { ExportMeta, NodeExportMeta, OutputMeta, ParamMeta } from './export-meta-types';
 import { splitRef } from '../connstr';
 import { MATERIAL_ATTRIBUTE_PINS } from '../material-attributes';
+import { MATERIAL_ATTRIBUTE_GUIDS } from '../material-attribute-guids';
 
 export interface UEExportOptions { mfContentRoot?: string; }
 export interface UEExportResult { text: string; warnings: string[]; }
@@ -235,10 +236,14 @@ function pinLine(
   pinName: string,
   direction: 'input' | 'output',
   links: PinLink[],
+  displayName: string = pinName,
 ): string {
+  // PinId is keyed on the graph (internal) pin name so LinkedTo stays self-consistent;
+  // PinName carries the UE display name, which can differ for dynamic-pin nodes
+  // (e.g. graph "BaseColor" -> UE "Base Color", graph "Result" -> UE "Output").
   const parts = [
     `PinId=${pinId(nodeId, pinName, direction)}`,
-    `PinName=${quote(pinName)}`,
+    `PinName=${quote(displayName)}`,
     `Direction=${quote(direction === 'input' ? 'EGPD_Input' : 'EGPD_Output')}`,
   ];
   if (links.length > 0) {
@@ -342,6 +347,89 @@ function componentMaskFor(outputPin: string): string {
   return `,${parts.join(',')}`;
 }
 
+// Dynamic-pin nodes: their graph pins and expression body are derived per-instance
+// (from params + wires) rather than from static metadata. The exact T3D shape of each
+// was reverse-engineered from real UE 5.7 clipboard fixtures:
+//   ue-set-material-attributes.t3d / ue-get-material-attributes.t3d / ue-landscape-layer-blend.t3d
+const DYNAMIC_SUPPORTED = new Set(['SetMaterialAttributes', 'GetMaterialAttributes', 'LandscapeLayerBlend']);
+
+interface DynPin { name: string; display: string; }              // name = graph pin (PinId/link key); display = UE PinName
+interface SetGetAttr { pin: string; display: string; guid: string; }
+interface DynLayer { name: string; layerPin: string; heightPin: string; blendType: string; heightBlend: boolean; }
+interface DynamicNodeInfo {
+  kind: 'set' | 'get' | 'layerblend';
+  inputs: DynPin[];
+  outputs: DynPin[];
+  outputIndexByPin: Map<string, number>;
+  attrs: SetGetAttr[];   // set/get only
+  layers: DynLayer[];    // layerblend only
+}
+
+// Resolve a Set/Get node's AttributeNames to {pin, display, guid}. An attribute with no
+// captured GUID is dropped here with a warning (never invented) — see material-attribute-guids.
+function resolveAttributes(node: NodeJson, warnings: string[]): SetGetAttr[] {
+  const raw = node.params?.AttributeNames;
+  const names = Array.isArray(raw) ? raw : [];
+  const attrs: SetGetAttr[] = [];
+  for (const item of names) {
+    const name = String(item);
+    const def = MATERIAL_ATTRIBUTE_GUIDS[name];
+    if (!def) {
+      warnings.push(`${node.type} "${node.id}": attribute "${name}" has no captured GUID - dropped (capture a UE sample that sets/gets it to enable).`);
+      continue;
+    }
+    attrs.push({ pin: name, display: def.display, guid: def.guid });
+  }
+  return attrs;
+}
+
+function buildDynamicInfo(node: NodeJson, warnings: string[]): DynamicNodeInfo | undefined {
+  if (node.type === 'SetMaterialAttributes') {
+    const attrs = resolveAttributes(node, warnings);
+    return {
+      kind: 'set', attrs, layers: [],
+      // Inputs(0) is the base MaterialAttributes; Inputs(1..N) are the set attributes.
+      inputs: [{ name: 'MaterialAttributes', display: 'MaterialAttributes' }, ...attrs.map(a => ({ name: a.pin, display: a.display }))],
+      outputs: [{ name: 'MaterialAttributes', display: 'Output' }],
+      outputIndexByPin: new Map([['MaterialAttributes', 0]]),
+    };
+  }
+  if (node.type === 'GetMaterialAttributes') {
+    const attrs = resolveAttributes(node, warnings);
+    // Output 0 is the MaterialAttributes pass-through; attributes are Outputs(1..N).
+    const outputs: DynPin[] = [{ name: 'MaterialAttributes', display: 'MaterialAttributes' }, ...attrs.map(a => ({ name: a.pin, display: a.display }))];
+    const outputIndexByPin = new Map<string, number>();
+    outputs.forEach((p, i) => outputIndexByPin.set(p.name, i));
+    return {
+      kind: 'get', attrs, layers: [],
+      inputs: [{ name: 'MaterialAttributes', display: 'Input' }],
+      outputs, outputIndexByPin,
+    };
+  }
+  if (node.type === 'LandscapeLayerBlend') {
+    const raw = node.params?.Layers;
+    const list = Array.isArray(raw) ? raw : [];
+    const layers: DynLayer[] = list.map(entry => {
+      const obj = (entry && typeof entry === 'object') ? entry as Record<string, unknown> : {};
+      const name = String(obj.Name ?? '');
+      const blendType = String(obj.BlendType ?? 'LB_HeightBlend');
+      return { name, blendType, heightBlend: blendType === 'LB_HeightBlend', layerPin: `Layer ${name}`, heightPin: `Height ${name}` };
+    });
+    const inputs: DynPin[] = [];
+    for (const l of layers) {
+      inputs.push({ name: l.layerPin, display: l.layerPin });
+      if (l.heightBlend) inputs.push({ name: l.heightPin, display: l.heightPin });
+    }
+    return {
+      kind: 'layerblend', attrs: [], layers,
+      inputs,
+      outputs: [{ name: 'Result', display: 'Output' }],
+      outputIndexByPin: new Map([['Result', 0]]),
+    };
+  }
+  return undefined;
+}
+
 export function graphToUET3D(
   graph: MatGraph,
   layout: Record<string, { x: number; y: number }>,
@@ -366,7 +454,7 @@ export function graphToUET3D(
       continue; // attribute wires are auto-collected into MakeMaterialAttributes; see collectMaterialOutputs
     }
     const nodeMeta = metaFor(meta, node.type);
-    if (!nodeMeta || nodeMeta.dynamicExport) {
+    if (!nodeMeta || (nodeMeta.dynamicExport && !DYNAMIC_SUPPORTED.has(node.type))) {
       warnings.push(`Node "${node.id}" (type ${node.type}) not exportable yet - skipped.`);
       continue;
     }
@@ -391,6 +479,19 @@ export function graphToUET3D(
     }
   }
 
+  // Dynamic-pin nodes (Set/Get/LandscapeLayerBlend): resolve their virtual pins,
+  // output indices and per-attribute GUIDs once, up front. Unknown attributes are
+  // warned + dropped inside buildDynamicInfo.
+  const dynamicInfo = new Map<string, DynamicNodeInfo>();
+  const dynamicInputNames = new Map<string, Set<string>>();
+  for (const item of emitted) {
+    const info = buildDynamicInfo(item.node, warnings);
+    if (info) {
+      dynamicInfo.set(item.node.id, info);
+      dynamicInputNames.set(item.node.id, new Set(info.inputs.map(p => p.name)));
+    }
+  }
+
   const comments: EmittedComment[] = (graph.comments ?? []).map((comment, i) => ({
     ...comment,
     graphNodeName: `MaterialGraphNode_Comment_${i}`,
@@ -408,6 +509,10 @@ export function graphToUET3D(
       const idx = (derivedPins[srcId]?.outputs ?? []).findIndex(o => o.name === srcPin);
       return { index: idx < 0 ? 0 : idx };
     }
+    const dyn = dynamicInfo.get(srcId);
+    if (dyn) {
+      return { index: dyn.outputIndexByPin.get(srcPin) ?? 0 };
+    }
     const o = node ? metaFor(meta, node.type)?.outputs?.[srcPin] : undefined;
     return { index: o?.index ?? 0, mask: o?.mask };
   };
@@ -424,6 +529,13 @@ export function graphToUET3D(
       // The destination is exported but its source was skipped (a dynamicExport
       // node, etc.). Don't drop the wire silently — surface it.
       warnings.push(`Node "${dstId}" input "${dstPin}" dropped: source "${srcId}" (${byId.get(srcId)?.type ?? 'unknown'}) was not exported.`);
+      continue;
+    }
+    const dynIn = dynamicInputNames.get(dstId);
+    if (dynIn && !dynIn.has(dstPin)) {
+      // A wire into a dynamic-pin node whose pin doesn't exist (unknown attribute that
+      // was already dropped+warned in buildDynamicInfo, or a stale layer pin). Skip it
+      // so no dangling LinkedTo is emitted on the source's output.
       continue;
     }
 
@@ -489,18 +601,23 @@ export function graphToUET3D(
   for (const item of emitted) {
     const { node, meta: nodeMeta } = item;
     const pos = effectiveLayout[node.id] ?? { x: 0, y: 0 };
+    const dyn = dynamicInfo.get(node.id);
 
     lines.push(`Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="${item.graphNodeName}" ExportPath="/Script/UnrealEd.MaterialGraphNode'${GRAPH_ROOT}.${item.graphNodeName}'"`);
     lines.push(`${I}Begin Object Class=${nodeMeta.ueClass} Name="${item.expressionName}" ExportPath="${expressionExportPath(item)}"`);
     lines.push(`${I}End Object`);
     lines.push(`${I}Begin Object Name="${item.expressionName}" ExportPath="${expressionExportPath(item)}"`);
 
-    for (const [paramName, value] of Object.entries(node.params ?? {})) {
-      const paramMeta = nodeMeta.params[paramName];
-      if (!paramMeta) continue;
-      const formatted = fmtParam(value, paramMeta, node);
-      if (formatted === null) continue;
-      lines.push(`${I}${I}${paramMeta.property}=${formatted}`);
+    // Dynamic-pin nodes carry virtual authoring params (AttributeNames / Layers) that are
+    // NOT real UE properties — their expression body is emitted below instead.
+    if (!dyn) {
+      for (const [paramName, value] of Object.entries(node.params ?? {})) {
+        const paramMeta = nodeMeta.params[paramName];
+        if (!paramMeta) continue;
+        const formatted = fmtParam(value, paramMeta, node);
+        if (formatted === null) continue;
+        lines.push(`${I}${I}${paramMeta.property}=${formatted}`);
+      }
     }
 
     if (nodeMeta.functionRefProperty) {
@@ -531,6 +648,53 @@ export function graphToUET3D(
       addOuts.forEach((o, i) => {
         lines.push(`${I}${I}AdditionalOutputs(${i})=(OutputName=${quote(o.OutputName)},OutputType=${o.OutputType ?? 'CMOT_Float1'})`);
       });
+    } else if (dyn) {
+      const incomingByPin = new Map((incoming.get(node.id) ?? []).map(c => [c.dstPin, c]));
+      // FExpressionInput body for a wire into pin `p`: fully-qualified Expression ref +
+      // OutputIndex (omitted when 0) + the source output's component mask. '' if unwired.
+      const exprInput = (p: string): string => {
+        const c = incomingByPin.get(p);
+        const s = c ? byNodeId.get(c.srcId) : undefined;
+        if (!c || !s) return '';
+        const { index } = srcRef(c.srcId, c.srcPin);
+        const idxPart = index > 0 ? `,OutputIndex=${index}` : '';
+        return `Expression=${fqExpressionRef(s)}${idxPart}${componentMaskFor(c.srcPin)}`;
+      };
+      if (dyn.kind === 'set') {
+        // Inputs(0) = base MaterialAttributes; Inputs(1..N) each set one attribute (InputName
+        // interleaved before the mask, per fixture) with a matching AttributeSetTypes GUID.
+        lines.push(`${I}${I}Inputs(0)=(${exprInput('MaterialAttributes')})`);
+        dyn.attrs.forEach((attr, k) => {
+          const c = incomingByPin.get(attr.pin);
+          const s = c ? byNodeId.get(c.srcId) : undefined;
+          if (c && s) {
+            const { index } = srcRef(c.srcId, c.srcPin);
+            const idxPart = index > 0 ? `,OutputIndex=${index}` : '';
+            lines.push(`${I}${I}Inputs(${k + 1})=(Expression=${fqExpressionRef(s)}${idxPart},InputName=${quote(attr.display)}${componentMaskFor(c.srcPin)})`);
+          } else {
+            lines.push(`${I}${I}Inputs(${k + 1})=(InputName=${quote(attr.display)})`);
+          }
+        });
+        dyn.attrs.forEach((attr, k) => lines.push(`${I}${I}AttributeSetTypes(${k})=${attr.guid}`));
+      } else if (dyn.kind === 'get') {
+        const e = exprInput('MaterialAttributes');
+        if (e) lines.push(`${I}${I}MaterialAttributes=(${e})`);
+        dyn.attrs.forEach((attr, k) => lines.push(`${I}${I}AttributeGetTypes(${k})=${attr.guid}`));
+        // Output 0 is the MaterialAttributes pass-through; named attributes are Outputs(1..N).
+        dyn.attrs.forEach((attr, k) => lines.push(`${I}${I}Outputs(${k + 1})=(OutputName=${quote(attr.display)})`));
+      } else {
+        // LandscapeLayerBlend: one Layers(i) struct per layer; HeightInput only for height blend.
+        dyn.layers.forEach((layer, i) => {
+          const parts = [`LayerName=${quote(layer.name)}`, `BlendType=${layer.blendType}`];
+          const li = exprInput(layer.layerPin);
+          if (li) parts.push(`LayerInput=(${li})`);
+          if (layer.heightBlend) {
+            const hi = exprInput(layer.heightPin);
+            if (hi) parts.push(`HeightInput=(${hi})`);
+          }
+          lines.push(`${I}${I}Layers(${i})=(${parts.join(',')})`);
+        });
+      }
     } else {
       const seenInputPins = new Set<string>();
       for (const connection of incoming.get(node.id) ?? []) {
@@ -558,6 +722,12 @@ export function graphToUET3D(
             const idxPart = index > 0 ? `,OutputIndex=${index}` : '';
             const maskPart = componentMaskFor(connection.srcPin);
             lines.push(`${I}${I}${inProp}=(Expression=${fqExpressionRef(src)}${idxPart}${maskPart})`);
+          } else if (dynamicInfo.has(connection.srcId)) {
+            // Source is a dynamic-pin node (Get/Set/LayerBlend): its graph pins are rebuilt on
+            // paste, so a bare ref + LinkedTo won't restore the wire. A fully-qualified
+            // Expression ref does — verified against ue-get-material-attributes.t3d consumers.
+            const idxPart = index > 0 ? `,OutputIndex=${index}` : '';
+            lines.push(`${I}${I}${inProp}=(Expression=${fqExpressionRef(src)}${idxPart}${maskBits(mask)})`);
           } else {
             lines.push(`${I}${I}${inProp}=(${ref})`);
           }
@@ -586,11 +756,20 @@ export function graphToUET3D(
     lines.push(`${I}NodePosY=${Math.round(pos.y)}`);
     lines.push(`${I}NodeGuid=${guidFor(`node:${node.id}`)}`);
 
-    for (const pinName of nodeInputPins(node, nodeMeta, derivedPins)) {
-      lines.push(pinLine(node.id, pinName, 'input', pinLinks.get(pinKey(node.id, 'input', pinName)) ?? []));
-    }
-    for (const pinName of nodeOutputPins(node, nodeMeta, derivedPins)) {
-      lines.push(pinLine(node.id, pinName, 'output', pinLinks.get(pinKey(node.id, 'output', pinName)) ?? []));
+    if (dyn) {
+      for (const p of dyn.inputs) {
+        lines.push(pinLine(node.id, p.name, 'input', pinLinks.get(pinKey(node.id, 'input', p.name)) ?? [], p.display));
+      }
+      for (const p of dyn.outputs) {
+        lines.push(pinLine(node.id, p.name, 'output', pinLinks.get(pinKey(node.id, 'output', p.name)) ?? [], p.display));
+      }
+    } else {
+      for (const pinName of nodeInputPins(node, nodeMeta, derivedPins)) {
+        lines.push(pinLine(node.id, pinName, 'input', pinLinks.get(pinKey(node.id, 'input', pinName)) ?? []));
+      }
+      for (const pinName of nodeOutputPins(node, nodeMeta, derivedPins)) {
+        lines.push(pinLine(node.id, pinName, 'output', pinLinks.get(pinKey(node.id, 'output', pinName)) ?? []));
+      }
     }
     lines.push(`End Object`);
   }

@@ -213,6 +213,13 @@ Example: `GetMaterialAttributes` extracting BaseColor and Roughness:
 { "from": "getAttrs:Roughness",   "to": "OUT:Roughness" }
 ```
 
+**Set/Get attribute export coverage.** On T3D export, each Set/Get attribute is keyed by an
+`FMaterialAttributeDefinitionMap` FGuid that must be captured from a real UE clipboard sample
+(never guessed). The captured set currently lives in `viewer/web/src/material-attribute-guids.ts`
+— at present **`BaseColor`, `Roughness`, `Metallic`**. An `AttributeNames` entry without a captured
+GUID still renders in the viewer but is **dropped from the export with a warning** (not invented).
+To export another attribute, capture a clipboard sample that sets/gets it and add the verified row.
+
 ## Examples
 
 See `agent-pack/examples/01_basic_pbr/01_basic_pbr.matgraph.json` and `02_with_function/02_with_function.matgraph.json` for full working files. Each example is a compliant project folder (`<name>/<name>.matgraph.json` plus any MFs copied alongside it) — the same one-folder-per-project convention the spec requires.
