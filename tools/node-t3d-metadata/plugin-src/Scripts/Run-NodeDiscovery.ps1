@@ -11,6 +11,12 @@ param(
     # DB to diff against. When set, the report marks which engine expressions the DB
     # already covers vs which are missing. Defaults to the shipped 5.7 authoring DB.
     [string]$NodeDb = "",
+    [switch]$ForcePackage,
+    # Some installs have broken/incompatible default engine plugins (Metasound,
+    # Interchange, …) that abort the commandlet on load. This fallback boots a bare
+    # editor with only this plugin. NOTE: it then sees ONLY Engine-module material
+    # expressions — plugin-provided expressions (Paper2D, etc.) are excluded.
+    [switch]$NoEnginePlugins,
     [switch]$UseProjectPlugin
 )
 
@@ -30,8 +36,19 @@ function Find-RepoRoot([string]$StartPath) {
     }
 }
 
-$PluginRoot = Split-Path -Parent $PSScriptRoot
-$BundleRoot = Split-Path -Parent $PluginRoot
+# Newest mtime under a directory — used to detect a stale compiled plugin.
+function Get-NewestWriteTime([string]$Path) {
+    $latest = [DateTime]::MinValue
+    if (Test-Path $Path) {
+        Get-ChildItem -LiteralPath $Path -Recurse -File -ErrorAction SilentlyContinue | ForEach-Object {
+            if ($_.LastWriteTimeUtc -gt $latest) { $latest = $_.LastWriteTimeUtc }
+        }
+    }
+    return $latest
+}
+
+$PluginRoot = Split-Path -Parent $PSScriptRoot          # ...\plugin-src
+$BundleRoot = Split-Path -Parent $PluginRoot            # ...\node-t3d-metadata
 if ([string]::IsNullOrWhiteSpace($WorkflowRoot)) {
     $WorkflowRoot = Find-RepoRoot $BundleRoot
 }
@@ -56,6 +73,7 @@ if ([string]::IsNullOrWhiteSpace($PackageDir)) {
     $PackageDir = Join-Path $BundleRoot "compiled\UEMatExportMetadata"
 }
 $PackagedPlugin = Join-Path $PackageDir "UEMatExportMetadata.uplugin"
+$PackagedDll = Join-Path $PackageDir "Binaries\Win64\UnrealEditor-UEMatExportMetadata.dll"
 $ProjectPlugin = Join-Path $ProjectDir "Plugins\UEMatExportMetadata\UEMatExportMetadata.uplugin"
 $LogRoot = Join-Path $WorkflowRoot "Logs\UE"
 $CommandletLog = Join-Path $LogRoot "UEMatExportMetadata_NodeDiscovery.log"
@@ -69,16 +87,24 @@ foreach ($required in @($ProjectPath, $EditorCmd)) {
     }
 }
 
+New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
+
+# Rebuild the compiled plugin when it is missing or older than plugin-src (same
+# staleness rule Invoke-NodeT3DMetadataMaintenance.ps1 uses). This is what makes
+# "edit C++ -> run discovery" work without a manual package step.
 if (-not $UseProjectPlugin) {
-    if (-not (Test-Path $PackagedPlugin)) {
-        throw "Packaged plugin not found: $PackagedPlugin. Run Package-Plugin.ps1 first, or pass -UseProjectPlugin."
+    $sourceStamp = Get-NewestWriteTime $PluginRoot
+    $packageStamp = if (Test-Path $PackagedDll) { (Get-Item -LiteralPath $PackagedDll).LastWriteTimeUtc } else { [DateTime]::MinValue }
+    if ($ForcePackage -or -not (Test-Path $PackagedPlugin) -or -not (Test-Path $PackagedDll) -or $sourceStamp -gt $packageStamp) {
+        Write-Host "Compiled plugin missing or stale -> packaging..."
+        & (Join-Path $PluginRoot "Scripts\Package-Plugin.ps1") `
+            -ProjectPath $ProjectPath -EngineRoot $EngineRoot -PackageDir $PackageDir -WorkflowRoot $WorkflowRoot
+        if ($LASTEXITCODE -ne 0) { throw "Package-Plugin.ps1 failed with exit code $LASTEXITCODE." }
     }
     if (Test-Path $ProjectPlugin) {
         throw "Project plugin copy exists and will shadow the packaged plugin: $ProjectPlugin. Remove that generated copy, or pass -UseProjectPlugin after building the project plugin."
     }
 }
-
-New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 
 $args = @(
     $ProjectPath,
@@ -91,6 +117,7 @@ $args = @(
     "-NoP4",
     "-NoSourceControl",
     "-SCCProvider=None",
+    "-DDC-ForceMemoryCache",   # discovery needs no persistent DDC; avoids Zen/DDC stalls
     "-log",
     "-stdout",
     "-FullStdOutLogOutput",
@@ -99,10 +126,27 @@ $args = @(
 if ($UseProjectPlugin) {
     $args = $args | Where-Object { $_ -ne "-plugin=$PackagedPlugin" }
 }
+if ($NoEnginePlugins) {
+    # Bare-editor fallback for installs whose default engine plugins fail to load.
+    $args += "-NoEnginePlugins"
+    $args += "-EnablePlugins=UEMatExportMetadata"
+}
 
 & $EditorCmd @args
-if ($LASTEXITCODE -ne 0) {
-    throw "Node discovery failed with exit code $LASTEXITCODE. Log: $CommandletLog"
+$editorExit = $LASTEXITCODE
+
+# UE often returns a non-zero code from a late DDC/warning summary even after the
+# commandlet has already written its report. Treat "report exists + success line
+# in the log" as success-with-warnings rather than a hard failure.
+$reportWritten = (Test-Path $Out) -and (
+    (Test-Path $CommandletLog) -and (Select-String -LiteralPath $CommandletLog -SimpleMatch "Wrote node discovery report" -Quiet)
+)
+if ($editorExit -ne 0) {
+    if ($reportWritten) {
+        Write-Warning "UnrealEditor returned exit code $editorExit, but the report was written (likely a trailing DDC/warning summary). Treating as success."
+    } else {
+        throw "Node discovery failed with exit code $editorExit and no report was written. Log: $CommandletLog"
+    }
 }
 
 Write-Host "Node discovery report written to $Out"

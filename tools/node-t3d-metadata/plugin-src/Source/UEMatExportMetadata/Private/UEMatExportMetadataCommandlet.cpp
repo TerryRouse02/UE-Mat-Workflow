@@ -1994,7 +1994,7 @@ static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath
         return false;
     }
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutPath), true);
-    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath))
+    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
         OutError = FString::Printf(TEXT("Node discovery: failed to write %s"), *OutPath);
         return false;
@@ -2171,7 +2171,7 @@ static bool WriteWorkMfIndex(const FString& OutPath, const FString& ContentRoots
     }
 
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutPath), true);
-    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath))
+    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
         OutError = FString::Printf(TEXT("Failed to write work-MF index: %s"), *OutPath);
         return false;
@@ -2430,7 +2430,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     }
 
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutPath), true);
-    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath))
+    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
         UE_LOG(LogTemp, Error, TEXT("Failed to write export metadata: %s"), *OutPath);
         return 6;
