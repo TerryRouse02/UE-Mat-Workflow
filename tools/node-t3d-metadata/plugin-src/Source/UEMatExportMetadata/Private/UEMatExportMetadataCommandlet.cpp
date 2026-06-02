@@ -39,6 +39,7 @@
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "UObject/UObjectHash.h" // GetDerivedClasses — enumerate UMaterialExpression subclasses for node discovery
 #include "Policies/PrettyJsonPrintPolicy.h"
 #include "Serialization/JsonReader.h"
 #include "Serialization/JsonSerializer.h"
@@ -1858,6 +1859,152 @@ static TArray<TSharedPtr<FJsonValue>> BuildMaterialAttributesArray()
 }
 
 // ===========================================================================
+// Node discovery — enumerate every UMaterialExpression subclass compiled into
+// the engine, diff against the authoring DB, and report what's missing.
+//
+// This is fundamentally different from WorkMF: material expressions are compiled
+// C++ UCLASSes (not /Game assets), so discovery enumerates classes by reflection
+// (GetDerivedClasses), NOT by crawling a content directory. The default metadata
+// path only fills in detail for the hand-written nodes-ue5.7.json list; this mode
+// is what tells you which engine expressions that list is *missing*.
+//
+// Output: a JSON report (kind:"node-discovery") with, for each missing class, its
+// type name, UE class path, caption, and best-effort input/output pin names —
+// enough to seed a nodes-ue5.7.json entry for human review (left verified:false).
+// ===========================================================================
+
+// DB keys follow UE's class naming minus the "MaterialExpression" prefix
+// (UMaterialExpressionFresnel -> "Fresnel"). Mirror that to diff classes vs DB.
+static FString ExpressionTypeNameFromClass(const UClass* Class)
+{
+    FString Name = Class->GetName();
+    Name.RemoveFromStart(TEXT("MaterialExpression"));
+    return Name;
+}
+
+static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath, FString& OutError)
+{
+    // Known DB keys (optional diff target). Without a DB every class is "missing".
+    TSet<FString> DbKeys;
+    if (!NodeDbPath.IsEmpty())
+    {
+        TSharedPtr<FJsonObject> DbRoot;
+        FString LoadError;
+        if (!LoadJsonFile(NodeDbPath, DbRoot, LoadError))
+        {
+            OutError = FString::Printf(TEXT("Node discovery: failed to load NodeDb '%s': %s"), *NodeDbPath, *LoadError);
+            return false;
+        }
+        const TSharedPtr<FJsonObject>* NodesObject = nullptr;
+        if (DbRoot->TryGetObjectField(TEXT("nodes"), NodesObject) && NodesObject)
+        {
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*NodesObject)->Values)
+            {
+                DbKeys.Add(Pair.Key);
+            }
+        }
+    }
+
+    // Host material so expressions instantiate with a valid Outer (mirrors the
+    // fixture builders in this file).
+    UMaterial* HostMaterial = NewObject<UMaterial>(GetTransientPackage(), NAME_None, RF_Transactional);
+
+    TArray<UClass*> DerivedClasses;
+    GetDerivedClasses(UMaterialExpression::StaticClass(), DerivedClasses, /*bRecursive=*/true);
+
+    TArray<TSharedPtr<FJsonValue>> MissingArray;
+    TArray<TSharedPtr<FJsonValue>> DeprecatedArray;
+    TSet<FString> MatchedDbKeys;
+    int32 ConcreteCount = 0;
+    int32 InDbCount = 0;
+
+    for (UClass* Class : DerivedClasses)
+    {
+        if (!Class || Class->HasAnyClassFlags(CLASS_Abstract)) continue;
+        const FString TypeName = ExpressionTypeNameFromClass(Class);
+        if (TypeName.IsEmpty()) continue; // the base UMaterialExpression itself
+
+        ++ConcreteCount;
+        const bool bDeprecated = Class->HasAnyClassFlags(CLASS_Deprecated | CLASS_NewerVersionExists);
+        const bool bInDb = DbKeys.Contains(TypeName);
+        if (bInDb) { ++InDbCount; MatchedDbKeys.Add(TypeName); }
+
+        if (bDeprecated) { DeprecatedArray.Add(MakeShared<FJsonValueString>(TypeName)); continue; }
+        if (bInDb) continue; // already covered by the DB
+
+        // Best-effort pin reflection — the same calls the metadata path uses.
+        UMaterialExpression* Expr = NewObject<UMaterialExpression>(HostMaterial, Class, NAME_None, RF_Transactional);
+        TArray<TSharedPtr<FJsonValue>> Inputs;
+        TArray<TSharedPtr<FJsonValue>> Outputs;
+        FString Caption;
+        if (Expr)
+        {
+            for (int32 i = 0; Expr->GetInput(i) != nullptr; ++i)
+            {
+                Inputs.Add(MakeShared<FJsonValueString>(Expr->GetInputName(i).ToString()));
+            }
+            for (const FExpressionOutput& Out : Expr->GetOutputs())
+            {
+                Outputs.Add(MakeShared<FJsonValueString>(Out.OutputName.ToString()));
+            }
+            TArray<FString> Captions;
+            Expr->GetCaption(Captions);
+            if (Captions.Num() > 0) Caption = Captions[0];
+        }
+
+        TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+        Entry->SetStringField(TEXT("type"), TypeName);
+        Entry->SetStringField(TEXT("ueClass"), Class->GetPathName());
+        Entry->SetStringField(TEXT("caption"), Caption);
+        Entry->SetArrayField(TEXT("inputs"), Inputs);
+        Entry->SetArrayField(TEXT("outputs"), Outputs);
+        MissingArray.Add(MakeShared<FJsonValueObject>(Entry));
+    }
+
+    // DB keys with no concrete engine class (renamed/removed/typo, or overrides
+    // whose class suffix differs from the DB key — review these by hand).
+    TArray<TSharedPtr<FJsonValue>> OrphanArray;
+    for (const FString& Key : DbKeys)
+    {
+        if (!MatchedDbKeys.Contains(Key)) OrphanArray.Add(MakeShared<FJsonValueString>(Key));
+    }
+
+    TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+    Root->SetStringField(TEXT("schemaVersion"), TEXT("1.0"));
+    Root->SetStringField(TEXT("kind"), TEXT("node-discovery"));
+    Root->SetStringField(TEXT("engineVersion"), FEngineVersion::Current().ToString());
+    Root->SetStringField(TEXT("generatedAt"), FDateTime::UtcNow().ToIso8601());
+    TSharedRef<FJsonObject> Counts = MakeShared<FJsonObject>();
+    Counts->SetNumberField(TEXT("engineExpressions"), ConcreteCount);
+    Counts->SetNumberField(TEXT("inDb"), InDbCount);
+    Counts->SetNumberField(TEXT("missing"), MissingArray.Num());
+    Counts->SetNumberField(TEXT("deprecated"), DeprecatedArray.Num());
+    Counts->SetNumberField(TEXT("orphansInDb"), OrphanArray.Num());
+    Root->SetObjectField(TEXT("counts"), Counts);
+    Root->SetArrayField(TEXT("missing"), MissingArray);
+    Root->SetArrayField(TEXT("deprecated"), DeprecatedArray);
+    Root->SetArrayField(TEXT("orphansInDb"), OrphanArray);
+
+    FString OutputText;
+    const TSharedRef<TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>> Writer =
+        TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>::Create(&OutputText);
+    if (!FJsonSerializer::Serialize(Root, Writer))
+    {
+        OutError = TEXT("Node discovery: failed to serialize JSON.");
+        return false;
+    }
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutPath), true);
+    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath))
+    {
+        OutError = FString::Printf(TEXT("Node discovery: failed to write %s"), *OutPath);
+        return false;
+    }
+    UE_LOG(LogTemp, Display, TEXT("Wrote node discovery report: %s (%d engine expressions, %d in DB, %d missing, %d deprecated, %d orphans)"),
+        *OutPath, ConcreteCount, InDbCount, MissingArray.Num(), DeprecatedArray.Num(), OrphanArray.Num());
+    return true;
+}
+
+// ===========================================================================
 // WorkMF Phase 2 — crawl the user's OWN project Material Functions.
 //
 // Writes agent-pack/workmf-index.json: the call signature (pin names + order) of
@@ -2184,6 +2331,26 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         return 0;
     }
 
+    FString DiscoverNodesOutPath;
+    if (FParse::Value(*Params, TEXT("DiscoverNodesOut="), DiscoverNodesOutPath))
+    {
+        DiscoverNodesOutPath = ToAbsolutePath(DiscoverNodesOutPath);
+        // Optional DB to diff against; when given, the report marks which engine
+        // expressions the DB already covers and which are missing.
+        FString NodeDbForDiff;
+        if (FParse::Value(*Params, TEXT("NodeDb="), NodeDbForDiff) && !NodeDbForDiff.IsEmpty())
+        {
+            NodeDbForDiff = ToAbsolutePath(NodeDbForDiff);
+        }
+        FString Error;
+        if (!WriteNodeDiscovery(DiscoverNodesOutPath, NodeDbForDiff, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 17;
+        }
+        return 0;
+    }
+
     FString NodeDbPath;
     FString OutPath;
     const bool bHasNodeDb = FParse::Value(*Params, TEXT("NodeDb="), NodeDbPath);
@@ -2193,6 +2360,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     if (!bHasNodeDb || !bHasOut)
     {
         UE_LOG(LogTemp, Error, TEXT("Usage: -run=UEMatExportMetadata -NodeDb=<nodes-ue5.7.json> -Out=<nodes-ue5.7.export.json> [-Strict]"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -DiscoverNodesOut=<discovery.json> [-NodeDb=<nodes-ue5.7.json>]"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -MakeMaterialAttributesSampleOut=<fixture.t3d>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -CoreClipboardOut=<fixture.t3d> -TextureAsset=<Texture2D object path>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -TextureSampleSourcesOut=<fixture.t3d> -TextureAsset=<Texture2D object path>"));

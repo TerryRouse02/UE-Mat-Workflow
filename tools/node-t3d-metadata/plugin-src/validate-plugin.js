@@ -30,7 +30,7 @@ if (!descriptor.Modules?.some((mod) => mod.Name === 'UEMatExportMetadata' && mod
 }
 
 const commandlet = fs.readFileSync(path.join(root, 'Source/UEMatExportMetadata/Private/UEMatExportMetadataCommandlet.cpp'), 'utf8');
-for (const token of ['NodeDb=', 'Out=', 'CoreClipboardOut=', 'MakeMaterialAttributesSampleOut=', 'TextureSampleSourcesOut=', 'WorkMfOut=', 'UMaterialExpression', 'FJsonSerializer', 'functionAsset']) {
+for (const token of ['NodeDb=', 'Out=', 'CoreClipboardOut=', 'MakeMaterialAttributesSampleOut=', 'TextureSampleSourcesOut=', 'WorkMfOut=', 'DiscoverNodesOut=', 'GetDerivedClasses', 'UMaterialExpression', 'FJsonSerializer', 'functionAsset']) {
   if (!commandlet.includes(token)) {
     console.error(`Commandlet source is missing expected token: ${token}`);
     process.exit(1);
