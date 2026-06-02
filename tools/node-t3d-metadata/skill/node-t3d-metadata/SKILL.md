@@ -28,6 +28,8 @@ The entrypoint rebuilds the plugin when needed, generates metadata, audits the o
 
 Use `-CaptureFixtures` only when calibrating UE clipboard/T3D emitter behavior.
 
+Use `-WorkMF` to crawl the project's own Material Functions into `agent-pack\workmf-index.json` (local + gitignored; runs the crawl only). Only needed when graphs reference your own `/Game` MFs by asset path. See `docs\WORKMF.md`.
+
 Verify:
 
 ```powershell

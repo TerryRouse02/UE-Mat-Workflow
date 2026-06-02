@@ -1,7 +1,7 @@
 # Spec — 工作專案 MF 索引 + UE 節點爬取工具產品化
 
-狀態：Phase 1（純 TS 消費端）完成、測試全綠（vitest 133/133、tsc 0 errors）；Phase 2-4 待 Windows/UE 機（Codex）。
-開發機：macOS（Darwin），**無 UE / 無 PowerShell** → 只有 Phase 1（純 TS）能在本機驗證；Phase 2-4 屬 Windows/UE，於本機僅「盲寫」，須在 UE 機（Codex 端）驗證。
+狀態：Phase 1（純 TS 消費端）完成，本機測試全綠（vitest 152/152、tsc 0）。Phase 2 **核心已實作於程式碼**——commandlet `-WorkMfOut=` WorkMF 爬取模式 + 基本 provenance（`FEngineVersion::Current()`）+ 入口 `-WorkMF` 開關（見 `tools/node-t3d-metadata/docs/WORKMF.md`）——待 UE 機（Codex）實跑驗證。**仍待**：Phase 2 進階項（多根 `-WorkMFDiscoverRoots`、`-WorkMFUpdateExisting`、`missing/-PruneMissing`、完整 provenance、`nodes-ue5.7.export.json` 加 provenance）；Phase 3（統一入口 `Invoke-UEMatWorkflowMaintenance.ps1` + config——目前先以既有入口的 `-WorkMF` 開關替代）；Phase 4。
+開發機：macOS（Darwin），**無 UE / 無 PowerShell** → 純 TS 部分本機可驗；UE-gated 部分於本機僅「盲寫」，須在 UE 機（Codex 端）驗證。
 
 本 spec 分階段。**Phase 1 必須在沒有 UE 的環境也能完整跑綠**，後續階段不得混入 Phase 1。
 

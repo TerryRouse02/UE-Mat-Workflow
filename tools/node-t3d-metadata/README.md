@@ -9,6 +9,7 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 - `plugin-src/`: UE editor plugin source for the `UEMatExportMetadata` commandlet.
 - `compiled/UEMatExportMetadata/`: compiled Win64 plugin package usable without adding a project plugin.
 - `docs/AGENT_WORKFLOW.md`: agent-facing workflow for updating `agent-pack\nodes-ue5.7.export.json`.
+- `docs/WORKMF.md`: WorkMF mode — index the project's own Material Functions into `agent-pack\workmf-index.json` (local, gitignored).
 - `docs/VERIFICATION.md`: required audit and test commands.
 - `skill/node-t3d-metadata/SKILL.md`: portable skill instructions for Codex, Claude, or other agents.
 
@@ -38,6 +39,14 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3
   -ProjectPath <Path\To\Project.uproject> `
   -EngineRoot <Path\To\UnrealEngine> `
   -CaptureFixtures
+
+# Crawl THIS project's own Material Functions into agent-pack\workmf-index.json
+# (local + gitignored). Only needed if your graphs reference your own /Game MFs by
+# asset path; runs the crawl only, not the node-metadata regen. See docs/WORKMF.md.
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
+  -ProjectPath <Path\To\Project.uproject> `
+  -EngineRoot <Path\To\UnrealEngine> `
+  -WorkMF
 
 # Capture the core MaterialGraphNode clipboard calibration fixture.
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Capture-CoreClipboardSample.ps1 `
