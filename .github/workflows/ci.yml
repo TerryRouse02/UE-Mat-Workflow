@@ -1,0 +1,46 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# Cancel superseded runs on the same ref so a fast follow-up push doesn't queue.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (tsc + vite)
+        run: pnpm build
+
+      - name: Test (vitest, all workspaces)
+        run: pnpm -r test
+
+      # The following checks run fully offline against committed artifacts —
+      # no Unreal Engine needed (the commandlet that *generates* them does).
+      - name: Audit export metadata
+        run: node tools/node-t3d-metadata/audit-export-meta.js
+
+      - name: Validate tooling layout
+        run: node tools/node-t3d-metadata/validate-tooling.js
+
+      - name: Validate plugin source layout
+        run: node tools/node-t3d-metadata/plugin-src/validate-plugin.js
