@@ -1083,6 +1083,11 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
   const importNodes: ImportNode[] = [];
   const byExpr = new Map<string, ImportNode>();
   const declGuidToName = new Map<string, string>();   // NamedReroute VariableGuid -> declaration Name
+  // Reroute (Knot) passthroughs: exprName -> its own upstream source. A reroute
+  // node carries no value; wires that source from it are re-pointed at this
+  // upstream (transitively) so the wire survives instead of dangling. Collapsed,
+  // not re-emitted — they are pure visual wire-routing in UE.
+  const rerouteSource = new Map<string, { expr?: string; outputIndex: number }>();
   const comments: { x: number; y: number; w: number; h: number; text: string; color: string }[] = [];
   const usedIds = new Set<string>();
 
@@ -1097,6 +1102,21 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
         text: unquoteStr(kv.get('NodeComment') ?? '""'),
         color: rgbaToHex(kv.get('CommentColor') ?? '(R=0.5,G=0.5,B=0.5,A=1.0)'),
       });
+      continue;
+    }
+    // Reroute knot: a MaterialGraphNode_Knot wrapping a MaterialExpressionReroute.
+    // Record where its single passthrough input comes from; wire() collapses it.
+    if (top.className === '/Script/UnrealEd.MaterialGraphNode_Knot') {
+      const knot = splitBody(top.bodyLines);
+      const rdecl = knot.nested.find(n => n.className);
+      const rfillObj = knot.nested.find(n => !n.className) ?? rdecl;
+      const rerouteName = rdecl?.name ?? rfillObj?.name;
+      if (rerouteName) {
+        const rfill = new Map(splitBody(rfillObj?.bodyLines ?? []).scalars.map(scalarKV).filter(Boolean) as [string, string][]);
+        const inputRaw = rfill.get('Input');
+        const inp = inputRaw ? parseInputStruct(inputRaw) : { expr: undefined, outputIndex: 0 };
+        rerouteSource.set(rerouteName, { expr: inp.expr, outputIndex: inp.outputIndex });
+      }
       continue;
     }
     if (top.className !== '/Script/UnrealEd.MaterialGraphNode') continue;
@@ -1211,9 +1231,24 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
   const connections: ConnectionJson[] = [];
   const wire = (srcExpr: string | undefined, srcIndex: number, dstId: string, dstPin: string): void => {
     if (!srcExpr) return;
-    const src = byExpr.get(srcExpr);
-    if (!src) { warnings.push(`Node "${dstId}" input "${dstPin}": source "${srcExpr}" not found - wire dropped.`); return; }
-    connections.push({ from: `${src.id}:${resolveSourcePin(src, srcIndex, warnings)}`, to: `${dstId}:${dstPin}` });
+    // Follow reroute (Knot) passthroughs to the real upstream source. A reroute
+    // has a single output, so its incoming index is discarded in favour of the
+    // upstream's stored OutputIndex. The seen-set breaks any reroute cycle.
+    let expr: string | undefined = srcExpr;
+    let index = srcIndex;
+    const seen = new Set<string>();
+    while (expr && rerouteSource.has(expr)) {
+      if (seen.has(expr)) { expr = undefined; break; }
+      seen.add(expr);
+      const up: { expr?: string; outputIndex: number } = rerouteSource.get(expr)!;
+      expr = up.expr; index = up.outputIndex;
+    }
+    // A reroute with no (or cyclic) upstream resolves to nothing — drop silently
+    // rather than warn, since the original graph had no value there either.
+    if (!expr) return;
+    const src = byExpr.get(expr);
+    if (!src) { warnings.push(`Node "${dstId}" input "${dstPin}": source "${expr}" not found - wire dropped.`); return; }
+    connections.push({ from: `${src.id}:${resolveSourcePin(src, index, warnings)}`, to: `${dstId}:${dstPin}` });
   };
 
   for (const node of importNodes) {
