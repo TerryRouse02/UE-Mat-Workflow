@@ -29,6 +29,35 @@ describe('loadWorkMfIndex', () => {
     expect(index?.functions['/Game/MF_A.MF_A'].inputs[0].name).toBe('X');
   });
 
+  it('accepts the full WorkMF producer output shape (provenance, category, pin index fields)', async () => {
+    // Mirrors exactly what the UE commandlet WriteWorkMfIndex emits, so a producer/consumer
+    // schema drift fails here instead of silently at runtime on the user's machine.
+    const p = tmpFile('workmf-index.json', JSON.stringify({
+      schemaVersion: '1.0', kind: 'workmf-index', ueVersion: '5.7',
+      provenance: {
+        ueVersion: '5.7', engineVersion: '5.7.4-51494982+++UE5+Release-5.7',
+        generatedBy: 'UEMatExportMetadata', generatedAt: '2026-06-01T00:00:00.000Z', contentRoots: '/Game',
+      },
+      functions: {
+        '/Game/Functions/MF_Foo.MF_Foo': {
+          assetPath: '/Game/Functions/MF_Foo.MF_Foo',
+          displayName: 'MF_Foo',
+          category: '/Game/Functions',
+          inputs: [{ name: 'Color', type: 'Float3', index: 0 }, { name: 'Amount', type: 'Float1', index: 1 }],
+          outputs: [{ name: 'Result', type: 'Float3', index: 0 }],
+          missing: false,
+        },
+      },
+    }));
+    const { index, warnings } = await loadWorkMfIndex(p);
+    expect(warnings).toEqual([]);
+    // The exporter consumes pins by declared order; the `index` field is informational only.
+    expect(deriveWorkMfPins(index, '/Game/Functions/MF_Foo.MF_Foo')).toEqual({
+      inputs: [{ name: 'Color', type: 'Float3' }, { name: 'Amount', type: 'Float1' }],
+      outputs: [{ name: 'Result', type: 'Float3' }],
+    });
+  });
+
   it('returns empty (and does NOT warn) when the file is absent', async () => {
     const { index, warnings } = await loadWorkMfIndex(resolve(tmpdir(), 'no-such-workmf-index.json'));
     expect(index).toBeNull();

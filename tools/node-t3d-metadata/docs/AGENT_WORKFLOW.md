@@ -50,3 +50,18 @@ Success - 0 error(s), 0 warning(s)
 ```
 
 Then run or review the checks in `docs/VERIFICATION.md`.
+
+## WorkMF mode (index the project's own Material Functions)
+
+A separate mode crawls the user's **own** project Material Functions into the local,
+gitignored `agent-pack/workmf-index.json` (it does NOT touch `nodes-ue5.7.export.json`):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
+  -ProjectPath <Path\To\Project.uproject> `
+  -EngineRoot  <Path\To\UnrealEngine> `
+  -WorkMF
+```
+
+Full details, schema, content-root options, and the Codex hand-off prompt are in
+`docs/WORKMF.md`.

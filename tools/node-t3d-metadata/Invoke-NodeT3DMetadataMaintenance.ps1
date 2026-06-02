@@ -7,7 +7,12 @@ param(
     [string]$PackageDir = "",
     [switch]$ForcePackage,
     [switch]$CaptureFixtures,
-    [switch]$SkipViewerTests
+    [switch]$SkipViewerTests,
+    # WorkMF Phase 2: crawl the user's OWN project Material Functions into the local,
+    # gitignored agent-pack/workmf-index.json. When set, this packages the plugin (if
+    # stale) then runs ONLY the crawl — it does not regenerate node metadata.
+    [switch]$WorkMF,
+    [string]$WorkMfContentRoots = "/Game"
 )
 
 $ErrorActionPreference = "Stop"
@@ -108,6 +113,24 @@ if ($needsPackage) {
     Write-Host ""
     Write-Host "== Package plugin =="
     Write-Host "Packaged plugin is up to date: $PackagedPlugin"
+}
+
+if ($WorkMF) {
+    Invoke-Step "Crawl work-project Material Functions (WorkMF Phase 2)" {
+        Invoke-External "Run-WorkMfIndex.ps1" {
+            & (Join-Path $PluginSrc "Scripts\Run-WorkMfIndex.ps1") `
+                -ProjectPath $ProjectPath `
+                -EngineRoot $EngineRoot `
+                -WorkflowRoot $WorkflowRoot `
+                -PackageDir $PackageDir `
+                -ContentRoots $WorkMfContentRoots
+        }
+    }
+    $WorkMfIndex = Join-Path $WorkflowRoot "agent-pack\workmf-index.json"
+    Write-Host ""
+    Write-Host "WorkMF crawl completed."
+    Write-Host "Index: $WorkMfIndex (gitignored, local — do not commit)."
+    return
 }
 
 Invoke-Step "Generate metadata" {

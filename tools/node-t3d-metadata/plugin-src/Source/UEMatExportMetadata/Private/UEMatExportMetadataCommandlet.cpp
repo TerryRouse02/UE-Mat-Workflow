@@ -28,7 +28,16 @@
 #include "Materials/MaterialExpressionTransform.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
 #include "Materials/MaterialAttributeDefinitionMap.h" // FMaterialAttributeDefinitionMap (MaterialAttributes name<->GUID registry)
+#include "Materials/MaterialFunction.h"
+#include "Materials/MaterialFunctionInterface.h"
+#include "Materials/MaterialExpressionFunctionInput.h"
+#include "Materials/MaterialExpressionFunctionOutput.h"
+#include "Materials/MaterialExpressionMaterialFunctionCall.h" // FFunctionExpressionInput / FFunctionExpressionOutput
+#include "AssetRegistry/AssetRegistryModule.h"
+#include "AssetRegistry/IAssetRegistry.h"
+#include "Misc/EngineVersion.h"
 #include "Misc/FileHelper.h"
+#include "Misc/PackageName.h"
 #include "Misc/Paths.h"
 #include "Policies/PrettyJsonPrintPolicy.h"
 #include "Serialization/JsonReader.h"
@@ -1847,6 +1856,184 @@ static TArray<TSharedPtr<FJsonValue>> BuildMaterialAttributesArray()
 
     return Out;
 }
+
+// ===========================================================================
+// WorkMF Phase 2 — crawl the user's OWN project Material Functions.
+//
+// Writes agent-pack/workmf-index.json: the call signature (pin names + order) of
+// every UMaterialFunction under the given content root(s), keyed by UE asset path.
+// Consumed at runtime by viewer/server/workmf-index.ts (loader + mf-resolver) and the
+// authoring agent. The index is LOCAL + gitignored; only the user's project MFs are
+// indexed (engine/official MFs are not).
+//
+// API NOTE (verify against the installed UE 5.7 headers when compiling):
+//  - UMaterialFunctionInterface::GetInputsAndOutputs(TArray<FFunctionExpressionInput>&,
+//    TArray<FFunctionExpressionOutput>&) returns the function's input/output expressions;
+//    FFunctionExpressionInput/Output live in MaterialExpressionMaterialFunctionCall.h.
+//  - Pin ORDER must match UMaterialExpressionMaterialFunctionCall::UpdateFromFunctionResource,
+//    which orders by FMaterialExpression*::SortPriority. The viewer exporter's positional
+//    FunctionInputs(n) index depends on this order, so we sort the same way.
+//  - EFunctionInputType member names (FunctionInput_Scalar/Vector2/.../Substrate) are the
+//    version-sensitive part; adjust the switch if a name differs on the installed engine.
+// ===========================================================================
+static FString MapFunctionInputType(EFunctionInputType Type)
+{
+    switch (Type)
+    {
+    case FunctionInput_Scalar:             return TEXT("Float1");
+    case FunctionInput_Vector2:            return TEXT("Float2");
+    case FunctionInput_Vector3:            return TEXT("Float3");
+    case FunctionInput_Vector4:            return TEXT("Float4");
+    case FunctionInput_Texture2D:          return TEXT("Texture2D");
+    case FunctionInput_TextureCube:        return TEXT("TextureCube");
+    case FunctionInput_Texture2DArray:     return TEXT("Texture2DArray");
+    case FunctionInput_VolumeTexture:      return TEXT("VolumeTexture");
+    case FunctionInput_StaticBool:         return TEXT("StaticBool");
+    case FunctionInput_MaterialAttributes: return TEXT("MaterialAttributes");
+    case FunctionInput_TextureExternal:    return TEXT("TextureExternal");
+    default:                               return TEXT("Float3");
+    }
+}
+
+static TSharedRef<FJsonValue> MakeWorkMfPin(const FString& Name, const FString& Type, int32 Index)
+{
+    TSharedRef<FJsonObject> Pin = MakeShared<FJsonObject>();
+    Pin->SetStringField(TEXT("name"), Name);
+    Pin->SetStringField(TEXT("type"), Type);
+    Pin->SetNumberField(TEXT("index"), Index);
+    return MakeShared<FJsonValueObject>(Pin);
+}
+
+static bool WriteWorkMfIndex(const FString& OutPath, const FString& ContentRootsCsv, const FString& UeVersion, FString& OutError)
+{
+    const FString EffectiveVersion = UeVersion.IsEmpty() ? TEXT("5.7") : UeVersion;
+
+    FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+    IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+    AssetRegistry.SearchAllAssets(true); // block until the project is fully scanned
+
+    TArray<FString> ContentRoots;
+    if (!ContentRootsCsv.IsEmpty())
+    {
+        ContentRootsCsv.ParseIntoArray(ContentRoots, TEXT(","), true);
+        for (FString& Root : ContentRoots) { Root.TrimStartAndEndInline(); }
+    }
+    if (ContentRoots.Num() == 0)
+    {
+        ContentRoots.Add(TEXT("/Game"));
+    }
+
+    FARFilter Filter;
+    Filter.ClassPaths.Add(UMaterialFunction::StaticClass()->GetClassPathName());
+    Filter.bRecursiveClasses = false; // concrete UMaterialFunction only (skip instances/layers/blends)
+    Filter.bRecursivePaths = true;
+    for (const FString& Root : ContentRoots)
+    {
+        Filter.PackagePaths.Add(FName(*Root));
+    }
+
+    TArray<FAssetData> Assets;
+    AssetRegistry.GetAssets(Filter, Assets);
+    Assets.Sort([](const FAssetData& A, const FAssetData& B)
+    {
+        return A.GetObjectPathString() < B.GetObjectPathString();
+    });
+
+    TSharedRef<FJsonObject> Functions = MakeShared<FJsonObject>();
+    int32 Count = 0;
+    int32 LoadFailures = 0;
+    for (const FAssetData& Asset : Assets)
+    {
+        UMaterialFunction* Function = Cast<UMaterialFunction>(Asset.GetAsset());
+        if (Function == nullptr)
+        {
+            ++LoadFailures;
+            UE_LOG(LogTemp, Warning, TEXT("WorkMF: failed to load Material Function '%s'"), *Asset.GetObjectPathString());
+            continue;
+        }
+
+        const FString AssetPath = Asset.GetObjectPathString(); // e.g. /Game/Functions/MF_Foo.MF_Foo
+
+        TArray<FFunctionExpressionInput> Inputs;
+        TArray<FFunctionExpressionOutput> Outputs;
+        Function->GetInputsAndOutputs(Inputs, Outputs);
+
+        Inputs.StableSort([](const FFunctionExpressionInput& A, const FFunctionExpressionInput& B)
+        {
+            const int32 PA = A.ExpressionInput ? A.ExpressionInput->SortPriority : 0;
+            const int32 PB = B.ExpressionInput ? B.ExpressionInput->SortPriority : 0;
+            return PA < PB;
+        });
+        Outputs.StableSort([](const FFunctionExpressionOutput& A, const FFunctionExpressionOutput& B)
+        {
+            const int32 PA = A.ExpressionOutput ? A.ExpressionOutput->SortPriority : 0;
+            const int32 PB = B.ExpressionOutput ? B.ExpressionOutput->SortPriority : 0;
+            return PA < PB;
+        });
+
+        TArray<TSharedPtr<FJsonValue>> InputArray;
+        for (int32 Index = 0; Index < Inputs.Num(); ++Index)
+        {
+            const UMaterialExpressionFunctionInput* In = Inputs[Index].ExpressionInput;
+            if (In == nullptr) { continue; }
+            InputArray.Add(MakeWorkMfPin(In->InputName.ToString(), MapFunctionInputType(In->InputType), Index));
+        }
+
+        TArray<TSharedPtr<FJsonValue>> OutputArray;
+        for (int32 Index = 0; Index < Outputs.Num(); ++Index)
+        {
+            const UMaterialExpressionFunctionOutput* Out = Outputs[Index].ExpressionOutput;
+            if (Out == nullptr) { continue; }
+            // FunctionOutput carries no declared type; "Float3" is a best-effort cosmetic default
+            // (the viewer falls back to the same when type is unknown). Names/order are exact.
+            OutputArray.Add(MakeWorkMfPin(Out->OutputName.ToString(), TEXT("Float3"), Index));
+        }
+
+        TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+        Entry->SetStringField(TEXT("assetPath"), AssetPath);
+        Entry->SetStringField(TEXT("displayName"), Asset.AssetName.ToString());
+        Entry->SetStringField(TEXT("category"), FPackageName::GetLongPackagePath(Asset.PackageName.ToString()));
+        Entry->SetArrayField(TEXT("inputs"), InputArray);
+        Entry->SetArrayField(TEXT("outputs"), OutputArray);
+        Entry->SetBoolField(TEXT("missing"), false);
+        Functions->SetObjectField(AssetPath, Entry);
+        ++Count;
+    }
+
+    TSharedRef<FJsonObject> Provenance = MakeShared<FJsonObject>();
+    Provenance->SetStringField(TEXT("ueVersion"), EffectiveVersion);
+    Provenance->SetStringField(TEXT("engineVersion"), FEngineVersion::Current().ToString());
+    Provenance->SetStringField(TEXT("generatedBy"), TEXT("UEMatExportMetadata"));
+    Provenance->SetStringField(TEXT("generatedAt"), FDateTime::UtcNow().ToIso8601());
+    Provenance->SetStringField(TEXT("contentRoots"), FString::Join(ContentRoots, TEXT(",")));
+
+    TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+    Root->SetStringField(TEXT("schemaVersion"), TEXT("1.0"));
+    Root->SetStringField(TEXT("kind"), TEXT("workmf-index"));
+    Root->SetStringField(TEXT("ueVersion"), EffectiveVersion);
+    Root->SetObjectField(TEXT("provenance"), Provenance);
+    Root->SetObjectField(TEXT("functions"), Functions);
+
+    FString OutputText;
+    const TSharedRef<TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>> Writer =
+        TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>::Create(&OutputText);
+    if (!FJsonSerializer::Serialize(Root, Writer))
+    {
+        OutError = TEXT("Failed to serialize workmf-index JSON.");
+        return false;
+    }
+
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutPath), true);
+    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath))
+    {
+        OutError = FString::Printf(TEXT("Failed to write work-MF index: %s"), *OutPath);
+        return false;
+    }
+
+    UE_LOG(LogTemp, Display, TEXT("Wrote work-MF index: %s (%d function(s), %d load failure(s))"), *OutPath, Count, LoadFailures);
+    UE_LOG(LogTemp, Display, TEXT("Warnings: %d"), LoadFailures);
+    return true;
+}
 } // namespace UE::MatExportMetadata
 
 UUEMatExportMetadataCommandlet::UUEMatExportMetadataCommandlet()
@@ -1976,6 +2163,23 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         {
             UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
             return 15;
+        }
+        return 0;
+    }
+
+    FString WorkMfOutPath;
+    if (FParse::Value(*Params, TEXT("WorkMfOut="), WorkMfOutPath))
+    {
+        WorkMfOutPath = ToAbsolutePath(WorkMfOutPath);
+        FString ContentRoots;
+        FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots);
+        FString WorkMfUeVersion;
+        FParse::Value(*Params, TEXT("UeVersion="), WorkMfUeVersion);
+        FString Error;
+        if (!WriteWorkMfIndex(WorkMfOutPath, ContentRoots, WorkMfUeVersion, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 16;
         }
         return 0;
     }
