@@ -62,14 +62,14 @@ static TMap<FString, FString> BuildClassOverrides()
 {
     TMap<FString, FString> Overrides;
     Overrides.Add(TEXT("Lerp"), TEXT("MaterialExpressionLinearInterpolate"));
-    Overrides.Add(TEXT("TextureSampleParameterMovie"), TEXT("MaterialExpressionTextureSampleParameter2D"));
     Overrides.Add(TEXT("LandscapeLayerBlend"), TEXT("/Script/Landscape.MaterialExpressionLandscapeLayerBlend"));
     Overrides.Add(TEXT("LandscapeLayerCoords"), TEXT("/Script/Landscape.MaterialExpressionLandscapeLayerCoords"));
+    Overrides.Add(TEXT("LandscapeLayerSample"), TEXT("/Script/Landscape.MaterialExpressionLandscapeLayerSample"));
     Overrides.Add(TEXT("LandscapeLayerSwitch"), TEXT("/Script/Landscape.MaterialExpressionLandscapeLayerSwitch"));
     Overrides.Add(TEXT("LandscapeLayerWeight"), TEXT("/Script/Landscape.MaterialExpressionLandscapeLayerWeight"));
     Overrides.Add(TEXT("LandscapeVisibilityMask"), TEXT("/Script/Landscape.MaterialExpressionLandscapeVisibilityMask"));
-    Overrides.Add(TEXT("PreSkinnedLocalNormal"), TEXT("MaterialExpressionPreSkinnedNormal"));
-    Overrides.Add(TEXT("PreSkinnedLocalPosition"), TEXT("MaterialExpressionPreSkinnedPosition"));
+    Overrides.Add(TEXT("LandscapeGrassOutput"), TEXT("/Script/Landscape.MaterialExpressionLandscapeGrassOutput"));
+    Overrides.Add(TEXT("LandscapePhysicalMaterialOutput"), TEXT("/Script/Landscape.MaterialExpressionLandscapePhysicalMaterialOutput"));
     return Overrides;
 }
 
@@ -89,7 +89,6 @@ static TMap<FString, TMap<FString, FString>> BuildInputOverrides()
     Overrides.Add(TEXT("TextureSample"), {{TEXT("UVs"), TEXT("Coordinates")}, {TEXT("Tex"), TEXT("TextureObject")}});
     Overrides.Add(TEXT("TextureSampleParameterSubUV"), {{TEXT("UVs"), TEXT("Coordinates")}});
     Overrides.Add(TEXT("TextureSampleParameterCube"), {{TEXT("UVs"), TEXT("Coordinates")}, {TEXT("Tex"), TEXT("TextureObject")}});
-    Overrides.Add(TEXT("TextureSampleParameterMovie"), {{TEXT("UVs"), TEXT("Coordinates")}, {TEXT("Tex"), TEXT("TextureObject")}});
     Overrides.Add(TEXT("ParticleSubUV"), {{TEXT("UVs"), TEXT("Coordinates")}});
     Overrides.Add(TEXT("AntialiasedTextureMask"), {{TEXT("UVs"), TEXT("Coordinates")}});
     Overrides.Add(TEXT("Power"), {{TEXT("Exp"), TEXT("Exponent")}});
@@ -1742,10 +1741,6 @@ static TSharedRef<FJsonObject> BuildNodeEntry(const FString& NodeType, const TSh
         {
             Entry->SetStringField(TEXT("note"), TEXT("Verified by UE reflection commandlet. Also the auto-collect target: graphToUET3D synthesizes one MakeMaterialAttributes per MaterialOutput and reroutes the root's attribute wires into it, so a pasted material needs a single MaterialAttributes wire (enable Use Material Attributes). See collectMaterialOutputs in viewer/web/src/export/ueT3D.ts."));
         }
-        else if (NodeType == TEXT("TextureSampleParameterMovie"))
-        {
-            Entry->SetStringField(TEXT("note"), TEXT("Verified by UE reflection commandlet; UE 5.7 exports movie texture parameters through MaterialExpressionTextureSampleParameter2D."));
-        }
         else
         {
             Entry->SetStringField(TEXT("note"), TEXT("Verified by UE reflection commandlet. Raw clipboard T3D sample is preserved only when already present."));
@@ -1994,7 +1989,7 @@ static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath
         return false;
     }
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutPath), true);
-    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath))
+    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
         OutError = FString::Printf(TEXT("Node discovery: failed to write %s"), *OutPath);
         return false;
@@ -2171,7 +2166,7 @@ static bool WriteWorkMfIndex(const FString& OutPath, const FString& ContentRoots
     }
 
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutPath), true);
-    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath))
+    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
         OutError = FString::Printf(TEXT("Failed to write work-MF index: %s"), *OutPath);
         return false;
@@ -2430,7 +2425,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     }
 
     IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutPath), true);
-    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath))
+    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
     {
         UE_LOG(LogTemp, Error, TEXT("Failed to write export metadata: %s"), *OutPath);
         return 6;

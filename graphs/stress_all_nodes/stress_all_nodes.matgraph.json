@@ -482,13 +482,6 @@
       }
     },
     {
-      "id": "N_TextureSampleParameterMovie",
-      "type": "TextureSampleParameterMovie",
-      "params": {
-        "ParameterName": "StressMovie"
-      }
-    },
-    {
       "id": "N_ParticleMacroUV",
       "type": "ParticleMacroUV"
     },
@@ -627,12 +620,12 @@
       "type": "ReflectionVectorWS"
     },
     {
-      "id": "N_PreSkinnedLocalNormal",
-      "type": "PreSkinnedLocalNormal"
+      "id": "N_PreSkinnedNormal",
+      "type": "PreSkinnedNormal"
     },
     {
-      "id": "N_PreSkinnedLocalPosition",
-      "type": "PreSkinnedLocalPosition"
+      "id": "N_PreSkinnedPosition",
+      "type": "PreSkinnedPosition"
     },
     {
       "id": "RR_AlbedoDecl",
@@ -1327,7 +1320,7 @@
       "to": "N_QualitySwitch:Default"
     },
     {
-      "from": "N_PreSkinnedLocalPosition:XYZ",
+      "from": "N_PreSkinnedPosition:XYZ",
       "to": "N_QualitySwitch:Low"
     },
     {
@@ -1571,10 +1564,6 @@
       "to": "N_TextureSampleParameterCube:Tex"
     },
     {
-      "from": "N_TextureCoordinate:UVs",
-      "to": "N_TextureSampleParameterMovie:UVs"
-    },
-    {
       "from": "N_Constant3Vector:RGB",
       "to": "N_MakeMaterialAttributes:BaseColor"
     },
@@ -1719,10 +1708,6 @@
       "to": "N_FeatureLevelSwitch:SM4"
     },
     {
-      "from": "N_SceneDepth:Depth",
-      "to": "N_TextureSampleParameterMovie:Tex"
-    },
-    {
       "from": "N_Fmod:Result",
       "to": "N_MakeMaterialAttributes:Specular"
     },
@@ -1741,10 +1726,6 @@
     {
       "from": "N_TextureSampleParameterCube:RGB",
       "to": "N_MakeMaterialAttributes:Normal"
-    },
-    {
-      "from": "N_TextureSampleParameterMovie:RGB",
-      "to": "N_MakeMaterialAttributes:WorldPositionOffset"
     },
     {
       "from": "N_SphericalParticleOpacity:Opacity",
@@ -1767,7 +1748,7 @@
       "to": "N_MakeMaterialAttributes:ClearCoat"
     },
     {
-      "from": "N_PreSkinnedLocalNormal:XYZ",
+      "from": "N_PreSkinnedNormal:XYZ",
       "to": "N_MakeMaterialAttributes:ClearCoatRoughness"
     },
     {
@@ -2193,7 +2174,6 @@
         "N_TextureObjectParameter",
         "N_TextureSampleParameterSubUV",
         "N_TextureSampleParameterCube",
-        "N_TextureSampleParameterMovie",
         "N_ScalarParameter",
         "N_VectorParameter",
         "N_StaticSwitchParameter",
@@ -2242,8 +2222,8 @@
         "N_LightVector",
         "N_ObjectBounds",
         "N_ReflectionVectorWS",
-        "N_PreSkinnedLocalNormal",
-        "N_PreSkinnedLocalPosition",
+        "N_PreSkinnedNormal",
+        "N_PreSkinnedPosition",
         "N_BlendAngleCorrectedNormals",
         "N_LandscapeLayerCoords",
         "N_LandscapeLayerSwitch",

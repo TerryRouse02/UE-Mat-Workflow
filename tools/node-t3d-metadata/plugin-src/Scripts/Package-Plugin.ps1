@@ -68,5 +68,16 @@ if (Test-Path $IntermediateDir) {
     Remove-Item -LiteralPath $IntermediateDir -Recurse -Force
 }
 
+$PackagedPluginFile = Join-Path $PackageDir "UEMatExportMetadata.uplugin"
+if (Test-Path $PackagedPluginFile) {
+    $Descriptor = Get-Content -Raw -LiteralPath $PackagedPluginFile | ConvertFrom-Json
+    if ($Descriptor.PSObject.Properties.Name -contains "EngineVersion") {
+        $Descriptor.PSObject.Properties.Remove("EngineVersion")
+        $Descriptor |
+            ConvertTo-Json -Depth 16 |
+            Set-Content -LiteralPath $PackagedPluginFile -Encoding UTF8
+    }
+}
+
 Write-Host "Packaged plugin to $PackageDir"
 Write-Host "Package log: $PackageLog"

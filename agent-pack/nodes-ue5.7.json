@@ -2991,80 +2991,6 @@
         }
       ]
     },
-    "TextureSampleParameterMovie": {
-      "category": "Parameters",
-      "description": "Samples a movie texture exposed as a parameter.",
-      "inputs": [
-        {
-          "name": "UVs",
-          "type": "Float2",
-          "required": false
-        },
-        {
-          "name": "Tex",
-          "type": "TextureMovie",
-          "required": false
-        }
-      ],
-      "outputs": [
-        {
-          "name": "RGB",
-          "type": "Float3"
-        },
-        {
-          "name": "R",
-          "type": "Float1"
-        },
-        {
-          "name": "G",
-          "type": "Float1"
-        },
-        {
-          "name": "B",
-          "type": "Float1"
-        },
-        {
-          "name": "A",
-          "type": "Float1"
-        }
-      ],
-      "verified": true,
-      "params": [
-        {
-          "name": "ParameterName",
-          "type": "Name",
-          "required": true
-        },
-        {
-          "name": "Group",
-          "type": "Name"
-        },
-        {
-          "name": "Texture",
-          "type": "TextureRef"
-        },
-        {
-          "name": "SamplerType",
-          "type": "Enum",
-          "values": [
-            "Color",
-            "LinearColor",
-            "Grayscale",
-            "LinearGrayscale",
-            "Normal",
-            "Alpha",
-            "Masks",
-            "Data",
-            "External",
-            "VirtualColor"
-          ]
-        },
-        {
-          "name": "MipValueMode",
-          "type": "Enum"
-        }
-      ]
-    },
     "ParticleMacroUV": {
       "category": "Particle",
       "description": "Outputs macro UV coordinates for particles.",
@@ -4090,54 +4016,6 @@
           "required": false
         }
       ],
-      "outputs": [
-        {
-          "name": "XYZ",
-          "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
-        }
-      ],
-      "verified": true
-    },
-    "PreSkinnedLocalNormal": {
-      "category": "Vector",
-      "description": "Outputs the pre-skinned local-space normal.",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "XYZ",
-          "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
-        }
-      ],
-      "verified": true
-    },
-    "PreSkinnedLocalPosition": {
-      "category": "Vector",
-      "description": "Outputs the pre-skinned local-space position.",
-      "inputs": [],
       "outputs": [
         {
           "name": "XYZ",
@@ -6552,28 +6430,52 @@
       "verified": false
     },
     "PreSkinnedNormal": {
-      "category": "Utility",
-      "description": "Pre-Skinned Local Normal (auto-discovered; verify pins/types).",
+      "category": "Vector",
+      "description": "Outputs the pre-skinned local-space normal.",
       "inputs": [],
       "outputs": [
         {
-          "name": "Result",
-          "type": "Float1|2|3|4"
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PreSkinnedPosition": {
-      "category": "Utility",
-      "description": "Pre-Skinned Local Position (deprecated) (auto-discovered; verify pins/types).",
+      "category": "Vector",
+      "description": "Outputs the pre-skinned local-space position.",
       "inputs": [],
       "outputs": [
         {
-          "name": "Result",
-          "type": "Float1|2|3|4"
+          "name": "XYZ",
+          "type": "Float3"
+        },
+        {
+          "name": "X",
+          "type": "Float1"
+        },
+        {
+          "name": "Y",
+          "type": "Float1"
+        },
+        {
+          "name": "Z",
+          "type": "Float1"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PreSkinnedTangent": {
       "category": "Utility",
