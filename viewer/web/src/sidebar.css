@@ -59,3 +59,15 @@
 .lib-badge.verified { background: rgba(126,201,111,.18); color: var(--ok); }
 .lib-badge.dynamic { background: rgba(91,155,240,.18); color: #5b9bf0; }
 .lib-badge.deprecated { background: rgba(224,114,138,.18); color: var(--err); }
+.lib-badge.provisional { background: rgba(214,178,90,.18); color: #d6b25a; }
+
+/* verified:false markers + toggle */
+.lib-prov-dot { color: #d6b25a; font-size: 8px; margin-left: 5px; vertical-align: middle; }
+.lib-prov-note { font-size: 10px; color: var(--fg-faint); margin-top: 4px; line-height: 1.4; }
+.lib-prov-note code { font-family: ui-monospace, Menlo, monospace; }
+.lib-prov-toggle { display: flex; align-items: center; gap: 5px; font-size: 11px;
+  color: var(--fg-dim); margin-bottom: 8px; cursor: pointer; user-select: none; }
+.lib-prov-toggle input { cursor: pointer; }
+
+/* official MF browser section */
+.lib-mf-root { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--bg2); }
