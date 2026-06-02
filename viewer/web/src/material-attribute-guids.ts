@@ -10,9 +10,11 @@
 //   viewer/tests/fixtures/ue-set-material-attributes.t3d  (AttributeSetTypes)
 //   viewer/tests/fixtures/ue-get-material-attributes.t3d  (AttributeGetTypes)
 //
-// To extend coverage: capture a clipboard sample that sets/gets the attribute
-// (or add a commandlet attribute-map export) and add the verified row here. An
-// attribute not in this table is dropped with a warning, not invented.
+// This is the FALLBACK. The exporter prefers the full, commandlet-generated map in
+// nodes-ue5.7.export.json (`materialAttributes`) when present — see buildAttributeTable in
+// export/ueT3D.ts — and only uses these three when that section is absent. To get full
+// coverage, regenerate export.json via tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1
+// on the UE host. An attribute in neither source is dropped with a warning, not invented.
 export interface MaterialAttributeGuid { display: string; guid: string; }
 
 export const MATERIAL_ATTRIBUTE_GUIDS: Record<string, MaterialAttributeGuid> = {

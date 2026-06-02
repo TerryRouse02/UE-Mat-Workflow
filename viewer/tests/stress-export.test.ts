@@ -6,6 +6,7 @@ import { resolveMaterialFunctions } from '../server/mf-resolver';
 import { graphToUET3D } from '../web/src/export/ueT3D';
 import type { ExportMeta } from '../web/src/export/export-meta-types';
 import type { MatGraph, DerivedPins } from '../web/src/protocol';
+import { MATERIAL_ATTRIBUTE_GUIDS } from '../web/src/material-attribute-guids';
 
 // ---------------------------------------------------------------------------
 // CI regression test for the multi-dimensional EXPORT stress material.
@@ -32,6 +33,20 @@ const EXPORT_META_PATH = resolve(REPO, 'agent-pack/nodes-ue5.7.export.json');
 const FIXTURES = resolve(__dirname, 'fixtures');
 
 const EXPORT_META = JSON.parse(readFileSync(EXPORT_META_PATH, 'utf-8')) as ExportMeta;
+
+// The effective attribute table, mirroring the exporter (buildAttributeTable): the full
+// commandlet-generated map if export.json carries one, else the fixture-captured fallback
+// (BaseColor/Roughness/Metallic). Keeping these assertions table-driven means they stay green
+// whether or not export.json yet has a materialAttributes section — so regenerating it on the
+// UE machine (which fills in Normal, EmissiveColor, …) won't surprise-break this test.
+const ATTR_TABLE: Record<string, { display: string; guid: string }> =
+  EXPORT_META.materialAttributes && EXPORT_META.materialAttributes.length
+    ? Object.fromEntries(EXPORT_META.materialAttributes.map(a => [a.name.replace(/\s+/g, ''), { display: a.name, guid: a.guid }]))
+    : MATERIAL_ATTRIBUTE_GUIDS;
+const hasAttr = (n: string) => n.replace(/\s+/g, '') in ATTR_TABLE;
+const SET_ATTRS = ['BaseColor', 'Roughness', 'Metallic', 'Normal'];   // N_SetMaterialAttributes.params.AttributeNames
+const GET_ATTRS = ['BaseColor', 'Roughness', 'EmissiveColor'];        // N_GetMaterialAttributes.params.AttributeNames
+const droppedAttrs = [...SET_ATTRS, ...GET_ATTRS].filter(a => !hasAttr(a));
 
 async function buildExport() {
   const loaded = await loadGraph(MATERIAL_PATH);
@@ -90,11 +105,13 @@ describe('stress_all_nodes export', () => {
     expect(warnings.some(w => /pin "EmissiveColor" wired more than once/.test(w))).toBe(true);
     expect(warnings.some(w => /N_DoubleInput" input "A" wired more than once/.test(w))).toBe(true);
 
-    // Two uncaptured-attribute drops: Set lists Normal, Get lists EmissiveColor — neither
-    // has a captured GUID, so each is dropped with a warning (never invented).
-    expect(warnings.filter(w => /has no captured GUID - dropped/.test(w))).toHaveLength(2);
-    expect(warnings.some(w => /SetMaterialAttributes "N_SetMaterialAttributes": attribute "Normal" has no captured GUID/.test(w))).toBe(true);
-    expect(warnings.some(w => /GetMaterialAttributes "N_GetMaterialAttributes": attribute "EmissiveColor" has no captured GUID/.test(w))).toBe(true);
+    // Every AttributeNames entry without a known GUID is dropped + warned (never invented).
+    // In the fixture-fallback state that is Normal (Set) and EmissiveColor (Get); once the
+    // commandlet map lands in export.json these resolve and the count drops to 0.
+    expect(warnings.filter(w => /has no captured GUID - dropped/.test(w))).toHaveLength(droppedAttrs.length);
+    for (const a of droppedAttrs) {
+      expect(warnings.some(w => new RegExp(`attribute "${a}" has no captured GUID`).test(w)), `expected a drop warning for ${a}`).toBe(true);
+    }
 
     // The dynamic-pin nodes are now exported, so NOTHING is "not exportable yet" and
     // no wire is "dropped: source was not exported" (N_DynSink now resolves both inputs).
@@ -239,23 +256,27 @@ describe('stress_all_nodes export', () => {
     // Inputs(0) is the base MaterialAttributes (fully-qualified ref, no InputName).
     expect(lines.some(l => /^Inputs\(0\)=\(Expression="\/Script\/Engine\.MaterialExpressionMakeMaterialAttributes'[^']+'"\)$/.test(l))).toBe(true);
     // Inputs(1) sets Base Color from a vector source: InputName before the RGB mask (fixture order).
-    expect(lines.some(l => /^Inputs\(1\)=\(Expression="[^"]+",InputName="Base Color",Mask=1,MaskR=1,MaskG=1,MaskB=1\)$/.test(l))).toBe(true);
+    const bcName = ATTR_TABLE['BaseColor'].display;
+    expect(lines.some(l => new RegExp(`^Inputs\\(1\\)=\\(Expression="[^"]+",InputName="${bcName}",Mask=1,MaskR=1,MaskG=1,MaskB=1\\)$`).test(l))).toBe(true);
     // Scalar attributes carry an InputName but no mask.
-    expect(lines).toContain('Inputs(2)=(Expression="/Script/Engine.MaterialExpressionOneMinus\'MaterialGraphNode_4.MaterialExpressionOneMinus_4\'",InputName="Roughness")');
+    expect(lines).toContain(`Inputs(2)=(Expression="/Script/Engine.MaterialExpressionOneMinus'MaterialGraphNode_4.MaterialExpressionOneMinus_4'",InputName="${ATTR_TABLE['Roughness'].display}")`);
 
-    // Exactly three AttributeSetTypes (BaseColor, Roughness, Metallic) — Normal was dropped.
+    // One AttributeSetTypes per emitted attribute; BaseColor/Roughness/Metallic always lead in
+    // that order (Normal follows only when its GUID is in the effective table).
+    const setEmitted = SET_ATTRS.filter(hasAttr);
     const setTypes = [...text.matchAll(/AttributeSetTypes\(\d+\)=([0-9A-F]{32})/g)].map(m => m[1]);
-    expect(setTypes).toEqual([
+    expect(setTypes).toHaveLength(setEmitted.length);
+    expect(setTypes.slice(0, 3)).toEqual([
       '69B8D33616ED4D499AA497292F050F7A', // Base Color
       'D1DD967C4CAD47D39E6346FB08ECF210', // Roughness
       '57C3A1617F064296B00B24A5A496F34C', // Metallic
     ]);
-    // ...and every emitted GUID is one really present in the captured fixture.
+    // ...and those three are GUIDs really present in the captured fixture (ground truth).
     const ground = fixtureGuids('ue-set-material-attributes.t3d', 'AttributeSetTypes');
-    expect(setTypes.every(g => ground.has(g))).toBe(true);
+    expect(setTypes.slice(0, 3).every(g => ground.has(g))).toBe(true);
 
-    // The uncaptured attribute is genuinely absent (not invented under a guessed GUID).
-    expect(text).not.toContain('InputName="Normal"');
+    // Normal is exported iff its GUID is in the effective table — dropped, never invented, otherwise.
+    expect(text.includes('InputName="Normal"')).toBe(hasAttr('Normal'));
   });
 
   it('[FIXED] GetMaterialAttributes emits MaterialAttributes + AttributeGetTypes + Outputs matching the fixture', async () => {
@@ -266,20 +287,23 @@ describe('stress_all_nodes export', () => {
     // The single MaterialAttributes input is a fully-qualified ref (here fed by the Set node).
     expect(lines.some(l => /^MaterialAttributes=\(Expression="\/Script\/Engine\.MaterialExpressionSetMaterialAttributes'[^']+'"\)$/.test(l))).toBe(true);
 
-    // Two captured attributes (BaseColor, Roughness); EmissiveColor was dropped.
+    // One AttributeGetTypes per emitted attribute; BaseColor/Roughness always lead in order
+    // (EmissiveColor follows only when its GUID is in the effective table).
+    const getEmitted = GET_ATTRS.filter(hasAttr);
     const getTypes = [...text.matchAll(/AttributeGetTypes\(\d+\)=([0-9A-F]{32})/g)].map(m => m[1]);
-    expect(getTypes).toEqual([
+    expect(getTypes).toHaveLength(getEmitted.length);
+    expect(getTypes.slice(0, 2)).toEqual([
       '69B8D33616ED4D499AA497292F050F7A', // Base Color
       'D1DD967C4CAD47D39E6346FB08ECF210', // Roughness
     ]);
     const ground = fixtureGuids('ue-get-material-attributes.t3d', 'AttributeGetTypes');
-    expect(getTypes.every(g => ground.has(g))).toBe(true);
+    expect(getTypes.slice(0, 2).every(g => ground.has(g))).toBe(true);
 
     // Named outputs start at index 1 (index 0 is the MaterialAttributes pass-through).
-    expect(lines).toContain('Outputs(1)=(OutputName="Base Color")');
-    expect(lines).toContain('Outputs(2)=(OutputName="Roughness")');
-    expect(text).not.toContain('OutputName="Emissive Color"');
-    expect(text).not.toContain('AttributeGetTypes(2)='); // only two captured
+    expect(lines).toContain(`Outputs(1)=(OutputName="${ATTR_TABLE['BaseColor'].display}")`);
+    expect(lines).toContain(`Outputs(2)=(OutputName="${ATTR_TABLE['Roughness'].display}")`);
+    // EmissiveColor's output (a third AttributeGetTypes) appears iff its GUID is captured.
+    expect(text.includes('AttributeGetTypes(2)=')).toBe(hasAttr('EmissiveColor'));
   });
 
   it('[FIXED] LandscapeLayerBlend emits one Layers(i) struct per layer with Layer/Height inputs', async () => {

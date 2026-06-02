@@ -365,15 +365,34 @@ interface DynamicNodeInfo {
   layers: DynLayer[];    // layerblend only
 }
 
+// Attribute name (space-stripped, e.g. "BaseColor") -> { display, guid }. Keyed without
+// spaces so a matgraph pin "BaseColor" resolves whether UE reports "BaseColor" or "Base Color".
+type AttrTable = Record<string, { display: string; guid: string }>;
+
+// The effective attribute table: the full commandlet-generated map when present, else the
+// fixture-captured fallback (BaseColor/Roughness/Metallic). meta.materialAttributes names may
+// carry spaces; we key on the stripped form and keep the original as the display name.
+function buildAttributeTable(meta: ExportMeta): AttrTable {
+  const fromMeta = meta.materialAttributes;
+  if (fromMeta && fromMeta.length > 0) {
+    const table: AttrTable = {};
+    for (const a of fromMeta) {
+      table[a.name.replace(/\s+/g, '')] = { display: a.name, guid: a.guid };
+    }
+    return table;
+  }
+  return MATERIAL_ATTRIBUTE_GUIDS;
+}
+
 // Resolve a Set/Get node's AttributeNames to {pin, display, guid}. An attribute with no
-// captured GUID is dropped here with a warning (never invented) — see material-attribute-guids.
-function resolveAttributes(node: NodeJson, warnings: string[]): SetGetAttr[] {
+// known GUID is dropped here with a warning (never invented) — see material-attribute-guids.
+function resolveAttributes(node: NodeJson, warnings: string[], table: AttrTable): SetGetAttr[] {
   const raw = node.params?.AttributeNames;
   const names = Array.isArray(raw) ? raw : [];
   const attrs: SetGetAttr[] = [];
   for (const item of names) {
     const name = String(item);
-    const def = MATERIAL_ATTRIBUTE_GUIDS[name];
+    const def = table[name.replace(/\s+/g, '')];
     if (!def) {
       warnings.push(`${node.type} "${node.id}": attribute "${name}" has no captured GUID - dropped (capture a UE sample that sets/gets it to enable).`);
       continue;
@@ -383,9 +402,9 @@ function resolveAttributes(node: NodeJson, warnings: string[]): SetGetAttr[] {
   return attrs;
 }
 
-function buildDynamicInfo(node: NodeJson, warnings: string[]): DynamicNodeInfo | undefined {
+function buildDynamicInfo(node: NodeJson, warnings: string[], table: AttrTable): DynamicNodeInfo | undefined {
   if (node.type === 'SetMaterialAttributes') {
-    const attrs = resolveAttributes(node, warnings);
+    const attrs = resolveAttributes(node, warnings, table);
     return {
       kind: 'set', attrs, layers: [],
       // Inputs(0) is the base MaterialAttributes; Inputs(1..N) are the set attributes.
@@ -395,7 +414,7 @@ function buildDynamicInfo(node: NodeJson, warnings: string[]): DynamicNodeInfo |
     };
   }
   if (node.type === 'GetMaterialAttributes') {
-    const attrs = resolveAttributes(node, warnings);
+    const attrs = resolveAttributes(node, warnings, table);
     // Output 0 is the MaterialAttributes pass-through; attributes are Outputs(1..N).
     const outputs: DynPin[] = [{ name: 'MaterialAttributes', display: 'MaterialAttributes' }, ...attrs.map(a => ({ name: a.pin, display: a.display }))];
     const outputIndexByPin = new Map<string, number>();
@@ -484,8 +503,9 @@ export function graphToUET3D(
   // warned + dropped inside buildDynamicInfo.
   const dynamicInfo = new Map<string, DynamicNodeInfo>();
   const dynamicInputNames = new Map<string, Set<string>>();
+  const attrTable = buildAttributeTable(meta);
   for (const item of emitted) {
-    const info = buildDynamicInfo(item.node, warnings);
+    const info = buildDynamicInfo(item.node, warnings, attrTable);
     if (info) {
       dynamicInfo.set(item.node.id, info);
       dynamicInputNames.set(item.node.id, new Set(info.inputs.map(p => p.name)));

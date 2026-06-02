@@ -27,6 +27,7 @@
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Materials/MaterialExpressionTransform.h"
 #include "Materials/MaterialExpressionVectorParameter.h"
+#include "MaterialShared.h" // FMaterialAttributeDefinitionMap (MaterialAttributes name<->GUID registry)
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
 #include "Policies/PrettyJsonPrintPolicy.h"
@@ -1806,6 +1807,43 @@ static TSharedRef<FJsonObject> BuildReservedObject(const TSharedPtr<FJsonObject>
 
     return Reserved;
 }
+
+// Dump UE's full MaterialAttributes registry as [{ name, guid }, ...]. Each FGuid is exactly
+// what UE serialises into AttributeSetTypes(n)/AttributeGetTypes(n), so the viewer's exporter
+// can key Set/Get export on real GUIDs for ALL attributes instead of the handful captured from
+// clipboard fixtures (see viewer/web/src/export/ueT3D.ts -> buildAttributeTable, and the
+// material-attribute-guids.ts fallback used when this section is absent).
+//
+// API NOTE (verify against the installed engine headers when compiling): this uses
+// FMaterialAttributeDefinitionMap::GetAttributeNameToIDList, the same registry the Set/Get
+// attribute pickers read. If that symbol differs in this UE version, the equivalent is to call
+// GetAttributeList(TArray<FGuid>&) and GetAttributeName(const FGuid&) per entry. FGuid::ToString()
+// (default = EGuidFormats::Digits, 32 hex) already matches the fixture GUID format.
+static TArray<TSharedPtr<FJsonValue>> BuildMaterialAttributesArray()
+{
+    TArray<TSharedPtr<FJsonValue>> Out;
+
+    TArray<TPair<FString, FGuid>> NameToId;
+    FMaterialAttributeDefinitionMap::GetAttributeNameToIDList(NameToId);
+    NameToId.Sort([](const TPair<FString, FGuid>& A, const TPair<FString, FGuid>& B)
+    {
+        return A.Key < B.Key;
+    });
+
+    for (const TPair<FString, FGuid>& Pair : NameToId)
+    {
+        if (!Pair.Value.IsValid())
+        {
+            continue;
+        }
+        TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+        Entry->SetStringField(TEXT("name"), Pair.Key);
+        Entry->SetStringField(TEXT("guid"), Pair.Value.ToString());
+        Out.Add(MakeShared<FJsonValueObject>(Entry));
+    }
+
+    return Out;
+}
 } // namespace UE::MatExportMetadata
 
 UUEMatExportMetadataCommandlet::UUEMatExportMetadataCommandlet()
@@ -2005,6 +2043,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     }
     OutRoot->SetObjectField(TEXT("nodes"), OutNodes);
     OutRoot->SetObjectField(TEXT("reserved"), BuildReservedObject(ExistingRoot));
+    OutRoot->SetArrayField(TEXT("materialAttributes"), BuildMaterialAttributesArray());
 
     FString OutputText;
     const TSharedRef<TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>> Writer =

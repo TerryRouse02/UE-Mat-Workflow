@@ -70,6 +70,54 @@ describe('graphToUET3D', () => {
     expect(text).toContain('MaterialExpressionEditorY=0');
   });
 
+  it('uses meta.materialAttributes (full map) for Set attributes, matching names space-insensitively', () => {
+    // The commandlet-generated path: a full attribute map lets Set/Get export attributes beyond
+    // the fixture-captured fallback. Names may carry spaces ("Emissive Color") while the matgraph
+    // pin uses the no-space form ("EmissiveColor"); they must still resolve, and the spaced UE
+    // display name must be what lands in InputName.
+    const META_MAP: ExportMeta = {
+      schemaVersion: '1.0', ueVersion: '5.7',
+      nodes: {
+        Constant: { ueClass: '/Script/Engine.MaterialExpressionConstant', inputs: {}, outputs: { Value: { index: 0 } }, params: {} },
+        SetMaterialAttributes: { ueClass: '/Script/Engine.MaterialExpressionSetMaterialAttributes', inputs: {}, outputs: {}, params: {}, dynamicExport: true },
+      },
+      reserved: {},
+      materialAttributes: [
+        { name: 'Base Color', guid: 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' },
+        { name: 'Normal', guid: 'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB' },
+        { name: 'Emissive Color', guid: 'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC' },
+      ],
+    };
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        { id: 'c', type: 'Constant', params: { R: 1 } },
+        { id: 'set', type: 'SetMaterialAttributes', params: { AttributeNames: ['BaseColor', 'Normal', 'EmissiveColor'] } },
+      ],
+      connections: [
+        { from: 'c:Value', to: 'set:BaseColor' },
+        { from: 'c:Value', to: 'set:Normal' },
+        { from: 'c:Value', to: 'set:EmissiveColor' },
+      ],
+    };
+    const { text, warnings } = graphToUET3D(graph, layout({ c: [-100, 0], set: [100, 0] }), META_MAP, NO_PINS);
+
+    // All three resolve from the map — none invented, none dropped.
+    expect(warnings.filter(w => /has no captured GUID/.test(w))).toEqual([]);
+    // GUIDs come from the map, in AttributeNames order.
+    const setTypes = [...text.matchAll(/AttributeSetTypes\(\d+\)=([0-9A-F]{32})/g)].map(m => m[1]);
+    expect(setTypes).toEqual([
+      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA',
+      'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB',
+      'CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC',
+    ]);
+    // InputName uses the map's display name verbatim (spaces preserved) even though the matgraph
+    // pin was the no-space "EmissiveColor".
+    expect(text).toContain('InputName="Base Color"');
+    expect(text).toContain('InputName="Normal"');
+    expect(text).toContain('InputName="Emissive Color"');
+  });
+
   it('emits a channel-mask connection for a sub-channel output', () => {
     const META2: ExportMeta = JSON.parse(JSON.stringify(META));
     META2.nodes.TextureSampleParameter2D.outputs.R = { index: 0, mask: 'R' };
