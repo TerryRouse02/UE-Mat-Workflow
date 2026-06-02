@@ -56,7 +56,10 @@ function audit(workflowRoot) {
   const nodeKeys = Object.keys(expNodes);
   const reservedKeys = Object.keys(reserved);
 
-  const missing = dbKeys.filter((key) => !(key in expNodes));
+  // `verified: false` authoring nodes are provisional — proposed (e.g. by node
+  // discovery) but not yet regenerated into the export metadata on a UE host.
+  // They are allowed to lag export coverage; verified:true nodes are not.
+  const missing = dbKeys.filter((key) => !(key in expNodes) && dbNodes[key]?.verified !== false);
   const orphans = nodeKeys.filter((key) => !(key in dbNodes));
   const dynamic = nodeKeys.filter((key) => expNodes[key]?.dynamicExport === true);
   const verified = nodeKeys.filter((key) => expNodes[key]?.verified === true);

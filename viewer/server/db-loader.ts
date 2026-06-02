@@ -9,7 +9,19 @@ import type { NodeDB } from './db-types.js';
 // wire) and the downstream node reads the Usage's output, so the declaration's own
 // `outputs: []` is correct, not a bad crawl. The "every node has an output" rule
 // must exempt these.
-export const OUTPUTLESS_NODES = new Set<string>(['NamedRerouteDeclaration']);
+// Beyond NamedRerouteDeclaration, the engine's material-output / custom-output
+// "sink" expressions also have no output pin — they feed a material attribute or
+// a named engine output, never a downstream wire. This set was auto-discovered
+// (commandlet node discovery: classes whose reflected outputs array is empty).
+export const OUTPUTLESS_NODES = new Set<string>([
+  'NamedRerouteDeclaration',
+  'BentNormalCustomOutput', 'ClearCoatNormalCustomOutput', 'TangentOutput',
+  'ThinTranslucentMaterialOutput', 'FirstPersonOutput', 'TemporalResponsivenessOutput',
+  'MotionVectorWorldOffsetOutput', 'LandscapeGrassOutput', 'LandscapePhysicalMaterialOutput',
+  'AbsorptionMediumMaterialOutput', 'AdditionalUniformCustomOutput', 'NeuralNetworkInput',
+  'RuntimeVirtualTextureOutput', 'SingleLayerWaterMaterialOutput', 'SubsurfaceMediumMaterialOutput',
+  'VolumetricAdvancedMaterialOutput', 'VolumetricCloudEmptySpaceSkippingOutput', 'LegacyBlendMaterialAttributes',
+]);
 
 export function loadDB(path: string): NodeDB {
   const raw = readFileSync(path, 'utf-8');
