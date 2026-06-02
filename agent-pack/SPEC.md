@@ -178,7 +178,7 @@ Current dynamic-pin nodes in `nodes-ue5.7.json`:
 
 | Node | Rule summary |
 |---|---|
-| `LandscapeLayerBlend` | For each entry in `params.Layers`, two inputs: `"Layer <name>"` and `"Height <name>"`. Output is `"Result"`. |
+| `LandscapeLayerBlend` | One `"Layer <name>"` input per entry in `params.Layers`, plus a `"Height <name>"` input for layers whose `BlendType` is `LB_HeightBlend`. Output is `"Result"`. Each layer entry also carries `BlendType`, `PreviewWeight`, `ConstLayerInput`, `ConstHeightInput` (see below). |
 | `SetMaterialAttributes` | Fixed input `"MaterialAttributes"` plus one input per entry in `params.AttributeNames` (e.g., `"BaseColor"`, `"Roughness"`). Output is `"MaterialAttributes"`. |
 | `GetMaterialAttributes` | Fixed input `"MaterialAttributes"`. One output per entry in `params.AttributeNames`. |
 
@@ -192,15 +192,30 @@ Current dynamic-pin nodes in `nodes-ue5.7.json`:
 Example: `LandscapeLayerBlend` with two layers "Dirt" and "Grass":
 
 ```jsonc
-// node declaration
+// node declaration — each layer is a full FLayerBlendInput struct
 { "id": "blend", "type": "LandscapeLayerBlend",
-  "params": { "Layers": [{ "Name": "Dirt" }, { "Name": "Grass" }] } }
+  "params": { "Layers": [
+    { "Name": "Dirt",  "BlendType": "LB_HeightBlend", "PreviewWeight": 0.35,
+      "ConstLayerInput": [0.2, 0.1, 0.05], "ConstHeightInput": 0.2 },
+    { "Name": "Grass", "BlendType": "LB_HeightBlend", "PreviewWeight": 0.65,
+      "ConstLayerInput": [0.05, 0.35, 0.08], "ConstHeightInput": 0.8 }
+  ] } }
 
 // connections — pin names derived from layer names
 { "from": "dirt_tex:RGB",   "to": "blend:Layer Dirt" }
 { "from": "grass_tex:RGB",  "to": "blend:Layer Grass" }
 { "from": "blend:Result",   "to": "OUT:BaseColor" }
 ```
+
+**Per-layer fields (full fidelity).** Each `Layers[i]` entry mirrors UE's `FLayerBlendInput` and exports verbatim:
+
+- `Name` (required) — drives the `"Layer <name>"` / `"Height <name>"` pin names.
+- `BlendType` — `LB_WeightBlend` | `LB_AlphaBlend` | `LB_HeightBlend` (default `LB_HeightBlend`). A `"Height <name>"` input pin exists **only** for `LB_HeightBlend` layers.
+- `PreviewWeight` (number, optional) — the editor preview slider weight.
+- `ConstLayerInput` (`[x,y,z]`, optional) — the constant colour used when the `Layer <name>` pin is unwired.
+- `ConstHeightInput` (number, optional) — the constant height used when the `Height <name>` pin is unwired.
+
+The trailing four are **emitted only when supplied** (never invented), and in UE field order. Omit any you don't have a value for; the layer still exports.
 
 Example: `GetMaterialAttributes` extracting BaseColor and Roughness:
 
@@ -225,6 +240,20 @@ on the UE host. When that section is absent, the exporter falls back to the fixt
 **`ClearCoatRoughness`**, which UE registers under the internal names `CustomData0`/`CustomData1`
 (for clear coat use `MakeMaterialAttributes`, whose `ClearCoat`/`ClearCoatRoughness` pins export
 normally). Every other attribute resolves by name.
+
+## Reverse import (UE T3D → matgraph)
+
+The clipboard bridge is bidirectional. `parseUET3D(text, meta)` (in
+`viewer/web/src/export/ueT3D.ts`) is the inverse of the exporter: paste a copied UE
+material selection (its T3D text) and it reconstructs a `.matgraph.json` — node types
+(via the `nodes-ue<version>.export.json` UE-class map), params, and connections.
+It runs **fully locally** (no Unreal needed) and is the exact inverse of the export
+path it mirrors, validated against the real UE 5.7 captures in
+`viewer/tests/fixtures/*.t3d` (including full `LandscapeLayerBlend` per-layer fidelity,
+`Make`/`Set`/`GetMaterialAttributes`, `Custom`, and comment grouping recovered
+geometrically). Anything it can't map (an unknown UE class, an MF whose pin names need
+the function definition) is surfaced as a warning, never invented. Pin/param values UE
+omits as defaults fall back to the DB defaults, same as authored graphs.
 
 ## Examples
 

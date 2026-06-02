@@ -713,10 +713,144 @@ describe('graphToUET3D', () => {
     expect(text).toContain('PinName="Extra"');
     expect(text).toMatch(/A=\(Expression=MaterialExpressionCustom_\d+,OutputIndex=1\)/);
   });
+
+  it('emits full per-layer LandscapeLayerBlend fidelity (PreviewWeight + Const inputs) in UE field order', () => {
+    const exportMeta = JSON.parse(readFileSync(
+      resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'), 'utf-8',
+    )) as ExportMeta;
+    const fixture = readFileSync(resolve(__dirname, 'fixtures/ue-landscape-layer-blend.t3d'), 'utf-8');
+
+    // Ground truth: a genuine UE 5.7 capture writes PreviewWeight, ConstLayerInput(X,Y,Z) and
+    // ConstHeightInput on every layer — fields the emitter previously dropped.
+    expect(fixture).toContain('PreviewWeight=0.350000');
+    expect(fixture).toContain('ConstLayerInput=(X=0.200000,Y=0.100000,Z=0.050000)');
+    expect(fixture).toContain('ConstHeightInput=0.200000');
+
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'llb',
+      nodes: [
+        { id: 'dirtCol', type: 'Constant3Vector', params: { Constant: [0.28, 0.18, 0.08, 1] } },
+        { id: 'dirtH', type: 'Constant', params: { R: 0.25 } },
+        { id: 'grassCol', type: 'Constant3Vector', params: { Constant: [0.04, 0.42, 0.12, 1] } },
+        { id: 'grassH', type: 'Constant', params: { R: 0.75 } },
+        { id: 'llb', type: 'LandscapeLayerBlend', params: { Layers: [
+          { Name: 'Dirt', BlendType: 'LB_HeightBlend', PreviewWeight: 0.35, ConstLayerInput: [0.2, 0.1, 0.05], ConstHeightInput: 0.2 },
+          { Name: 'Grass', BlendType: 'LB_HeightBlend', PreviewWeight: 0.65, ConstLayerInput: [0.05, 0.35, 0.08], ConstHeightInput: 0.8 },
+        ] } },
+      ],
+      connections: [
+        { from: 'dirtCol:RGB', to: 'llb:Layer Dirt' },
+        { from: 'dirtH:Value', to: 'llb:Height Dirt' },
+        { from: 'grassCol:RGB', to: 'llb:Layer Grass' },
+        { from: 'grassH:Value', to: 'llb:Height Grass' },
+      ],
+    };
+    const positions = layout({ dirtCol: [-760, -120], dirtH: [-760, 40], grassCol: [-760, 220], grassH: [-760, 380], llb: [-320, 80] });
+    const { text, warnings } = graphToUET3D(graph, positions, exportMeta, NO_PINS);
+    expect(warnings).toEqual([]);
+    expect(text).toContain('PreviewWeight=0.35');
+    expect(text).toContain('ConstLayerInput=(X=0.2,Y=0.1,Z=0.05)');
+    expect(text).toContain('ConstHeightInput=0.2');
+    expect(text).toContain('PreviewWeight=0.65');
+    expect(text).toContain('ConstHeightInput=0.8');
+
+    // Field order mirrors real UE: ...LayerInput, HeightInput, PreviewWeight, ConstLayerInput, ConstHeightInput.
+    const dirtLine = text.split('\n').map(l => l.trim()).find(l => l.startsWith('Layers(0)='))!;
+    expect(dirtLine.indexOf('PreviewWeight')).toBeGreaterThan(dirtLine.indexOf('LayerInput'));
+    expect(dirtLine.indexOf('ConstLayerInput')).toBeGreaterThan(dirtLine.indexOf('PreviewWeight'));
+    expect(dirtLine.indexOf('ConstHeightInput')).toBeGreaterThan(dirtLine.indexOf('ConstLayerInput'));
+  });
 });
 
 describe('parseUET3D', () => {
-  it('is a stub that throws not-implemented', () => {
-    expect(() => parseUET3D('anything')).toThrow(/not implemented/i);
+  const exportMeta = JSON.parse(readFileSync(
+    resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'), 'utf-8',
+  )) as ExportMeta;
+
+  it('returns an empty graph (no throw) for text with no objects', () => {
+    const { graph, warnings } = parseUET3D('not a t3d at all', exportMeta);
+    expect(graph.nodes).toEqual([]);
+    expect(graph.connections).toEqual([]);
+    expect(warnings).toEqual([]);
+  });
+
+  it('reverse-imports the real LandscapeLayerBlend fixture with full per-layer fidelity', () => {
+    const fixture = readFileSync(resolve(__dirname, 'fixtures/ue-landscape-layer-blend.t3d'), 'utf-8');
+    const { graph, warnings } = parseUET3D(fixture, exportMeta);
+
+    const llb = graph.nodes.find(n => n.type === 'LandscapeLayerBlend');
+    expect(llb, 'a LandscapeLayerBlend node is recovered').toBeTruthy();
+    const layers = llb!.params!.Layers as Record<string, unknown>[];
+    expect(layers).toHaveLength(2);
+    expect(layers[0]).toMatchObject({ Name: 'Dirt', BlendType: 'LB_HeightBlend', PreviewWeight: 0.35, ConstHeightInput: 0.2 });
+    expect(layers[0].ConstLayerInput).toEqual([0.2, 0.1, 0.05]);
+    expect(layers[1]).toMatchObject({ Name: 'Grass', PreviewWeight: 0.65, ConstHeightInput: 0.8 });
+    expect(layers[1].ConstLayerInput).toEqual([0.05, 0.35, 0.08]);
+
+    // The 4 source constants reconnect to the 4 derived layer pins.
+    const intoLLB = graph.connections.filter(c => c.to.startsWith(`${llb!.id}:`));
+    expect(intoLLB.map(c => c.to.slice(c.to.indexOf(':') + 1)).sort())
+      .toEqual(['Height Dirt', 'Height Grass', 'Layer Dirt', 'Layer Grass']);
+    // Color layers come from the Constant3Vector RGB outputs (OutputIndex reversed to a pin name).
+    expect(intoLLB.find(c => c.to.endsWith(':Layer Dirt'))!.from).toMatch(/:RGB$/);
+    expect(warnings.filter(w => /not found/.test(w))).toEqual([]);
+  });
+
+  it('round-trips LandscapeLayerBlend through emit -> parse (types, layer fidelity, dynamic pin wiring)', () => {
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'llb',
+      nodes: [
+        { id: 'dirtCol', type: 'Constant3Vector', params: { Constant: [0.28, 0.18, 0.08, 1] } },
+        { id: 'dirtH', type: 'Constant', params: { R: 0.25 } },
+        { id: 'grassCol', type: 'Constant3Vector', params: { Constant: [0.04, 0.42, 0.12, 1] } },
+        { id: 'grassH', type: 'Constant', params: { R: 0.75 } },
+        { id: 'llb', type: 'LandscapeLayerBlend', params: { Layers: [
+          { Name: 'Dirt', BlendType: 'LB_HeightBlend', PreviewWeight: 0.35, ConstLayerInput: [0.2, 0.1, 0.05], ConstHeightInput: 0.2 },
+          { Name: 'Grass', BlendType: 'LB_HeightBlend', PreviewWeight: 0.65, ConstLayerInput: [0.05, 0.35, 0.08], ConstHeightInput: 0.8 },
+        ] } },
+      ],
+      connections: [
+        { from: 'dirtCol:RGB', to: 'llb:Layer Dirt' },
+        { from: 'dirtH:Value', to: 'llb:Height Dirt' },
+        { from: 'grassCol:RGB', to: 'llb:Layer Grass' },
+        { from: 'grassH:Value', to: 'llb:Height Grass' },
+      ],
+    };
+    const positions = layout({ dirtCol: [-760, -120], dirtH: [-760, 40], grassCol: [-760, 220], grassH: [-760, 380], llb: [-320, 80] });
+    const { text, warnings: emitWarn } = graphToUET3D(graph, positions, exportMeta, NO_PINS);
+    expect(emitWarn).toEqual([]);
+
+    const { graph: back, warnings: importWarn } = parseUET3D(text, exportMeta);
+    expect(importWarn.filter(w => /not found/.test(w))).toEqual([]);
+    expect(back.nodes.map(n => n.type).sort()).toEqual(graph.nodes.map(n => n.type).sort());
+    expect(back.connections).toHaveLength(graph.connections.length);
+
+    const llb = back.nodes.find(n => n.type === 'LandscapeLayerBlend')!;
+    const layers = llb.params!.Layers as Record<string, unknown>[];
+    expect(layers[0]).toMatchObject({ Name: 'Dirt', PreviewWeight: 0.35, ConstHeightInput: 0.2 });
+    expect(layers[0].ConstLayerInput).toEqual([0.2, 0.1, 0.05]);
+    const intoLLB = back.connections.filter(c => c.to.startsWith(`${llb.id}:`))
+      .map(c => c.to.slice(c.to.indexOf(':') + 1)).sort();
+    expect(intoLLB).toEqual(['Height Dirt', 'Height Grass', 'Layer Dirt', 'Layer Grass']);
+  });
+
+  it('parses the real core calibration fixture into the expected node set + a comment', () => {
+    const fixture = readFileSync(resolve(__dirname, 'fixtures/ue-clipboard-core.t3d'), 'utf-8');
+    const { graph, warnings } = parseUET3D(fixture, exportMeta);
+
+    const types = graph.nodes.map(n => n.type);
+    for (const t of ['Constant', 'Add', 'VectorParameter', 'TextureSampleParameter2D', 'Transform', 'ComponentMask']) {
+      expect(types, `expected a ${t} node`).toContain(t);
+    }
+    expect(graph.comments).toHaveLength(1);
+    expect(graph.comments![0].contains.length).toBeGreaterThan(0);
+
+    // Every connection endpoint references a real node id (no dangling wires).
+    const ids = new Set(graph.nodes.map(n => n.id));
+    for (const c of graph.connections) {
+      expect(ids.has(c.from.slice(0, c.from.indexOf(':')))).toBe(true);
+      expect(ids.has(c.to.slice(0, c.to.indexOf(':')))).toBe(true);
+    }
+    expect(warnings.filter(w => /Unknown UE class/.test(w))).toEqual([]);
   });
 });

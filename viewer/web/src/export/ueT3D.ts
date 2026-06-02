@@ -1,4 +1,4 @@
-import type { MatGraph, NodeJson, DerivedPins } from '../protocol';
+import type { MatGraph, NodeJson, DerivedPins, ConnectionJson, CommentJson } from '../protocol';
 import type { ExportMeta, NodeExportMeta, OutputMeta, ParamMeta } from './export-meta-types';
 import { splitRef } from '../connstr';
 import { MATERIAL_ATTRIBUTE_PINS } from '../material-attributes';
@@ -130,6 +130,25 @@ function hexToRGBA(hex: string): string {
   const g = parseInt(m[1].slice(2, 4), 16) / 255;
   const b = parseInt(m[1].slice(4, 6), 16) / 255;
   return `(R=${fmtFloat(r)},G=${fmtFloat(g)},B=${fmtFloat(b)},A=1.0)`;
+}
+
+// Coerce a vector-3 authoring value into [x,y,z]. Accepts an array, or an object keyed
+// X/Y/Z or R/G/B (case-insensitive). Returns undefined if any component is missing so the
+// caller can omit the field rather than emit zeros it never had.
+function toVec3(value: unknown): [number, number, number] | undefined {
+  if (Array.isArray(value)) {
+    if (value.length < 3) return undefined;
+    return [Number(value[0]), Number(value[1]), Number(value[2])];
+  }
+  if (value && typeof value === 'object') {
+    const o = value as Record<string, unknown>;
+    const x = o.X ?? o.x ?? o.R ?? o.r;
+    const y = o.Y ?? o.y ?? o.G ?? o.g;
+    const z = o.Z ?? o.z ?? o.B ?? o.b;
+    if (x == null || y == null || z == null) return undefined;
+    return [Number(x), Number(y), Number(z)];
+  }
+  return undefined;
 }
 
 function maskBits(mask?: OutputMeta['mask']): string {
@@ -355,7 +374,14 @@ const DYNAMIC_SUPPORTED = new Set(['SetMaterialAttributes', 'GetMaterialAttribut
 
 interface DynPin { name: string; display: string; }              // name = graph pin (PinId/link key); display = UE PinName
 interface SetGetAttr { pin: string; display: string; guid: string; }
-interface DynLayer { name: string; layerPin: string; heightPin: string; blendType: string; heightBlend: boolean; }
+interface DynLayer {
+  name: string; layerPin: string; heightPin: string; blendType: string; heightBlend: boolean;
+  // Full per-layer fidelity (UE LandscapeLayerBlend FLayerBlendInput). All optional: emitted only
+  // when the matgraph supplies them, never invented. Verified against ue-landscape-layer-blend.t3d.
+  previewWeight?: number;                       // editor preview slider weight
+  constLayerInput?: [number, number, number];   // ConstLayerInput=(X,Y,Z) used when LayerInput unwired
+  constHeightInput?: number;                     // ConstHeightInput used when HeightInput unwired
+}
 interface DynamicNodeInfo {
   kind: 'set' | 'get' | 'layerblend';
   inputs: DynPin[];
@@ -432,7 +458,12 @@ function buildDynamicInfo(node: NodeJson, warnings: string[], table: AttrTable):
       const obj = (entry && typeof entry === 'object') ? entry as Record<string, unknown> : {};
       const name = String(obj.Name ?? '');
       const blendType = String(obj.BlendType ?? 'LB_HeightBlend');
-      return { name, blendType, heightBlend: blendType === 'LB_HeightBlend', layerPin: `Layer ${name}`, heightPin: `Height ${name}` };
+      const layer: DynLayer = { name, blendType, heightBlend: blendType === 'LB_HeightBlend', layerPin: `Layer ${name}`, heightPin: `Height ${name}` };
+      if (obj.PreviewWeight != null && obj.PreviewWeight !== '') layer.previewWeight = Number(obj.PreviewWeight);
+      const cli = toVec3(obj.ConstLayerInput);
+      if (cli) layer.constLayerInput = cli;
+      if (obj.ConstHeightInput != null && obj.ConstHeightInput !== '') layer.constHeightInput = Number(obj.ConstHeightInput);
+      return layer;
     });
     const inputs: DynPin[] = [];
     for (const l of layers) {
@@ -704,6 +735,9 @@ export function graphToUET3D(
         dyn.attrs.forEach((attr, k) => lines.push(`${I}${I}Outputs(${k + 1})=(OutputName=${quote(attr.display)})`));
       } else {
         // LandscapeLayerBlend: one Layers(i) struct per layer; HeightInput only for height blend.
+        // Field order mirrors real UE: LayerName, BlendType, LayerInput, HeightInput, PreviewWeight,
+        // ConstLayerInput, ConstHeightInput (ue-landscape-layer-blend.t3d). The trailing three are
+        // emitted only when supplied so a graph that omits them stays minimal.
         dyn.layers.forEach((layer, i) => {
           const parts = [`LayerName=${quote(layer.name)}`, `BlendType=${layer.blendType}`];
           const li = exprInput(layer.layerPin);
@@ -712,6 +746,12 @@ export function graphToUET3D(
             const hi = exprInput(layer.heightPin);
             if (hi) parts.push(`HeightInput=(${hi})`);
           }
+          if (layer.previewWeight != null) parts.push(`PreviewWeight=${fmtFloat(layer.previewWeight)}`);
+          if (layer.constLayerInput) {
+            const [x, y, z] = layer.constLayerInput;
+            parts.push(`ConstLayerInput=(X=${fmtFloat(x)},Y=${fmtFloat(y)},Z=${fmtFloat(z)})`);
+          }
+          if (layer.constHeightInput != null) parts.push(`ConstHeightInput=${fmtFloat(layer.constHeightInput)}`);
           lines.push(`${I}${I}Layers(${i})=(${parts.join(',')})`);
         });
       }
@@ -797,7 +837,479 @@ export function graphToUET3D(
   return { text: lines.join('\n'), warnings };
 }
 
-// Import is deferred - stub only, so the signature/wiring exists.
-export function parseUET3D(_text: string): MatGraph {
-  throw new Error('parseUET3D not implemented (import is not supported yet)');
+// ============================================================================
+// Reverse import: UE clipboard T3D text -> MatGraph (pure local, no UE needed).
+//
+// This is the inverse of graphToUET3D. Connectivity is rebuilt from each
+// expression's FExpressionInput properties (A=(Expression=...), Layers(i)=(...),
+// Inputs(n)=(...), MakeMaterialAttributes BaseColor=(...), MFC FunctionInputs(n)),
+// NOT from the graph-pin LinkedTo GUIDs — the FExpressionInput side carries the UE
+// *property* name (which reverse-maps to a graph pin via export metadata) and the
+// source *expression* name + OutputIndex, so it survives real UE captures whose pin
+// PinNames are display strings ("Output", "Output2") rather than graph pin names.
+// Validated against the real UE 5.7 fixtures in tests/fixtures/*.t3d.
+// ============================================================================
+
+export interface UEImportResult { graph: MatGraph; warnings: string[]; }
+
+// Split a comma-separated list, respecting nested () and "" (UE structs nest arbitrarily;
+// object refs like "Class'Path'" sit inside the double-quotes so single-quotes need no guard).
+function splitTopLevelCommas(s: string): string[] {
+  const out: string[] = [];
+  let depth = 0;
+  let inStr = false;
+  let start = 0;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inStr) {
+      if (ch === '"' && s[i - 1] !== '\\') inStr = false;
+      continue;
+    }
+    if (ch === '"') inStr = true;
+    else if (ch === '(') depth++;
+    else if (ch === ')') depth--;
+    else if (ch === ',' && depth === 0) { out.push(s.slice(start, i)); start = i + 1; }
+  }
+  out.push(s.slice(start));
+  return out.map(x => x.trim()).filter(x => x.length > 0);
+}
+
+// Parse "(K1=V1,K2=V2)" (outer parens optional) into {key,value} pairs. Splits each part on
+// its FIRST '=' so a value keeping its own '=' (a nested struct) survives intact.
+function parseStructFields(raw: string): { key: string; value: string }[] {
+  let s = raw.trim();
+  if (s.startsWith('(') && s.endsWith(')')) s = s.slice(1, -1);
+  return splitTopLevelCommas(s).map(part => {
+    const eq = part.indexOf('=');
+    return eq < 0 ? { key: part.trim(), value: '' } : { key: part.slice(0, eq).trim(), value: part.slice(eq + 1).trim() };
+  });
+}
+
+// Strip surrounding "" and unescape the three sequences quote() emits (\n, \", \\).
+function unquoteStr(v: string): string {
+  let s = v.trim();
+  if (s.startsWith('"') && s.endsWith('"')) s = s.slice(1, -1);
+  return s.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
+}
+
+// Recover the source expression NAME from an Expression= value: bare
+// "MaterialExpressionConstant_0", or a fully-qualified "/Script/...'GraphNode.Expr'".
+function exprNameFromRef(raw: string): string | undefined {
+  const q = /'([^']*)'/.exec(raw);
+  const inner = (q ? q[1] : raw).replace(/"/g, '').trim();
+  const seg = inner.includes('.') ? inner.slice(inner.lastIndexOf('.') + 1) : inner;
+  return seg || undefined;
+}
+
+// Extract the engine asset path from a quoted texture object ref ("Class'Path'") or a bare path.
+function assetPathFromRef(raw: string): string {
+  const inner = /'([^']*)'/.exec(raw)?.[1];
+  return (inner ?? unquoteStr(raw)).trim();
+}
+
+interface RawObject { className?: string; name?: string; bodyLines: string[]; }
+
+function parseObjectHeader(line: string): { className?: string; name?: string } {
+  return {
+    className: /Class=([^\s]+)/.exec(line)?.[1],
+    name: /Name="([^"]*)"/.exec(line)?.[1],
+  };
+}
+
+// Read one Begin Object..End Object block at `start`; returns it plus the index past its End.
+// Nested objects are counted by depth and retained in bodyLines.
+function readObject(lines: string[], start: number): { obj: RawObject; next: number } {
+  const { className, name } = parseObjectHeader(lines[start].trim());
+  const body: string[] = [];
+  let depth = 1;
+  let i = start + 1;
+  for (; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (t.startsWith('Begin Object')) depth++;
+    if (t === 'End Object') {
+      depth--;
+      if (depth === 0) { i++; break; }
+    }
+    body.push(lines[i]);
+  }
+  return { obj: { className, name, bodyLines: body }, next: i };
+}
+
+// Partition a body into nested objects and depth-0 scalar lines (trimmed).
+function splitBody(bodyLines: string[]): { nested: RawObject[]; scalars: string[] } {
+  const nested: RawObject[] = [];
+  const scalars: string[] = [];
+  let i = 0;
+  while (i < bodyLines.length) {
+    const t = bodyLines[i].trim();
+    if (t.startsWith('Begin Object')) {
+      const { obj, next } = readObject(bodyLines, i);
+      nested.push(obj);
+      i = next;
+    } else {
+      if (t.length) scalars.push(t);
+      i++;
+    }
+  }
+  return { nested, scalars };
+}
+
+// A scalar line "Key=Value" -> [key, value]. Returns null for non-property lines.
+function scalarKV(line: string): [string, string] | null {
+  if (line.startsWith('CustomProperties') || line.startsWith('Begin ') || line.startsWith('End ')) return null;
+  const eq = line.indexOf('=');
+  return eq < 0 ? null : [line.slice(0, eq).trim(), line.slice(eq + 1).trim()];
+}
+
+// ueClass -> our node type. Reserved entries win on a shared class so the family of built-in
+// MaterialFunctionCall wrappers all import as the generic reserved MaterialFunctionCall.
+function buildReverseTypeMap(meta: ExportMeta): Map<string, string> {
+  const map = new Map<string, string>();
+  const add = (type: string, nm: NodeExportMeta) => { if (nm.ueClass && !map.has(nm.ueClass)) map.set(nm.ueClass, type); };
+  for (const [t, nm] of Object.entries(meta.reserved)) add(t, nm);
+  for (const [t, nm] of Object.entries(meta.nodes)) add(t, nm);
+  return map;
+}
+
+// FGuid (upper-case) -> attribute name (space-stripped, matching matgraph AttributeNames).
+function buildReverseAttrTable(meta: ExportMeta): Map<string, string> {
+  const map = new Map<string, string>();
+  if (meta.materialAttributes && meta.materialAttributes.length > 0) {
+    for (const a of meta.materialAttributes) map.set(a.guid.toUpperCase(), a.name.replace(/\s+/g, ''));
+  } else {
+    for (const [name, def] of Object.entries(MATERIAL_ATTRIBUTE_GUIDS)) map.set(def.guid.toUpperCase(), name);
+  }
+  return map;
+}
+
+// Reverse one scalar param value by its declared kind (inverse of fmtParam).
+function reverseParamValue(raw: string, p: ParamMeta): unknown {
+  switch (p.kind) {
+    case 'float': return Number(raw);
+    case 'int': return parseInt(raw, 10);
+    case 'bool': return /^true$/i.test(raw.trim());
+    case 'name':
+    case 'string': return unquoteStr(raw);
+    case 'enum': {
+      if (p.valueMap) for (const [ours, ue] of Object.entries(p.valueMap)) if (ue === raw.trim()) return ours;
+      return raw.trim();
+    }
+    case 'texture': {
+      const v = raw.trim().replace(/^"|"$/g, '');
+      return /^none$/i.test(v) ? undefined : assetPathFromRef(raw);
+    }
+    case 'vector2':
+    case 'vector3':
+    case 'vector4': {
+      const keys = p.kind === 'vector2' ? ['R', 'G'] : p.kind === 'vector3' ? ['R', 'G', 'B'] : ['R', 'G', 'B', 'A'];
+      const m = new Map(parseStructFields(raw).map(f => [f.key, f.value]));
+      return keys.map(k => Number(m.get(k) ?? '0'));
+    }
+    default: return raw.trim();
+  }
+}
+
+// One parsed FExpressionInput: source expression name, its output index, optional InputName label.
+function parseInputStruct(raw: string): { expr?: string; outputIndex: number; inputName?: string } {
+  let exprRaw: string | undefined;
+  let outputIndex = 0;
+  let inputName: string | undefined;
+  let nested: string | undefined;
+  for (const f of parseStructFields(raw)) {
+    if (f.key === 'Expression') exprRaw = f.value;
+    else if (f.key === 'OutputIndex') outputIndex = parseInt(f.value, 10) || 0;
+    else if (f.key === 'InputName') inputName = unquoteStr(f.value);
+    else if (f.key === 'Input') nested = f.value;
+  }
+  if (!exprRaw && nested) {
+    const inner = parseInputStruct(nested);
+    return { expr: inner.expr, outputIndex: inner.outputIndex, inputName };
+  }
+  return { expr: exprRaw ? exprNameFromRef(exprRaw) : undefined, outputIndex, inputName };
+}
+
+interface ImportNode {
+  id: string;
+  type: string;
+  nodeMeta?: NodeExportMeta;
+  params: Record<string, unknown>;
+  fill: Map<string, string>;
+  inputPinOrder: string[];     // input PinNames in file order (for MFC FunctionInputs(n) labels)
+  customOutputs?: string[];    // Custom: ['Output', ...AdditionalOutputs]
+  getOutputs?: string[];       // GetMaterialAttributes: ['MaterialAttributes', ...attrs]
+  pos: { x: number; y: number };
+}
+
+// Resolve a source node's output PinName for a given OutputIndex (inverse of srcRef / nodeOutputPins).
+function resolveSourcePin(src: ImportNode, index: number, warnings: string[]): string {
+  if (src.type === 'Custom') return src.customOutputs?.[index] ?? 'Output';
+  if (src.type === 'GetMaterialAttributes') return src.getOutputs?.[index] ?? 'MaterialAttributes';
+  if (src.type === 'LandscapeLayerBlend') return 'Result';
+  if (src.type === 'MaterialFunctionCall') {
+    if (index === 0) return 'Result';
+    warnings.push(`MaterialFunctionCall "${src.id}" output index ${index}: pin name unknown without the MF definition - used "Out${index}".`);
+    return `Out${index}`;
+  }
+  const outs = src.nodeMeta?.outputs;
+  if (outs) {
+    for (const [name, o] of Object.entries(outs)) if (o.index === index) return name;
+    const first = Object.keys(outs)[0];
+    if (first) return first;
+  }
+  return 'Result';
+}
+
+function rgbaToHex(raw: string): string {
+  const m = new Map(parseStructFields(raw).map(f => [f.key, Number(f.value)]));
+  const to = (v: number) => Math.max(0, Math.min(255, Math.round((v || 0) * 255))).toString(16).padStart(2, '0');
+  return `#${to(m.get('R') ?? 0)}${to(m.get('G') ?? 0)}${to(m.get('B') ?? 0)}`;
+}
+
+export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string } = {}): UEImportResult {
+  const warnings: string[] = [];
+  const typeOf = buildReverseTypeMap(meta);
+  const attrByGuid = buildReverseAttrTable(meta);
+
+  const lines = text.split(/\r?\n/);
+  const tops: RawObject[] = [];
+  for (let i = 0; i < lines.length;) {
+    if (lines[i].trim().startsWith('Begin Object')) {
+      const { obj, next } = readObject(lines, i);
+      tops.push(obj);
+      i = next;
+    } else i++;
+  }
+
+  const importNodes: ImportNode[] = [];
+  const byExpr = new Map<string, ImportNode>();
+  const declGuidToName = new Map<string, string>();   // NamedReroute VariableGuid -> declaration Name
+  const comments: { x: number; y: number; w: number; h: number; text: string; color: string }[] = [];
+  const usedIds = new Set<string>();
+
+  // ---- Pass 1: parse nodes & params ----
+  for (const top of tops) {
+    if (top.className === '/Script/UnrealEd.MaterialGraphNode_Comment') {
+      const sc = splitBody(top.bodyLines).scalars;
+      const kv = new Map(sc.map(scalarKV).filter(Boolean) as [string, string][]);
+      comments.push({
+        x: Number(kv.get('NodePosX') ?? 0), y: Number(kv.get('NodePosY') ?? 0),
+        w: Number(kv.get('NodeWidth') ?? 0), h: Number(kv.get('NodeHeight') ?? 0),
+        text: unquoteStr(kv.get('NodeComment') ?? '""'),
+        color: rgbaToHex(kv.get('CommentColor') ?? '(R=0.5,G=0.5,B=0.5,A=1.0)'),
+      });
+      continue;
+    }
+    if (top.className !== '/Script/UnrealEd.MaterialGraphNode') continue;
+
+    const { nested, scalars } = splitBody(top.bodyLines);
+    const decl = nested.find(n => n.className);
+    const fillObj = nested.find(n => !n.className) ?? decl;
+    const ueClass = decl?.className ?? '';
+    const exprName = decl?.name ?? fillObj?.name ?? `expr_${importNodes.length}`;
+    const type = typeOf.get(ueClass);
+    if (!type) { warnings.push(`Unknown UE class "${ueClass}" (${exprName}) - node skipped.`); continue; }
+
+    const fill = new Map((splitBody(fillObj?.bodyLines ?? []).scalars.map(scalarKV).filter(Boolean) as [string, string][]));
+    const topKV = new Map(scalars.map(scalarKV).filter(Boolean) as [string, string][]);
+    const nodeMeta = metaFor(meta, type);
+
+    let id = exprName.replace(/^MaterialExpression/, '') || type;
+    while (usedIds.has(id)) id = `${id}_`;
+    usedIds.add(id);
+
+    const node: ImportNode = {
+      id, type, nodeMeta, params: {}, fill,
+      inputPinOrder: scalars
+        .filter(l => l.startsWith('CustomProperties Pin') && !/Direction="EGPD_Output"/.test(l))
+        .map(l => /PinName="([^"]*)"/.exec(l)?.[1] ?? ''),
+      pos: { x: Number(topKV.get('NodePosX') ?? 0), y: Number(topKV.get('NodePosY') ?? 0) },
+    };
+
+    // Scalar params (skip values that are FExpressionInput wires, handled in pass 2).
+    if (nodeMeta) {
+      for (const [pn, pm] of Object.entries(nodeMeta.params)) {
+        const raw = fill.get(pm.property);
+        if (raw == null || /Expression=/.test(raw)) continue;
+        if (pm.components) {
+          const m = new Map(parseStructFields(raw).map(f => [f.key, f.value]));
+          for (const [ueKey, ourParam] of Object.entries(pm.components)) node.params[ourParam] = Number(m.get(ueKey) ?? '0');
+        } else {
+          const v = reverseParamValue(raw, pm);
+          if (v !== undefined) node.params[pn] = v;
+        }
+      }
+    }
+
+    // Type-specific authoring params.
+    if (type === 'LandscapeLayerBlend') {
+      const layers: Record<string, unknown>[] = [];
+      for (const [k, v] of fill) {
+        if (!/^Layers\(\d+\)$/.test(k)) continue;
+        const f = new Map(parseStructFields(v).map(x => [x.key, x.value]));
+        const layer: Record<string, unknown> = {
+          Name: unquoteStr(f.get('LayerName') ?? '""'),
+          BlendType: (f.get('BlendType') ?? 'LB_HeightBlend').trim(),
+        };
+        if (f.has('PreviewWeight')) layer.PreviewWeight = Number(f.get('PreviewWeight'));
+        if (f.has('ConstLayerInput')) {
+          const c = new Map(parseStructFields(f.get('ConstLayerInput') ?? '').map(x => [x.key, x.value]));
+          layer.ConstLayerInput = [Number(c.get('X') ?? 0), Number(c.get('Y') ?? 0), Number(c.get('Z') ?? 0)];
+        }
+        if (f.has('ConstHeightInput')) layer.ConstHeightInput = Number(f.get('ConstHeightInput'));
+        layers.push(layer);
+      }
+      node.params.Layers = layers;
+    } else if (type === 'SetMaterialAttributes' || type === 'GetMaterialAttributes') {
+      const guidKey = type === 'SetMaterialAttributes' ? 'AttributeSetTypes' : 'AttributeGetTypes';
+      const names: string[] = [];
+      for (let k = 0; ; k++) {
+        const g = fill.get(`${guidKey}(${k})`);
+        if (g == null) break;
+        names.push(attrByGuid.get(g.trim().toUpperCase()) ?? g.trim());
+      }
+      node.params.AttributeNames = names;
+      if (type === 'GetMaterialAttributes') node.getOutputs = ['MaterialAttributes', ...names];
+    } else if (type === 'Custom') {
+      const inputs: { InputName: string }[] = [];
+      for (let k = 0; ; k++) {
+        const v = fill.get(`Inputs(${k})`);
+        if (v == null) break;
+        const nm = parseStructFields(v).find(f => f.key === 'InputName');
+        inputs.push({ InputName: nm ? unquoteStr(nm.value) : `In${k}` });
+      }
+      const addOuts: { OutputName: string; OutputType?: string }[] = [];
+      for (let k = 0; ; k++) {
+        const v = fill.get(`AdditionalOutputs(${k})`);
+        if (v == null) break;
+        const f = new Map(parseStructFields(v).map(x => [x.key, x.value]));
+        addOuts.push({ OutputName: unquoteStr(f.get('OutputName') ?? '""'), OutputType: (f.get('OutputType') ?? 'CMOT_Float1').trim() });
+      }
+      if (inputs.length) node.params.Inputs = inputs;
+      if (addOuts.length) node.params.AdditionalOutputs = addOuts;
+      node.customOutputs = ['Output', ...addOuts.map(o => o.OutputName)];
+    } else if (type === 'NamedRerouteDeclaration') {
+      const nm = unquoteStr(fill.get('Name') ?? '"Name"');
+      node.params.Name = nm;
+      const vg = fill.get('VariableGuid');
+      if (vg) declGuidToName.set(vg.trim().toUpperCase(), nm);
+    }
+
+    importNodes.push(node);
+    byExpr.set(exprName, node);
+  }
+
+  // Resolve NamedRerouteUsage -> declaration name now that all declarations are known.
+  for (const node of importNodes) {
+    if (node.type !== 'NamedRerouteUsage') continue;
+    const dg = node.fill.get('DeclarationGuid');
+    const nm = dg ? declGuidToName.get(dg.trim().toUpperCase()) : undefined;
+    if (nm) node.params.rerouteName = nm;
+    else warnings.push(`NamedRerouteUsage "${node.id}": no matching declaration - rerouteName unresolved.`);
+  }
+
+  // ---- Pass 2: rebuild connections ----
+  const connections: ConnectionJson[] = [];
+  const wire = (srcExpr: string | undefined, srcIndex: number, dstId: string, dstPin: string): void => {
+    if (!srcExpr) return;
+    const src = byExpr.get(srcExpr);
+    if (!src) { warnings.push(`Node "${dstId}" input "${dstPin}": source "${srcExpr}" not found - wire dropped.`); return; }
+    connections.push({ from: `${src.id}:${resolveSourcePin(src, srcIndex, warnings)}`, to: `${dstId}:${dstPin}` });
+  };
+
+  for (const node of importNodes) {
+    const { type, nodeMeta, fill } = node;
+
+    if (type === 'LandscapeLayerBlend') {
+      for (const [k, v] of fill) {
+        const m = /^Layers\((\d+)\)$/.exec(k);
+        if (!m) continue;
+        const f = new Map(parseStructFields(v).map(x => [x.key, x.value]));
+        const name = unquoteStr(f.get('LayerName') ?? '""');
+        if (f.has('LayerInput')) { const inp = parseInputStruct(f.get('LayerInput')!); wire(inp.expr, inp.outputIndex, node.id, `Layer ${name}`); }
+        if (f.has('HeightInput')) { const inp = parseInputStruct(f.get('HeightInput')!); wire(inp.expr, inp.outputIndex, node.id, `Height ${name}`); }
+      }
+      continue;
+    }
+
+    if (type === 'SetMaterialAttributes') {
+      const base = fill.get('Inputs(0)');
+      if (base) { const inp = parseInputStruct(base); wire(inp.expr, inp.outputIndex, node.id, 'MaterialAttributes'); }
+      const names = (node.params.AttributeNames as string[]) ?? [];
+      for (let k = 0; k < names.length; k++) {
+        const v = fill.get(`Inputs(${k + 1})`);
+        if (!v) continue;
+        const inp = parseInputStruct(v);
+        wire(inp.expr, inp.outputIndex, node.id, inp.inputName ? inp.inputName.replace(/\s+/g, '') : names[k]);
+      }
+      continue;
+    }
+
+    if (type === 'GetMaterialAttributes') {
+      const v = fill.get('MaterialAttributes');
+      if (v) { const inp = parseInputStruct(v); wire(inp.expr, inp.outputIndex, node.id, 'MaterialAttributes'); }
+      continue;
+    }
+
+    if (type === 'Custom') {
+      const inputs = (node.params.Inputs as { InputName: string }[]) ?? [];
+      for (let k = 0; k < inputs.length; k++) {
+        const v = fill.get(`Inputs(${k})`);
+        if (!v) continue;
+        const inp = parseInputStruct(v);
+        wire(inp.expr, inp.outputIndex, node.id, inputs[k].InputName);
+      }
+      continue;
+    }
+
+    if (nodeMeta?.functionRefProperty) {
+      // MaterialFunctionCall / built-in wrapper: asset path + FunctionInputs(n) by pin order.
+      const ref = fill.get(nodeMeta.functionRefProperty);
+      if (ref && !nodeMeta.functionAsset) node.params.MaterialFunction = assetPathFromRef(ref);
+      for (let n = 0; ; n++) {
+        const v = fill.get(`FunctionInputs(${n})`);
+        if (v == null) break;
+        const inp = parseInputStruct(v);
+        const dstPin = node.inputPinOrder[n] ?? `In${n}`;
+        wire(inp.expr, inp.outputIndex, node.id, dstPin);
+      }
+      continue;
+    }
+
+    // Ordinary nodes (incl. MakeMaterialAttributes, FunctionOutput): each input property that
+    // carries an Expression maps via meta.inputs[property] -> graph pin name.
+    if (nodeMeta) {
+      const pinByProperty = new Map(Object.entries(nodeMeta.inputs).map(([pin, im]) => [im.property, pin]));
+      for (const [k, v] of fill) {
+        if (!/Expression=/.test(v)) continue;
+        const pin = pinByProperty.get(k);
+        if (!pin) continue;
+        const inp = parseInputStruct(v);
+        wire(inp.expr, inp.outputIndex, node.id, pin);
+      }
+    }
+  }
+
+  // ---- Comments: recover `contains` geometrically from node positions ----
+  const commentJson: CommentJson[] = comments.map((c, i) => ({
+    id: `comment_${i}`,
+    text: c.text,
+    color: c.color,
+    contains: importNodes
+      .filter(n => n.pos.x >= c.x && n.pos.x <= c.x + c.w && n.pos.y >= c.y && n.pos.y <= c.y + c.h)
+      .map(n => n.id),
+  }));
+
+  const graphType: MatGraph['type'] =
+    importNodes.some(n => n.type === 'FunctionInput' || n.type === 'FunctionOutput') ? 'MaterialFunction' : 'Material';
+
+  const graph: MatGraph = {
+    schemaVersion: '1.0',
+    ueVersion: meta.ueVersion,
+    type: graphType,
+    name: opts.name ?? 'imported',
+    nodes: importNodes.map(n => (Object.keys(n.params).length ? { id: n.id, type: n.type, params: n.params } : { id: n.id, type: n.type })),
+    connections,
+    ...(commentJson.length ? { comments: commentJson } : {}),
+  };
+  return { graph, warnings };
 }
