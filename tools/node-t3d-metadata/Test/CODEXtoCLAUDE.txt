@@ -1,13 +1,18 @@
-主要做了这些：
-应用 orphan 修正：移除 TextureSampleParameterMovie，把 PreSkinnedLocalNormal/Position 合并为 PreSkinnedNormal/Position。
-重新生成 nodes-ue5.7.export.json。
-修了 commandlet 对 Landscape 模块节点的 class override，并让打包脚本自动移除 packaged .uplugin 的 EngineVersion。
-同步更新 stress_all_nodes fixture，去掉已删除节点引用。
-已重新打包 compiled plugin DLL。
-验证结果：
-audit-export-meta: db=299 export=299 missing=0 orphans=0 unresolved=0 badShape=0 missingMaps=0
-validate-plugin.js: pass
-validate-tooling.js: pass
-pnpm -r test: pass，24 files / 160 tests
-commit：573d5aa Regenerate UE 5.7 node export metadata
-有个小卡点：UE commandlet 仍因为本机 DDC/Zen warning summary 返回 exit code 1，但 commandlet 自身 Warnings: 0，并且 export 已写出、audit 全绿。UE 不需要关；这次 UE/LiveCoding 开着也成功打包了。
+
+完成并已推送。
+
+生成结果：
+
+enginemf-index-ue5.7.json
+481 function(s), 0 load failure(s)
+CustomRotator 存在
+BumpOffset_Advanced 存在，UE 返回的 object suffix 是 BumpOffset_advanced
+验证：
+
+consumer loader: ok 481 functions
+pnpm -r test: 24 files / 161 tests 全过
+卡点：
+
+UE 仍因本机 DDC/Zen warning summary 返回非零，但 commandlet 自身写出索引且 Warnings: 0，脚本按预期当作 success-with-warnings。
+自动打包产生的 compiled plugin 噪音我已丢弃，只提交了索引文件。
+commit：51be82f Populate official engine Material Function index (UE 5.7)
