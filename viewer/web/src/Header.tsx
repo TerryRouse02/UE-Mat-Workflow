@@ -3,6 +3,7 @@ import { useStore } from './store';
 import { formatSyncAgo } from './syncStatus';
 import { hasMaterialFunctionCall } from './graphInfo';
 import { graphToUET3D } from './export/ueT3D';
+import { ImportModal } from './ImportModal';
 import { useDb } from './dbContext';
 import type { MatGraph, DerivedPins } from './protocol';
 import type { ToastItem } from './Toast';
@@ -26,11 +27,14 @@ function WatchPill() {
 }
 
 export function Header({ graph, derivedPins, positions, pushToast }: HeaderProps) {
-  const { state, popBreadcrumb } = useStore();
+  const { state, popBreadcrumb, open } = useStore();
   const { exportMeta, supported } = useDb();
   const [mfRoot, setMfRoot] = useState(() => localStorage.getItem('ue-mf-root') || '/Game/');
   const [popoverOpen, setPopoverOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
   const usesMF = hasMaterialFunctionCall(graph);
+  // Import writes to disk via the server; a static export snapshot has no server.
+  const canImport = state.connection !== 'snapshot';
 
   const doExport = async () => {
     if (!graph || !derivedPins || !supported) return;
@@ -77,8 +81,12 @@ export function Header({ graph, derivedPins, positions, pushToast }: HeaderProps
             </div>
           )}
         </div>
-        <button className="btn-import" disabled title="coming soon">導入</button>
+        <button className="btn-import" onClick={() => setImportOpen(true)} disabled={!canImport}
+          title={canImport ? 'Paste a UE material selection to import' : 'Import needs the live viewer server'}>導入</button>
       </div>
+      {importOpen && (
+        <ImportModal exportMeta={exportMeta} open={open} pushToast={pushToast} onClose={() => setImportOpen(false)} />
+      )}
     </header>
   );
 }

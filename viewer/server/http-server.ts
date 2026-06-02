@@ -1,5 +1,5 @@
-import { createServer, type Server } from 'node:http';
-import { readFile, readdir } from 'node:fs/promises';
+import { createServer, type Server, type IncomingMessage } from 'node:http';
+import { readFile, readdir, mkdir, writeFile, access } from 'node:fs/promises';
 import { resolve, join, extname, relative, dirname, sep } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { watchGraphs } from './watcher.js';
@@ -52,11 +52,100 @@ export function toPosixPath(p: string): string {
   return p.replace(/\\/g, '/');
 }
 
+// Turn a user-supplied import name into a filesystem-safe slug used as BOTH the
+// project folder and the file base name (folder-per-project convention). Every
+// char outside [A-Za-z0-9_-] collapses to '_', so no '/', '\' or '.' survives —
+// the result therefore cannot escape graphs/ even before the isInside guard.
+// Empty/garbage input falls back to 'imported'.
+export function slugifyGraphName(raw: unknown): string {
+  const s = String(raw ?? '')
+    .trim()
+    .replace(/[^A-Za-z0-9_-]+/g, '_')
+    .replace(/^[_-]+|[_-]+$/g, '');
+  return s || 'imported';
+}
+
+async function pathExists(p: string): Promise<boolean> {
+  try { await access(p); return true; } catch { return false; }
+}
+
+// Pick a project folder name that does not collide with an existing one, by
+// appending -2, -3, … (collision policy: never overwrite the user's materials).
+async function freeProjectName(graphsRoot: string, slug: string): Promise<string> {
+  let name = slug;
+  for (let n = 2; await pathExists(join(graphsRoot, name)); n++) name = `${slug}-${n}`;
+  return name;
+}
+
+// Collect a request body with a hard size cap so a malicious/huge POST cannot
+// exhaust memory. Rejects (and destroys the socket) past the cap.
+function readBody(req: IncomingMessage, maxBytes = 8_000_000): Promise<string> {
+  return new Promise((res, rej) => {
+    let data = '';
+    let size = 0;
+    req.on('data', (c: Buffer) => {
+      size += c.length;
+      if (size > maxBytes) { req.destroy(); rej(new Error('request body too large')); return; }
+      data += c.toString();
+    });
+    req.on('end', () => res(data));
+    req.on('error', rej);
+  });
+}
+
+const isMatGraph = (g: unknown): g is { type: string; name?: string; nodes: unknown[] } =>
+  !!g && typeof g === 'object' &&
+  ((g as { type?: unknown }).type === 'Material' || (g as { type?: unknown }).type === 'MaterialFunction') &&
+  Array.isArray((g as { nodes?: unknown }).nodes);
+
 export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   const graphsRoot = resolve(opts.repoRoot, 'graphs');
   const workMfIndexPath = resolve(opts.repoRoot, 'agent-pack', 'workmf-index.json');
 
+  const sendJson = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
+    res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(body));
+  };
+
+  // Persist a reverse-imported graph (parsed client-side from UE T3D) as a new
+  // project folder under graphs/. The existing watcher then picks it up and the
+  // client navigates to it. This is the ONLY write path the server exposes.
+  async function handleImport(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    let payload: { name?: unknown; graph?: unknown };
+    try { payload = JSON.parse(await readBody(req)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+
+    const graph = payload.graph;
+    if (!isMatGraph(graph)) { sendJson(res, 400, { error: 'invalid graph: expected a Material/MaterialFunction with a nodes array' }); return; }
+
+    const slug = slugifyGraphName(payload.name ?? graph.name);
+    const finalName = await freeProjectName(graphsRoot, slug);
+    // Keep the graph's internal name aligned with its folder/file (convention:
+    // folder name = material name = file base name).
+    graph.name = finalName;
+
+    const folder = join(graphsRoot, finalName);
+    const filePath = join(folder, `${finalName}.matgraph.json`);
+    // Defence in depth: the slug already strips separators, but re-assert the
+    // write target lives under graphs/ before touching the disk.
+    if (!isInside(graphsRoot, filePath)) { sendJson(res, 400, { error: 'resolved path escapes graphs root' }); return; }
+
+    try {
+      await mkdir(folder, { recursive: true });
+      // UTF-8 without BOM, trailing newline — matches authored files.
+      await writeFile(filePath, JSON.stringify(graph, null, 2) + '\n', 'utf-8');
+    } catch (e) {
+      sendJson(res, 500, { error: `failed to write file: ${(e as Error).message}` }); return;
+    }
+    sendJson(res, 200, { path: toPosixPath(relative(graphsRoot, filePath)), name: finalName });
+  }
+
   const http: Server = createServer(async (req, res) => {
+    if (req.method === 'POST' && (req.url || '').split('?')[0] === '/api/import') {
+      try { await handleImport(req, res); }
+      catch (e) { console.error('import handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
     if (!opts.webDist) { res.writeHead(404); res.end(); return; }
     try {
       const url = (req.url || '/').split('?')[0];

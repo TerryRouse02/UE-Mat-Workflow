@@ -1,0 +1,31 @@
+.import-overlay {
+  position: fixed; inset: 0; z-index: 100;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex; align-items: center; justify-content: center;
+}
+.import-modal {
+  width: 560px; max-width: calc(100vw - 40px); max-height: calc(100vh - 80px);
+  display: flex; flex-direction: column; gap: 12px;
+  background: var(--bg1); border: 1px solid var(--bd); border-radius: var(--radius);
+  padding: 18px 20px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.4);
+}
+.import-head { display: flex; align-items: center; justify-content: space-between; }
+.import-head h3 { margin: 0; font-size: 15px; color: var(--hed); }
+.import-x { background: none; border: none; color: var(--fg-dim); font-size: 14px; cursor: pointer; padding: 2px 6px; }
+.import-x:hover { color: var(--fg); }
+.import-hint { margin: 0; font-size: 12px; color: var(--fg-dim); line-height: 1.5; }
+.import-hint kbd { background: var(--bg0); border: 1px solid var(--bd); border-radius: 3px; padding: 0 4px; font-size: 11px; }
+.import-field { display: flex; flex-direction: column; gap: 5px; }
+.import-field > span { font-size: 12px; color: var(--fg-dim); }
+.import-field em { color: var(--fg-faint); font-style: normal; }
+.import-field input, .import-field textarea {
+  background: var(--bg0); color: var(--fg); border: 1px solid var(--bd);
+  border-radius: 5px; padding: 7px 9px; font: inherit;
+}
+.import-field input:focus, .import-field textarea:focus { outline: none; border-color: var(--accent); }
+.import-field textarea { min-height: 180px; resize: vertical; font-family: ui-monospace, monospace; font-size: 12px; }
+.import-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.import-cancel, .import-go { border-radius: var(--radius); padding: 7px 16px; font: inherit; cursor: pointer; border: 1px solid var(--bd); }
+.import-cancel { background: var(--bg2); color: var(--fg); }
+.import-go { background: var(--accent); color: var(--bg0); border-color: var(--accent); font-weight: 600; }
+.import-go:disabled, .import-cancel:disabled { opacity: 0.5; cursor: not-allowed; }

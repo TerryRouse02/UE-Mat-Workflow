@@ -30,4 +30,6 @@
 .mfroot-popover label { font-size: 11px; color: var(--fg-dim); }
 .hint-txt { display: block; color: var(--fg-faint); font-size: 10px; }
 .mfroot-popover input { background: var(--bg0); color: var(--fg); border: 1px solid var(--bd); border-radius: 5px; padding: 5px 7px; font: inherit; }
-.btn-import { background: var(--bg2); color: var(--fg-faint); border: 1px solid var(--bd); border-radius: var(--radius); padding: 6px 12px; cursor: not-allowed; }
+.btn-import { background: var(--bg2); color: var(--fg); border: 1px solid var(--bd); border-radius: var(--radius); padding: 6px 12px; cursor: pointer; }
+.btn-import:hover:not(:disabled) { border-color: var(--accent); }
+.btn-import:disabled { color: var(--fg-faint); cursor: not-allowed; }
