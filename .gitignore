@@ -19,6 +19,8 @@ graphs/**/*.matgraph.json
 !graphs/.gitkeep
 # Exception: the all-nodes stress material is version-controlled (export regression artifact)
 !graphs/stress_all_nodes/*.matgraph.json
+# Exception: the paste-safe common-nodes stress material is version-controlled (round-trip regression artifact)
+!graphs/stress_common/*.matgraph.json
 
 # Unreal Engine scratch
 /Temp
