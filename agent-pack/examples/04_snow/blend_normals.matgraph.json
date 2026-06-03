@@ -3,6 +3,7 @@
   "ueVersion": "5.7",
   "type": "MaterialFunction",
   "name": "blend_normals",
+  "description": "Blends two tangent-space normals (Base + Detail) with BlendAngleCorrectedNormals.",
   "nodes": [
     { "id": "in_a",  "type": "FunctionInput",
       "params": { "InputName": "BaseNormal", "InputType": "VectorFloat3" } },
