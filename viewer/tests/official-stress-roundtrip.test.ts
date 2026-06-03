@@ -26,7 +26,11 @@ function engineDerived(graph: { nodes: { id: string; type: string; params?: Reco
   return dp;
 }
 
-// Official-only UE 5.7 capture (see tools/node-t3d-metadata/docs/OFFICIAL_STRESS_FIXTURE.md).
+// Official-only UE 5.7 captures (English editor), produced by
+// tools/node-t3d-metadata/plugin-src/Scripts/Capture-OfficialStressFixture.ps1.
+// These exercise the full import path on engine-only content: Transform, official
+// MF (CustomRotator), Get/Set/Make MaterialAttributes, reroutes, comment, and the
+// material-output recovery (收口) for both the direct and Use-Material-Attributes paths.
 describe('official stress fixture — direct material-output path', () => {
   const { graph, warnings } = parseUET3D(fixture('ue-official-stress.t3d'), META, { name: 'stress' });
 

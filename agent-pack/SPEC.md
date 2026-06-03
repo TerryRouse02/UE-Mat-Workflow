@@ -114,6 +114,19 @@ node's `MaterialAttributes` output to the material's root node — and enable
 **Use Material Attributes** on the material. This replaces what used to be one
 manual reconnection per attribute.
 
+**Use Material Attributes is the enforced output convention** (the standard for
+production material pipelines): export always funnels the output through a single
+`MaterialAttributes` connection rather than wiring individual root pins. A graph
+that already feeds the root via a single `MaterialAttributes` value (e.g. from a
+`SetMaterialAttributes` chain) is exported as-is — no `MakeMaterialAttributes` is
+synthesized; you connect that source to the root and enable Use Material
+Attributes.
+
+On **reverse import** (paste from UE), the root node is recovered the opposite
+way: its wired pins are rebuilt onto a `MaterialOutput` node (id `OUT`), so the
+material's final connections survive the round-trip — including the single
+`MaterialAttributes` pin for Use-Material-Attributes materials.
+
 Only one wire per attribute pin is kept: if two sources are wired into the same
 `MaterialOutput` pin, export keeps the first and warns (UE allows one connection
 per input).
