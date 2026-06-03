@@ -1,8 +1,9 @@
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$ProjectPath,
-    [Parameter(Mandatory = $true)]
-    [string]$EngineRoot,
+    # Optional: when omitted, falls back to local.config.json (copy
+    # local.config.example.json -> local.config.json and fill it in). An explicit
+    # -ProjectPath / -EngineRoot still wins over the config file.
+    [string]$ProjectPath = "",
+    [string]$EngineRoot = "",
     [string]$WorkflowRoot = "",
     [string]$PackageDir = "",
     [switch]$ForcePackage,
@@ -58,6 +59,26 @@ function Invoke-External([string]$Name, [scriptblock]$Action) {
     }
 }
 
+# Per-machine tooling config. Reads tools/node-t3d-metadata/local.config.json (the
+# gitignored, real file — NOT the committed local.config.example.json template) and
+# returns the requested property, or $null if the file or property is absent. A missing
+# config file is tolerated silently so explicit CLI args keep working with no config.
+function Get-LocalConfigValue([string]$Name) {
+    $ConfigPath = Join-Path $PSScriptRoot "local.config.json"
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        return $null
+    }
+    $Config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    if ($null -eq $Config) {
+        return $null
+    }
+    $Property = $Config.PSObject.Properties[$Name]
+    if ($null -eq $Property) {
+        return $null
+    }
+    return $Property.Value
+}
+
 $BundleRoot = $PSScriptRoot
 $PluginSrc = Join-Path $BundleRoot "plugin-src"
 if ([string]::IsNullOrWhiteSpace($WorkflowRoot)) {
@@ -65,6 +86,30 @@ if ([string]::IsNullOrWhiteSpace($WorkflowRoot)) {
 }
 if ([string]::IsNullOrWhiteSpace($PackageDir)) {
     $PackageDir = Join-Path $BundleRoot "compiled\UEMatExportMetadata"
+}
+
+# Per-machine path fallback: an explicit CLI arg always wins; otherwise fall back to
+# local.config.json so the entrypoint can run with no path args. This must happen BEFORE
+# the Resolve-Path calls below so a resolved value (never an empty string) is passed in.
+if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
+    $ProjectPath = Get-LocalConfigValue "ProjectPath"
+}
+if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
+    $EngineRoot = Get-LocalConfigValue "EngineRoot"
+}
+# WorkMfContentRoots only falls back when the user left the built-in default untouched.
+if ($WorkMfContentRoots -eq "/Game") {
+    $ConfiguredWorkMfContentRoots = Get-LocalConfigValue "WorkMfContentRoots"
+    if (-not [string]::IsNullOrWhiteSpace($ConfiguredWorkMfContentRoots)) {
+        $WorkMfContentRoots = $ConfiguredWorkMfContentRoots
+    }
+}
+
+if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
+    throw "ProjectPath not provided and not found in local.config.json. Pass -ProjectPath or copy local.config.example.json to local.config.json and fill it in."
+}
+if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
+    throw "EngineRoot not provided and not found in local.config.json. Pass -EngineRoot or copy local.config.example.json to local.config.json and fill it in."
 }
 
 $ProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path

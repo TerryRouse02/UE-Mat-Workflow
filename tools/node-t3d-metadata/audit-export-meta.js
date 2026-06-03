@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { agentPackPath } = require('./version');
 
 function parseArgs(argv) {
   const args = {
@@ -44,8 +45,8 @@ function hasParamMap(meta, name) {
 }
 
 function audit(workflowRoot) {
-  const dbPath = path.join(workflowRoot, 'agent-pack', 'nodes-ue5.7.json');
-  const exportPath = path.join(workflowRoot, 'agent-pack', 'nodes-ue5.7.export.json');
+  const dbPath = agentPackPath(workflowRoot, 'db');
+  const exportPath = agentPackPath(workflowRoot, 'export');
   const db = readJson(dbPath);
   const exp = readJson(exportPath);
 
@@ -156,26 +157,30 @@ function printList(label, values) {
   }
 }
 
-try {
-  const args = parseArgs(process.argv.slice(2));
-  const result = audit(args.workflowRoot);
-  if (args.json) {
-    console.log(JSON.stringify(result, null, 2));
-  } else {
-    const s = result.summary;
-    console.log(`db=${s.db} export=${s.export} reserved=${s.reserved} missing=${s.missing} orphans=${s.orphans} verified=${s.verified} dynamic=${s.dynamic} unresolved=${s.unresolved} badShape=${s.badShape} missingMaps=${s.missingMaps}`);
-    if (result.failed) {
-      printList('Missing export metadata', result.details.missing);
-      printList('Orphan export metadata', result.details.orphans);
-      printList('Unresolved non-dynamic metadata', result.details.unresolved);
-      printList('Missing reserved metadata', result.details.reservedMissing);
-      printList('Unexpected reserved metadata', result.details.reservedUnexpected);
-      printList('Bad metadata shape', result.details.badShape);
-      printList('Missing declared pin/param maps', result.details.missingMaps);
+if (require.main === module) {
+  try {
+    const args = parseArgs(process.argv.slice(2));
+    const result = audit(args.workflowRoot);
+    if (args.json) {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      const s = result.summary;
+      console.log(`db=${s.db} export=${s.export} reserved=${s.reserved} missing=${s.missing} orphans=${s.orphans} verified=${s.verified} dynamic=${s.dynamic} unresolved=${s.unresolved} badShape=${s.badShape} missingMaps=${s.missingMaps}`);
+      if (result.failed) {
+        printList('Missing export metadata', result.details.missing);
+        printList('Orphan export metadata', result.details.orphans);
+        printList('Unresolved non-dynamic metadata', result.details.unresolved);
+        printList('Missing reserved metadata', result.details.reservedMissing);
+        printList('Unexpected reserved metadata', result.details.reservedUnexpected);
+        printList('Bad metadata shape', result.details.badShape);
+        printList('Missing declared pin/param maps', result.details.missingMaps);
+      }
     }
+    process.exit(result.failed ? 1 : 0);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(2);
   }
-  process.exit(result.failed ? 1 : 0);
-} catch (error) {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exit(2);
 }
+
+module.exports = { audit, parseArgs };

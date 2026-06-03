@@ -12,20 +12,7 @@
 
 const fs = require('fs');
 const path = require('path');
-
-function arg(name, def) {
-  const i = process.argv.indexOf(name);
-  return i >= 0 && process.argv[i + 1] ? process.argv[i + 1] : def;
-}
-
-const root = path.resolve(__dirname, '..', '..');
-const reportPath = path.resolve(arg('--report', path.join(__dirname, 'node-discovery.json')));
-const dbPath = path.resolve(arg('--db', path.join(root, 'agent-pack', 'nodes-ue5.7.json')));
-const outPath = path.resolve(arg('--out', path.join(__dirname, 'db-candidates.json')));
-
-const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-const existing = new Set(Object.keys(db.nodes || {}));
+const { fileNames } = require('./version');
 
 // Types that should NOT become authoring nodes: reserved types the format handles
 // specially, abstract/structural bases, the reroute we collapse on import, and
@@ -69,59 +56,126 @@ function dedupe(pins) {
   });
 }
 
-const candidates = {};
-const outputless = [];
-const skipped = [];
-let count = 0;
-const byCategory = {};
+// Pure transform: report + current DB -> the candidates staging object. No IO.
+function buildCandidates(report, db) {
+  const existing = new Set(Object.keys(db.nodes || {}));
 
-for (const m of report.missing || []) {
-  const type = m.type;
-  if (SKIP.has(type) || existing.has(type)) { skipped.push(type); continue; }
+  const candidates = {};
+  const outputless = [];
+  const skipped = [];
+  let count = 0;
+  const byCategory = {};
 
-  const inputNames = names(m.inputs);
-  const category = categoryFor(type, m.caption);
+  for (const m of report.missing || []) {
+    const type = m.type;
+    if (SKIP.has(type) || existing.has(type)) { skipped.push(type); continue; }
 
-  // UE stores a single output's name as None (unnamed); only a truly empty
-  // outputs array means a sink (material-output) node. So [] -> outputless,
-  // ["None"] -> one default-named output, named ones kept as-is.
-  const rawOut = Array.isArray(m.outputs) ? m.outputs : [];
-  const outputs = rawOut.map((n, i) => ({
-    name: n && n !== 'None' ? n : (rawOut.length === 1 ? 'Result' : `Out${i}`),
-    type: 'Float1|2|3|4',
-  }));
+    const inputNames = names(m.inputs);
+    const category = categoryFor(type, m.caption);
 
-  const entry = {
-    category,
-    description: (m.caption || type) + ' (auto-discovered; verify pins/types).',
-    inputs: dedupe(inputNames.map((n) => ({ name: n, type: 'Float1|2|3|4', required: false }))),
-    // Types are placeholders ("Float1|2|3|4", the DB's polymorphic catch-all);
-    // reflection only yields pin NAMES. Refine during review.
-    outputs: dedupe(outputs),
-    verified: false,
-    ueClass: m.ueClass, // hint for the export regen / reviewer; harmless extra field
+    // UE stores a single output's name as None (unnamed); only a truly empty
+    // outputs array means a sink (material-output) node. So [] -> outputless,
+    // ["None"] -> one default-named output, named ones kept as-is.
+    const rawOut = Array.isArray(m.outputs) ? m.outputs : [];
+    const outputs = rawOut.map((n, i) => ({
+      name: n && n !== 'None' ? n : (rawOut.length === 1 ? 'Result' : `Out${i}`),
+      type: 'Float1|2|3|4',
+    }));
+
+    const entry = {
+      category,
+      description: (m.caption || type) + ' (auto-discovered; verify pins/types).',
+      inputs: dedupe(inputNames.map((n) => ({ name: n, type: 'Float1|2|3|4', required: false }))),
+      // Types are placeholders ("Float1|2|3|4", the DB's polymorphic catch-all);
+      // reflection only yields pin NAMES. Refine during review.
+      outputs: dedupe(outputs),
+      verified: false,
+      ueClass: m.ueClass, // hint for the export regen / reviewer; harmless extra field
+    };
+    if (outputs.length === 0) outputless.push(type); // genuine sink/material-output node
+    candidates[type] = entry;
+    byCategory[category] = (byCategory[category] || 0) + 1;
+    count++;
+  }
+
+  return {
+    schemaVersion: '1.0',
+    kind: 'db-candidates',
+    note: 'Merge `nodes` into agent-pack/nodes-ue5.7.json, then regenerate the export metadata on the UE machine. Add `outputlessNodes` to viewer/server/db-loader.ts OUTPUTLESS_NODES. Apply orphanFixes. All entries are verified:false until cross-checked.',
+    generatedFrom: { engineVersion: report.engineVersion, counts: report.counts },
+    count,
+    byCategory,
+    outputlessNodes: outputless,
+    orphanFixes: ORPHAN_FIXES,
+    skippedReservedOrAlias: skipped.sort(),
+    nodes: candidates,
   };
-  if (outputs.length === 0) outputless.push(type); // genuine sink/material-output node
-  candidates[type] = entry;
-  byCategory[category] = (byCategory[category] || 0) + 1;
-  count++;
 }
 
-const out = {
-  schemaVersion: '1.0',
-  kind: 'db-candidates',
-  note: 'Merge `nodes` into agent-pack/nodes-ue5.7.json, then regenerate the export metadata on the UE machine. Add `outputlessNodes` to viewer/server/db-loader.ts OUTPUTLESS_NODES. Apply orphanFixes. All entries are verified:false until cross-checked.',
-  generatedFrom: { engineVersion: report.engineVersion, counts: report.counts },
-  count,
-  byCategory,
-  outputlessNodes: outputless,
-  orphanFixes: ORPHAN_FIXES,
-  skippedReservedOrAlias: skipped.sort(),
-  nodes: candidates,
-};
+module.exports = { categoryFor, dedupe, buildCandidates, SKIP, ORPHAN_FIXES };
 
-fs.writeFileSync(outPath, JSON.stringify(out, null, 2) + '\n', 'utf8');
-console.log(`Wrote ${outPath}`);
-console.log(`candidates: ${count} | byCategory: ${JSON.stringify(byCategory)}`);
-console.log(`outputless (need OUTPUTLESS_NODES): ${outputless.length}`);
-console.log(`skipped (reserved/alias/already-in-DB): ${skipped.length}`);
+if (require.main === module) {
+  const root = path.resolve(__dirname, '..', '..');
+  const defaults = {
+    report: path.join(__dirname, 'node-discovery.json'),
+    db: path.join(root, 'agent-pack', fileNames.db),
+    out: path.join(__dirname, 'db-candidates.json'),
+  };
+
+  function usage() {
+    return [
+      'Build reviewable authoring-DB candidate entries from a node-discovery report.',
+      '',
+      'Usage:',
+      '  node tools/node-t3d-metadata/build-db-candidates.js [options]',
+      '',
+      'Options:',
+      `  --report <path>  node-discovery.json report (default: ${defaults.report})`,
+      `  --db <path>      current authoring DB (default: ${defaults.db})`,
+      `  --out <path>     candidates output file (default: ${defaults.out})`,
+      '  -h, --help       show this help and exit',
+    ].join('\n');
+  }
+
+  function parseArgs(argv) {
+    const args = { ...defaults };
+    for (let i = 0; i < argv.length; i += 1) {
+      const arg = argv[i];
+      if (arg === '-h' || arg === '--help') {
+        console.log(usage());
+        process.exit(0);
+      } else if (arg === '--report' || arg === '--db' || arg === '--out') {
+        const value = argv[i + 1];
+        if (value === undefined) {
+          throw new Error(`Missing value for ${arg}`);
+        }
+        args[arg.slice(2)] = value;
+        i += 1;
+      } else {
+        throw new Error(`Unknown argument: ${arg}`);
+      }
+    }
+    return args;
+  }
+
+  try {
+    const args = parseArgs(process.argv.slice(2));
+    const reportPath = path.resolve(args.report);
+    const dbPath = path.resolve(args.db);
+    const outPath = path.resolve(args.out);
+
+    const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+    const db = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+
+    const out = buildCandidates(report, db);
+
+    fs.writeFileSync(outPath, JSON.stringify(out, null, 2) + '\n', 'utf8');
+    console.log(`Wrote ${outPath}`);
+    console.log(`candidates: ${out.count} | byCategory: ${JSON.stringify(out.byCategory)}`);
+    console.log(`outputless (need OUTPUTLESS_NODES): ${out.outputlessNodes.length}`);
+    console.log(`skipped (reserved/alias/already-in-DB): ${out.skippedReservedOrAlias.length}`);
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exit(1);
+  }
+}

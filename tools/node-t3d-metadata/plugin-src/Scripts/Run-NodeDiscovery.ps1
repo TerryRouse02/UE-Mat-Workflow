@@ -47,10 +47,39 @@ function Get-NewestWriteTime([string]$Path) {
     return $latest
 }
 
+# Per-machine tooling config. Reads tools/node-t3d-metadata/local.config.json (the
+# gitignored real file, two levels up from plugin-src/Scripts — NOT the committed
+# local.config.example.json template) and returns the requested property, or $null if the
+# file or property is absent. A missing config file is tolerated silently.
+function Get-LocalConfigValue([string]$BundleRoot, [string]$Name) {
+    $ConfigPath = Join-Path $BundleRoot "local.config.json"
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        return $null
+    }
+    $Config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    if ($null -eq $Config) {
+        return $null
+    }
+    $Property = $Config.PSObject.Properties[$Name]
+    if ($null -eq $Property) {
+        return $null
+    }
+    return $Property.Value
+}
+
 $PluginRoot = Split-Path -Parent $PSScriptRoot          # ...\plugin-src
 $BundleRoot = Split-Path -Parent $PluginRoot            # ...\node-t3d-metadata
 if ([string]::IsNullOrWhiteSpace($WorkflowRoot)) {
     $WorkflowRoot = Find-RepoRoot $BundleRoot
+}
+# Per-machine path fallback: an explicit CLI arg always wins; otherwise fall back to
+# local.config.json. EngineRoot is required (enforced below); ProjectPath stays optional
+# and, when still empty after this, defaults to the bundled minimal host.
+if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
+    $ProjectPath = Get-LocalConfigValue $BundleRoot "ProjectPath"
+}
+if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
+    $EngineRoot = Get-LocalConfigValue $BundleRoot "EngineRoot"
 }
 # Discovery only enumerates engine C++ UMaterialExpression classes, so it does not need a
 # real game project. Default to the bundled minimal host, which also disables the few default
@@ -64,7 +93,7 @@ if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
     Write-Host "No -ProjectPath given; using bundled minimal host: $ProjectPath"
 }
 if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
-    throw "EngineRoot is required. Pass -EngineRoot <path-to-UnrealEngine>."
+    throw "EngineRoot not provided and not found in local.config.json. Pass -EngineRoot <path-to-UnrealEngine> or copy local.config.example.json to local.config.json and fill it in."
 }
 
 $ProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path

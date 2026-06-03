@@ -22,6 +22,10 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 - `docs/VERIFICATION.md`: required audit and test commands.
 - `skill/node-t3d-metadata/SKILL.md`: portable skill instructions for Codex, Claude, or other agents.
 
+> These orchestration scripts require **Windows + PowerShell** (they invoke
+> `UnrealEditor-Cmd.exe` / `RunUAT.bat` and use Windows path separators). They do not run on
+> macOS or Linux.
+
 ## Normal Flow
 
 Run from the workflow repo root:
@@ -33,6 +37,26 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3
 ```
 
 The entrypoint rebuilds the compiled plugin only when it is missing, forced, or older than `plugin-src/`, then regenerates `agent-pack\nodes-ue5.7.export.json`, audits the metadata, and runs targeted viewer tests.
+
+### Per-machine config (skip retyping paths)
+
+`-ProjectPath` and `-EngineRoot` are long, machine-specific Windows paths. Instead of passing
+them every run, record them once in a local config file:
+
+1. Copy `tools\node-t3d-metadata\local.config.example.json` to
+   `tools\node-t3d-metadata\local.config.json`.
+2. Fill in `ProjectPath` and `EngineRoot` (and optionally `WorkMfContentRoots`).
+
+`local.config.json` is gitignored (per-machine; never committed). With it in place you can run
+the entrypoint with no path args:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1
+```
+
+An explicit `-ProjectPath` / `-EngineRoot` always wins over the config file. The same fallback
+applies to `Run-NodeDiscovery.ps1` and `Run-EngineMfIndex.ps1` (for those, only `EngineRoot` is
+required; `ProjectPath` defaults to the bundled minimal host).
 
 Useful options:
 

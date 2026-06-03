@@ -46,3 +46,9 @@ jobs:
 
       - name: Validate plugin source layout
         run: node tools/node-t3d-metadata/plugin-src/validate-plugin.js
+
+      - name: Test Node tooling
+        # Glob (not a bare dir): Node 24 treats a bare directory as a module
+        # entry point and exits 1; the quoted glob is expanded by Node's test
+        # runner and works on Node 20–24. Quote it so the shell doesn't expand it.
+        run: node --test "tools/node-t3d-metadata/tests/**/*.test.js"

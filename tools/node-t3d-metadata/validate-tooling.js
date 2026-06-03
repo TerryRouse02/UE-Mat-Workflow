@@ -6,6 +6,11 @@ const repoRoot = path.resolve(bundleRoot, '..', '..');
 
 const required = [
   'README.md',
+  'version.js',
+  'local.config.example.json',
+  'tests/audit.test.js',
+  'tests/build-db-candidates.test.js',
+  'tests/cli.test.js',
   'docs/AGENT_WORKFLOW.md',
   'docs/VERIFICATION.md',
   'docs/WORKMF.md',
