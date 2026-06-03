@@ -1,5 +1,7 @@
 # Node T3D Metadata Tooling
 
+> 繁體中文版本見 [`README.zh-TW.md`](./README.zh-TW.md)（英文版為正式來源）。
+
 This folder is the self-contained maintenance bundle for UE material node T3D/export metadata. It is project-agnostic: pass any compatible UE `.uproject` and `UnrealEngine` root as the commandlet host.
 
 ## Contents
