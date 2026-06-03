@@ -1,0 +1,283 @@
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode_Comment Name="MaterialGraphNode_Comment_0" ExportPath="/Script/UnrealEd.MaterialGraphNode_Comment'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_Comment_0'"
+   Begin Object Class=/Script/Engine.MaterialExpressionComment Name="MaterialExpressionComment_0" ExportPath="/Script/Engine.MaterialExpressionComment'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_Comment_0.MaterialExpressionComment_0'"
+   End Object
+   Begin Object Name="MaterialExpressionComment_0" ExportPath="/Script/Engine.MaterialExpressionComment'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_Comment_0.MaterialExpressionComment_0'"
+      Text="Official stress: CustomRotator, texture, reroutes"
+      CommentColor=(R=0.1803921568627451,G=0.25882352941176473,B=0.3803921568627451,A=1.0)
+      SizeX=300
+      SizeY=200
+      MaterialExpressionEditorX=-40
+      MaterialExpressionEditorY=-50
+   End Object
+   MaterialExpressionComment="/Script/Engine.MaterialExpressionComment'MaterialExpressionComment_0'"
+   NodePosX=-40
+   NodePosY=-50
+   NodeWidth=300
+   NodeHeight=200
+   NodeComment="Official stress: CustomRotator, texture, reroutes"
+   CommentColor=(R=0.1803921568627451,G=0.25882352941176473,B=0.3803921568627451,A=1.0)
+   NodeGuid=4E87AAA9D74977157180C714AB424B5C
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_0" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_0'"
+   Begin Object Class=/Script/Engine.MaterialExpressionTextureCoordinate Name="MaterialExpressionTextureCoordinate_0" ExportPath="/Script/Engine.MaterialExpressionTextureCoordinate'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_0.MaterialExpressionTextureCoordinate_0'"
+   End Object
+   Begin Object Name="MaterialExpressionTextureCoordinate_0" ExportPath="/Script/Engine.MaterialExpressionTextureCoordinate'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_0.MaterialExpressionTextureCoordinate_0'"
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionTextureCoordinate'MaterialExpressionTextureCoordinate_0'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=15E6BC7D7BF506A56D0BBD4B4C74149F
+   CustomProperties Pin (PinId=9D3DC6451F7CAE4DA4BBDC188CCD5445,PinName="UVs",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_2 987152500056E482B4D946D0374B5B35,),)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_1" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_1'"
+   Begin Object Class=/Script/Engine.MaterialExpressionConstant Name="MaterialExpressionConstant_1" ExportPath="/Script/Engine.MaterialExpressionConstant'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_1.MaterialExpressionConstant_1'"
+   End Object
+   Begin Object Name="MaterialExpressionConstant_1" ExportPath="/Script/Engine.MaterialExpressionConstant'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_1.MaterialExpressionConstant_1'"
+      R=0.125
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionConstant'MaterialExpressionConstant_1'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=3CF4F5EAE6231DF27A753B3C93400DE7
+   CustomProperties Pin (PinId=B37E06632F7CEF73C08144B0F2124654,PinName="Value",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_2 FA6EB7F0D6A2A236A14130F4CB78F113,),)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_2" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_2'"
+   Begin Object Class=/Script/Engine.MaterialExpressionMaterialFunctionCall Name="MaterialExpressionMaterialFunctionCall_2" ExportPath="/Script/Engine.MaterialExpressionMaterialFunctionCall'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_2.MaterialExpressionMaterialFunctionCall_2'"
+   End Object
+   Begin Object Name="MaterialExpressionMaterialFunctionCall_2" ExportPath="/Script/Engine.MaterialExpressionMaterialFunctionCall'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_2.MaterialExpressionMaterialFunctionCall_2'"
+      MaterialFunction=MaterialFunction'"/Engine/Functions/Engine_MaterialFunctions02/Texturing/CustomRotator.CustomRotator"'
+      FunctionInputs(0)=(Input=(Expression=MaterialExpressionTextureCoordinate_0,OutputIndex=0))
+      FunctionInputs(2)=(Input=(Expression=MaterialExpressionConstant_1,OutputIndex=0))
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionMaterialFunctionCall'MaterialExpressionMaterialFunctionCall_2'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=7F9B804F893CA1E9EB32570F9BD0F7DE
+   CustomProperties Pin (PinId=987152500056E482B4D946D0374B5B35,PinName="UVs",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_0 9D3DC6451F7CAE4DA4BBDC188CCD5445,),)
+   CustomProperties Pin (PinId=9F6D4EDFAC8014C54DC21C605B6C35CC,PinName="Rotation Center",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=FA6EB7F0D6A2A236A14130F4CB78F113,PinName="Rotation Angle (0-1)",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_1 B37E06632F7CEF73C08144B0F2124654,),)
+   CustomProperties Pin (PinId=D58CB9D647186ACE0A2184FCD0F5EBDD,PinName="Rotated Values",Direction="EGPD_Output",)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_3" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_3'"
+   Begin Object Class=/Script/Engine.MaterialExpressionTextureSample Name="MaterialExpressionTextureSample_3" ExportPath="/Script/Engine.MaterialExpressionTextureSample'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_3.MaterialExpressionTextureSample_3'"
+   End Object
+   Begin Object Name="MaterialExpressionTextureSample_3" ExportPath="/Script/Engine.MaterialExpressionTextureSample'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_3.MaterialExpressionTextureSample_3'"
+      Texture="/Script/Engine.Texture2D'/Engine/EngineResources/DefaultTexture.DefaultTexture'"
+      Coordinates=(Expression=MaterialExpressionMaterialFunctionCall_2,OutputIndex=0)
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionTextureSample'MaterialExpressionTextureSample_3'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=6CFBF749F1E17333207571E74682AB1B
+   CustomProperties Pin (PinId=A5FC28D0244381DE2323850F310B3ED2,PinName="UVs",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_2 F035F56EE70F87FA134C596888DDC806,),)
+   CustomProperties Pin (PinId=42680461B0825979573B1DFB9E80C68C,PinName="Tex",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=959302BE7F7A6D5C5B6C2E3A59F022DA,PinName="RGB",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_5 19C26606A84B0C2CB66E15721E947DB7,),)
+   CustomProperties Pin (PinId=875246DFFAE6BCAF10A31FBAE5F6A6F2,PinName="R",Direction="EGPD_Output",)
+   CustomProperties Pin (PinId=9252583039C50A16D5E572820D5E3B36,PinName="G",Direction="EGPD_Output",)
+   CustomProperties Pin (PinId=9752600F9C2A15FF69FA3A3AF0BBDBB2,PinName="B",Direction="EGPD_Output",)
+   CustomProperties Pin (PinId=985261A2163E4B945464C89251682EFE,PinName="A",Direction="EGPD_Output",)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_4" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_4'"
+   Begin Object Class=/Script/Engine.MaterialExpressionConstant3Vector Name="MaterialExpressionConstant3Vector_4" ExportPath="/Script/Engine.MaterialExpressionConstant3Vector'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_4.MaterialExpressionConstant3Vector_4'"
+   End Object
+   Begin Object Name="MaterialExpressionConstant3Vector_4" ExportPath="/Script/Engine.MaterialExpressionConstant3Vector'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_4.MaterialExpressionConstant3Vector_4'"
+      Constant=(R=0.35,G=0.72,B=0.95)
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionConstant3Vector'MaterialExpressionConstant3Vector_4'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=8F3599C6D10BCE6A5748A18340CCEA11
+   CustomProperties Pin (PinId=E9EFE32B1E8CDD292FBCB3356E1CC35C,PinName="RGB",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_5 18C264732E36D697B36CC1926E3E5411,),)
+   CustomProperties Pin (PinId=83ACA62E8D85AA644773B5DD5813DDA1,PinName="R",Direction="EGPD_Output",)
+   CustomProperties Pin (PinId=78AC94DDCC63F7CB91C42CFDF5B22EB1,PinName="G",Direction="EGPD_Output",)
+   CustomProperties Pin (PinId=73AC8CFE2EC903B4E2174BDD8328B0A1,PinName="B",Direction="EGPD_Output",)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_5" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_5'"
+   Begin Object Class=/Script/Engine.MaterialExpressionMultiply Name="MaterialExpressionMultiply_5" ExportPath="/Script/Engine.MaterialExpressionMultiply'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_5.MaterialExpressionMultiply_5'"
+   End Object
+   Begin Object Name="MaterialExpressionMultiply_5" ExportPath="/Script/Engine.MaterialExpressionMultiply'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_5.MaterialExpressionMultiply_5'"
+      A=(Expression=MaterialExpressionTextureSample_3,OutputIndex=0)
+      B=(Expression=MaterialExpressionConstant3Vector_4,OutputIndex=0)
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionMultiply'MaterialExpressionMultiply_5'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=C59189EA6202D8BEECE3EA89B9CF2080
+   CustomProperties Pin (PinId=19C26606A84B0C2CB66E15721E947DB7,PinName="A",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_3 959302BE7F7A6D5C5B6C2E3A59F022DA,),)
+   CustomProperties Pin (PinId=18C264732E36D697B36CC1926E3E5411,PinName="B",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_4 E9EFE32B1E8CDD292FBCB3356E1CC35C,),)
+   CustomProperties Pin (PinId=D3F74B332109FCE732614F2C46942228,PinName="Result",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_7 824FB81A297B6D7019E4B50E01B482A9,),)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_6" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_6'"
+   Begin Object Class=/Script/Engine.MaterialExpressionConstant3Vector Name="MaterialExpressionConstant3Vector_6" ExportPath="/Script/Engine.MaterialExpressionConstant3Vector'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_6.MaterialExpressionConstant3Vector_6'"
+   End Object
+   Begin Object Name="MaterialExpressionConstant3Vector_6" ExportPath="/Script/Engine.MaterialExpressionConstant3Vector'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_6.MaterialExpressionConstant3Vector_6'"
+      Constant=(R=0.96,G=0.24,B=0.18)
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionConstant3Vector'MaterialExpressionConstant3Vector_6'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=90359B5956F798D5AD9E68239076C06B
+   CustomProperties Pin (PinId=990076427588593ADA4DEA05FA18A08D,PinName="RGB",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_7 814FB687AF6737DB6D3927CE29896DD6,),)
+   CustomProperties Pin (PinId=5BCB37BBC2A15C7D2F5B7EADD6B9A5AA,PinName="R",Direction="EGPD_Output",)
+   CustomProperties Pin (PinId=4ECB2344017FA9E491B694CD7457F6BA,PinName="G",Direction="EGPD_Output",)
+   CustomProperties Pin (PinId=4BCB1E8B63E4B5CD94B7E8AD01CE78AA,PinName="B",Direction="EGPD_Output",)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_7" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_7'"
+   Begin Object Class=/Script/Engine.MaterialExpressionLinearInterpolate Name="MaterialExpressionLinearInterpolate_7" ExportPath="/Script/Engine.MaterialExpressionLinearInterpolate'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_7.MaterialExpressionLinearInterpolate_7'"
+   End Object
+   Begin Object Name="MaterialExpressionLinearInterpolate_7" ExportPath="/Script/Engine.MaterialExpressionLinearInterpolate'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_7.MaterialExpressionLinearInterpolate_7'"
+      ConstAlpha=0.35
+      A=(Expression=MaterialExpressionMultiply_5,OutputIndex=0)
+      B=(Expression=MaterialExpressionConstant3Vector_6,OutputIndex=0)
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionLinearInterpolate'MaterialExpressionLinearInterpolate_7'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=90561750BA28F9F0125DCC8251711CBB
+   CustomProperties Pin (PinId=824FB81A297B6D7019E4B50E01B482A9,PinName="A",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_5 D3F74B332109FCE732614F2C46942228,),)
+   CustomProperties Pin (PinId=814FB687AF6737DB6D3927CE29896DD6,PinName="B",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_6 990076427588593ADA4DEA05FA18A08D,),)
+   CustomProperties Pin (PinId=7CEFA001CB9AF31F12D63F9A7B3D8C61,PinName="Alpha",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=2F0960F78DAC53CB3664F8E569ADC1B5,PinName="Result",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_14 D4799D83F1CDACBDB1C3763033F4DF86,),)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_8" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_8'"
+   Begin Object Class=/Script/Engine.MaterialExpressionConstant Name="MaterialExpressionConstant_8" ExportPath="/Script/Engine.MaterialExpressionConstant'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_8.MaterialExpressionConstant_8'"
+   End Object
+   Begin Object Name="MaterialExpressionConstant_8" ExportPath="/Script/Engine.MaterialExpressionConstant'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_8.MaterialExpressionConstant_8'"
+      R=0.42
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionConstant'MaterialExpressionConstant_8'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=3DF4F77D6C0EE85DCDC9ADFC108EC0B7
+   CustomProperties Pin (PinId=EE77788AC1891FBC89E8E31079917B1C,PinName="Value",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_9 6352174ABA3412C6F58FE0BE4BA99871,),)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_9" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_9'"
+   Begin Object Class=/Script/Engine.MaterialExpressionNamedRerouteDeclaration Name="MaterialExpressionNamedRerouteDeclaration_9" ExportPath="/Script/Engine.MaterialExpressionNamedRerouteDeclaration'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_9.MaterialExpressionNamedRerouteDeclaration_9'"
+   End Object
+   Begin Object Name="MaterialExpressionNamedRerouteDeclaration_9" ExportPath="/Script/Engine.MaterialExpressionNamedRerouteDeclaration'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_9.MaterialExpressionNamedRerouteDeclaration_9'"
+      Name="Official_Roughness"
+      NodeColor=(R=0.1,G=0.4,B=0.8,A=1.0)
+      Input=(Expression=MaterialExpressionConstant_8,OutputIndex=0)
+      VariableGuid=89EC60DDEA5654ED781F30324DB3A303
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionNamedRerouteDeclaration'MaterialExpressionNamedRerouteDeclaration_9'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=FC239BEB3664703F70531A0563FE7C30
+   CustomProperties Pin (PinId=6352174ABA3412C6F58FE0BE4BA99871,PinName="Input",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_8 EE77788AC1891FBC89E8E31079917B1C,),)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_10" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_10'"
+   Begin Object Class=/Script/Engine.MaterialExpressionNamedRerouteUsage Name="MaterialExpressionNamedRerouteUsage_10" ExportPath="/Script/Engine.MaterialExpressionNamedRerouteUsage'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_10.MaterialExpressionNamedRerouteUsage_10'"
+   End Object
+   Begin Object Name="MaterialExpressionNamedRerouteUsage_10" ExportPath="/Script/Engine.MaterialExpressionNamedRerouteUsage'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_10.MaterialExpressionNamedRerouteUsage_10'"
+      Declaration="/Script/Engine.MaterialExpressionNamedRerouteDeclaration'MaterialGraphNode_9.MaterialExpressionNamedRerouteDeclaration_9'"
+      DeclarationGuid=89EC60DDEA5654ED781F30324DB3A303
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionNamedRerouteUsage'MaterialExpressionNamedRerouteUsage_10'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=0EA627A065C624D462BF035DD327B228
+   CustomProperties Pin (PinId=F97C822FCF585EAF8957C85A424AE73D,PinName="Value",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_11 91F0692DC1CC9E3B8F9241B063B51D68,),)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_11" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_11'"
+   Begin Object Class=/Script/Engine.MaterialExpressionAdd Name="MaterialExpressionAdd_11" ExportPath="/Script/Engine.MaterialExpressionAdd'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_11.MaterialExpressionAdd_11'"
+   End Object
+   Begin Object Name="MaterialExpressionAdd_11" ExportPath="/Script/Engine.MaterialExpressionAdd'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_11.MaterialExpressionAdd_11'"
+      ConstB=0.08
+      A=(Expression=MaterialExpressionNamedRerouteUsage_10,OutputIndex=0)
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionAdd'MaterialExpressionAdd_11'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=58B6A1E3DF5636D3EE4D50DCC9B3E186
+   CustomProperties Pin (PinId=91F0692DC1CC9E3B8F9241B063B51D68,PinName="A",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_10 F97C822FCF585EAF8957C85A424AE73D,),)
+   CustomProperties Pin (PinId=8EF0647447B868A6D7AA4C4FB35EF3C2,PinName="B",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=63C04AA0CCECF88E0AEE043FFC42DED1,PinName="Result",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_14 B7FB05112155ADF32A82641E24D2F33B,),)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_12" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_12'"
+   Begin Object Class=/Script/Engine.MaterialExpressionConstant3Vector Name="MaterialExpressionConstant3Vector_12" ExportPath="/Script/Engine.MaterialExpressionConstant3Vector'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_12.MaterialExpressionConstant3Vector_12'"
+   End Object
+   Begin Object Name="MaterialExpressionConstant3Vector_12" ExportPath="/Script/Engine.MaterialExpressionConstant3Vector'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_12.MaterialExpressionConstant3Vector_12'"
+      Constant=(R=0.0,G=0.0,B=1.0)
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionConstant3Vector'MaterialExpressionConstant3Vector_12'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=8D3596A0DCE36340AA9D1443E02096C5
+   CustomProperties Pin (PinId=53F314D5CC83D54BC1DC141586147DBE,PinName="RGB",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_13 D88C49595A05B9D35489A56960CDEA9F,),)
+   CustomProperties Pin (PinId=1B0F91D0F7BD0E9607600C3D555F6DB3,PinName="R",Direction="EGPD_Output",)
+   CustomProperties Pin (PinId=100F807F369B5BFDF256C11DF2FDBEC3,PinName="G",Direction="EGPD_Output",)
+   CustomProperties Pin (PinId=0B0F78A0990067E6A203A23D807440B3,PinName="B",Direction="EGPD_Output",)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_13" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_13'"
+   Begin Object Class=/Script/Engine.MaterialExpressionTransform Name="MaterialExpressionTransform_13" ExportPath="/Script/Engine.MaterialExpressionTransform'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_13.MaterialExpressionTransform_13'"
+   End Object
+   Begin Object Name="MaterialExpressionTransform_13" ExportPath="/Script/Engine.MaterialExpressionTransform'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_13.MaterialExpressionTransform_13'"
+      Input=(Expression=MaterialExpressionConstant3Vector_12,OutputIndex=0)
+      MaterialExpressionEditorX=0
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionTransform'MaterialExpressionTransform_13'"
+   NodePosX=0
+   NodePosY=0
+   NodeGuid=8F431704813B627420AF990BA087B979
+   CustomProperties Pin (PinId=D88C49595A05B9D35489A56960CDEA9F,PinName="Input",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_12 53F314D5CC83D54BC1DC141586147DBE,),)
+   CustomProperties Pin (PinId=925BECEB277D79CF770A0D987462851C,PinName="Result",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_14 3CC092DE9302BF2E7D59C851E6684747,),)
+End Object
+Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_14" ExportPath="/Script/UnrealEd.MaterialGraphNode'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_14'"
+   Begin Object Class=/Script/Engine.MaterialExpressionMakeMaterialAttributes Name="MaterialExpressionMakeMaterialAttributes_14" ExportPath="/Script/Engine.MaterialExpressionMakeMaterialAttributes'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_14.MaterialExpressionMakeMaterialAttributes_14'"
+   End Object
+   Begin Object Name="MaterialExpressionMakeMaterialAttributes_14" ExportPath="/Script/Engine.MaterialExpressionMakeMaterialAttributes'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_14.MaterialExpressionMakeMaterialAttributes_14'"
+      BaseColor=(Expression="/Script/Engine.MaterialExpressionLinearInterpolate'MaterialGraphNode_7.MaterialExpressionLinearInterpolate_7'")
+      Roughness=(Expression="/Script/Engine.MaterialExpressionAdd'MaterialGraphNode_11.MaterialExpressionAdd_11'")
+      Normal=(Expression="/Script/Engine.MaterialExpressionTransform'MaterialGraphNode_13.MaterialExpressionTransform_13'")
+      MaterialExpressionEditorX=-250
+      MaterialExpressionEditorY=0
+   End Object
+   MaterialExpression="/Script/Engine.MaterialExpressionMakeMaterialAttributes'MaterialExpressionMakeMaterialAttributes_14'"
+   NodePosX=-250
+   NodePosY=0
+   NodeGuid=C589C9CAC83D1CBA34026352F37E85F6
+   CustomProperties Pin (PinId=D4799D83F1CDACBDB1C3763033F4DF86,PinName="BaseColor",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_7 2F0960F78DAC53CB3664F8E569ADC1B5,),)
+   CustomProperties Pin (PinId=444C1F8CFC27D9EA30A27B93F9ABFB70,PinName="Metallic",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=923A6B8476B54B76C2323C2A9B8AF124,PinName="Specular",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=B7FB05112155ADF32A82641E24D2F33B,PinName="Roughness",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_11 63C04AA0CCECF88E0AEE043FFC42DED1,),)
+   CustomProperties Pin (PinId=F69F133D199413C31E5D51D42B62479D,PinName="EmissiveColor",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=DD9874AAACD309E4EB95046644502180,PinName="Opacity",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=CDA4AD72E301F52842E222A9A344B31B,PinName="OpacityMask",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=3CC092DE9302BF2E7D59C851E6684747,PinName="Normal",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_13 925BECEB277D79CF770A0D987462851C,),)
+   CustomProperties Pin (PinId=1579D9AF0325DF75F8FBAF742B996689,PinName="WorldPositionOffset",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=6926E8BEC3A808C4D6F998A35080417E,PinName="Refraction",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=CC48B3A05059DAA064FFE58BEEDAFEEC,PinName="AmbientOcclusion",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=55D5076F02964A993FCE6CAC05173A76,PinName="PixelDepthOffset",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=CBA0ED3FE701AC31E062F5F8F5EBCCCB,PinName="SubsurfaceColor",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=133A7A759D7972BF707010B22D777DCB,PinName="ClearCoat",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=EF16532536F5F5399CE7A12B1DDB9447,PinName="ClearCoatRoughness",Direction="EGPD_Input",)
+   CustomProperties Pin (PinId=817A0091DB6E77ED89287AD8DE137947,PinName="Output",Direction="EGPD_Output",)
+End Object
