@@ -4,10 +4,12 @@
 #include "EdGraph/EdGraphPin.h"
 #include "EdGraphUtilities.h"
 #include "HAL/FileManager.h"
+#include "Internationalization/Internationalization.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "MaterialGraph/MaterialGraph.h"
 #include "MaterialGraph/MaterialGraphNode.h"
 #include "MaterialGraph/MaterialGraphNode_Comment.h"
+#include "MaterialGraph/MaterialGraphNode_Root.h"
 #include "MaterialGraph/MaterialGraphSchema.h"
 #include "Engine/Texture2D.h"
 #include "Materials/Material.h"
@@ -19,10 +21,13 @@
 #include "Materials/MaterialExpressionConstant3Vector.h"
 #include "Materials/MaterialExpressionGetMaterialAttributes.h"
 #include "Materials/MaterialExpressionLandscapeLayerBlend.h"
+#include "Materials/MaterialExpressionLinearInterpolate.h"
 #include "Materials/MaterialExpressionMakeMaterialAttributes.h"
 #include "Materials/MaterialExpressionMultiply.h"
 #include "Materials/MaterialExpressionNamedReroute.h"
+#include "Materials/MaterialExpressionReroute.h"
 #include "Materials/MaterialExpressionSetMaterialAttributes.h"
+#include "Materials/MaterialExpressionTextureCoordinate.h"
 #include "Materials/MaterialExpressionTextureSample.h"
 #include "Materials/MaterialExpressionTextureSampleParameter2D.h"
 #include "Materials/MaterialExpressionTransform.h"
@@ -860,6 +865,347 @@ static bool ExportExpressionsToClipboardSample(
 
     UE_LOG(LogTemp, Display, TEXT("Wrote %s clipboard sample: %s"), SampleName, *Path);
     return true;
+}
+
+static void AddExpressionToMaterial(UMaterial* Material, UMaterialExpression* Expression, int32 X, int32 Y)
+{
+    Expression->Material = Material;
+    Expression->MaterialExpressionEditorX = X;
+    Expression->MaterialExpressionEditorY = Y;
+    Material->GetExpressionCollection().AddExpression(Expression);
+}
+
+static void AddCommentToMaterial(
+    UMaterial* Material,
+    UMaterialExpressionComment* Comment,
+    const FString& Text,
+    int32 X,
+    int32 Y,
+    int32 SizeX,
+    int32 SizeY)
+{
+    Comment->Material = Material;
+    Comment->Text = Text;
+    Comment->SizeX = SizeX;
+    Comment->SizeY = SizeY;
+    Comment->CommentColor = FLinearColor(0.18f, 0.26f, 0.38f, 1.0f);
+    Comment->FontSize = 18;
+    Comment->MaterialExpressionEditorX = X;
+    Comment->MaterialExpressionEditorY = Y;
+    Material->GetExpressionCollection().AddComment(Comment);
+}
+
+static bool ExportMaterialGraphToClipboardSample(
+    const FString& Path,
+    UMaterial* Material,
+    const TCHAR* SampleName,
+    FString& OutError)
+{
+    if (Material == nullptr || Material->MaterialGraph == nullptr)
+    {
+        OutError = FString::Printf(TEXT("Null material graph in %s clipboard sample."), SampleName);
+        return false;
+    }
+
+    Material->MaterialGraph->RebuildGraph();
+    if (Material->MaterialGraph->RootNode != nullptr)
+    {
+        Material->MaterialGraph->RootNode->NodePosX = 880;
+        Material->MaterialGraph->RootNode->NodePosY = 20;
+    }
+
+    TSet<UObject*> NodesToExport;
+    for (UEdGraphNode* Node : Material->MaterialGraph->Nodes)
+    {
+        if (Node != nullptr)
+        {
+            NodesToExport.Add(Node);
+        }
+    }
+
+    if (NodesToExport.Num() == 0)
+    {
+        OutError = FString::Printf(TEXT("No graph nodes to export in %s clipboard sample."), SampleName);
+        return false;
+    }
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UEdGraphNode* Node = Cast<UEdGraphNode>(NodeObject))
+        {
+            Node->PrepareForCopying();
+        }
+    }
+
+    FString ExportedText;
+    FEdGraphUtilities::ExportNodesToText(NodesToExport, ExportedText);
+
+    for (UObject* NodeObject : NodesToExport)
+    {
+        if (UMaterialGraphNode* Node = Cast<UMaterialGraphNode>(NodeObject))
+        {
+            Node->PostCopyNode();
+        }
+        else if (UMaterialGraphNode_Comment* CommentNode = Cast<UMaterialGraphNode_Comment>(NodeObject))
+        {
+            CommentNode->PostCopyNode();
+        }
+    }
+
+    if (ExportedText.IsEmpty())
+    {
+        OutError = FString::Printf(TEXT("UE exported an empty %s clipboard sample."), SampleName);
+        return false;
+    }
+
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(Path), true);
+    if (!FFileHelper::SaveStringToFile(ExportedText, *Path, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+    {
+        OutError = FString::Printf(TEXT("Failed to write %s clipboard sample: %s"), SampleName, *Path);
+        return false;
+    }
+
+    UE_LOG(LogTemp, Display, TEXT("Wrote %s clipboard sample: %s"), SampleName, *Path);
+    UE_LOG(LogTemp, Display, TEXT("%s clipboard graph nodes exported: %d"), SampleName, NodesToExport.Num());
+    return true;
+}
+
+static FFunctionExpressionInput* FindFunctionInput(UMaterialExpressionMaterialFunctionCall* FunctionCall, const TCHAR* InputName)
+{
+    if (FunctionCall == nullptr)
+    {
+        return nullptr;
+    }
+
+    for (FFunctionExpressionInput& Input : FunctionCall->FunctionInputs)
+    {
+        if (Input.Input.InputName == FName(InputName))
+        {
+            return &Input;
+        }
+    }
+
+    return nullptr;
+}
+
+static bool WriteOfficialStressDirectClipboardSample(const FString& Path, FString& OutError)
+{
+    UMaterial* Material = CreateTransientClipboardMaterial(false, OutError);
+    if (Material == nullptr)
+    {
+        return false;
+    }
+
+    UMaterialFunctionInterface* CustomRotator = LoadObject<UMaterialFunctionInterface>(
+        nullptr,
+        TEXT("/Engine/Functions/Engine_MaterialFunctions02/Texturing/CustomRotator.CustomRotator"));
+    UTexture2D* DefaultTexture = LoadObject<UTexture2D>(
+        nullptr,
+        TEXT("/Engine/EngineResources/DefaultTexture.DefaultTexture"));
+    if (CustomRotator == nullptr || DefaultTexture == nullptr)
+    {
+        OutError = TEXT("Failed to load official CustomRotator function or DefaultTexture asset.");
+        return false;
+    }
+
+    UMaterialExpressionTextureCoordinate* TexCoord = NewObject<UMaterialExpressionTextureCoordinate>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant* RotationAngle = NewObject<UMaterialExpressionConstant>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionMaterialFunctionCall* RotatorCall = NewObject<UMaterialExpressionMaterialFunctionCall>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionTextureSample* TextureSample = NewObject<UMaterialExpressionTextureSample>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant3Vector* Tint = NewObject<UMaterialExpressionConstant3Vector>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionMultiply* TintedTexture = NewObject<UMaterialExpressionMultiply>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant3Vector* AccentColor = NewObject<UMaterialExpressionConstant3Vector>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionLinearInterpolate* BaseColorMix = NewObject<UMaterialExpressionLinearInterpolate>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant* RoughnessSeed = NewObject<UMaterialExpressionConstant>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionNamedRerouteDeclaration* RoughnessDeclaration = NewObject<UMaterialExpressionNamedRerouteDeclaration>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionNamedRerouteUsage* RoughnessUsage = NewObject<UMaterialExpressionNamedRerouteUsage>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionReroute* RoughnessKnot = NewObject<UMaterialExpressionReroute>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionAdd* RoughnessAdd = NewObject<UMaterialExpressionAdd>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant3Vector* TangentNormal = NewObject<UMaterialExpressionConstant3Vector>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionTransform* NormalTransform = NewObject<UMaterialExpressionTransform>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionComment* Comment = NewObject<UMaterialExpressionComment>(Material, NAME_None, RF_Transactional);
+
+    if (TexCoord == nullptr || RotationAngle == nullptr || RotatorCall == nullptr || TextureSample == nullptr ||
+        Tint == nullptr || TintedTexture == nullptr || AccentColor == nullptr || BaseColorMix == nullptr ||
+        RoughnessSeed == nullptr || RoughnessDeclaration == nullptr || RoughnessUsage == nullptr ||
+        RoughnessKnot == nullptr || RoughnessAdd == nullptr || TangentNormal == nullptr || NormalTransform == nullptr ||
+        Comment == nullptr)
+    {
+        OutError = TEXT("Failed to create official direct stress material expressions.");
+        return false;
+    }
+
+    TexCoord->CoordinateIndex = 0;
+    TexCoord->UTiling = 1.0f;
+    TexCoord->VTiling = 1.0f;
+    AddExpressionToMaterial(Material, TexCoord, -960, -280);
+
+    RotationAngle->R = 0.125f;
+    AddExpressionToMaterial(Material, RotationAngle, -960, -80);
+
+    RotatorCall->SetMaterialFunction(CustomRotator);
+    if (FFunctionExpressionInput* UvsInput = FindFunctionInput(RotatorCall, TEXT("UVs")))
+    {
+        UvsInput->Input.Connect(0, TexCoord);
+    }
+    else
+    {
+        OutError = TEXT("CustomRotator input UVs was not found.");
+        return false;
+    }
+    if (FFunctionExpressionInput* AngleInput = FindFunctionInput(RotatorCall, TEXT("Rotation Angle (0-1)")))
+    {
+        AngleInput->Input.Connect(0, RotationAngle);
+    }
+    else
+    {
+        OutError = TEXT("CustomRotator input Rotation Angle (0-1) was not found.");
+        return false;
+    }
+    AddExpressionToMaterial(Material, RotatorCall, -640, -220);
+
+    TextureSample->Texture = DefaultTexture;
+    TextureSample->Coordinates.Connect(0, RotatorCall);
+    AddExpressionToMaterial(Material, TextureSample, -320, -260);
+
+    Tint->Constant = FLinearColor(0.35f, 0.72f, 0.95f, 1.0f);
+    AddExpressionToMaterial(Material, Tint, -320, 20);
+
+    TintedTexture->A.Connect(0, TextureSample);
+    TintedTexture->B.Connect(0, Tint);
+    AddExpressionToMaterial(Material, TintedTexture, -20, -160);
+
+    AccentColor->Constant = FLinearColor(0.96f, 0.24f, 0.18f, 1.0f);
+    AddExpressionToMaterial(Material, AccentColor, -20, 80);
+
+    BaseColorMix->A.Connect(0, TintedTexture);
+    BaseColorMix->B.Connect(0, AccentColor);
+    BaseColorMix->ConstAlpha = 0.35f;
+    AddExpressionToMaterial(Material, BaseColorMix, 260, -80);
+
+    RoughnessSeed->R = 0.42f;
+    AddExpressionToMaterial(Material, RoughnessSeed, -640, 260);
+
+    RoughnessDeclaration->Name = TEXT("Official_Roughness");
+    RoughnessDeclaration->NodeColor = FLinearColor(0.1f, 0.4f, 0.8f, 1.0f);
+    RoughnessDeclaration->VariableGuid = FGuid(0x24681357, 0x13572468, 0x90abcdef, 0x12345678);
+    RoughnessDeclaration->Input.Connect(0, RoughnessSeed);
+    AddExpressionToMaterial(Material, RoughnessDeclaration, -360, 260);
+
+    RoughnessUsage->Declaration = RoughnessDeclaration;
+    RoughnessUsage->DeclarationGuid = RoughnessDeclaration->VariableGuid;
+    AddExpressionToMaterial(Material, RoughnessUsage, -80, 260);
+
+    RoughnessKnot->Input.Connect(0, RoughnessUsage);
+    AddExpressionToMaterial(Material, RoughnessKnot, 160, 260);
+
+    RoughnessAdd->A.Connect(0, RoughnessKnot);
+    RoughnessAdd->ConstB = 0.08f;
+    AddExpressionToMaterial(Material, RoughnessAdd, 360, 260);
+
+    TangentNormal->Constant = FLinearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    AddExpressionToMaterial(Material, TangentNormal, -360, 520);
+
+    NormalTransform->TransformSourceType = TRANSFORMSOURCE_Tangent;
+    NormalTransform->TransformType = TRANSFORM_World;
+    NormalTransform->Input.Connect(0, TangentNormal);
+    AddExpressionToMaterial(Material, NormalTransform, -20, 500);
+
+    AddCommentToMaterial(Material, Comment, TEXT("Official stress: CustomRotator, texture, reroutes"), -1010, -360, 820, 500);
+
+    if (FExpressionInput* BaseColorInput = Material->GetExpressionInputForProperty(MP_BaseColor))
+    {
+        BaseColorInput->Connect(0, BaseColorMix);
+    }
+    if (FExpressionInput* RoughnessInput = Material->GetExpressionInputForProperty(MP_Roughness))
+    {
+        RoughnessInput->Connect(0, RoughnessAdd);
+    }
+    if (FExpressionInput* NormalInput = Material->GetExpressionInputForProperty(MP_Normal))
+    {
+        NormalInput->Connect(0, NormalTransform);
+    }
+
+    return ExportMaterialGraphToClipboardSample(Path, Material, TEXT("OfficialStressDirect"), OutError);
+}
+
+static bool WriteOfficialStressUseAttrsClipboardSample(const FString& Path, FString& OutError)
+{
+    UMaterial* Material = CreateTransientClipboardMaterial(true, OutError);
+    if (Material == nullptr)
+    {
+        return false;
+    }
+
+    UMaterialExpressionMakeMaterialAttributes* SourceAttributes = NewObject<UMaterialExpressionMakeMaterialAttributes>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant3Vector* BaseColor = NewObject<UMaterialExpressionConstant3Vector>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant* Roughness = NewObject<UMaterialExpressionConstant>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionConstant3Vector* Normal = NewObject<UMaterialExpressionConstant3Vector>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionSetMaterialAttributes* FirstSet = NewObject<UMaterialExpressionSetMaterialAttributes>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionGetMaterialAttributes* GetAttributes = NewObject<UMaterialExpressionGetMaterialAttributes>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionMultiply* BaseColorScale = NewObject<UMaterialExpressionMultiply>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionAdd* RoughnessOffset = NewObject<UMaterialExpressionAdd>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionSetMaterialAttributes* FinalSet = NewObject<UMaterialExpressionSetMaterialAttributes>(Material, NAME_None, RF_Transactional);
+    UMaterialExpressionComment* Comment = NewObject<UMaterialExpressionComment>(Material, NAME_None, RF_Transactional);
+
+    if (SourceAttributes == nullptr || BaseColor == nullptr || Roughness == nullptr || Normal == nullptr ||
+        FirstSet == nullptr || GetAttributes == nullptr || BaseColorScale == nullptr || RoughnessOffset == nullptr ||
+        FinalSet == nullptr || Comment == nullptr)
+    {
+        OutError = TEXT("Failed to create official material attributes stress expressions.");
+        return false;
+    }
+
+    AddExpressionToMaterial(Material, SourceAttributes, -900, 20);
+
+    BaseColor->Constant = FLinearColor(0.18f, 0.65f, 0.36f, 1.0f);
+    AddExpressionToMaterial(Material, BaseColor, -900, 220);
+
+    Roughness->R = 0.55f;
+    AddExpressionToMaterial(Material, Roughness, -900, 400);
+
+    Normal->Constant = FLinearColor(0.0f, 0.0f, 1.0f, 1.0f);
+    AddExpressionToMaterial(Material, Normal, -900, 560);
+
+    FirstSet->Inputs[0].Connect(0, SourceAttributes);
+    FirstSet->ConnectInputAttribute(MP_BaseColor, BaseColor);
+    FirstSet->ConnectInputAttribute(MP_Roughness, Roughness);
+    FirstSet->ConnectInputAttribute(MP_Normal, Normal);
+    AddExpressionToMaterial(Material, FirstSet, -480, 220);
+
+    GetAttributes->MaterialAttributes.Connect(0, FirstSet);
+    const int32 BaseColorOutput = GetAttributes->CreateOrGetOutputAttribute(MP_BaseColor);
+    const int32 RoughnessOutput = GetAttributes->CreateOrGetOutputAttribute(MP_Roughness);
+    const int32 NormalOutput = GetAttributes->CreateOrGetOutputAttribute(MP_Normal);
+    AddExpressionToMaterial(Material, GetAttributes, -120, 220);
+
+    BaseColorScale->A.Connect(BaseColorOutput, GetAttributes);
+    BaseColorScale->ConstB = 0.8f;
+    AddExpressionToMaterial(Material, BaseColorScale, 220, 120);
+
+    RoughnessOffset->A.Connect(RoughnessOutput, GetAttributes);
+    RoughnessOffset->ConstB = 0.05f;
+    AddExpressionToMaterial(Material, RoughnessOffset, 220, 360);
+
+    FinalSet->Inputs[0].Connect(0, FirstSet);
+    FinalSet->ConnectInputAttribute(MP_BaseColor, BaseColorScale);
+    FinalSet->ConnectInputAttribute(MP_Roughness, RoughnessOffset);
+    FinalSet->ConnectInputAttribute(MP_Normal, GetAttributes, NormalOutput);
+    AddExpressionToMaterial(Material, FinalSet, 560, 220);
+
+    AddCommentToMaterial(Material, Comment, TEXT("Official stress: Get/Set Material Attributes"), -960, -80, 760, 760);
+
+    if (FExpressionInput* MaterialAttributesInput = Material->GetExpressionInputForProperty(MP_MaterialAttributes))
+    {
+        MaterialAttributesInput->Connect(0, FinalSet);
+    }
+    else
+    {
+        OutError = TEXT("Failed to resolve the root Material Attributes input.");
+        return false;
+    }
+
+    return ExportMaterialGraphToClipboardSample(Path, Material, TEXT("OfficialStressUseAttrs"), OutError);
 }
 
 static bool WriteSetMaterialAttributesClipboardSample(const FString& Path, FString& OutError)
@@ -2190,6 +2536,8 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
 {
     using namespace UE::MatExportMetadata;
 
+    FInternationalization::Get().SetCurrentCulture(TEXT("en"));
+
     FString ClipboardInPath;
     if (FParse::Value(*Params, TEXT("ClipboardIn="), ClipboardInPath))
     {
@@ -2292,6 +2640,32 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         {
             UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
             return 14;
+        }
+        return 0;
+    }
+
+    FString OfficialStressOutPath;
+    if (FParse::Value(*Params, TEXT("OfficialStressOut="), OfficialStressOutPath))
+    {
+        OfficialStressOutPath = ToAbsolutePath(OfficialStressOutPath);
+        FString Error;
+        if (!WriteOfficialStressDirectClipboardSample(OfficialStressOutPath, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 16;
+        }
+        return 0;
+    }
+
+    FString OfficialStressUseAttrsOutPath;
+    if (FParse::Value(*Params, TEXT("OfficialStressUseAttrsOut="), OfficialStressUseAttrsOutPath))
+    {
+        OfficialStressUseAttrsOutPath = ToAbsolutePath(OfficialStressUseAttrsOutPath);
+        FString Error;
+        if (!WriteOfficialStressUseAttrsClipboardSample(OfficialStressUseAttrsOutPath, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 17;
         }
         return 0;
     }

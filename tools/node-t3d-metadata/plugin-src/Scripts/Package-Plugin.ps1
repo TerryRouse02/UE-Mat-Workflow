@@ -73,9 +73,9 @@ if (Test-Path $PackagedPluginFile) {
     $Descriptor = Get-Content -Raw -LiteralPath $PackagedPluginFile | ConvertFrom-Json
     if ($Descriptor.PSObject.Properties.Name -contains "EngineVersion") {
         $Descriptor.PSObject.Properties.Remove("EngineVersion")
-        $Descriptor |
-            ConvertTo-Json -Depth 16 |
-            Set-Content -LiteralPath $PackagedPluginFile -Encoding UTF8
+        $Json = $Descriptor | ConvertTo-Json -Depth 16
+        $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        [System.IO.File]::WriteAllText($PackagedPluginFile, $Json, $Utf8NoBom)
     }
 }
 
