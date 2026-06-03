@@ -35,7 +35,10 @@ export type ServerMessage =
   | { kind: 'hello'; graphsRoot: string; files: FileEntry[] }
   | { kind: 'fileList'; files: FileEntry[] }
   | { kind: 'graph'; path: string; payload: GraphPayload }
-  | { kind: 'graphError'; path: string; errors: string[] };
+  | { kind: 'graphError'; path: string; errors: string[] }
+  | { kind: 'crawlStarted'; jobId: string; crawlKind: string }
+  | { kind: 'crawlLog'; jobId: string; line: string }
+  | { kind: 'crawlDone'; jobId: string; status: 'success' | 'error'; exitCode: number | null; changedFiles: string[] };
 
 export type ClientMessage =
   | { kind: 'open'; path: string }

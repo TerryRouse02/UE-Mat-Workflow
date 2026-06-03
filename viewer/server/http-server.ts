@@ -6,6 +6,8 @@ import { watchGraphs } from './watcher.js';
 import { loadGraph } from './graph-loader.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
 import { loadWorkMfIndex } from './workmf-index.js';
+import { probeEnv } from './crawl-env.js';
+import { createCrawlRunner, type CrawlEvent } from './crawl-runner.js';
 import type { ServerMessage, ClientMessage, FileEntry } from './ws-protocol.js';
 
 export interface ServerOpts {
@@ -100,8 +102,10 @@ const isMatGraph = (g: unknown): g is { type: string; name?: string; nodes: unkn
 
 export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   const graphsRoot = resolve(opts.repoRoot, 'graphs');
-  const workMfIndexPath = resolve(opts.repoRoot, 'agent-pack', 'workmf-index.json');
-  const engineMfIndexPath = resolve(opts.repoRoot, 'agent-pack', 'enginemf-index-ue5.7.json');
+  const agentPackRoot = resolve(opts.repoRoot, 'agent-pack');
+  const workMfIndexPath = resolve(agentPackRoot, 'workmf-index.json');
+  const engineMfIndexPath = resolve(agentPackRoot, 'enginemf-index-ue5.7.json');
+  const runner = createCrawlRunner(opts.repoRoot);
 
   const sendJson = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -141,10 +145,75 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     sendJson(res, 200, { path: toPosixPath(relative(graphsRoot, filePath)), name: finalName });
   }
 
+  // Serve a committed agent-pack data file so the web can re-fetch it at runtime
+  // after a crawl (no rebuild). Allowlist by filename pattern — the exact set the
+  // web bundles — so no arbitrary path can be read.
+  const AGENT_PACK_RE = /^(nodes-ue[\d.]+(?:\.export)?|enginemf-index-ue[\d.]+)\.json$/;
+  async function handleAgentPack(urlPath: string, res: import('node:http').ServerResponse) {
+    const file = decodeURIComponent(urlPath.slice('/api/agent-pack/'.length));
+    if (!AGENT_PACK_RE.test(file)) { res.writeHead(404); res.end(); return; }
+    try {
+      const data = await readFile(resolve(agentPackRoot, file));
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end(data);
+    } catch { res.writeHead(404); res.end(); }
+  }
+
+  // CSRF guard for the process-spawning crawl endpoint: a browser request always
+  // carries Origin; reject unless its host matches ours. No-Origin requests (curl,
+  // the test client) are not a CSRF vector and are allowed. Combined with the
+  // 127.0.0.1 bind below, only same-machine same-origin pages can trigger a crawl.
+  function sameOrigin(req: IncomingMessage): boolean {
+    const origin = req.headers.origin;
+    if (!origin) return true;
+    try { return new URL(origin).host === req.headers.host; } catch { return false; }
+  }
+
+  function crawlEventToMsg(e: CrawlEvent): ServerMessage {
+    if (e.type === 'started') return { kind: 'crawlStarted', jobId: e.jobId, crawlKind: e.kind };
+    if (e.type === 'log') return { kind: 'crawlLog', jobId: e.jobId, line: e.line };
+    return { kind: 'crawlDone', jobId: e.jobId, status: e.status, exitCode: e.exitCode, changedFiles: e.changedFiles };
+  }
+
+  async function handleCrawl(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin crawl requests are refused' }); return; }
+    let body: { kind?: unknown };
+    try { body = JSON.parse(await readBody(req)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    const kind = body.kind;
+    if (kind !== 'export' && kind !== 'enginemf') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
+    try {
+      const jobId = runner.start(kind, (e) => {
+        const msg = crawlEventToMsg(e);
+        for (const ws of wss.clients) safeSend(ws, msg);
+      });
+      sendJson(res, 200, { jobId });
+    } catch (e) {
+      // Already running — single-job lock.
+      sendJson(res, 409, { error: (e as Error).message });
+    }
+  }
+
   const http: Server = createServer(async (req, res) => {
-    if (req.method === 'POST' && (req.url || '').split('?')[0] === '/api/import') {
+    const urlPath = (req.url || '/').split('?')[0];
+    if (req.method === 'POST' && urlPath === '/api/import') {
       try { await handleImport(req, res); }
       catch (e) { console.error('import handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'GET' && urlPath === '/api/env') {
+      try { sendJson(res, 200, await probeEnv(opts.repoRoot)); }
+      catch (e) { console.error('env probe error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'GET' && urlPath.startsWith('/api/agent-pack/')) {
+      try { await handleAgentPack(urlPath, res); }
+      catch (e) { console.error('agent-pack handler error:', e); if (!res.headersSent) { res.writeHead(500); res.end(); } }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/crawl') {
+      try { await handleCrawl(req, res); }
+      catch (e) { console.error('crawl handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (!opts.webDist) { res.writeHead(404); res.end(); return; }
@@ -298,7 +367,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }, { debounceMs: 300 });
 
-  await new Promise<void>((res) => http.listen(opts.port, res));
+  // Local-first: bind loopback only. The crawl endpoint spawns UnrealEditor-Cmd.exe,
+  // so the server must not be reachable from other machines on the network.
+  await new Promise<void>((res) => http.listen(opts.port, '127.0.0.1', res));
   const addr = http.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : opts.port;
 

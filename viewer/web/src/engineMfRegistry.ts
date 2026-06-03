@@ -47,7 +47,18 @@ for (const mod of Object.values(modules)) {
 // (the official library barely changes between minor versions, and the browser is a
 // read-only reference). Returns null only when no index ships at all.
 export function engineMfFor(ueVersion: string | undefined): EngineMfIndex | null {
+  return engineMfFrom(byVersion, ueVersion);
+}
+
+// Same best-effort resolution against any index map (baked or runtime-fetched).
+export function engineMfFrom(byVersion: Map<string, EngineMfIndex>, ueVersion: string | undefined): EngineMfIndex | null {
   if (ueVersion && byVersion.has(ueVersion)) return byVersion.get(ueVersion)!;
   const first = byVersion.values().next().value;
   return first ?? null;
+}
+
+// The build-time-baked engine-MF indices, for the snapshot/offline source and
+// runtime-fetch fallback.
+export function bakedEngineMf(): Map<string, EngineMfIndex> {
+  return byVersion;
 }

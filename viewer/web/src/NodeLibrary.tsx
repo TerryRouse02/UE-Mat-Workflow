@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useDb } from './dbContext';
-import { engineMfFor, type EngineMfEntry } from './engineMfRegistry';
+import { type EngineMfEntry } from './engineMfRegistry';
 import type { NodeDef, PinDef, ParamDef } from '../../server/db-types';
 
 interface NodeEntry {
@@ -150,8 +150,9 @@ function MfPinList({ title, pins }: { title: string; pins: EngineMfEntry['inputs
   );
 }
 
-function MfBrowser({ version, query }: { version: string | undefined; query: string }) {
-  const index = engineMfFor(version);
+function MfBrowser({ query }: { query: string }) {
+  // Engine-MF index comes from the same context as the DB so a crawl refreshes it.
+  const { engineMf: index } = useDb();
   const [open, setOpen] = useState(false);
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
   const [openMf, setOpenMf] = useState<string | null>(null);
@@ -219,7 +220,7 @@ function MfBrowser({ version, query }: { version: string | undefined; query: str
 }
 
 export function NodeLibrary() {
-  const { db, version } = useDb();
+  const { db } = useDb();
   const [query, setQuery] = useState('');
   const [expandedCats, setExpandedCats] = useState<Set<string>>(new Set());
   const [openNode, setOpenNode] = useState<string | null>(null);
@@ -298,7 +299,7 @@ export function NodeLibrary() {
           setOpenNode={setOpenNode}
         />
       ))}
-      <MfBrowser version={version} query={query} />
+      <MfBrowser query={query} />
     </div>
   );
 }

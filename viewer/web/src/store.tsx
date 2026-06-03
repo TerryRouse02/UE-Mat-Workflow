@@ -1,6 +1,17 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
 import { connect } from './ws-client';
 import type { ServerMessage, GraphPayload, FileEntry } from './protocol';
+import type { EnvStatus } from '../../server/crawl-types';
+
+export type CrawlKind = 'export' | 'enginemf';
+
+interface CrawlState {
+  status: 'idle' | 'running' | 'success' | 'error';
+  kind: string | null;
+  jobId: string | null;
+  logs: string[];
+  exitCode: number | null;
+}
 
 interface State {
   files: FileEntry[];
@@ -10,6 +21,10 @@ interface State {
   errors: Record<string, string[]>;
   connection: 'live' | 'reconnecting' | 'snapshot';
   lastUpdate: number | null;
+  env: EnvStatus | null;
+  crawl: CrawlState;
+  // Bumps when a crawl regenerates agent-pack data, so dbContext re-fetches.
+  metadataVersion: number;
 }
 
 type Action =
@@ -22,11 +37,18 @@ type Action =
   | { type: 'popBreadcrumb'; toIndex: number }
   | { type: 'wsOpen' }
   | { type: 'wsClosed' }
-  | { type: 'snapshot' };
+  | { type: 'snapshot' }
+  | { type: 'setEnv'; env: EnvStatus }
+  | { type: 'crawlStarted'; kind: string; jobId: string }
+  | { type: 'crawlLog'; line: string }
+  | { type: 'crawlDone'; status: 'success' | 'error'; exitCode: number | null };
+
+const idleCrawl: CrawlState = { status: 'idle', kind: null, jobId: null, logs: [], exitCode: null };
 
 const initial: State = {
   files: [], currentPath: null, breadcrumb: [], graphs: {}, errors: {},
   connection: 'reconnecting', lastUpdate: null,
+  env: null, crawl: idleCrawl, metadataVersion: 0,
 };
 
 function reducer(s: State, a: Action): State {
@@ -47,6 +69,19 @@ function reducer(s: State, a: Action): State {
       return { ...s, breadcrumb: [...s.breadcrumb, a.mfPath] };
     case 'popBreadcrumb':
       return { ...s, breadcrumb: s.breadcrumb.slice(0, a.toIndex + 1) };
+    case 'setEnv':
+      return { ...s, env: a.env };
+    case 'crawlStarted':
+      return { ...s, crawl: { status: 'running', kind: a.kind, jobId: a.jobId, logs: [], exitCode: null } };
+    case 'crawlLog':
+      // Cap the buffer — a multi-minute editor run emits a lot of lines.
+      return { ...s, crawl: { ...s.crawl, logs: [...s.crawl.logs.slice(-199), a.line] } };
+    case 'crawlDone':
+      return {
+        ...s,
+        crawl: { ...s.crawl, status: a.status, exitCode: a.exitCode },
+        metadataVersion: a.status === 'success' ? s.metadataVersion + 1 : s.metadataVersion,
+      };
     default: return s;
   }
 }
@@ -56,6 +91,8 @@ interface Ctx {
   open(path: string): void;
   enterMF(path: string): void;
   popBreadcrumb(i: number): void;
+  startCrawl(kind: CrawlKind): void;
+  refreshEnv(): void;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -97,16 +134,49 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         else if (m.kind === 'fileList') dispatch({ type: 'fileList', files: m.files });
         else if (m.kind === 'graph') dispatch({ type: 'graph', path: m.path, payload: m.payload });
         else if (m.kind === 'graphError') dispatch({ type: 'graphError', path: m.path, errors: m.errors });
+        else if (m.kind === 'crawlStarted') dispatch({ type: 'crawlStarted', kind: m.crawlKind, jobId: m.jobId });
+        else if (m.kind === 'crawlLog') dispatch({ type: 'crawlLog', line: m.line });
+        else if (m.kind === 'crawlDone') dispatch({ type: 'crawlDone', status: m.status, exitCode: m.exitCode });
       },
     });
     wsRef.current = ws;
     return () => ws.close();
   }, []);
 
+  const refreshEnv = useCallback(async () => {
+    try {
+      const r = await fetch('/api/env', { cache: 'no-store' });
+      if (r.ok) dispatch({ type: 'setEnv', env: await r.json() });
+    } catch {
+      // No server (snapshot / offline) — env stays null, crawl button stays off.
+    }
+  }, []);
+
+  // Probe the local environment once the server connection is live; this is what
+  // gates the crawl button ("link 成功就支持爬").
+  useEffect(() => { if (state.connection === 'live') void refreshEnv(); }, [state.connection, refreshEnv]);
+
+  const startCrawl = useCallback(async (kind: CrawlKind) => {
+    try {
+      const r = await fetch('/api/crawl', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind }) });
+      if (!r.ok) {
+        const msg = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
+        dispatch({ type: 'crawlStarted', kind, jobId: '' });
+        dispatch({ type: 'crawlLog', line: `crawl request rejected: ${msg.error ?? r.status}` });
+        dispatch({ type: 'crawlDone', status: 'error', exitCode: null });
+      }
+      // On success the server streams crawlStarted/crawlLog/crawlDone over the WS.
+    } catch (e) {
+      dispatch({ type: 'crawlStarted', kind, jobId: '' });
+      dispatch({ type: 'crawlLog', line: `crawl request error: ${(e as Error).message}` });
+      dispatch({ type: 'crawlDone', status: 'error', exitCode: null });
+    }
+  }, []);
+
   const open = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'open', path }); }, []);
   const enterMF = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'enterMF', mfPath: path }); }, []);
   const popBreadcrumb = useCallback((i: number) => { dispatch({ type: 'popBreadcrumb', toIndex: i }); }, []);
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb }), [state, open, enterMF, popBreadcrumb]);
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, refreshEnv }), [state, open, enterMF, popBreadcrumb, startCrawl, refreshEnv]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

@@ -48,6 +48,13 @@ for (const [ueVersion, db] of dbs) {
 export const SUPPORTED_VERSIONS: string[] = [...registry.keys()].sort();
 const LATEST = latestOf(SUPPORTED_VERSIONS);
 
+// The build-time-baked bundles, used as the snapshot/offline source and as the
+// per-file fallback when a runtime fetch fails. (Runtime fetch lives in
+// agentPackClient.ts so a crawl can refresh the data without a rebuild.)
+export function bakedBundles(): Map<string, VersionBundle> {
+  return registry;
+}
+
 // The bundle whose ueVersion matches `ueVersion`, or null if that version has
 // no DB pair on disk (i.e. it is unsupported).
 export function resolveVersion(ueVersion: string | undefined): VersionBundle | null {
