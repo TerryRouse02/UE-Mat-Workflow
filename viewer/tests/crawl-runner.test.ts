@@ -19,22 +19,30 @@ const done = (events: CrawlEvent[]) => events.at(-1) as Extract<CrawlEvent, { ty
 describe('createCrawlRunner', () => {
   it('streams stdout/stderr lines and reports success on exit 0', async () => {
     const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', "process.stdout.write('hello\\nworld\\n'); process.stderr.write('warn\\n')"] });
-    const runner = createCrawlRunner(tmpdir(), { commandFor, changedFilesFor: () => ['agent-pack/x.json'] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
     const events = await runToDone(runner, 'export');
 
     expect(events[0]).toMatchObject({ type: 'started', kind: 'export' });
     expect(logs(events)).toEqual(expect.arrayContaining(['hello', 'world', 'warn']));
-    expect(done(events)).toMatchObject({ type: 'done', status: 'success', exitCode: 0, changedFiles: ['agent-pack/x.json'] });
+    expect(done(events)).toMatchObject({ type: 'done', status: 'success', exitCode: 0 });
     expect(runner.current().status).toBe('success');
   });
 
-  it('reports error and no changedFiles on a non-zero exit', async () => {
+  it('reports error on a non-zero exit', async () => {
     const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', 'process.exit(3)'] });
-    const runner = createCrawlRunner(tmpdir(), { commandFor, changedFilesFor: () => ['agent-pack/x.json'] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
     const d = done(await runToDone(runner, 'export'));
     expect(d.status).toBe('error');
     expect(d.exitCode).toBe(3);
-    expect(d.changedFiles).toEqual([]);
+  });
+
+  it('strips carriage returns from progress-style output', async () => {
+    // UE/PowerShell emit bare \r progress overwrites — the log must not carry them.
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', "process.stdout.write('A...10%\\rA...50%\\rA...100%\\n')"] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+    const out = logs(await runToDone(runner, 'export'));
+    expect(out).toContain('A...10%A...50%A...100%');
+    expect(out.some((l) => l.includes('\r'))).toBe(false);
   });
 
   it('reports error (and a spawn-error log) when the command cannot launch', async () => {

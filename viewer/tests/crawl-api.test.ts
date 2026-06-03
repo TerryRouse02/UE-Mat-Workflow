@@ -4,6 +4,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { request as httpRequest } from 'node:http';
+import { WebSocket } from 'ws';
 
 interface Res { status: number; body: string }
 function request(port: number, method: string, path: string, opts: { headers?: Record<string, string>; body?: string } = {}): Promise<Res> {
@@ -76,4 +77,44 @@ describe('crawl API', () => {
     expect(JSON.parse(r.body).jobId).toMatch(/^crawl-/);
     await server.close();
   }, 5000);
+
+  it('WS: a cross-origin upgrade is closed, never served the file list', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin: 'http://evil.example' });
+    const outcome = await new Promise<string>((res) => {
+      ws.on('message', () => res('message'));   // a 'hello' would mean we leaked
+      ws.on('close', () => res('close'));
+      ws.on('error', () => res('close'));
+    });
+    expect(outcome).toBe('close');
+    await server.close();
+  }, 5000);
+
+  it('WS: a client connecting after a finished crawl gets the crawl state replayed', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const origin = `http://127.0.0.1:${server.port}`;
+    // ws1 watches the crawl run to completion (spawn fails fast off-Windows -> error).
+    const ws1 = new WebSocket(`ws://127.0.0.1:${server.port}`);
+    await waitFor(ws1, (m) => m.kind === 'hello');
+    // Attach the crawlDone waiter BEFORE the POST — the spawn errors almost
+    // immediately, so the broadcast can land before a post-POST listener attaches.
+    const ws1Done = waitFor(ws1, (m) => m.kind === 'crawlDone');
+    await request(server.port, 'POST', '/api/crawl', { headers: { origin }, body: JSON.stringify({ kind: 'enginemf' }) });
+    await ws1Done;
+    // ws2 connects AFTER the crawl finished — it must receive the replayed crawlDone
+    // (otherwise its UI would be stuck and never refresh).
+    const ws2 = new WebSocket(`ws://127.0.0.1:${server.port}`);
+    const replayed = await waitFor(ws2, (m) => m.kind === 'crawlDone');
+    expect(replayed.status).toBe('error');
+    ws1.close(); ws2.close();
+    await server.close();
+  }, 8000);
 });
+
+function waitFor(ws: WebSocket, predicate: (m: { kind: string; status?: string }) => boolean, timeoutMs = 5000): Promise<{ kind: string; status?: string }> {
+  return new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error('timeout waiting for ws message')), timeoutMs);
+    ws.on('message', (d) => { const m = JSON.parse(d.toString()); if (predicate(m)) { clearTimeout(t); res(m); } });
+    ws.on('error', (e) => { clearTimeout(t); rej(e as Error); });
+  });
+}

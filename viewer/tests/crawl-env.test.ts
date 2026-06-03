@@ -60,6 +60,14 @@ describe('probeEnv', () => {
     expect(env.checks.engine.ok).toBe(false);
   });
 
+  it('flags a ProjectPath that points at a folder, not the .uproject file', async () => {
+    const { root, tool, engine } = readyRepo();
+    writeFileSync(resolve(tool, 'local.config.json'), JSON.stringify({ ProjectPath: resolve(root, 'projDir'), EngineRoot: engine }));
+    const env = await probeEnv(root, { platform: 'win32' });
+    expect(env.checks.project.ok).toBe(false);
+    expect(env.checks.project.detail).toMatch(/must point to the \.uproject file/);
+  });
+
   it('flags a project-local plugin copy that would shadow the packaged plugin', async () => {
     const { root, project } = readyRepo();
     touch(resolve(dirname(project), 'Plugins', 'UEMatExportMetadata', 'UEMatExportMetadata.uplugin'));

@@ -44,7 +44,15 @@ export async function probeEnv(repoRoot: string, opts: ProbeOpts = {}): Promise<
 
   const editorCmd = engineRoot ? resolve(engineRoot, 'Engine', 'Binaries', 'Win64', 'UnrealEditor-Cmd.exe') : null;
   const engineOk = Boolean(editorCmd) && await exists(editorCmd as string);
-  const projectOk = Boolean(projectPath) && (projectPath as string).endsWith('.uproject') && await exists(projectPath as string);
+  const projectHasUproject = Boolean(projectPath) && (projectPath as string).endsWith('.uproject');
+  const projectOk = projectHasUproject && await exists(projectPath as string);
+  const projectDetail = projectOk
+    ? 'project .uproject found'
+    : !projectPath
+      ? '.uproject not found (ProjectPath unset)'
+      : !projectHasUproject
+        ? 'ProjectPath must point to the .uproject file, not the project folder'
+        : `.uproject not found (${projectPath})`;
   const dll = resolve(tool, 'compiled', 'UEMatExportMetadata', 'Binaries', 'Win64', 'UnrealEditor-UEMatExportMetadata.dll');
   const dllOk = await exists(dll);
   // The tooling refuses to run when a project-local plugin copy would shadow the
@@ -60,7 +68,7 @@ export async function probeEnv(repoRoot: string, opts: ProbeOpts = {}): Promise<
     platform: { ok: platformOk, detail: platformOk ? 'Windows' : `the crawl runs UnrealEditor-Cmd.exe — needs Windows (host is ${platform})` },
     config: { ok: configOk, detail: configDetail },
     engine: { ok: engineOk, detail: engineOk ? 'UnrealEditor-Cmd.exe found' : `UnrealEditor-Cmd.exe not found${engineRoot ? ` under ${engineRoot}` : ' (EngineRoot unset)'}` },
-    project: { ok: projectOk, detail: projectOk ? 'project .uproject found' : `.uproject not found${projectPath ? ` (${projectPath})` : ' (ProjectPath unset)'}` },
+    project: { ok: projectOk, detail: projectDetail },
     plugin: { ok: dllOk, detail: dllOk ? 'compiled plugin present' : 'compiled plugin DLL missing — build it once on Windows' },
     noShadow: { ok: !shadowPresent, detail: shadowPresent ? `remove the project-local plugin copy that shadows the packaged one (${shadow})` : 'no shadowing project-plugin copy' },
   };

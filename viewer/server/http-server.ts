@@ -151,9 +151,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   const AGENT_PACK_RE = /^(nodes-ue[\d.]+(?:\.export)?|enginemf-index-ue[\d.]+)\.json$/;
   async function handleAgentPack(urlPath: string, res: import('node:http').ServerResponse) {
     const file = decodeURIComponent(urlPath.slice('/api/agent-pack/'.length));
-    if (!AGENT_PACK_RE.test(file)) { res.writeHead(404); res.end(); return; }
+    const candidate = resolve(agentPackRoot, file);
+    // Allowlist by name AND re-assert containment (defence in depth, matching the
+    // import + static paths) so broadening the regex can never enable traversal.
+    if (!AGENT_PACK_RE.test(file) || !isInside(agentPackRoot, candidate)) { res.writeHead(404); res.end(); return; }
     try {
-      const data = await readFile(resolve(agentPackRoot, file));
+      const data = await readFile(candidate);
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
       res.end(data);
     } catch { res.writeHead(404); res.end(); }
@@ -172,7 +175,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   function crawlEventToMsg(e: CrawlEvent): ServerMessage {
     if (e.type === 'started') return { kind: 'crawlStarted', jobId: e.jobId, crawlKind: e.kind };
     if (e.type === 'log') return { kind: 'crawlLog', jobId: e.jobId, line: e.line };
-    return { kind: 'crawlDone', jobId: e.jobId, status: e.status, exitCode: e.exitCode, changedFiles: e.changedFiles };
+    return { kind: 'crawlDone', jobId: e.jobId, status: e.status, exitCode: e.exitCode };
   }
 
   async function handleCrawl(req: IncomingMessage, res: import('node:http').ServerResponse) {
@@ -321,12 +324,25 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     safeSend(ws, await buildGraphMessage(relPath));
   }
 
-  wss.on('connection', async (ws) => {
+  wss.on('connection', async (ws, req) => {
+    // Same-origin guard, mirroring POST /api/crawl. A WS upgrade bypasses CORS, so
+    // without this any page the user visits could open ws://127.0.0.1 and read the
+    // file list + every graph in graphs/. The loopback bind only stops remote hosts.
+    if (!sameOrigin(req)) { ws.close(1008, 'cross-origin'); return; }
     // Guard the handler body: a thrown error here would otherwise become an
     // unhandledRejection and can crash the process.
     try {
       const files = await listFiles();
       send(ws, { kind: 'hello', graphsRoot, files });
+      // Replay current crawl state: the progress broadcast only reaches clients
+      // connected at the time, so a client that connects/reconnects mid- or
+      // post-crawl would otherwise be stuck showing 'running' and never refresh.
+      const cs = runner.current();
+      if (cs.status === 'running' && cs.jobId && cs.kind) {
+        send(ws, { kind: 'crawlStarted', jobId: cs.jobId, crawlKind: cs.kind });
+      } else if ((cs.status === 'success' || cs.status === 'error') && cs.jobId) {
+        send(ws, { kind: 'crawlDone', jobId: cs.jobId, status: cs.status, exitCode: cs.exitCode ?? null });
+      }
     } catch (e) {
       console.error('connection handler error:', e);
     }

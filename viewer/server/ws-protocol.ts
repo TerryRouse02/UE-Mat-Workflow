@@ -15,7 +15,7 @@ export type ServerMessage =
   // machine-wide operation, not per-connection).
   | { kind: 'crawlStarted'; jobId: string; crawlKind: string }
   | { kind: 'crawlLog'; jobId: string; line: string }
-  | { kind: 'crawlDone'; jobId: string; status: 'success' | 'error'; exitCode: number | null; changedFiles: string[] };
+  | { kind: 'crawlDone'; jobId: string; status: 'success' | 'error'; exitCode: number | null };
 
 export interface GraphPayload {
   graph: MatGraph;

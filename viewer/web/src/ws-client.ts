@@ -10,11 +10,14 @@ export interface WSHandlers {
 export function connect(handlers: WSHandlers): WSClient {
   const url = `ws://${location.host}`;
   let ws = new WebSocket(url);
+  let destroyed = false;
 
   function attach() {
     ws.onopen = () => handlers.onOpen?.();
     ws.onmessage = (e) => { try { handlers.onMessage(JSON.parse(e.data)); } catch (err) { console.error('bad ws msg', err); } };
-    ws.onclose = () => { handlers.onClose?.(); setTimeout(() => { ws = new WebSocket(url); attach(); }, 500); };
+    // Reconnect only on an unexpected drop; a deliberate close() (e.g. provider
+    // unmount / HMR) must not spawn an endless reconnect loop into a dead handler.
+    ws.onclose = () => { if (destroyed) return; handlers.onClose?.(); setTimeout(() => { ws = new WebSocket(url); attach(); }, 500); };
   }
   attach();
 
@@ -24,6 +27,6 @@ export function connect(handlers: WSHandlers): WSClient {
       if (ws.readyState === WebSocket.OPEN) fire();
       else ws.addEventListener('open', fire, { once: true });
     },
-    close() { ws.close(); },
+    close() { destroyed = true; ws.close(); },
   };
 }

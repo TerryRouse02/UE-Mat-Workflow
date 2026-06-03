@@ -16,7 +16,7 @@ export type CrawlKind = 'export' | 'enginemf';
 export type CrawlEvent =
   | { type: 'started'; jobId: string; kind: CrawlKind }
   | { type: 'log'; jobId: string; line: string }
-  | { type: 'done'; jobId: string; status: 'success' | 'error'; exitCode: number | null; changedFiles: string[] };
+  | { type: 'done'; jobId: string; status: 'success' | 'error'; exitCode: number | null };
 
 export interface CrawlStatus {
   status: 'idle' | 'running' | 'success' | 'error';
@@ -53,32 +53,35 @@ export const defaultCommandFor: CommandFor = (repoRoot, kind) => {
   }
 };
 
-// The committed file each crawl regenerates — sent on success so the client
-// knows which runtime data to re-fetch.
-export const defaultChangedFiles = (kind: CrawlKind): string[] => {
-  switch (kind) {
-    case 'export': return ['agent-pack/nodes-ue5.7.export.json'];
-    case 'enginemf': return ['agent-pack/enginemf-index-ue5.7.json'];
-  }
-};
-
 const realSpawn: SpawnImpl = (spec, cwd) => spawn(spec.command, spec.args, { cwd });
 
+// A single emitted log line cannot exceed this; a runaway no-newline stream is
+// truncated rather than growing the buffer without bound.
+const LINE_BUF_CAP = 1_000_000;
+
 // Buffer chunked stdout/stderr into whole lines; flush() emits any trailing
-// partial line when the process ends.
+// partial line when the process ends. All carriage returns are stripped — UE and
+// PowerShell emit bare \r progress overwrites, and the browser <pre> renders them
+// as control debris rather than overwriting the line.
 function lineSplitter(onLine: (line: string) => void): { push: (c: Buffer) => void; flush: () => void } {
   let buf = '';
+  const clean = (s: string) => s.replace(/\r/g, '');
   return {
     push(c: Buffer) {
       buf += c.toString();
+      if (buf.length > LINE_BUF_CAP) {
+        onLine('[line truncated — exceeded 1 MB buffer cap]');
+        const nl = buf.indexOf('\n');
+        buf = nl !== -1 ? buf.slice(nl + 1) : '';
+      }
       let nl: number;
       while ((nl = buf.indexOf('\n')) !== -1) {
-        onLine(buf.slice(0, nl).replace(/\r$/, ''));
+        onLine(clean(buf.slice(0, nl)));
         buf = buf.slice(nl + 1);
       }
     },
     flush() {
-      if (buf.length) { onLine(buf.replace(/\r$/, '')); buf = ''; }
+      if (buf.length) { onLine(clean(buf)); buf = ''; }
     },
   };
 }
@@ -86,7 +89,6 @@ function lineSplitter(onLine: (line: string) => void): { push: (c: Buffer) => vo
 export interface RunnerOpts {
   spawnImpl?: SpawnImpl;
   commandFor?: CommandFor;
-  changedFilesFor?: (kind: CrawlKind) => string[];
   timeoutMs?: number;
 }
 
@@ -98,7 +100,6 @@ export interface CrawlRunner {
 export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): CrawlRunner {
   const spawnImpl = opts.spawnImpl ?? realSpawn;
   const commandFor = opts.commandFor ?? defaultCommandFor;
-  const changedFilesFor = opts.changedFilesFor ?? defaultChangedFiles;
   const timeoutMs = opts.timeoutMs ?? 15 * 60_000;
 
   let status: CrawlStatus = { status: 'idle' };
@@ -126,7 +127,7 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
       splitter.flush();
       const ok = exitCode === 0;
       status = { status: ok ? 'success' : 'error', jobId, kind, exitCode };
-      emit({ type: 'done', jobId, status: ok ? 'success' : 'error', exitCode, changedFiles: ok ? changedFilesFor(kind) : [] });
+      emit({ type: 'done', jobId, status: ok ? 'success' : 'error', exitCode });
     };
 
     child.on('error', (err) => { emit({ type: 'log', jobId, line: `spawn error: ${err.message}` }); finish(null); });

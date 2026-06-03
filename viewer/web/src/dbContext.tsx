@@ -25,34 +25,37 @@ export function DbProvider({ children }: { children: React.ReactNode }) {
   const current = state.breadcrumb[state.breadcrumb.length - 1];
   const version = current ? state.graphs[current]?.graph.ueVersion : undefined;
 
-  const [registry, setRegistry] = useState<RegistryData | null>(null);
+  // Start from the build-time-baked data so snapshot/offline render instantly (no
+  // flash) and live mode has data on the first paint; live mode then overrides it
+  // with a fetch, and re-fetches when metadataVersion bumps after a crawl.
+  const [registry, setRegistry] = useState<RegistryData>(() => bakedRegistry());
 
   useEffect(() => {
-    if (state.connection === 'snapshot') { setRegistry(bakedRegistry()); return; }
+    if (state.connection !== 'live') return; // snapshot/offline keep the baked data
     let cancelled = false;
     fetchRegistry()
       .then((r) => { if (!cancelled) setRegistry(r); })
-      .catch(() => { if (!cancelled) setRegistry(bakedRegistry()); });
+      .catch(() => { /* server unreachable mid-session — keep the current data */ });
     return () => { cancelled = true; };
   }, [state.connection, state.metadataVersion]);
 
   const value = useMemo<DbValue | null>(() => {
-    if (!registry) return null;
     const active = resolveBundle(registry, version);
     const bundle = active ?? latestBundleOf(registry);
+    if (!bundle) return null; // no DB at all (empty agent-pack) — hold the gate
     return {
       version,
       // No graph open is not "unsupported"; an open graph with no DB pair is.
       supported: !!active || version === undefined,
-      db: bundle?.db as NodeDB,
-      exportMeta: bundle?.exportMeta as ExportMeta,
+      db: bundle.db,
+      exportMeta: bundle.exportMeta,
       engineMf: resolveEngineMf(registry, version),
       supportedVersions: registry.versions,
     };
   }, [registry, version]);
 
-  // Loading gate: hold children until the first load resolves so db/exportMeta
-  // stay non-null for every consumer (App, NodeLibrary, Inspector, Header).
+  // Hold the gate only when there is genuinely no bundle to show — preserves the
+  // non-null db/exportMeta contract; with baked init this is effectively never hit.
   if (!value) return <div className="db-loading">Loading node metadata…</div>;
   return <DbC.Provider value={value}>{children}</DbC.Provider>;
 }
