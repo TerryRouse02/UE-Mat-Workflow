@@ -50,8 +50,8 @@ Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_2"
    End Object
    Begin Object Name="MaterialExpressionMaterialFunctionCall_2" ExportPath="/Script/Engine.MaterialExpressionMaterialFunctionCall'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_2.MaterialExpressionMaterialFunctionCall_2'"
       MaterialFunction=MaterialFunction'"/Engine/Functions/Engine_MaterialFunctions02/Texturing/CustomRotator.CustomRotator"'
-      FunctionInputs(0)=(Input=(Expression=MaterialExpressionTextureCoordinate_0,OutputIndex=0))
-      FunctionInputs(2)=(Input=(Expression=MaterialExpressionConstant_1,OutputIndex=0))
+      FunctionInputs(0)=(Input=(Expression=MaterialExpressionTextureCoordinate_0,InputName="UVs"))
+      FunctionInputs(2)=(Input=(Expression=MaterialExpressionConstant_1,InputName="Rotation Angle (0-1)"))
       MaterialExpressionEditorX=0
       MaterialExpressionEditorY=0
    End Object
@@ -279,5 +279,5 @@ Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_14
    CustomProperties Pin (PinId=CBA0ED3FE701AC31E062F5F8F5EBCCCB,PinName="SubsurfaceColor",Direction="EGPD_Input",)
    CustomProperties Pin (PinId=133A7A759D7972BF707010B22D777DCB,PinName="ClearCoat",Direction="EGPD_Input",)
    CustomProperties Pin (PinId=EF16532536F5F5399CE7A12B1DDB9447,PinName="ClearCoatRoughness",Direction="EGPD_Input",)
-   CustomProperties Pin (PinId=817A0091DB6E77ED89287AD8DE137947,PinName="Output",Direction="EGPD_Output",)
+   CustomProperties Pin (PinId=7CFAFCE42358DA548BE25CAB67BC9F73,PinName="Output",Direction="EGPD_Output",)
 End Object

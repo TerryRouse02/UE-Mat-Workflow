@@ -219,9 +219,6 @@ function nodeOutputPins(node: NodeJson, meta: NodeExportMeta, derivedPins: Recor
   if (node.type === 'MaterialFunctionCall') {
     return (derivedPins[node.id]?.outputs ?? []).map(pin => pin.name);
   }
-  if (node.type === 'MakeMaterialAttributes') {
-    return ['Output'];
-  }
   return Object.entries(meta.outputs)
     .sort(([, a], [, b]) => a.index - b.index)
     .map(([name]) => name);
@@ -417,7 +414,8 @@ function buildAttributeTable(meta: ExportMeta): AttrTable {
   if (fromMeta && fromMeta.length > 0) {
     const table: AttrTable = {};
     for (const a of fromMeta) {
-      table[a.name.replace(/\s+/g, '')] = { display: a.name, guid: a.guid };
+      const key = a.name.replace(/\s+/g, '');
+      table[key] = { display: MATERIAL_ATTRIBUTE_GUIDS[key]?.display ?? a.name, guid: a.guid };
     }
     return table;
   }
@@ -782,7 +780,9 @@ export function graphToUET3D(
         const { index, mask } = srcRef(connection.srcId, connection.srcPin);
         const ref = `Expression=${src.expressionName},OutputIndex=${index}${maskBits(mask)}`;
         if (nodeMeta.functionRefProperty) {
-          lines.push(`${I}${I}FunctionInputs(${functionInputIndex(node, nodeMeta, connection.dstPin, derivedPins, warnings)})=(Input=(${ref}))`);
+          const idxPart = index > 0 ? `,OutputIndex=${index}` : '';
+          const mfcRef = `Expression=${src.expressionName}${idxPart}${maskBits(mask)},InputName=${quote(connection.dstPin)}`;
+          lines.push(`${I}${I}FunctionInputs(${functionInputIndex(node, nodeMeta, connection.dstPin, derivedPins, warnings)})=(Input=(${mfcRef}))`);
         } else {
           const inProp = nodeMeta.inputs[connection.dstPin]?.property;
           if (!inProp) {
@@ -842,7 +842,10 @@ export function graphToUET3D(
         lines.push(pinLine(node.id, pinName, 'input', pinLinks.get(pinKey(node.id, 'input', pinName)) ?? []));
       }
       for (const pinName of nodeOutputPins(node, nodeMeta, derivedPins)) {
-        lines.push(pinLine(node.id, pinName, 'output', pinLinks.get(pinKey(node.id, 'output', pinName)) ?? []));
+        const displayName = node.type === 'MakeMaterialAttributes' && pinName === 'MaterialAttributes'
+          ? 'Output'
+          : undefined;
+        lines.push(pinLine(node.id, pinName, 'output', pinLinks.get(pinKey(node.id, 'output', pinName)) ?? [], displayName));
       }
     }
     lines.push(`End Object`);
@@ -1079,6 +1082,7 @@ interface ImportNode {
 // Resolve a source node's output PinName for a given OutputIndex (inverse of srcRef / nodeOutputPins).
 function resolveSourcePin(src: ImportNode, index: number, warnings: string[]): string {
   if (src.type === 'Custom') return src.customOutputs?.[index] ?? 'Output';
+  if (src.type === 'SetMaterialAttributes') return 'MaterialAttributes';
   if (src.type === 'GetMaterialAttributes') return src.getOutputs?.[index] ?? 'MaterialAttributes';
   if (src.type === 'LandscapeLayerBlend') return 'Result';
   if (src.type === 'MaterialFunctionCall') {

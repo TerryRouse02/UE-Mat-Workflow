@@ -439,7 +439,7 @@ describe('graphToUET3D', () => {
     };
     const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], mfc: [200, 0] }), META, derived, { mfContentRoot: '/Game/' });
     expect(text).toContain("MaterialFunction=MaterialFunction'\"/Game/blend_normals.blend_normals\"'");
-    expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,OutputIndex=0))');
+    expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,InputName="BaseNormal"))');
     expect(warnings.some(w => /blend_normals.*auto-link|create.*blend_normals/i.test(w))).toBe(true);
   });
 
@@ -460,7 +460,7 @@ describe('graphToUET3D', () => {
     };
     const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], mfc: [200, 0] }), META, derived, { mfContentRoot: '/Game/' });
     expect(text).toContain("MaterialFunction=MaterialFunction'\"/Game/Functions/MF_Foo.MF_Foo\"'");
-    expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,OutputIndex=0))');
+    expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,InputName="UV"))');
     expect(text).toContain('PinName="Result"');
     // Asset path already starts with '/', so the "create MF in UE for auto-link" warning must NOT fire.
     expect(warnings.some(w => /auto-link/i.test(w))).toBe(false);
@@ -479,7 +479,7 @@ describe('graphToUET3D', () => {
     };
     const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], blend: [200, 0] }), META, NO_PINS);
     // AdditionalNormal -> FunctionInputs(1) from metadata, even with no derived pins present.
-    expect(text).toContain('FunctionInputs(1)=(Input=(Expression=MaterialExpressionConstant_0,OutputIndex=0))');
+    expect(text).toContain('FunctionInputs(1)=(Input=(Expression=MaterialExpressionConstant_0,InputName="AdditionalNormal"))');
     expect(warnings).toEqual([]);
   });
 
@@ -500,7 +500,7 @@ describe('graphToUET3D', () => {
     };
     const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], mfc: [200, 0] }), META, derived, { mfContentRoot: '/Game/' });
     // Safe default index 0 is still emitted (the wire is not dropped silently).
-    expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,OutputIndex=0))');
+    expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,InputName="MissingPin"))');
     // ...but the unresolved pin is now visible as a warning.
     expect(warnings.some(w => /MissingPin/.test(w))).toBe(true);
   });
@@ -528,7 +528,7 @@ describe('graphToUET3D', () => {
     const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], blend: [200, 0] }), META, NO_PINS);
     expect(text).toContain('Begin Object Class=/Script/Engine.MaterialExpressionMaterialFunctionCall');
     expect(text).toContain("MaterialFunction=MaterialFunction'\"/Engine/Functions/Engine_MaterialFunctions02/Utility/BlendAngleCorrectedNormals.BlendAngleCorrectedNormals\"'");
-    expect(text).toContain('FunctionInputs(1)=(Input=(Expression=MaterialExpressionConstant_0,OutputIndex=0))');
+    expect(text).toContain('FunctionInputs(1)=(Input=(Expression=MaterialExpressionConstant_0,InputName="AdditionalNormal"))');
     expect(warnings).toEqual([]);
   });
 

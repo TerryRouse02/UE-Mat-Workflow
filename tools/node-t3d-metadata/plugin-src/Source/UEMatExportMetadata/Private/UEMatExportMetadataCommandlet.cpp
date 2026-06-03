@@ -1531,6 +1531,184 @@ static bool ValidateClipboardT3D(const FString& Path, bool bImportNodes, FString
 
         Material->MaterialGraph->LinkMaterialExpressionsFromGraph();
 
+        auto FindPin = [](const UEdGraphNode* Node, const TCHAR* PinName, EEdGraphPinDirection Direction) -> const UEdGraphPin*
+        {
+            if (Node == nullptr)
+            {
+                return nullptr;
+            }
+            for (const UEdGraphPin* Pin : Node->Pins)
+            {
+                if (Pin != nullptr && Pin->Direction == Direction && Pin->PinName == PinName)
+                {
+                    return Pin;
+                }
+            }
+            return nullptr;
+        };
+        auto RequireLinkedInputPin = [&FindPin, &OutError](const UEdGraphNode* Node, const TCHAR* PinName, const TCHAR* Context) -> bool
+        {
+            const UEdGraphPin* Pin = FindPin(Node, PinName, EGPD_Input);
+            if (Pin == nullptr)
+            {
+                OutError = FString::Printf(TEXT("%s did not expose expected input pin \"%s\"."), Context, PinName);
+                return false;
+            }
+            if (Pin->LinkedTo.Num() == 0)
+            {
+                OutError = FString::Printf(TEXT("%s input pin \"%s\" pasted without a linked wire."), Context, PinName);
+                return false;
+            }
+            return true;
+        };
+
+        int32 TransformCount = 0;
+        int32 CustomRotatorCount = 0;
+        int32 NamedRerouteUsageCount = 0;
+        int32 SetMaterialAttributesCount = 0;
+        int32 GetMaterialAttributesCount = 0;
+        bool bHasCommentNode = false;
+
+        for (UEdGraphNode* Node : ImportedNodes)
+        {
+            if (Node == nullptr)
+            {
+                continue;
+            }
+            for (const UEdGraphPin* Pin : Node->Pins)
+            {
+                if (Pin != nullptr && Pin->bOrphanedPin)
+                {
+                    OutError = FString::Printf(
+                        TEXT("Imported node \"%s\" has orphaned pin \"%s\"."),
+                        *Node->GetName(),
+                        *Pin->PinName.ToString());
+                    return false;
+                }
+            }
+
+            if (Cast<UMaterialGraphNode_Comment>(Node) != nullptr)
+            {
+                bHasCommentNode = true;
+                continue;
+            }
+
+            UMaterialGraphNode* MaterialNode = Cast<UMaterialGraphNode>(Node);
+            UMaterialExpression* Expression = MaterialNode != nullptr ? MaterialNode->MaterialExpression : nullptr;
+            if (Expression == nullptr)
+            {
+                continue;
+            }
+
+            if (UMaterialExpressionTransform* Transform = Cast<UMaterialExpressionTransform>(Expression))
+            {
+                ++TransformCount;
+                if (Transform->Input.Expression == nullptr)
+                {
+                    OutError = TEXT("Transform imported with a null Input expression.");
+                    return false;
+                }
+                if (!RequireLinkedInputPin(MaterialNode, TEXT("Input"), TEXT("Transform")))
+                {
+                    return false;
+                }
+            }
+
+            if (UMaterialExpressionMaterialFunctionCall* FunctionCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression))
+            {
+                const FString FunctionPath = FunctionCall->MaterialFunction != nullptr
+                    ? FunctionCall->MaterialFunction->GetPathName()
+                    : FString();
+                if (FunctionPath.Contains(TEXT("CustomRotator")))
+                {
+                    ++CustomRotatorCount;
+                    if (!RequireLinkedInputPin(MaterialNode, TEXT("UVs"), TEXT("CustomRotator")) ||
+                        !RequireLinkedInputPin(MaterialNode, TEXT("Rotation Angle (0-1)"), TEXT("CustomRotator")))
+                    {
+                        return false;
+                    }
+                    const UEdGraphPin* UVsPin = FindPin(MaterialNode, TEXT("UVs"), EGPD_Input);
+                    const UEdGraphPin* AnglePin = FindPin(MaterialNode, TEXT("Rotation Angle (0-1)"), EGPD_Input);
+                    const UEdGraphNode* UVsSource = UVsPin != nullptr && UVsPin->LinkedTo.Num() > 0 ? UVsPin->LinkedTo[0]->GetOwningNode() : nullptr;
+                    const UEdGraphNode* AngleSource = AnglePin != nullptr && AnglePin->LinkedTo.Num() > 0 ? AnglePin->LinkedTo[0]->GetOwningNode() : nullptr;
+                    if (UVsSource == nullptr || AngleSource == nullptr || UVsSource == AngleSource)
+                    {
+                        OutError = TEXT("CustomRotator UVs and Rotation Angle (0-1) inputs did not paste as two distinct source wires.");
+                        return false;
+                    }
+                }
+            }
+
+            if (UMaterialExpressionNamedRerouteUsage* Usage = Cast<UMaterialExpressionNamedRerouteUsage>(Expression))
+            {
+                ++NamedRerouteUsageCount;
+                if (Usage->Declaration == nullptr)
+                {
+                    OutError = TEXT("Named Reroute Usage pasted without resolving to its Declaration.");
+                    return false;
+                }
+            }
+
+            if (UMaterialExpressionSetMaterialAttributes* SetAttributes = Cast<UMaterialExpressionSetMaterialAttributes>(Expression))
+            {
+                ++SetMaterialAttributesCount;
+                if (SetAttributes->Inputs.Num() == 0 || SetAttributes->Inputs[0].Expression == nullptr)
+                {
+                    OutError = TEXT("SetMaterialAttributes pasted without a MaterialAttributes input expression.");
+                    return false;
+                }
+                if (!RequireLinkedInputPin(MaterialNode, TEXT("MaterialAttributes"), TEXT("SetMaterialAttributes")))
+                {
+                    return false;
+                }
+            }
+
+            if (UMaterialExpressionGetMaterialAttributes* GetAttributes = Cast<UMaterialExpressionGetMaterialAttributes>(Expression))
+            {
+                ++GetMaterialAttributesCount;
+                if (GetAttributes->MaterialAttributes.Expression == nullptr)
+                {
+                    OutError = TEXT("GetMaterialAttributes pasted without a MaterialAttributes input expression.");
+                    return false;
+                }
+                if (!RequireLinkedInputPin(MaterialNode, TEXT("Input"), TEXT("GetMaterialAttributes")))
+                {
+                    return false;
+                }
+            }
+        }
+
+        if (Text.Contains(TEXT("MaterialExpressionTransform")) && TransformCount == 0)
+        {
+            OutError = TEXT("Clipboard T3D contains Transform text, but UE did not import a Transform expression.");
+            return false;
+        }
+        if (Text.Contains(TEXT("CustomRotator")) && CustomRotatorCount == 0)
+        {
+            OutError = TEXT("Clipboard T3D contains CustomRotator text, but UE did not import a CustomRotator MaterialFunctionCall.");
+            return false;
+        }
+        if (Text.Contains(TEXT("MaterialExpressionNamedRerouteUsage")) && NamedRerouteUsageCount == 0)
+        {
+            OutError = TEXT("Clipboard T3D contains NamedRerouteUsage text, but UE did not import a usage expression.");
+            return false;
+        }
+        if (Text.Contains(TEXT("MaterialExpressionSetMaterialAttributes")) && SetMaterialAttributesCount == 0)
+        {
+            OutError = TEXT("Clipboard T3D contains SetMaterialAttributes text, but UE did not import a SetMaterialAttributes expression.");
+            return false;
+        }
+        if (Text.Contains(TEXT("MaterialExpressionGetMaterialAttributes")) && GetMaterialAttributesCount == 0)
+        {
+            OutError = TEXT("Clipboard T3D contains GetMaterialAttributes text, but UE did not import a GetMaterialAttributes expression.");
+            return false;
+        }
+        if (Text.Contains(TEXT("MaterialGraphNode_Comment")) && !bHasCommentNode)
+        {
+            OutError = TEXT("Clipboard T3D contains a comment box, but UE did not import a comment node.");
+            return false;
+        }
+
         int32 MakeAttributesNodeCount = 0;
         auto ValidateAttributesInput = [&Text, &OutError](const TCHAR* PropertyName, const FExpressionInput& Input) -> bool
         {
