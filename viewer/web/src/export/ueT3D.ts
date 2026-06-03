@@ -211,17 +211,26 @@ function pinId(nodeId: string, pinName: string, direction: 'input' | 'output'): 
   return guidFor(`pin:${nodeId}:${direction}:${pinName}`);
 }
 
-function nodeOutputPins(node: NodeJson, meta: NodeExportMeta, derivedPins: Record<string, DerivedPins>): string[] {
+// Output pins as { name, display }: `name` is the graph pin (the PinId/LinkedTo key, which
+// must match the srcPin every consumer wires from); `display` is UE's PinName, which can
+// differ. MakeMaterialAttributes is the one node where they diverge — its graph output is
+// "MaterialAttributes" but UE shows "Output". Emitting "Output" as the key (the old behaviour)
+// made every consumer's LinkedTo point at a PinId that didn't exist on the Make graph node, so
+// the wire dropped on paste; keying on "MaterialAttributes" keeps both ends consistent.
+function nodeOutputPins(node: NodeJson, meta: NodeExportMeta, derivedPins: Record<string, DerivedPins>): DynPin[] {
   if (node.type === 'Custom') {
     const extra = ((node.params?.AdditionalOutputs ?? []) as { OutputName: string }[]).map(o => o.OutputName);
-    return ['Output', ...extra];
+    return ['Output', ...extra].map(n => ({ name: n, display: n }));
   }
   if (node.type === 'MaterialFunctionCall') {
-    return (derivedPins[node.id]?.outputs ?? []).map(pin => pin.name);
+    return (derivedPins[node.id]?.outputs ?? []).map(pin => ({ name: pin.name, display: pin.name }));
+  }
+  if (node.type === 'MakeMaterialAttributes') {
+    return [{ name: 'MaterialAttributes', display: 'Output' }];
   }
   return Object.entries(meta.outputs)
     .sort(([, a], [, b]) => a.index - b.index)
-    .map(([name]) => name);
+    .map(([name]) => ({ name, display: name }));
 }
 
 function nodeInputPins(node: NodeJson, meta: NodeExportMeta, derivedPins: Record<string, DerivedPins>): string[] {
@@ -845,11 +854,8 @@ export function graphToUET3D(
       for (const pinName of nodeInputPins(node, nodeMeta, derivedPins)) {
         lines.push(pinLine(node.id, pinName, 'input', pinLinks.get(pinKey(node.id, 'input', pinName)) ?? []));
       }
-      for (const pinName of nodeOutputPins(node, nodeMeta, derivedPins)) {
-        const displayName = node.type === 'MakeMaterialAttributes' && pinName === 'MaterialAttributes'
-          ? 'Output'
-          : undefined;
-        lines.push(pinLine(node.id, pinName, 'output', pinLinks.get(pinKey(node.id, 'output', pinName)) ?? [], displayName));
+      for (const p of nodeOutputPins(node, nodeMeta, derivedPins)) {
+        lines.push(pinLine(node.id, p.name, 'output', pinLinks.get(pinKey(node.id, 'output', p.name)) ?? [], p.display));
       }
     }
     lines.push(`End Object`);
