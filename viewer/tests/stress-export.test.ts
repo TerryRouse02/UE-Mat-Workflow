@@ -43,9 +43,6 @@ const ATTR_TABLE: Record<string, { display: string; guid: string }> =
   EXPORT_META.materialAttributes && EXPORT_META.materialAttributes.length
     ? Object.fromEntries(EXPORT_META.materialAttributes.map(a => [a.name.replace(/\s+/g, ''), { display: a.name, guid: a.guid }]))
     : MATERIAL_ATTRIBUTE_GUIDS;
-for (const [key, fallback] of Object.entries(MATERIAL_ATTRIBUTE_GUIDS)) {
-  if (ATTR_TABLE[key]) ATTR_TABLE[key].display = fallback.display;
-}
 const hasAttr = (n: string) => n.replace(/\s+/g, '') in ATTR_TABLE;
 const SET_ATTRS = ['BaseColor', 'Roughness', 'Metallic', 'Normal'];   // N_SetMaterialAttributes.params.AttributeNames
 const GET_ATTRS = ['BaseColor', 'Roughness', 'EmissiveColor'];        // N_GetMaterialAttributes.params.AttributeNames

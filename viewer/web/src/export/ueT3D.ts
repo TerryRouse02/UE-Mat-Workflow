@@ -414,8 +414,12 @@ function buildAttributeTable(meta: ExportMeta): AttrTable {
   if (fromMeta && fromMeta.length > 0) {
     const table: AttrTable = {};
     for (const a of fromMeta) {
-      const key = a.name.replace(/\s+/g, '');
-      table[key] = { display: MATERIAL_ATTRIBUTE_GUIDS[key]?.display ?? a.name, guid: a.guid };
+      // Use the reflection-captured name verbatim as the display. UE's own clipboard writes
+      // the no-space attribute name ("BaseColor") for Set/Get InputName/OutputName — verified
+      // against the official fixtures — so the UI display label ("Base Color") would NOT round-
+      // trip faithfully. Set/Get attributes are GUID-driven, so this label is cosmetic, but we
+      // match UE exactly.
+      table[a.name.replace(/\s+/g, '')] = { display: a.name, guid: a.guid };
     }
     return table;
   }

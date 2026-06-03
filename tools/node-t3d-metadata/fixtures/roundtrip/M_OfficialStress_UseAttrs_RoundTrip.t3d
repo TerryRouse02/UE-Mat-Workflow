@@ -99,7 +99,7 @@ Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_4"
    End Object
    Begin Object Name="MaterialExpressionSetMaterialAttributes_4" ExportPath="/Script/Engine.MaterialExpressionSetMaterialAttributes'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_4.MaterialExpressionSetMaterialAttributes_4'"
       Inputs(0)=(Expression="/Script/Engine.MaterialExpressionMakeMaterialAttributes'MaterialGraphNode_0.MaterialExpressionMakeMaterialAttributes_0'")
-      Inputs(1)=(Expression="/Script/Engine.MaterialExpressionConstant3Vector'MaterialGraphNode_1.MaterialExpressionConstant3Vector_1'",InputName="Base Color",Mask=1,MaskR=1,MaskG=1,MaskB=1)
+      Inputs(1)=(Expression="/Script/Engine.MaterialExpressionConstant3Vector'MaterialGraphNode_1.MaterialExpressionConstant3Vector_1'",InputName="BaseColor",Mask=1,MaskR=1,MaskG=1,MaskB=1)
       Inputs(2)=(Expression="/Script/Engine.MaterialExpressionConstant'MaterialGraphNode_2.MaterialExpressionConstant_2'",InputName="Roughness")
       Inputs(3)=(Expression="/Script/Engine.MaterialExpressionConstant3Vector'MaterialGraphNode_3.MaterialExpressionConstant3Vector_3'",InputName="Normal",Mask=1,MaskR=1,MaskG=1,MaskB=1)
       AttributeSetTypes(0)=69B8D33616ED4D499AA497292F050F7A
@@ -113,7 +113,7 @@ Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_4"
    NodePosY=0
    NodeGuid=B506CCF06D4F1724D00F42526FE2F6C4
    CustomProperties Pin (PinId=82AA76C74EF5EEB5A042848D10AA29BC,PinName="MaterialAttributes",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_0 DFCEF5507E4250D6F423D43FC957779A,),)
-   CustomProperties Pin (PinId=C38F01E9C249A6773101D72B6E4F41C8,PinName="Base Color",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_1 E9EFE32B1E8CDD292FBCB3356E1CC35C,),)
+   CustomProperties Pin (PinId=C38F01E9C249A6773101D72B6E4F41C8,PinName="BaseColor",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_1 E9EFE32B1E8CDD292FBCB3356E1CC35C,),)
    CustomProperties Pin (PinId=0DB432CFF1D1A7AD1A25047264700033,PinName="Roughness",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_2 B37E06632F7CEF73C08144B0F2124654,),)
    CustomProperties Pin (PinId=87D1DBA41ABE794C4A86972D53FF7EB2,PinName="Normal",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_3 990076427588593ADA4DEA05FA18A08D,),)
    CustomProperties Pin (PinId=049EBBFA8BB5917E0E6B9767F4478CDD,PinName="Output",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_5 F5CAB16B0A2363A9E1A2504DE0AA18FC,MaterialGraphNode_8 EBA61FAAC6BB7F8E8ADF692996AA9A4E,),)
@@ -126,7 +126,7 @@ Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_5"
       AttributeGetTypes(0)=69B8D33616ED4D499AA497292F050F7A
       AttributeGetTypes(1)=D1DD967C4CAD47D39E6346FB08ECF210
       AttributeGetTypes(2)=0FA2821A200F4A4AB719B789C1259C64
-      Outputs(1)=(OutputName="Base Color")
+      Outputs(1)=(OutputName="BaseColor")
       Outputs(2)=(OutputName="Roughness")
       Outputs(3)=(OutputName="Normal")
       MaterialExpressionEditorX=0
@@ -138,7 +138,7 @@ Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_5"
    NodeGuid=EAD223546E3CD380C43102D26C5E0488
    CustomProperties Pin (PinId=F5CAB16B0A2363A9E1A2504DE0AA18FC,PinName="Input",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_4 049EBBFA8BB5917E0E6B9767F4478CDD,),)
    CustomProperties Pin (PinId=8ECEE646C5F9FB7A0847ECA755E45B1D,PinName="MaterialAttributes",Direction="EGPD_Output",)
-   CustomProperties Pin (PinId=810C5A9A51BCA266C6F9077B35338FA8,PinName="Base Color",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_6 19C26606A84B0C2CB66E15721E947DB7,),)
+   CustomProperties Pin (PinId=810C5A9A51BCA266C6F9077B35338FA8,PinName="BaseColor",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_6 19C26606A84B0C2CB66E15721E947DB7,),)
    CustomProperties Pin (PinId=E35DD3648144A39C7BFEE5C82611A35D,PinName="Roughness",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_7 91F0692DC1CC9E3B8F9241B063B51D68,),)
    CustomProperties Pin (PinId=88D671E5E8BA42C19F68279C0A0AA1A1,PinName="Normal",Direction="EGPD_Output",LinkedTo=(MaterialGraphNode_8 FC575D41ACCAA99586378609F5DF4BE4,),)
 End Object
@@ -181,7 +181,7 @@ Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_8"
    End Object
    Begin Object Name="MaterialExpressionSetMaterialAttributes_8" ExportPath="/Script/Engine.MaterialExpressionSetMaterialAttributes'/Engine/Transient.UEMatWorkflowClipboard:MaterialGraph_0.MaterialGraphNode_8.MaterialExpressionSetMaterialAttributes_8'"
       Inputs(0)=(Expression="/Script/Engine.MaterialExpressionSetMaterialAttributes'MaterialGraphNode_4.MaterialExpressionSetMaterialAttributes_4'")
-      Inputs(1)=(Expression="/Script/Engine.MaterialExpressionMultiply'MaterialGraphNode_6.MaterialExpressionMultiply_6'",InputName="Base Color")
+      Inputs(1)=(Expression="/Script/Engine.MaterialExpressionMultiply'MaterialGraphNode_6.MaterialExpressionMultiply_6'",InputName="BaseColor")
       Inputs(2)=(Expression="/Script/Engine.MaterialExpressionAdd'MaterialGraphNode_7.MaterialExpressionAdd_7'",InputName="Roughness")
       Inputs(3)=(Expression="/Script/Engine.MaterialExpressionGetMaterialAttributes'MaterialGraphNode_5.MaterialExpressionGetMaterialAttributes_5'",OutputIndex=3,InputName="Normal")
       AttributeSetTypes(0)=69B8D33616ED4D499AA497292F050F7A
@@ -195,7 +195,7 @@ Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_8"
    NodePosY=0
    NodeGuid=B606CE83F33AE18FBA79D0AA0F36A378
    CustomProperties Pin (PinId=EBA61FAAC6BB7F8E8ADF692996AA9A4E,PinName="MaterialAttributes",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_4 049EBBFA8BB5917E0E6B9767F4478CDD,),)
-   CustomProperties Pin (PinId=738A903EB2AFA52298E3BF575076FAA2,PinName="Base Color",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_6 D3F74B332109FCE732614F2C46942228,),)
+   CustomProperties Pin (PinId=738A903EB2AFA52298E3BF575076FAA2,PinName="BaseColor",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_6 D3F74B332109FCE732614F2C46942228,),)
    CustomProperties Pin (PinId=E8FC65C0E237A658FC86EF464697B90D,PinName="Roughness",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_7 63C04AA0CCECF88E0AEE043FFC42DED1,),)
    CustomProperties Pin (PinId=FC575D41ACCAA99586378609F5DF4BE4,PinName="Normal",Direction="EGPD_Input",LinkedTo=(MaterialGraphNode_5 88D671E5E8BA42C19F68279C0A0AA1A1,),)
    CustomProperties Pin (PinId=116305B133C7563142B9DB2B60995C87,PinName="Output",Direction="EGPD_Output",)
