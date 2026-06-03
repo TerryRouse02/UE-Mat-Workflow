@@ -1389,7 +1389,7 @@
     },
     {
       "from": "N_ObjectOrientation:XYZ",
-      "to": "N_Transform:VectorInput"
+      "to": "N_Transform:Input"
     },
     {
       "from": "N_Transform:Result",

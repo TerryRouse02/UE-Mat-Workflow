@@ -106,7 +106,7 @@
     { "from": "light_ws:RGB", "to": "add_light_offset:A" },
     { "from": "light_offset:RGB", "to": "add_light_offset:B" },
     { "from": "add_light_offset:Result", "to": "normalize_light_ws:VectorInput" },
-    { "from": "normalize_light_ws:Result", "to": "world_to_tangent:VectorInput" },
+    { "from": "normalize_light_ws:Result", "to": "world_to_tangent:Input" },
     { "from": "world_to_tangent:Result", "to": "normalize_light_ts:VectorInput" },
     { "from": "normalize_light_ts:Result", "to": "mask_x:Input" },
     { "from": "normalize_light_ts:Result", "to": "mask_y:Input" },

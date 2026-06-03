@@ -1009,6 +1009,16 @@ function reverseParamValue(raw: string, p: ParamMeta): unknown {
   }
 }
 
+// Strip UE's trailing pin type-tag (" (V2)", " (S)", " (MA)") from a MaterialFunctionCall
+// graph pin name so it matches the plain function-input name in the MF index. Used only as a
+// fallback when the FunctionInputs struct carries no InputName. Conservative: removes a single
+// trailing " (token)" of 1-3 alphanumerics, leaving real parenthetical names like
+// "Rotation Angle (0-1)" otherwise intact.
+function stripPinTypeSuffix(name: string | undefined): string | undefined {
+  if (name == null) return undefined;
+  return name.replace(/\s+\([A-Za-z0-9]{1,3}\)$/, '');
+}
+
 // One parsed FExpressionInput: source expression name, its output index, optional InputName label.
 function parseInputStruct(raw: string): { expr?: string; outputIndex: number; inputName?: string } {
   let exprRaw: string | undefined;
@@ -1023,7 +1033,10 @@ function parseInputStruct(raw: string): { expr?: string; outputIndex: number; in
   }
   if (!exprRaw && nested) {
     const inner = parseInputStruct(nested);
-    return { expr: inner.expr, outputIndex: inner.outputIndex, inputName };
+    // FunctionInputs wrap the wire in a nested Input=(...) that itself carries the
+    // InputName (e.g. (ExpressionInputId=..,Input=(Expression=..,InputName="UVs"))).
+    // Prefer an outer InputName when present, else take the nested one.
+    return { expr: inner.expr, outputIndex: inner.outputIndex, inputName: inputName ?? inner.inputName };
   }
   return { expr: exprRaw ? exprNameFromRef(exprRaw) : undefined, outputIndex, inputName };
 }
@@ -1304,7 +1317,12 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
         const v = fill.get(`FunctionInputs(${n})`);
         if (v == null) break;
         const inp = parseInputStruct(v);
-        const dstPin = node.inputPinOrder[n] ?? `In${n}`;
+        // Prefer the FunctionInputs InputName (the plain function-input name, e.g. "UVs"),
+        // which matches the MF index / derivedPins. The CustomProperties pin name carries a
+        // UE type-suffix ("UVs (V2)") that never matches the index, so falling back to it
+        // would collapse every input to FunctionInputs(0) on re-export. Suffix-strip the pin
+        // name as a last resort before the positional placeholder.
+        const dstPin = inp.inputName ?? stripPinTypeSuffix(node.inputPinOrder[n]) ?? `In${n}`;
         wire(inp.expr, inp.outputIndex, node.id, dstPin);
       }
       continue;
@@ -1317,7 +1335,13 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
       for (const [k, v] of fill) {
         if (!/Expression=/.test(v)) continue;
         const pin = pinByProperty.get(k);
-        if (!pin) continue;
+        if (!pin) {
+          // A UE input property the metadata doesn't map (e.g. a wrong/missing `property`
+          // in nodes-ue<ver>.export.json). Surface it instead of dropping the wire silently
+          // — silent drops are how a single bad metadata entry quietly disconnects a node.
+          warnings.push(`Node "${node.id}" (${type}): UE input property "${k}" has no pin mapping in metadata - wire dropped (check nodes-ue*.export.json inputs for ${type}).`);
+          continue;
+        }
         const inp = parseInputStruct(v);
         wire(inp.expr, inp.outputIndex, node.id, pin);
       }

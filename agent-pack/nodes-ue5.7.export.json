@@ -4546,9 +4546,9 @@
 			"ueClass": "/Script/Engine.MaterialExpressionTransform",
 			"inputs":
 			{
-				"VectorInput":
+				"Input":
 				{
-					"property": "VectorInput"
+					"property": "Input"
 				}
 			},
 			"outputs":

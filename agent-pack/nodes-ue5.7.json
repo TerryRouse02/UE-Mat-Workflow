@@ -3883,7 +3883,7 @@
       "description": "Transforms a vector between material coordinate spaces.",
       "inputs": [
         {
-          "name": "VectorInput",
+          "name": "Input",
           "type": "Float3",
           "required": true
         }
