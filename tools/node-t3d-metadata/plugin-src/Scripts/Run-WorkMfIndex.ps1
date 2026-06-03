@@ -43,7 +43,7 @@ $ProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path
 $EngineRoot = (Resolve-Path -LiteralPath $EngineRoot).Path
 $ProjectDir = Split-Path -Parent $ProjectPath
 $EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
-# Local, gitignored output — the user's own project MF signatures, never committed.
+# Local, gitignored output - the user's own project MF signatures, never committed.
 $Out = Join-Path $WorkflowRoot "agent-pack\workmf-index.json"
 if ([string]::IsNullOrWhiteSpace($PackageDir)) {
     $PackageDir = Join-Path $BundleRoot "compiled\UEMatExportMetadata"
@@ -102,4 +102,4 @@ if ($LASTEXITCODE -ne 0) {
 Write-Host "Work-MF index written to $Out"
 Write-Host "Content roots crawled: $ContentRoots"
 Write-Host "Commandlet log: $CommandletLog"
-Write-Host "NOTE: $Out is gitignored (local to this machine) — do not commit it."
+Write-Host "NOTE: $Out is gitignored (local to this machine) - do not commit it."

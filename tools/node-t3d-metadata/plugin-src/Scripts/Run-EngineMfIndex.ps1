@@ -33,7 +33,7 @@ function Find-RepoRoot([string]$StartPath) {
     }
 }
 
-# Newest mtime under a directory — used to detect a stale compiled plugin.
+# Newest mtime under a directory - used to detect a stale compiled plugin.
 function Get-NewestWriteTime([string]$Path) {
     $latest = [DateTime]::MinValue
     if (Test-Path $Path) {
@@ -45,7 +45,7 @@ function Get-NewestWriteTime([string]$Path) {
 }
 
 # Per-machine tooling config. Reads tools/node-t3d-metadata/local.config.json (the
-# gitignored real file, two levels up from plugin-src/Scripts — NOT the committed
+# gitignored real file, two levels up from plugin-src/Scripts - NOT the committed
 # local.config.example.json template) and returns the requested property, or $null if the
 # file or property is absent. A missing config file is tolerated silently.
 function Get-LocalConfigValue([string]$BundleRoot, [string]$Name) {
@@ -95,7 +95,7 @@ $ProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path
 $EngineRoot = (Resolve-Path -LiteralPath $EngineRoot).Path
 $ProjectDir = Split-Path -Parent $ProjectPath
 $EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
-# Committed output — official engine MFs are stable shipped data shared by all users.
+# Committed output - official engine MFs are stable shipped data shared by all users.
 if ([string]::IsNullOrWhiteSpace($Out)) {
     $Out = Join-Path $WorkflowRoot "agent-pack\enginemf-index-ue5.7.json"
 }

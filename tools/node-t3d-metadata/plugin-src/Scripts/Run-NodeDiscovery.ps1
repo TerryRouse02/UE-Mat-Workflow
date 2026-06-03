@@ -13,9 +13,9 @@ param(
     [string]$NodeDb = "",
     [switch]$ForcePackage,
     # Some installs have broken/incompatible default engine plugins (Metasound,
-    # Interchange, …) that abort the commandlet on load. This fallback boots a bare
+    # Interchange, etc.) that abort the commandlet on load. This fallback boots a bare
     # editor with only this plugin. NOTE: it then sees ONLY Engine-module material
-    # expressions — plugin-provided expressions (Paper2D, etc.) are excluded.
+    # expressions - plugin-provided expressions (Paper2D, etc.) are excluded.
     [switch]$NoEnginePlugins,
     [switch]$UseProjectPlugin
 )
@@ -36,7 +36,7 @@ function Find-RepoRoot([string]$StartPath) {
     }
 }
 
-# Newest mtime under a directory — used to detect a stale compiled plugin.
+# Newest mtime under a directory - used to detect a stale compiled plugin.
 function Get-NewestWriteTime([string]$Path) {
     $latest = [DateTime]::MinValue
     if (Test-Path $Path) {
@@ -48,7 +48,7 @@ function Get-NewestWriteTime([string]$Path) {
 }
 
 # Per-machine tooling config. Reads tools/node-t3d-metadata/local.config.json (the
-# gitignored real file, two levels up from plugin-src/Scripts — NOT the committed
+# gitignored real file, two levels up from plugin-src/Scripts - NOT the committed
 # local.config.example.json template) and returns the requested property, or $null if the
 # file or property is absent. A missing config file is tolerated silently.
 function Get-LocalConfigValue([string]$BundleRoot, [string]$Name) {

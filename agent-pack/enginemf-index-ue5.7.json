@@ -5,9 +5,9 @@
 	"provenance":
 	{
 		"ueVersion": "5.7",
-		"engineVersion": "5.7.4-0+++FY_Depot+Build_Stream_UGS",
+		"engineVersion": "5.7.4-51494982+++UE5+Release-5.7",
 		"generatedBy": "UEMatExportMetadata",
-		"generatedAt": "2026-06-02T11:53:22.048Z",
+		"generatedAt": "2026-06-03T15:36:14.166Z",
 		"contentRoots": "/Engine/Functions"
 	},
 	"functions":

@@ -18,7 +18,7 @@ export const OUTPUTLESS_NODES = new Set<string>([
   'BentNormalCustomOutput', 'ClearCoatNormalCustomOutput', 'TangentOutput',
   'ThinTranslucentMaterialOutput', 'FirstPersonOutput', 'TemporalResponsivenessOutput',
   'MotionVectorWorldOffsetOutput', 'LandscapeGrassOutput', 'LandscapePhysicalMaterialOutput',
-  'AbsorptionMediumMaterialOutput', 'AdditionalUniformCustomOutput', 'NeuralNetworkInput',
+  'AbsorptionMediumMaterialOutput', 'NeuralNetworkInput',
   'RuntimeVirtualTextureOutput', 'SingleLayerWaterMaterialOutput', 'SubsurfaceMediumMaterialOutput',
   'VolumetricAdvancedMaterialOutput', 'VolumetricCloudEmptySpaceSkippingOutput', 'LegacyBlendMaterialAttributes',
 ]);

@@ -71,6 +71,31 @@ test('every generated entry is verified:false with placeholder types', () => {
   }
 });
 
+test('object input entries keep reflected types and dedupe by name', () => {
+  const report = {
+    missing: [
+      {
+        type: 'TypedInputNode',
+        inputs: [
+          { name: 'UV', type: 'Float2' },
+          { name: 'UV', type: 'Float3' },
+          { name: 'None', type: 'Float1' },
+          'Legacy',
+        ],
+        outputs: ['Result'],
+      },
+    ],
+  };
+  const out = buildCandidates(report, { nodes: {} });
+
+  assert.deepEqual(out.nodes.TypedInputNode.inputs, [
+    { name: 'UV', type: 'Float2', required: false },
+    { name: 'UV_2', type: 'Float3', required: false },
+    { name: 'Legacy', type: 'Float1|2|3|4', required: false },
+  ]);
+  assert.equal(out.nodes.TypedInputNode.verified, false);
+});
+
 test('a single unnamed output (None) becomes Result', () => {
   const report = {
     missing: [

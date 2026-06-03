@@ -1231,10 +1231,6 @@
       "type": "FontSample"
     },
     {
-      "id": "G_FYCharacterRelativePosition",
-      "type": "FYCharacterRelativePosition"
-    },
-    {
       "id": "G_HairAttributes",
       "type": "HairAttributes"
     },
@@ -1479,10 +1475,6 @@
       "type": "AbsorptionMediumMaterialOutput"
     },
     {
-      "id": "G_AdditionalUniformCustomOutput",
-      "type": "AdditionalUniformCustomOutput"
-    },
-    {
       "id": "G_NeuralNetworkInput",
       "type": "NeuralNetworkInput"
     },
@@ -1597,10 +1589,6 @@
     {
       "id": "G_PreSkinnedPosition",
       "type": "PreSkinnedPosition"
-    },
-    {
-      "id": "G_PreSkinnedTangent",
-      "type": "PreSkinnedTangent"
     },
     {
       "id": "G_SkyAtmosphereLightDirection",
@@ -4593,102 +4581,6 @@
       "to": "G_AbsorptionMediumMaterialOutput:TransmittanceColor"
     },
     {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param0"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param1"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param2"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param3"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param4"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param5"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param6"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param7"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param8"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param9"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param10"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param11"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param12"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param13"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param14"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param15"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param16"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param17"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param18"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param19"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param20"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param21"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param22"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
-      "to": "G_AdditionalUniformCustomOutput:Param23"
-    },
-    {
       "from": "SRC_UV:UVs",
       "to": "G_NeuralNetworkInput:Coordinates"
     },
@@ -6925,10 +6817,6 @@
       "to": "COL_192:A"
     },
     {
-      "from": "G_FYCharacterRelativePosition:Result",
-      "to": "COL_192:B"
-    },
-    {
       "from": "COL_192:Result",
       "to": "COL_193:A"
     },
@@ -7523,10 +7411,6 @@
     {
       "from": "COL_266:Result",
       "to": "COL_267:A"
-    },
-    {
-      "from": "G_PreSkinnedTangent:Result",
-      "to": "COL_267:B"
     },
     {
       "from": "COL_267:Result",
@@ -8532,7 +8416,6 @@
         "G_FloatToUInt",
         "G_UIntToFloat",
         "G_FontSample",
-        "G_FYCharacterRelativePosition",
         "G_HairAttributes",
         "G_HairColor",
         "G_HsvToRgb",
@@ -8588,7 +8471,6 @@
         "G_ParticleSubUVProperties",
         "G_PerInstanceCustomData",
         "G_PerInstanceCustomData3Vector",
-        "G_PreSkinnedTangent",
         "G_SkyLightEnvMapSample",
         "G_ScalarBlueNoise",
         "G_LegacyBlendMaterialAttributes",
@@ -8777,7 +8659,6 @@
         "G_TemporalResponsivenessOutput",
         "G_MotionVectorWorldOffsetOutput",
         "G_AbsorptionMediumMaterialOutput",
-        "G_AdditionalUniformCustomOutput",
         "G_SingleLayerWaterMaterialOutput",
         "G_SubsurfaceMediumMaterialOutput",
         "G_VolumetricAdvancedMaterialOutput",

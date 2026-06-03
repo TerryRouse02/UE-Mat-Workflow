@@ -11,7 +11,7 @@ param(
     [switch]$SkipViewerTests,
     # WorkMF Phase 2: crawl the user's OWN project Material Functions into the local,
     # gitignored agent-pack/workmf-index.json. When set, this packages the plugin (if
-    # stale) then runs ONLY the crawl — it does not regenerate node metadata.
+    # stale) then runs ONLY the crawl - it does not regenerate node metadata.
     [switch]$WorkMF,
     [string]$WorkMfContentRoots = "/Game"
 )
@@ -60,7 +60,7 @@ function Invoke-External([string]$Name, [scriptblock]$Action) {
 }
 
 # Per-machine tooling config. Reads tools/node-t3d-metadata/local.config.json (the
-# gitignored, real file — NOT the committed local.config.example.json template) and
+# gitignored, real file - NOT the committed local.config.example.json template) and
 # returns the requested property, or $null if the file or property is absent. A missing
 # config file is tolerated silently so explicit CLI args keep working with no config.
 function Get-LocalConfigValue([string]$Name) {
@@ -174,7 +174,7 @@ if ($WorkMF) {
     $WorkMfIndex = Join-Path $WorkflowRoot "agent-pack\workmf-index.json"
     Write-Host ""
     Write-Host "WorkMF crawl completed."
-    Write-Host "Index: $WorkMfIndex (gitignored, local — do not commit)."
+    Write-Host "Index: $WorkMfIndex (gitignored, local - do not commit)."
     return
 }
 

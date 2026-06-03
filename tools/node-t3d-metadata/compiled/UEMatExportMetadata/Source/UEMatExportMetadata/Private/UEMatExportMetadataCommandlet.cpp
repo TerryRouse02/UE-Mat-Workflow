@@ -2401,6 +2401,31 @@ static FString ExpressionTypeNameFromClass(const UClass* Class)
     return Name;
 }
 
+static FString MapMaterialValueType(EMaterialValueType Type)
+{
+    const uint64 Mask = static_cast<uint64>(Type);
+    if ((Mask & MCT_MaterialAttributes) != 0) return TEXT("MaterialAttributes");
+    if ((Mask & MCT_Substrate) != 0) return TEXT("Substrate");
+    if ((Mask & MCT_ShadingModel) != 0) return TEXT("ShadingModel");
+    if ((Mask & MCT_TextureExternal) != 0) return TEXT("TextureExternal");
+    if ((Mask & MCT_VolumeTexture) != 0) return TEXT("VolumeTexture");
+    if ((Mask & MCT_Texture2DArray) != 0) return TEXT("Texture2DArray");
+    if ((Mask & MCT_TextureCube) != 0) return TEXT("TextureCube");
+    if ((Mask & MCT_Texture2D) != 0) return TEXT("Texture2D");
+    if ((Mask & MCT_StaticBool) != 0) return TEXT("StaticBool");
+    if ((Mask & MCT_Bool) != 0) return TEXT("Bool");
+    if (Mask == MCT_Float4) return TEXT("Float4");
+    if (Mask == MCT_Float3) return TEXT("Float3");
+    if (Mask == MCT_Float2) return TEXT("Float2");
+    if (Mask == MCT_Float1) return TEXT("Float1");
+    return TEXT("Float1|2|3|4");
+}
+
+static bool ShouldSkipInputReflection(const FString& TypeName)
+{
+    return TypeName == TEXT("Aggregate");
+}
+
 static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath, FString& OutError)
 {
     // Known DB keys (optional diff target). Without a DB every class is "missing".
@@ -2458,17 +2483,27 @@ static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath
         FString Caption;
         if (Expr)
         {
-            for (int32 i = 0; Expr->GetInput(i) != nullptr; ++i)
+            const bool bSkipUnsafeReflection = ShouldSkipInputReflection(TypeName);
+            if (!bSkipUnsafeReflection)
             {
-                Inputs.Add(MakeShared<FJsonValueString>(Expr->GetInputName(i).ToString()));
+                for (int32 i = 0; Expr->GetInput(i) != nullptr; ++i)
+                {
+                    TSharedRef<FJsonObject> Input = MakeShared<FJsonObject>();
+                    Input->SetStringField(TEXT("name"), Expr->GetInputName(i).ToString());
+                    Input->SetStringField(TEXT("type"), MapMaterialValueType(Expr->GetInputValueType(i)));
+                    Inputs.Add(MakeShared<FJsonValueObject>(Input));
+                }
             }
             for (const FExpressionOutput& Out : Expr->GetOutputs())
             {
                 Outputs.Add(MakeShared<FJsonValueString>(Out.OutputName.ToString()));
             }
-            TArray<FString> Captions;
-            Expr->GetCaption(Captions);
-            if (Captions.Num() > 0) Caption = Captions[0];
+            if (!bSkipUnsafeReflection)
+            {
+                TArray<FString> Captions;
+                Expr->GetCaption(Captions);
+                if (Captions.Num() > 0) Caption = Captions[0];
+            }
         }
 
         TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();

@@ -4387,18 +4387,6 @@
       ],
       "verified": false
     },
-    "FYCharacterRelativePosition": {
-      "category": "Utility",
-      "description": "FYCharacterRelativePosition (auto-discovered; verify pins/types).",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "Result",
-          "type": "Float1|2|3|4"
-        }
-      ],
-      "verified": false
-    },
     "HairAttributes": {
       "category": "Utility",
       "description": "Hair Attributes (auto-discovered; verify pins/types).",
@@ -5762,134 +5750,6 @@
       "outputs": [],
       "verified": false
     },
-    "AdditionalUniformCustomOutput": {
-      "category": "Output",
-      "description": "AdditionalUniform (auto-discovered; verify pins/types).",
-      "inputs": [
-        {
-          "name": "Param0",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param1",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param2",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param3",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param4",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param5",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param6",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param7",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param8",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param9",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param10",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param11",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param12",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param13",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param14",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param15",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param16",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param17",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param18",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param19",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param20",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param21",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param22",
-          "type": "Float1|2|3|4",
-          "required": false
-        },
-        {
-          "name": "Param23",
-          "type": "Float1|2|3|4",
-          "required": false
-        }
-      ],
-      "outputs": [],
-      "verified": false
-    },
     "NeuralNetworkInput": {
       "category": "Utility",
       "description": "Neural Input (Texture) (auto-discovered; verify pins/types).",
@@ -6476,18 +6336,6 @@
         }
       ],
       "verified": true
-    },
-    "PreSkinnedTangent": {
-      "category": "Utility",
-      "description": "Pre-Skinned Local Tangent (auto-discovered; verify pins/types).",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "Result",
-          "type": "Float1|2|3|4"
-        }
-      ],
-      "verified": false
     },
     "SkyAtmosphereLightDirection": {
       "category": "Atmosphere",

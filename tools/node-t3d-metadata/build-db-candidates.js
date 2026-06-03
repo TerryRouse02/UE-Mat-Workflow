@@ -42,7 +42,15 @@ function categoryFor(type, caption) {
   return 'Utility';
 }
 
-const names = (arr) => (arr || []).filter((n) => n && n !== 'None');
+function inputPin(entry) {
+  const name = typeof entry === 'string' ? entry : entry && entry.name;
+  if (!name || name === 'None') return null;
+  return {
+    name,
+    type: typeof entry === 'string' ? 'Float1|2|3|4' : entry.type || 'Float1|2|3|4',
+    required: false,
+  };
+}
 
 // UE can reflect several pins with the same name (e.g. SubstrateShadingModels
 // has multiple "Unused" inputs). The authoring DB requires unique pin names, so
@@ -70,7 +78,7 @@ function buildCandidates(report, db) {
     const type = m.type;
     if (SKIP.has(type) || existing.has(type)) { skipped.push(type); continue; }
 
-    const inputNames = names(m.inputs);
+    const inputs = (m.inputs || []).map(inputPin).filter(Boolean);
     const category = categoryFor(type, m.caption);
 
     // UE stores a single output's name as None (unnamed); only a truly empty
@@ -85,9 +93,9 @@ function buildCandidates(report, db) {
     const entry = {
       category,
       description: (m.caption || type) + ' (auto-discovered; verify pins/types).',
-      inputs: dedupe(inputNames.map((n) => ({ name: n, type: 'Float1|2|3|4', required: false }))),
-      // Types are placeholders ("Float1|2|3|4", the DB's polymorphic catch-all);
-      // reflection only yields pin NAMES. Refine during review.
+      inputs: dedupe(inputs),
+      // Output types stay placeholders ("Float1|2|3|4", the DB's polymorphic
+      // catch-all); UE does not provide reliable FExpressionOutput types here.
       outputs: dedupe(outputs),
       verified: false,
       ueClass: m.ueClass, // hint for the export regen / reviewer; harmless extra field
