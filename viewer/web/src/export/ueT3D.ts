@@ -289,28 +289,37 @@ function collectMaterialOutputs(
     return { nodes: graph.nodes, connections: graph.connections, layout, warnings: [] };
   }
   const warnings: string[] = [];
-  const extraNodes: NodeJson[] = [];
-  const extraLayout: Record<string, { x: number; y: number }> = {};
-  const collectorFor = new Map<string, string>(); // MaterialOutput id -> collector id
+  const outIds = new Set(outputs.map(o => o.id));
+  const collectorFor = new Map<string, string>(); // MaterialOutput id -> collector id (created lazily)
   const seenPin = new Set<string>();               // `${collectorId}:${attr}` already wired
   const countFor = new Map<string, number>();      // collectorId -> wires collected
+  const usedAttrs = new Set<string>();             // MaterialOutput id wired via Material Attributes
 
-  for (const out of outputs) {
-    const id = `${out.id}__MakeAttributes`;
-    collectorFor.set(out.id, id);
-    const pos = layout[out.id] ?? { x: 0, y: 0 };
-    extraLayout[id] = { x: pos.x - 250, y: pos.y };
-    extraNodes.push({ id, type: 'MakeMaterialAttributes', params: {} });
-  }
+  const collectorOf = (outId: string): string => {
+    let id = collectorFor.get(outId);
+    if (!id) { id = `${outId}__MakeAttributes`; collectorFor.set(outId, id); }
+    return id;
+  };
 
   const connections: MatGraph['connections'] = [];
   for (const connection of graph.connections) {
     const [dstId, dstPin] = splitRef(connection.to);
-    const collectorId = collectorFor.get(dstId);
-    if (!collectorId || !MATERIAL_ATTRIBUTE_PINS.includes(dstPin)) {
-      connections.push(connection);
+    if (!outIds.has(dstId)) { connections.push(connection); continue; }
+    // A wire into the root's "Material Attributes" pin = Use Material Attributes: the source is
+    // already a full MaterialAttributes value, so it needs no MakeMaterialAttributes — the user
+    // connects it straight to the root. Drop the (un-emittable) wire to the root and tell them.
+    if (dstPin === 'MaterialAttributes') {
+      if (!usedAttrs.has(dstId)) {
+        usedAttrs.add(dstId);
+        warnings.push(`MaterialOutput "${dstId}": uses Material Attributes. In UE, connect the source's output to the material's Material Attributes root pin and enable "Use Material Attributes".`);
+      }
       continue;
     }
+    if (!MATERIAL_ATTRIBUTE_PINS.includes(dstPin)) {
+      warnings.push(`MaterialOutput "${dstId}" pin "${dstPin}" is not a standard attribute pin - wire dropped on export.`);
+      continue;
+    }
+    const collectorId = collectorOf(dstId);
     const key = `${collectorId}:${dstPin}`;
     if (seenPin.has(key)) {
       warnings.push(`MaterialOutput "${dstId}" pin "${dstPin}" wired more than once - duplicate dropped (UE allows one wire per input).`);
@@ -321,11 +330,16 @@ function collectMaterialOutputs(
     connections.push({ ...connection, to: `${collectorId}:${dstPin}` });
   }
 
+  // Synthesize one MakeMaterialAttributes per output that actually collected attribute wires.
+  const extraNodes: NodeJson[] = [];
+  const extraLayout: Record<string, { x: number; y: number }> = {};
   for (const [outId, collectorId] of collectorFor) {
     const count = countFor.get(collectorId) ?? 0;
-    if (count > 0) {
-      warnings.push(`MaterialOutput "${outId}": auto-collected ${count} attribute(s) into MakeMaterialAttributes "${collectorId}". In UE, connect its Output pin to the material's Material Attributes root pin and enable "Use Material Attributes".`);
-    }
+    if (count === 0) continue;
+    const pos = layout[outId] ?? { x: 0, y: 0 };
+    extraLayout[collectorId] = { x: pos.x - 250, y: pos.y };
+    extraNodes.push({ id: collectorId, type: 'MakeMaterialAttributes', params: {} });
+    warnings.push(`MaterialOutput "${outId}": auto-collected ${count} attribute(s) into MakeMaterialAttributes "${collectorId}". In UE, connect its Output pin to the material's Material Attributes root pin and enable "Use Material Attributes".`);
   }
 
   return {
@@ -1019,6 +1033,15 @@ function stripPinTypeSuffix(name: string | undefined): string | undefined {
   return name.replace(/\s+\([A-Za-z0-9]{1,3}\)$/, '');
 }
 
+// The source pin ids referenced by a `CustomProperties Pin (... LinkedTo=(Node Pid,Node2 Pid2,))`
+// line — i.e. the second whitespace-separated token of each comma-separated link entry.
+function parseLinkedToPinIds(line: string): string[] {
+  const m = /LinkedTo=\(([^)]*)\)/.exec(line);
+  if (!m) return [];
+  return m[1].split(',').map(s => s.trim()).filter(Boolean)
+    .map(entry => entry.split(/\s+/)[1]).filter(Boolean);
+}
+
 // One parsed FExpressionInput: source expression name, its output index, optional InputName label.
 function parseInputStruct(raw: string): { expr?: string; outputIndex: number; inputName?: string } {
   let exprRaw: string | undefined;
@@ -1103,9 +1126,26 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
   const rerouteSource = new Map<string, { expr?: string; outputIndex: number }>();
   const comments: { x: number; y: number; w: number; h: number; text: string; color: string }[] = [];
   const usedIds = new Set<string>();
+  // Material output "收口": the root node (MaterialGraphNode_Root) is not a UMaterialExpression,
+  // so its wires live on the pins as LinkedTo=(GraphNode <SourcePinId>) rather than as
+  // expression-level inputs. We index every node's *output* pin id -> its source, then resolve
+  // the root's wired input pins into a MaterialOutput node so the material's final connections
+  // survive the round-trip instead of being silently dropped.
+  const outPinIdToSource = new Map<string, { nodeId: string; outName: string }>();
+  const rootInputs: { pinName: string; linkedPinIds: string[] }[] = [];
 
   // ---- Pass 1: parse nodes & params ----
   for (const top of tops) {
+    if (top.className === '/Script/UnrealEd.MaterialGraphNode_Root') {
+      for (const l of splitBody(top.bodyLines).scalars) {
+        if (!l.startsWith('CustomProperties Pin')) continue;
+        const linked = parseLinkedToPinIds(l);
+        if (!linked.length) continue;                       // unwired root pin -> skip
+        const pn = /PinName="([^"]*)"/.exec(l)?.[1];
+        if (pn) rootInputs.push({ pinName: pn, linkedPinIds: linked });
+      }
+      continue;
+    }
     if (top.className === '/Script/UnrealEd.MaterialGraphNode_Comment') {
       const sc = splitBody(top.bodyLines).scalars;
       const kv = new Map(sc.map(scalarKV).filter(Boolean) as [string, string][]);
@@ -1157,6 +1197,24 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
         .map(l => /PinName="([^"]*)"/.exec(l)?.[1] ?? ''),
       pos: { x: Number(topKV.get('NodePosX') ?? 0), y: Number(topKV.get('NodePosY') ?? 0) },
     };
+
+    // Index this node's output pin ids so the root's LinkedTo can resolve back to a source.
+    // The graph pin name UE writes for a single output is "Output"; map it to the node's real
+    // DB output name (e.g. Transform's "Output" -> "Result"). Channel outputs (RGB, R, …) match.
+    for (const l of scalars) {
+      if (!l.startsWith('CustomProperties Pin') || !/Direction="EGPD_Output"/.test(l)) continue;
+      const pid = /PinId=([0-9A-Fa-f]+)/.exec(l)?.[1];
+      if (!pid) continue;
+      const customName = /PinName="([^"]*)"/.exec(l)?.[1] ?? 'Output';
+      const outs = nodeMeta?.outputs ? Object.keys(nodeMeta.outputs) : [];
+      let outName = outs.includes(customName) ? customName : (outs[0] ?? customName);
+      // Dynamic-pin nodes expose no static outputs; map UE's generic single-output name.
+      if (!outs.length && customName === 'Output') {
+        if (type === 'SetMaterialAttributes') outName = 'MaterialAttributes';
+        else if (type === 'LandscapeLayerBlend') outName = 'Result';
+      }
+      outPinIdToSource.set(pid.toUpperCase(), { nodeId: id, outName });
+    }
 
     // Scalar params (skip values that are FExpressionInput wires, handled in pass 2).
     if (nodeMeta) {
@@ -1348,6 +1406,32 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
     }
   }
 
+  // ---- Material output (收口): resolve the root's wired pins into a MaterialOutput node ----
+  // Pin display names carry spaces ("Base Color"); strip them to the canonical pin name
+  // ("BaseColor"). "Material Attributes" -> "MaterialAttributes" is the Use-Material-Attributes
+  // root pin. Only emitted when the root actually had a wire, so a function/partial paste is
+  // unaffected.
+  let outputNode: NodeJson | undefined;
+  if (rootInputs.length) {
+    let outId = 'OUT';
+    while (usedIds.has(outId)) outId = `${outId}_`;
+    usedIds.add(outId);
+    let wired = 0;
+    for (const r of rootInputs) {
+      const attr = r.pinName.replace(/\s+/g, '');
+      for (const pid of r.linkedPinIds) {
+        const src = outPinIdToSource.get(pid.toUpperCase());
+        if (!src) {
+          warnings.push(`MaterialOutput pin "${r.pinName}": source pin ${pid} not found - wire dropped.`);
+          continue;
+        }
+        connections.push({ from: `${src.nodeId}:${src.outName}`, to: `${outId}:${attr}` });
+        wired++;
+      }
+    }
+    if (wired > 0) outputNode = { id: outId, type: 'MaterialOutput' };
+  }
+
   // ---- Comments: recover `contains` geometrically from node positions ----
   const commentJson: CommentJson[] = comments.map((c, i) => ({
     id: `comment_${i}`,
@@ -1366,7 +1450,10 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
     ueVersion: meta.ueVersion,
     type: graphType,
     name: opts.name ?? 'imported',
-    nodes: importNodes.map(n => (Object.keys(n.params).length ? { id: n.id, type: n.type, params: n.params } : { id: n.id, type: n.type })),
+    nodes: [
+      ...importNodes.map(n => (Object.keys(n.params).length ? { id: n.id, type: n.type, params: n.params } : { id: n.id, type: n.type })),
+      ...(outputNode ? [outputNode] : []),
+    ],
     connections,
     ...(commentJson.length ? { comments: commentJson } : {}),
   };
