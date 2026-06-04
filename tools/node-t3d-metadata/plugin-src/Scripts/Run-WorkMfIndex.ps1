@@ -27,16 +27,46 @@ function Find-RepoRoot([string]$StartPath) {
     }
 }
 
+# Per-machine tooling config. Reads tools/node-t3d-metadata/local.config.json (the
+# gitignored real file, two levels up from plugin-src/Scripts - NOT the committed
+# local.config.example.json template) and returns the requested property, or $null if the
+# file or property is absent. A missing config file is tolerated silently.
+function Get-LocalConfigValue([string]$BundleRoot, [string]$Name) {
+    $ConfigPath = Join-Path $BundleRoot "local.config.json"
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        return $null
+    }
+    $Config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    if ($null -eq $Config) {
+        return $null
+    }
+    $Property = $Config.PSObject.Properties[$Name]
+    if ($null -eq $Property) {
+        return $null
+    }
+    return $Property.Value
+}
+
 $PluginRoot = Split-Path -Parent $PSScriptRoot
 $BundleRoot = Split-Path -Parent $PluginRoot
 if ([string]::IsNullOrWhiteSpace($WorkflowRoot)) {
     $WorkflowRoot = Find-RepoRoot $BundleRoot
 }
+# Per-machine path fallback: an explicit CLI arg always wins; otherwise fall back to
+# local.config.json (this lets the viewer crawl button invoke the script with no args).
+# A real game project is required here - workmf indexes the project's OWN Material
+# Functions, so the bundled minimal host used by engine/discovery crawls is not viable.
 if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
-    throw "ProjectPath is required. Pass -ProjectPath <path-to-.uproject>."
+    $ProjectPath = Get-LocalConfigValue $BundleRoot "ProjectPath"
 }
 if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
-    throw "EngineRoot is required. Pass -EngineRoot <path-to-UnrealEngine>."
+    $EngineRoot = Get-LocalConfigValue $BundleRoot "EngineRoot"
+}
+if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
+    throw "ProjectPath is required. Pass -ProjectPath <path-to-.uproject> or set it in local.config.json."
+}
+if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
+    throw "EngineRoot is required. Pass -EngineRoot <path-to-UnrealEngine> or set it in local.config.json."
 }
 
 $ProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path

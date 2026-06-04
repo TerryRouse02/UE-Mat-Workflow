@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { tmpdir } from 'node:os';
-import { createCrawlRunner, type CrawlEvent, type CommandFor } from '../server/crawl-runner';
+import { createCrawlRunner, defaultCommandFor, type CrawlEvent, type CommandFor } from '../server/crawl-runner';
 
 // Drive the runner with a real `node -e` subprocess as the mock crawl, so the
 // spawn plumbing, line splitting, and exit handling are all genuinely exercised
@@ -51,6 +51,14 @@ describe('createCrawlRunner', () => {
     const events = await runToDone(runner, 'export');
     expect(done(events).status).toBe('error');
     expect(logs(events).some((l) => /spawn error/.test(l))).toBe(true);
+  });
+
+  it('maps each crawl kind to its PowerShell entrypoint', () => {
+    const cmd = (k: 'export' | 'enginemf' | 'workmf') => defaultCommandFor('/repo', k);
+    expect(cmd('export').command).toBe('powershell');
+    expect(cmd('export').args.join(' ')).toMatch(/Invoke-NodeT3DMetadataMaintenance\.ps1.*-SkipViewerTests/);
+    expect(cmd('enginemf').args.join(' ')).toMatch(/Run-EngineMfIndex\.ps1/);
+    expect(cmd('workmf').args.join(' ')).toMatch(/Run-WorkMfIndex\.ps1/);
   });
 
   it('rejects a second crawl while one is running (single-job lock)', async () => {

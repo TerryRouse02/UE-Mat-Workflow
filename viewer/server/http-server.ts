@@ -184,7 +184,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     try { body = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     const kind = body.kind;
-    if (kind !== 'export' && kind !== 'enginemf') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
+    if (kind !== 'export' && kind !== 'enginemf' && kind !== 'workmf') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
     try {
       const jobId = runner.start(kind, (e) => {
         const msg = crawlEventToMsg(e);

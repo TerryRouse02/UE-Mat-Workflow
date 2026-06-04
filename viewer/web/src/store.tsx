@@ -81,7 +81,11 @@ function reducer(s: State, a: Action): State {
       return {
         ...s,
         crawl: { ...s.crawl, status: a.status, exitCode: a.exitCode },
-        metadataVersion: a.status === 'success' ? s.metadataVersion + 1 : s.metadataVersion,
+        // export/enginemf rewrite the public agent-pack files → bump so dbContext
+        // re-fetches. workmf rewrites the gitignored project-MF index, which is applied
+        // server-side at graph-open (not via agent-pack) → don't bump; its live refresh
+        // is the graph re-resolve effect below.
+        metadataVersion: a.status === 'success' && s.crawl.kind !== 'workmf' ? s.metadataVersion + 1 : s.metadataVersion,
       };
     default: return s;
   }
@@ -156,6 +160,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // Probe the local environment once the server connection is live; this is what
   // gates the crawl button ("link 成功就支持爬").
   useEffect(() => { if (state.connection === 'live') void refreshEnv(); }, [state.connection, refreshEnv]);
+
+  // workmf data is resolved server-side at graph-open, not via the agent-pack fetch
+  // path. So when a workmf crawl succeeds, re-request the currently-visible graphs (the
+  // whole breadcrumb) over the WS WITHOUT dispatching 'open' — that re-resolves them with
+  // the fresh project-MF index while preserving the user's drill-down.
+  useEffect(() => {
+    if (state.crawl.status === 'success' && state.crawl.kind === 'workmf') {
+      for (const path of state.breadcrumb) wsRef.current?.send({ kind: 'open', path });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.crawl.status, state.crawl.kind]);
 
   const startCrawl = useCallback(async (kind: CrawlKind) => {
     await startCrawlRequest(kind, dispatch);

@@ -64,6 +64,7 @@ function CrawlControl({ pushToast }: { pushToast: (t: Omit<ToastItem, 'id'>) => 
               <label>爬取本機 UE 元資料 <span className="hint-txt">在這台 Windows + UE 機器上執行</span></label>
               <button onClick={() => startCrawl('export')}>重爬節點匯出 (nodes-ue5.7.export.json)</button>
               <button onClick={() => startCrawl('enginemf')}>重爬引擎 MF (enginemf-index)</button>
+              <button onClick={() => startCrawl('workmf')}>重爬專案 MF (workmf-index)</button>
             </div>
           )}
           {!ready && !running && (

@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 // an injectable spawnImpl + commandFor so it is fully unit-testable off-Windows
 // with a mock script; the Windows end-to-end run is verified separately.
 
-export type CrawlKind = 'export' | 'enginemf';
+export type CrawlKind = 'export' | 'enginemf' | 'workmf';
 
 export type CrawlEvent =
   | { type: 'started'; jobId: string; kind: CrawlKind }
@@ -50,6 +50,11 @@ export const defaultCommandFor: CommandFor = (repoRoot, kind) => {
       return ps('Invoke-NodeT3DMetadataMaintenance.ps1', ['-SkipViewerTests']);
     case 'enginemf':
       return ps('plugin-src/Scripts/Run-EngineMfIndex.ps1', []);
+    case 'workmf':
+      // Regenerates the gitignored agent-pack/workmf-index.json — the user's OWN
+      // project Material Functions. The script reads ProjectPath/EngineRoot from
+      // local.config.json (same fallback as enginemf), so no args are needed.
+      return ps('plugin-src/Scripts/Run-WorkMfIndex.ps1', []);
   }
 };
 

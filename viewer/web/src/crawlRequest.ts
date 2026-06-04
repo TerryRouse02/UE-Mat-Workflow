@@ -1,4 +1,4 @@
-export type CrawlKind = 'export' | 'enginemf';
+export type CrawlKind = 'export' | 'enginemf' | 'workmf';
 
 export type CrawlAction =
   | { type: 'crawlStarted'; kind: string; jobId: string }

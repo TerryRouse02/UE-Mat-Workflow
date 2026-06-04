@@ -78,6 +78,14 @@ describe('crawl API', () => {
     await server.close();
   }, 5000);
 
+  it('POST /api/crawl accepts the workmf kind (not rejected as unknown)', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const r = await request(server.port, 'POST', '/api/crawl', { headers: { origin: `http://127.0.0.1:${server.port}` }, body: JSON.stringify({ kind: 'workmf' }) });
+    expect(r.status).toBe(200);
+    expect(JSON.parse(r.body).jobId).toMatch(/^crawl-/);
+    await server.close();
+  }, 5000);
+
   it('WS: a cross-origin upgrade is closed, never served the file list', async () => {
     const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin: 'http://evil.example' });
