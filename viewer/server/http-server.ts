@@ -165,6 +165,19 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     } catch { res.writeHead(404); res.end(); }
   }
 
+  // Serve the LOCAL work-MF index so the web's Nodes tab can browse the user's own
+  // project Material Functions and refresh them after a WorkMF crawl. Deliberately
+  // NOT on the public agent-pack allowlist: this is the user's own /Game asset data
+  // — server-only, never bundled into the build or the single-file HTML export. The
+  // loopback bind plus the browser's same-origin policy (no CORS headers here) keep
+  // it off cross-origin pages, exactly like /api/env which also returns local paths.
+  // An absent index is not an error — it serializes to `null` (no project MFs yet).
+  async function handleWorkMf(res: import('node:http').ServerResponse) {
+    const { index } = await loadWorkMfIndex(workMfIndexPath);
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' });
+    res.end(JSON.stringify(index));
+  }
+
   // CSRF guard for the process-spawning crawl endpoint: a browser request always
   // carries Origin; reject unless its host matches ours. No-Origin requests (curl,
   // the test client) are not a CSRF vector and are allowed. Combined with the
@@ -224,6 +237,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'GET' && urlPath.startsWith('/api/agent-pack/')) {
       try { await handleAgentPack(urlPath, res); }
       catch (e) { console.error('agent-pack handler error:', e); if (!res.headersSent) { res.writeHead(500); res.end(); } }
+      return;
+    }
+    if (req.method === 'GET' && urlPath === '/api/workmf') {
+      try { await handleWorkMf(res); }
+      catch (e) { console.error('workmf handler error:', e); if (!res.headersSent) { res.writeHead(500); res.end(); } }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/crawl') {

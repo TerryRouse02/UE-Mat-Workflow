@@ -13,33 +13,11 @@
 // user's project asset paths into shipped/exported bundles, and its `nodes-ue*`
 // version keys would collide with this different kind of data. Keep it off that path.
 import { readFile } from 'node:fs/promises';
+import type { WorkMfPin, WorkMfEntry, WorkMfIndex, LoadedWorkMfIndex } from './workmf-types.js';
 
-export interface WorkMfPin {
-  name: string;
-  type: string;
-  index?: number;
-}
-
-export interface WorkMfEntry {
-  assetPath: string;
-  displayName?: string;
-  category?: string;
-  inputs: WorkMfPin[];
-  outputs: WorkMfPin[];
-  missing?: boolean;
-}
-
-export interface WorkMfIndex {
-  schemaVersion?: string;
-  kind: 'workmf-index';
-  ueVersion?: string;
-  functions: Record<string, WorkMfEntry>;
-}
-
-export interface LoadedWorkMfIndex {
-  index: WorkMfIndex | null;
-  warnings: string[];
-}
+// The type shapes live in the node-free workmf-types.ts (shared with the web).
+// Re-export them here so existing server-side importers keep their path.
+export type { WorkMfPin, WorkMfEntry, WorkMfIndex, LoadedWorkMfIndex };
 
 // Read the work-MF index. An ABSENT file is not an error (most repos have no work
 // MFs) → empty index, no warning. A present-but-broken file IS surfaced as a

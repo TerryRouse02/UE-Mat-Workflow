@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useStore } from './store';
-import { bakedRegistry, fetchRegistry, resolveBundle, latestBundleOf, resolveEngineMf, type RegistryData } from './agentPackClient';
+import { bakedRegistry, fetchRegistry, fetchWorkMf, resolveBundle, latestBundleOf, resolveEngineMf, type RegistryData } from './agentPackClient';
 import type { NodeDB } from '../../server/db-types';
 import type { ExportMeta } from './export/export-meta-types';
 import type { EngineMfIndex } from './engineMfRegistry';
+import type { WorkMfIndex } from '../../server/workmf-types';
 
 interface DbValue {
   version: string | undefined;   // the active graph's ueVersion (undefined if none open)
@@ -11,6 +12,7 @@ interface DbValue {
   db: NodeDB;                    // always usable: active version's DB, else latest
   exportMeta: ExportMeta;        // always usable: active version's metadata, else latest
   engineMf: EngineMfIndex | null;// active version's engine-MF index (best-effort)
+  workMf: WorkMfIndex | null;    // the user's own project MFs (live mode only; never bundled)
   supportedVersions: string[];
 }
 
@@ -39,6 +41,21 @@ export function DbProvider({ children }: { children: React.ReactNode }) {
     return () => { cancelled = true; };
   }, [state.connection, state.metadataVersion]);
 
+  // The work-MF index is server-only (the user's own /Game MFs) — never baked, never
+  // bundled. So it loads only in live mode, and re-loads after a WorkMF crawl
+  // (workMfVersion bump). It starts null and is never fetched in snapshot/offline, so
+  // an exported HTML never shows project asset paths. A transient reconnect keeps the
+  // last value (no flicker) — same posture as the agent-pack fetch above.
+  const [workMf, setWorkMf] = useState<WorkMfIndex | null>(null);
+  useEffect(() => {
+    if (state.connection !== 'live') return;
+    let cancelled = false;
+    fetchWorkMf()
+      .then((w) => { if (!cancelled) setWorkMf(w); })
+      .catch(() => { /* server unreachable mid-session — keep current */ });
+    return () => { cancelled = true; };
+  }, [state.connection, state.workMfVersion]);
+
   const value = useMemo<DbValue | null>(() => {
     const active = resolveBundle(registry, version);
     const bundle = active ?? latestBundleOf(registry);
@@ -50,9 +67,10 @@ export function DbProvider({ children }: { children: React.ReactNode }) {
       db: bundle.db,
       exportMeta: bundle.exportMeta,
       engineMf: resolveEngineMf(registry, version),
+      workMf,
       supportedVersions: registry.versions,
     };
-  }, [registry, version]);
+  }, [registry, version, workMf]);
 
   // Hold the gate only when there is genuinely no bundle to show — preserves the
   // non-null db/exportMeta contract; with baked init this is effectively never hit.

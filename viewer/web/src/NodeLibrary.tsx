@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useDb } from './dbContext';
 import { type EngineMfEntry } from './engineMfRegistry';
 import type { NodeDef, PinDef, ParamDef } from '../../server/db-types';
+import type { WorkMfEntry } from '../../server/workmf-types';
 
 interface NodeEntry {
   name: string;
@@ -219,6 +220,100 @@ function MfBrowser({ query }: { query: string }) {
   );
 }
 
+// ---- Project (work) Material Function browser ----
+//
+// The user's OWN /Game project MFs, populated by a WorkMF crawl and served live
+// from the local server (never bundled/exported). Mirrors the official-MF browser
+// above, but its data is local-only so the section simply doesn't appear in
+// snapshot/offline mode or when no project MFs are indexed yet.
+
+function workMfName(e: WorkMfEntry): string {
+  if (e.displayName) return e.displayName;
+  const obj = e.assetPath.split('.').pop() ?? e.assetPath;
+  return obj.split('/').pop() ?? e.assetPath;
+}
+
+// Group key = the crawl-provided category (the asset's folder, e.g. "/Game/Functions"),
+// else derive that folder from the asset path.
+function workMfGroup(e: WorkMfEntry): string {
+  if (e.category) return e.category;
+  const pkg = e.assetPath.split('.')[0];          // "/Game/Functions/MF_Foo.MF_Foo" -> "/Game/Functions/MF_Foo"
+  const slash = pkg.lastIndexOf('/');
+  return slash > 0 ? pkg.slice(0, slash) : (pkg || 'Other');
+}
+
+function ProjectMfBrowser({ query }: { query: string }) {
+  const { workMf } = useDb();
+  const [open, setOpen] = useState(false);
+  const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
+  const [openMf, setOpenMf] = useState<string | null>(null);
+
+  const all = useMemo(() => (workMf ? Object.values(workMf.functions) : []), [workMf]);
+  const q = query.trim().toLowerCase();
+  const matched = q
+    ? all.filter(e => workMfName(e).toLowerCase().includes(q) || e.assetPath.toLowerCase().includes(q))
+    : all;
+
+  const grouped = useMemo(() => {
+    const out: Record<string, WorkMfEntry[]> = {};
+    for (const e of matched) (out[workMfGroup(e)] ??= []).push(e);
+    for (const g of Object.keys(out)) out[g].sort((a, b) => workMfName(a).localeCompare(workMfName(b)));
+    return out;
+  }, [matched]);
+  const groupNames = Object.keys(grouped).sort();
+
+  if (!workMf || all.length === 0) return null;   // no project MFs indexed → no section
+  const showRoot = open || q.length > 0;           // a search auto-opens the section
+
+  return (
+    <div className="lib-cat lib-mf-root">
+      <div className="lib-cat-header" onClick={() => setOpen(o => !o)}>
+        {showRoot ? '▼' : '▶'} ƒ Project Material Functions ({matched.length}{q ? `/${all.length}` : ''})
+      </div>
+      {showRoot && (
+        <div className="lib-cat-children">
+          {groupNames.length === 0 && (
+            <div className="lib-prov-note">No project MF matches "{query}".</div>
+          )}
+          {groupNames.map(g => {
+            const showG = q.length > 0 || openGroups.has(g);
+            return (
+              <div key={g} className="lib-cat">
+                <div
+                  className="lib-cat-header"
+                  onClick={() => setOpenGroups(s => { const n = new Set(s); n.has(g) ? n.delete(g) : n.add(g); return n; })}
+                >{showG ? '▼' : '▶'} {g} ({grouped[g].length})</div>
+                {showG && (
+                  <div className="lib-cat-children">
+                    {grouped[g].map(e => (
+                      <div key={e.assetPath}>
+                        <div className="lib-node" onClick={() => setOpenMf(openMf === e.assetPath ? null : e.assetPath)}>
+                          ƒ {workMfName(e)}
+                          {e.missing && <span className="lib-prov-dot" title="Asset not found at the last WorkMF crawl">●</span>}
+                        </div>
+                        {openMf === e.assetPath && (
+                          <div className="lib-node-detail">
+                            <div className="lib-node-detail-desc" style={{ wordBreak: 'break-all' }}>{e.assetPath}</div>
+                            {e.missing && (
+                              <div className="lib-prov-note">This asset was not found during the last WorkMF crawl.</div>
+                            )}
+                            <MfPinList title="Inputs" pins={e.inputs} />
+                            <MfPinList title="Outputs" pins={e.outputs} />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function NodeLibrary() {
   const { db } = useDb();
   const [query, setQuery] = useState('');
@@ -300,6 +395,7 @@ export function NodeLibrary() {
         />
       ))}
       <MfBrowser query={query} />
+      <ProjectMfBrowser query={query} />
     </div>
   );
 }

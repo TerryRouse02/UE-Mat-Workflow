@@ -54,6 +54,36 @@ describe('crawl API', () => {
     await server.close();
   }, 5000);
 
+  it('GET /api/workmf returns the local work-MF index when present', async () => {
+    const root = fixtureRepo();
+    const idx = {
+      schemaVersion: '1.0', kind: 'workmf-index', ueVersion: '5.7',
+      functions: {
+        '/Game/Functions/MF_X.MF_X': {
+          assetPath: '/Game/Functions/MF_X.MF_X', displayName: 'MF_X', category: '/Game/Functions',
+          inputs: [{ name: 'In', type: 'Float3', index: 0 }],
+          outputs: [{ name: 'Result', type: 'Float3', index: 0 }],
+        },
+      },
+    };
+    writeFileSync(resolve(root, 'agent-pack', 'workmf-index.json'), JSON.stringify(idx));
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    const r = await request(server.port, 'GET', '/api/workmf');
+    expect(r.status).toBe(200);
+    const got = JSON.parse(r.body);
+    expect(got.kind).toBe('workmf-index');
+    expect(got.functions['/Game/Functions/MF_X.MF_X'].displayName).toBe('MF_X');
+    await server.close();
+  }, 5000);
+
+  it('GET /api/workmf serves null when no index is present (absent is not an error)', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const r = await request(server.port, 'GET', '/api/workmf');
+    expect(r.status).toBe(200);
+    expect(JSON.parse(r.body)).toBe(null);
+    await server.close();
+  }, 5000);
+
   it('POST /api/crawl refuses a cross-origin request', async () => {
     const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
     const r = await request(server.port, 'POST', '/api/crawl', { headers: { origin: 'http://evil.example:1234' }, body: JSON.stringify({ kind: 'export' }) });

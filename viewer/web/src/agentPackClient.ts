@@ -8,6 +8,7 @@ import { bakedBundles, type VersionBundle } from './dbRegistry';
 import { bakedEngineMf, engineMfFrom, type EngineMfIndex } from './engineMfRegistry';
 import type { NodeDB } from '../../server/db-types';
 import type { ExportMeta } from './export/export-meta-types';
+import type { WorkMfIndex } from '../../server/workmf-types';
 import { latestOf } from './versionUtil';
 
 export interface RegistryData {
@@ -66,4 +67,18 @@ export function latestBundleOf(reg: RegistryData): VersionBundle | null {
 
 export function resolveEngineMf(reg: RegistryData, version: string | undefined): EngineMfIndex | null {
   return engineMfFrom(reg.engineMf, version);
+}
+
+// Fetch the local-only work-MF index (the user's own /Game project MFs) for the
+// Nodes-tab browser. Server-only by design — there is no baked copy and no agent-pack
+// fetch — so this only resolves in live mode; an absent index serializes to `null`.
+// Any failure (offline, snapshot, no server) returns null and the section hides.
+export async function fetchWorkMf(): Promise<WorkMfIndex | null> {
+  try {
+    const r = await fetch('/api/workmf', { cache: 'no-store' });
+    if (!r.ok) return null;
+    return (await r.json()) as WorkMfIndex | null;
+  } catch {
+    return null;
+  }
 }

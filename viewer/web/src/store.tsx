@@ -26,6 +26,10 @@ interface State {
   crawl: CrawlState;
   // Bumps when a crawl regenerates agent-pack data, so dbContext re-fetches.
   metadataVersion: number;
+  // Bumps when a WorkMF crawl succeeds, so dbContext re-fetches the project-MF
+  // index for the Nodes tab (kept separate from metadataVersion: workmf is NOT a
+  // public agent-pack file, so it must not trigger the agent-pack re-fetch).
+  workMfVersion: number;
 }
 
 type Action =
@@ -47,7 +51,7 @@ const idleCrawl: CrawlState = { status: 'idle', kind: null, jobId: null, logs: [
 const initial: State = {
   files: [], currentPath: null, breadcrumb: [], graphs: {}, errors: {},
   connection: 'reconnecting', lastUpdate: null,
-  env: null, crawl: idleCrawl, metadataVersion: 0,
+  env: null, crawl: idleCrawl, metadataVersion: 0, workMfVersion: 0,
 };
 
 function reducer(s: State, a: Action): State {
@@ -86,6 +90,9 @@ function reducer(s: State, a: Action): State {
         // server-side at graph-open (not via agent-pack) → don't bump; its live refresh
         // is the graph re-resolve effect below.
         metadataVersion: a.status === 'success' && s.crawl.kind !== 'workmf' ? s.metadataVersion + 1 : s.metadataVersion,
+        // A successful workmf crawl rewrote the project-MF index → bump so dbContext
+        // re-fetches it for the Nodes-tab "Project Material Functions" browser.
+        workMfVersion: a.status === 'success' && s.crawl.kind === 'workmf' ? s.workMfVersion + 1 : s.workMfVersion,
       };
     default: return s;
   }
