@@ -9,7 +9,7 @@ AI 與人協作 UE 5.7 材質節點圖的統一工作流。AI 輸出標準 `.mat
 ## 為什麼用這套
 
 - **不要再用文字牆描述節點圖了。** AI 用嚴格 JSON schema 描述材質，viewer 渲染成像真的 UE 節點。
-- **不要再讓 AI 亂編節點名了。** 釘住的 UE 5.7 節點 DB（299 個 expression——幾乎是引擎完整集合）是 single source of truth——AI 必須用已存在的節點型別、精確的 pin 名稱、精確的 param 名稱。viewer 還會標出「連到不存在 pin」的連線。
+- **不要再讓 AI 亂編節點名了。** 釘住的 UE 5.7 節點 DB（296 個 expression——幾乎是引擎完整集合）是 single source of truth——AI 必須用已存在的節點型別、精確的 pin 名稱、精確的 param 名稱。viewer 還會標出「連到不存在 pin」的連線。
 - **最終輸出不再斷線。** 你把結果直接接進 `MaterialOutput` 節點；導出時 emitter 會自動把它們收進一個 `MakeMaterialAttributes` 節點，貼進 UE 只需接 1 根線，而不是每個屬性接一根。
 - **一套格式跨 AI 工具。** 同一個 `agent-pack/` 在 Claude Code、Cursor、Copilot CLI、Gemini CLI 或任何能讀 agent rules 的工具裡都能用。
 
@@ -49,9 +49,22 @@ Sidebar 有兩個 tab：
 | Tab | 內容 |
 |---|---|
 | **Files** | 你的材質，依專案資料夾分組。`graphs/` 下每個子資料夾就是一個專案，裡面所有檔案都會顯示；只有直接放在 `graphs/` 根層的檔案會落到「Unorganized」區。 |
-| **Nodes** | UE 5.7 完整節點庫——可依名稱或描述搜尋、按分類瀏覽，點節點看 inputs / outputs / params 細節，包含型別與徽章（verified、dynamic-pin、deprecated）。 |
+| **Nodes** | UE 5.7 完整節點庫——可依名稱或描述搜尋、按分類瀏覽，點節點看 inputs / outputs / params 細節，包含型別與徽章（verified、dynamic-pin、deprecated）。下方還有兩個可摺疊瀏覽器：**Official Material Functions**（引擎的 `/Engine/Functions` 函式庫）與 **Project Material Functions**（你自己的 `/Game` MF，WorkMF 爬取索引後即時顯示）。 |
 
 檔案變動時 viewer 會自動 reload。
+
+---
+
+## 從瀏覽器刷新 UE 元資料（Windows）
+
+viewer 可以自己跑本機 UE 爬取——標題列有一顆 **`爬取`** 按鈕，免開終端機就能重新產生節點匯出元資料、
+引擎 MF 索引、或你自己的專案 MF 索引。它是**本機優先**：server、`UnrealEditor-Cmd.exe`、瀏覽器
+全部跑在同一台 Windows 機器上。
+
+建立 `tools/node-t3d-metadata/local.config.json`（`ProjectPath` + `EngineRoot`），在那台機器上開
+viewer，按鈕會在本機環境探測全綠時點亮——游標移上去就能看到還缺什麼。完整步驟（含各選單項目對應
+哪種爬取）見 [`tools/node-t3d-metadata/README.zh-TW.md`](./tools/node-t3d-metadata/README.zh-TW.md)
+的「從 web viewer 觸發爬取」一節。
 
 ---
 
@@ -157,7 +170,7 @@ viewer 會在左側欄把它歸為一個專案，導出到 UE 也直接可用，
 
 ## 補充節點 DB
 
-DB 依版本切分：編輯你目標版本的那一份（例如 `agent-pack/nodes-ue5.7.json`，目前有 299 個 expression）。要新增：
+DB 依版本切分：編輯你目標版本的那一份（例如 `agent-pack/nodes-ue5.7.json`，目前有 296 個 expression）。要新增：
 
 1. 從 [UE Material Expression Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference) 查節點。
 2. 仿照現有條目格式新增到 `nodes.<NodeName>`（inputs、outputs、params、category、description）。

@@ -41,6 +41,11 @@ best-effort `Float3` (UE's `FunctionOutput` carries no declared type) — cosmet
 
 ## Run it (on the UE 5.7 machine)
 
+> **No terminal?** The viewer's **`爬取`** button runs this exact crawl (the `workmf` kind) and
+> refreshes the Nodes tab live — see the tool
+> [`README.md`](../README.md#trigger-a-crawl-from-the-web-viewer-no-terminal). The CLI below is the
+> equivalent, and the only option for headless / agent runs.
+
 From the repo root, one command packages the plugin (if stale) then crawls:
 
 ```powershell

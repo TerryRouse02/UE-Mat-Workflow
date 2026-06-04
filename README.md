@@ -9,7 +9,7 @@ A unified workflow for AI + human collaboration on UE 5.7 material node graphs. 
 ## Why
 
 - **No more text-wall node graphs.** AI describes materials in a strict JSON schema; the viewer renders them as real-looking UE nodes.
-- **No more hallucinated node names.** A pinned UE 5.7 node DB (299 expressions — effectively the full engine set) is the source of truth — AI must use existing types, exact pin names, exact param names. The viewer flags connections that reference a pin which doesn't exist on its node.
+- **No more hallucinated node names.** A pinned UE 5.7 node DB (296 expressions — effectively the full engine set) is the source of truth — AI must use existing types, exact pin names, exact param names. The viewer flags connections that reference a pin which doesn't exist on its node.
 - **Final outputs survive export.** You wire results straight into the `MaterialOutput` node; on export the emitter auto-collects them into a `MakeMaterialAttributes` node, so a pasted material needs one wire in UE instead of one per attribute.
 - **One format across AI tools.** Same `agent-pack/` works in Claude Code, Cursor, Copilot CLI, Gemini CLI, or anything that reads agent rules.
 
@@ -49,9 +49,23 @@ The sidebar has two tabs:
 | Tab | What it shows |
 |---|---|
 | **Files** | Your materials, grouped by project folder. Every sub-folder under `graphs/` is one project showing all its files; only files at the `graphs/` root fall under "Unorganized". |
-| **Nodes** | The full UE 5.7 node library — search by name or description, browse by category, click a node to see its inputs / outputs / params with type info and badges (verified, dynamic-pin, deprecated). |
+| **Nodes** | The full UE 5.7 node library — search by name or description, browse by category, click a node to see its inputs / outputs / params with type info and badges (verified, dynamic-pin, deprecated). Below it sit two collapsible browsers: **Official Material Functions** (the engine's `/Engine/Functions` library) and **Project Material Functions** (your own `/Game` MFs, shown live once a WorkMF crawl has indexed them). |
 
 The viewer hot-reloads when files change.
+
+---
+
+## Refresh UE metadata from the browser (Windows)
+
+The viewer can run the local UE crawls itself — a **`爬取` (Crawl)** button in the header
+regenerates the node export metadata, the engine-MF index, or your own project-MF index without
+touching a terminal. It's **local-first**: the server, `UnrealEditor-Cmd.exe`, and the browser all
+run on the same Windows machine.
+
+Create `tools/node-t3d-metadata/local.config.json` (`ProjectPath` + `EngineRoot`), open the viewer
+on that machine, and the button lights up once its environment probe is green — hover it to see
+what's still missing. The full walkthrough, including which menu item runs which crawl, is in
+[`tools/node-t3d-metadata/README.md`](./tools/node-t3d-metadata/README.md#trigger-a-crawl-from-the-web-viewer-no-terminal).
 
 ---
 
@@ -160,7 +174,7 @@ Today that's `nodes-ue5.7.json` + `nodes-ue5.7.export.json`; later `nodes-ue5.8.
 
 ## Adding to the node DB
 
-The DB is version-scoped: edit the pair for the version you target (e.g. `agent-pack/nodes-ue5.7.json`, currently 299 expressions). To add more:
+The DB is version-scoped: edit the pair for the version you target (e.g. `agent-pack/nodes-ue5.7.json`, currently 296 expressions). To add more:
 
 1. Find the node in the [UE Material Expression Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference).
 2. Match the existing entry format under `nodes.<NodeName>` (inputs, outputs, params, category, description).
