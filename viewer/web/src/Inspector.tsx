@@ -2,12 +2,17 @@ import { useState } from 'react';
 import type { MatGraph } from './protocol';
 import { useDb } from './dbContext';
 import { pinColor, catColor } from './theme/colors';
+import { diagnoseGraph } from './graphDiagnostics';
 import './inspector.css';
 
 export interface InspectorProps {
   graph?: MatGraph;
   selectedNodeId: string | null;
   derivedPins?: Record<string, { inputs: { name: string; type: string }[]; outputs: { name: string; type: string }[] }>;
+  /** Schema errors for the current file when it failed to load (no graph). */
+  errors?: string[];
+  /** Focus a node on the canvas when a debug issue is clicked. */
+  onFocusNode?: (id: string) => void;
 }
 
 function isCodeLike(v: unknown): v is string {
@@ -47,13 +52,30 @@ function PinList({ title, pins }: { title: string; pins: { name: string; type: s
   );
 }
 
-export function Inspector({ graph, selectedNodeId, derivedPins }: InspectorProps) {
+export function Inspector({ graph, selectedNodeId, derivedPins, errors, onFocusNode }: InspectorProps) {
   const { db } = useDb();
   // Reserved types (MaterialOutput, MaterialFunctionCall, FunctionInput/Output)
   // live in db.reservedTypes, not db.nodes — they are first-class, handled types,
   // NOT unknown expressions.
   const reserved = new Set(db.reservedTypes ?? []);
-  if (!graph) return <aside className="inspector-wrap" />;
+  if (!graph) {
+    // No graph means it failed schema validation; show why it won't load.
+    if (errors && errors.length > 0) {
+      return (
+        <aside className="inspector-wrap insp">
+          <div className="insp-eyebrow"><span className="mono">載入失敗</span></div>
+          <div className="insp-health bad">✗ 此檔無法載入（{errors.length}）</div>
+          <div className="insp-section">
+            <div className="insp-sub">錯誤</div>
+            {errors.map((e, i) => (
+              <div key={i} className="insp-issue error static"><span className="insp-issue-ico">✗</span><span className="insp-issue-msg">{e}</span></div>
+            ))}
+          </div>
+        </aside>
+      );
+    }
+    return <aside className="inspector-wrap" />;
+  }
 
   const node = selectedNodeId ? graph.nodes.find(n => n.id === selectedNodeId) : undefined;
 
@@ -98,19 +120,45 @@ export function Inspector({ graph, selectedNodeId, derivedPins }: InspectorProps
     );
   }
 
+  // Unselected: a graph-level debug / health report for the open file.
   const unknownCount = graph.nodes.filter(n => !db.nodes[n.type] && !reserved.has(n.type)).length;
   const mfCount = graph.nodes.filter(n => n.type === 'MaterialFunctionCall').length;
+  const issues = diagnoseGraph(graph, db, derivedPins);
+  const errCount = issues.filter(i => i.severity === 'error').length;
+  const warnCount = issues.length - errCount;
+  const health = errCount ? 'bad' : warnCount ? 'warn' : 'ok';
   return (
     <aside className="inspector-wrap insp">
-      <div className="insp-eyebrow"><span className="mono">Material</span></div>
+      <div className="insp-eyebrow"><span className="mono">{graph.type === 'MaterialFunction' ? 'MaterialFunction' : 'Material'}</span></div>
       <div className="insp-title">{graph.name}</div>
-      <div className="insp-subtitle">{graph.nodes.length} nodes</div>
+      <div className="insp-subtitle">{graph.nodes.length} nodes · {graph.connections.length} links</div>
+
+      <div className={`insp-health ${health}`}>
+        {errCount ? `✗ ${errCount} 個問題${warnCount ? ` · ${warnCount} 警告` : ''}`
+          : warnCount ? `⚠ ${warnCount} 個警告`
+          : '✓ 沒發現問題'}
+      </div>
+
+      {issues.length > 0 && (
+        <div className="insp-section">
+          <div className="insp-sub">問題 / 缺什麼</div>
+          {issues.map((iss, i) => (
+            <button key={i} type="button"
+              className={`insp-issue ${iss.severity}${iss.nodeId ? '' : ' static'}`}
+              disabled={!iss.nodeId}
+              title={iss.nodeId ? '點擊聚焦該節點' : undefined}
+              onClick={() => iss.nodeId && onFocusNode?.(iss.nodeId)}>
+              <span className="insp-issue-ico">{iss.severity === 'error' ? '✗' : '⚠'}</span>
+              <span className="insp-issue-msg">{iss.message}</span>
+              {iss.nodeId && <span className="insp-issue-go">→</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="insp-section">
         <div className="insp-sub">Export readiness</div>
         <div className="ready-row ok">✓ {graph.nodes.length - unknownCount} of {graph.nodes.length} nodes mapped</div>
-        {unknownCount > 0 && (
-          <div className="ready-row warn">! {unknownCount} unknown expression{unknownCount > 1 ? 's' : ''} — partial export</div>
-        )}
         {mfCount > 0 && <div className="ready-row">ƒ {mfCount} MaterialFunction link{mfCount > 1 ? 's' : ''}</div>}
       </div>
     </aside>

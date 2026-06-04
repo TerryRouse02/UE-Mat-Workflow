@@ -20,3 +20,19 @@
 .ready-row { display: flex; gap: 6px; padding: 3px 0; }
 .ready-row.warn { color: var(--warn); }
 .ready-row.ok { color: var(--ok); }
+
+/* Unselected-state debug / health panel */
+.insp-health { margin-top: 12px; padding: 6px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; }
+.insp-health.ok { background: rgba(126,201,111,.12); color: var(--ok); }
+.insp-health.warn { background: rgba(224,179,77,.12); color: var(--warn); }
+.insp-health.bad { background: rgba(224,114,138,.12); color: var(--err); }
+.insp-issue { display: flex; align-items: flex-start; gap: 7px; width: 100%; box-sizing: border-box; text-align: left;
+  background: var(--bg2); border: 1px solid var(--bd); border-radius: 5px; padding: 6px 8px; margin-bottom: 5px;
+  color: var(--fg-dim); font: inherit; font-size: 11px; line-height: 1.45; cursor: pointer; }
+.insp-issue:hover:not(.static):not(:disabled) { border-color: var(--accent); color: var(--fg); }
+.insp-issue.static, .insp-issue:disabled { cursor: default; }
+.insp-issue.error .insp-issue-ico { color: var(--err); }
+.insp-issue.warning .insp-issue-ico { color: var(--warn); }
+.insp-issue-ico { flex: none; }
+.insp-issue-msg { flex: 1; word-break: break-word; }
+.insp-issue-go { flex: none; color: var(--fg-faint); }

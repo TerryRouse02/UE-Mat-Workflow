@@ -36,6 +36,8 @@ export interface GraphProps {
   onEnterMF(path: string): void;
   onSelectNode?: (id: string | null) => void;
   onPositions?: (p: Record<string, { x: number; y: number }>) => void;
+  /** Centre + highlight a node (from a debug-panel click); nonce re-triggers it. */
+  focus?: { id: string; nonce: number } | null;
 }
 
 function inferPinsFromConnections(
@@ -87,7 +89,7 @@ function resolveMFRelative(mfRef: string, currentPath: string): string {
   return (dir + cleaned).replace(/\/\.\//g, '/');
 }
 
-function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPositions }: GraphProps) {
+function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPositions, focus }: GraphProps) {
   const { graph, derivedPins } = payload;
 
   const rf = useReactFlow();
@@ -242,6 +244,21 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
   useEffect(() => {
     if (nodesInitialized) rf.fitView({ padding: 0.2, duration: 200 });
   }, [nodesInitialized, initialLayout.nodes, rf]);
+
+  // Debug-panel focus: centre the viewport on a node and highlight it (via selId,
+  // which dims everything but it + its neighbours). Keyed on the nonce so clicking
+  // the same issue twice re-centres. Doesn't touch the App's node selection, so the
+  // Inspector keeps showing the debug list.
+  useEffect(() => {
+    if (!focus) return;
+    const n = nodes.find(x => x.id === focus.id);
+    if (!n) return;
+    const w = computeNodeWidth(n.data);
+    const h = computeNodeHeight(n.data);
+    rf.setCenter(n.position.x + w / 2, n.position.y + h / 2, { zoom: 1.1, duration: 400 });
+    setSelId(focus.id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce]);
 
   const commentNodes: Node[] = useMemo(() => {
     if (!graph.comments) return [];

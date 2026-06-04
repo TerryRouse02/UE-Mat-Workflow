@@ -13,6 +13,10 @@ function Body() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
+  // A debug-panel issue click asks the canvas to centre + highlight a node. The nonce
+  // makes repeated clicks on the same node re-fire the focus effect in Graph.
+  const [focusReq, setFocusReq] = useState<{ id: string; nonce: number } | null>(null);
+  const focusNode = useCallback((id: string) => setFocusReq({ id, nonce: Date.now() }), []);
 
   useEffect(() => {
     if (!state.currentPath && state.files.length > 0) open(state.files[0].path);
@@ -84,10 +88,10 @@ function Body() {
             </div>
           )}
           {payload
-            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} />
+            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} focus={focusReq} />
             : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
-        <Inspector graph={payload?.graph} selectedNodeId={selectedNodeId} derivedPins={payload?.derivedPins} />
+        <Inspector graph={payload?.graph} selectedNodeId={selectedNodeId} derivedPins={payload?.derivedPins} errors={errs} onFocusNode={focusNode} />
       </div>
       <ToastStack toasts={toasts} onClose={closeToast} />
     </div>
