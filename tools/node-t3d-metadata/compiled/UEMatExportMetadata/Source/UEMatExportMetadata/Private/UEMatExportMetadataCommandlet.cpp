@@ -2605,6 +2605,25 @@ static TSharedRef<FJsonValue> MakeWorkMfPin(const FString& Name, const FString& 
     return MakeShared<FJsonValueObject>(Pin);
 }
 
+static TArray<FString> ParseContentRoots(const FString& ContentRootsCsv)
+{
+    TArray<FString> ContentRoots;
+    if (!ContentRootsCsv.IsEmpty())
+    {
+        ContentRootsCsv.ParseIntoArray(ContentRoots, TEXT(","), true);
+        for (FString& Root : ContentRoots)
+        {
+            Root.TrimStartAndEndInline();
+        }
+        ContentRoots.RemoveAll([](const FString& Root) { return Root.IsEmpty(); });
+    }
+    if (ContentRoots.Num() == 0)
+    {
+        ContentRoots.Add(TEXT("/Game"));
+    }
+    return ContentRoots;
+}
+
 static bool WriteWorkMfIndex(const FString& OutPath, const FString& ContentRootsCsv, const FString& UeVersion, FString& OutError)
 {
     const FString EffectiveVersion = UeVersion.IsEmpty() ? TEXT("5.7") : UeVersion;
@@ -2613,16 +2632,7 @@ static bool WriteWorkMfIndex(const FString& OutPath, const FString& ContentRoots
     IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
     AssetRegistry.SearchAllAssets(true); // block until the project is fully scanned
 
-    TArray<FString> ContentRoots;
-    if (!ContentRootsCsv.IsEmpty())
-    {
-        ContentRootsCsv.ParseIntoArray(ContentRoots, TEXT(","), true);
-        for (FString& Root : ContentRoots) { Root.TrimStartAndEndInline(); }
-    }
-    if (ContentRoots.Num() == 0)
-    {
-        ContentRoots.Add(TEXT("/Game"));
-    }
+    const TArray<FString> ContentRoots = ParseContentRoots(ContentRootsCsv);
 
     FARFilter Filter;
     Filter.ClassPaths.Add(UMaterialFunction::StaticClass()->GetClassPathName());
@@ -2733,6 +2743,226 @@ static bool WriteWorkMfIndex(const FString& OutPath, const FString& ContentRoots
 
     UE_LOG(LogTemp, Display, TEXT("Wrote work-MF index: %s (%d function(s), %d load failure(s))"), *OutPath, Count, LoadFailures);
     UE_LOG(LogTemp, Display, TEXT("Warnings: %d"), LoadFailures);
+    return true;
+}
+
+static FString MakeProjectMatT3DFileName(const FName& AssetName)
+{
+    FString Name = AssetName.ToString();
+    const FString InvalidChars = TEXT("\\/:*?\"<>|");
+    for (TCHAR& Ch : Name)
+    {
+        if (InvalidChars.Contains(FString(1, &Ch)) || FChar::IsWhitespace(Ch))
+        {
+            Ch = TEXT('_');
+        }
+    }
+    if (Name.IsEmpty())
+    {
+        Name = TEXT("Untitled");
+    }
+    return Name + TEXT(".t3d");
+}
+
+static void PrepareMaterialGraph(UMaterial* Material)
+{
+    if (Material->MaterialGraph == nullptr)
+    {
+        Material->MaterialGraph = CastChecked<UMaterialGraph>(
+            FBlueprintEditorUtils::CreateNewGraph(Material, NAME_None, UMaterialGraph::StaticClass(), UMaterialGraphSchema::StaticClass()));
+    }
+    Material->MaterialGraph->Material = Material;
+    Material->MaterialGraph->MaterialFunction = nullptr;
+    Material->MaterialGraph->RebuildGraph();
+}
+
+static void PrepareFunctionGraph(UMaterialFunction* Function)
+{
+    if (Function->MaterialGraph == nullptr)
+    {
+        Function->MaterialGraph = CastChecked<UMaterialGraph>(
+            FBlueprintEditorUtils::CreateNewGraph(Function, NAME_None, UMaterialGraph::StaticClass(), UMaterialGraphSchema::StaticClass()));
+    }
+
+    UMaterial* PreviewMaterial = Cast<UMaterial>(Function->GetPreviewMaterial());
+    if (PreviewMaterial != nullptr)
+    {
+        Function->MaterialGraph->Material = PreviewMaterial;
+        Function->MaterialGraph->MaterialFunction = Function;
+        Function->MaterialGraph->RebuildGraph();
+    }
+}
+
+static bool ExportGraphNodesToT3D(UEdGraph* Graph, FString& OutText, FString& OutError)
+{
+    if (Graph == nullptr)
+    {
+        OutError = TEXT("Graph is null.");
+        return false;
+    }
+
+    TSet<UObject*> NodesToExport;
+    for (UEdGraphNode* Node : Graph->Nodes)
+    {
+        if (Node == nullptr)
+        {
+            continue;
+        }
+        Node->PrepareForCopying();
+        NodesToExport.Add(Node);
+    }
+
+    FEdGraphUtilities::ExportNodesToText(NodesToExport, OutText);
+
+    for (UEdGraphNode* Node : Graph->Nodes)
+    {
+        if (UMaterialGraphNode* MaterialNode = Cast<UMaterialGraphNode>(Node))
+        {
+            MaterialNode->PostCopyNode();
+        }
+    }
+
+    OutText.ReplaceInline(TEXT("\r\n"), TEXT("\n"));
+    OutText.ReplaceInline(TEXT("\r"), TEXT("\n"));
+    if (OutText.IsEmpty())
+    {
+        OutError = TEXT("Exported graph text is empty.");
+        return false;
+    }
+    return true;
+}
+
+static bool SaveGraphAsT3D(UEdGraph* Graph, const FString& OutPath, FString& OutError)
+{
+    FString Text;
+    if (!ExportGraphNodesToT3D(Graph, Text, OutError))
+    {
+        return false;
+    }
+
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutPath), true);
+    if (!FFileHelper::SaveStringToFile(Text, *OutPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+    {
+        OutError = FString::Printf(TEXT("Failed to write project material T3D: %s"), *OutPath);
+        return false;
+    }
+    return true;
+}
+
+static bool IsProjectMaterialFunction(UMaterialFunctionInterface* Function)
+{
+    return Function != nullptr && Function->GetPathName().StartsWith(TEXT("/Game/"));
+}
+
+static bool WriteProjectMaterials(const FString& StagingDir, const FString& ContentRootsCsv, FString& OutError)
+{
+    const TArray<FString> ContentRoots = ParseContentRoots(ContentRootsCsv);
+
+    IFileManager& FileManager = IFileManager::Get();
+    FileManager.MakeDirectory(*StagingDir, true);
+
+    TArray<FString> StaleFiles;
+    FileManager.FindFiles(StaleFiles, *FPaths::Combine(StagingDir, TEXT("*.t3d")), true, false);
+    for (const FString& StaleFile : StaleFiles)
+    {
+        FileManager.Delete(*FPaths::Combine(StagingDir, StaleFile), false, true, true);
+    }
+
+    FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+    IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+    AssetRegistry.SearchAllAssets(true);
+
+    FARFilter Filter;
+    Filter.ClassPaths.Add(UMaterial::StaticClass()->GetClassPathName());
+    Filter.bRecursiveClasses = false; // concrete UMaterial only; Material Instances are intentionally out of scope.
+    Filter.bRecursivePaths = true;
+    for (const FString& Root : ContentRoots)
+    {
+        Filter.PackagePaths.Add(FName(*Root));
+    }
+
+    TArray<FAssetData> Assets;
+    AssetRegistry.GetAssets(Filter, Assets);
+    Assets.Sort([](const FAssetData& A, const FAssetData& B)
+    {
+        return A.GetObjectPathString() < B.GetObjectPathString();
+    });
+
+    TSet<FString> ExportedFunctions;
+    int32 MaterialCount = 0;
+    int32 FunctionCount = 0;
+    int32 FailureCount = 0;
+
+    for (const FAssetData& Asset : Assets)
+    {
+        UMaterial* Material = Cast<UMaterial>(Asset.GetAsset());
+        if (Material == nullptr)
+        {
+            ++FailureCount;
+            UE_LOG(LogTemp, Warning, TEXT("ProjectMat: failed to load Material '%s'"), *Asset.GetObjectPathString());
+            continue;
+        }
+
+        PrepareMaterialGraph(Material);
+        const FString MaterialOutPath = FPaths::Combine(StagingDir, MakeProjectMatT3DFileName(Asset.AssetName));
+        FString Error;
+        if (SaveGraphAsT3D(Material->MaterialGraph, MaterialOutPath, Error))
+        {
+            ++MaterialCount;
+            UE_LOG(LogTemp, Display, TEXT("Wrote project material T3D: %s"), *MaterialOutPath);
+        }
+        else
+        {
+            ++FailureCount;
+            UE_LOG(LogTemp, Warning, TEXT("ProjectMat: %s"), *Error);
+        }
+
+        for (UMaterialExpression* Expression : Material->GetExpressions())
+        {
+            UMaterialExpressionMaterialFunctionCall* FunctionCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression);
+            if (FunctionCall == nullptr || !IsProjectMaterialFunction(FunctionCall->MaterialFunction))
+            {
+                continue;
+            }
+
+            UMaterialFunction* Function = Cast<UMaterialFunction>(FunctionCall->MaterialFunction);
+            if (Function == nullptr)
+            {
+                continue;
+            }
+
+            const FString FunctionPath = Function->GetPathName();
+            if (ExportedFunctions.Contains(FunctionPath))
+            {
+                continue;
+            }
+            ExportedFunctions.Add(FunctionPath);
+
+            PrepareFunctionGraph(Function);
+            const FString FunctionOutPath = FPaths::Combine(StagingDir, MakeProjectMatT3DFileName(Function->GetFName()));
+            FString FunctionError;
+            if (SaveGraphAsT3D(Function->MaterialGraph, FunctionOutPath, FunctionError))
+            {
+                ++FunctionCount;
+                UE_LOG(LogTemp, Display, TEXT("Wrote project material function T3D: %s"), *FunctionOutPath);
+            }
+            else
+            {
+                ++FailureCount;
+                UE_LOG(LogTemp, Warning, TEXT("ProjectMat: %s"), *FunctionError);
+            }
+        }
+    }
+
+    UE_LOG(LogTemp, Display, TEXT("Content roots crawled: %s"), *FString::Join(ContentRoots, TEXT(",")));
+    UE_LOG(LogTemp, Display, TEXT("Project materials staged: %s (%d material(s), %d function(s), %d failure(s))"),
+        *StagingDir, MaterialCount, FunctionCount, FailureCount);
+
+    if (FailureCount > 0)
+    {
+        OutError = FString::Printf(TEXT("Project material crawl completed with %d failure(s)."), FailureCount);
+        return false;
+    }
     return true;
 }
 } // namespace UE::MatExportMetadata
@@ -2913,6 +3143,21 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         return 0;
     }
 
+    FString ProjectMatStagingDir;
+    if (FParse::Value(*Params, TEXT("ProjectMatStaging="), ProjectMatStagingDir))
+    {
+        ProjectMatStagingDir = ToAbsolutePath(ProjectMatStagingDir);
+        FString ContentRoots;
+        FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots);
+        FString Error;
+        if (!WriteProjectMaterials(ProjectMatStagingDir, ContentRoots, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 18;
+        }
+        return 0;
+    }
+
     FString DiscoverNodesOutPath;
     if (FParse::Value(*Params, TEXT("DiscoverNodesOut="), DiscoverNodesOutPath))
     {
@@ -2950,6 +3195,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -SetMaterialAttributesSampleOut=<fixture.t3d>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -GetMaterialAttributesSampleOut=<fixture.t3d>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -LandscapeLayerBlendSampleOut=<fixture.t3d>"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -ProjectMatStaging=<dir> [-ContentRoots=/Game]"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -ClipboardIn=<clipboard.t3d> [-ImportClipboard]"));
         return 2;
     }
