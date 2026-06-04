@@ -105,6 +105,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   const agentPackRoot = resolve(opts.repoRoot, 'agent-pack');
   const workMfIndexPath = resolve(agentPackRoot, 'workmf-index.json');
   const engineMfIndexPath = resolve(agentPackRoot, 'enginemf-index-ue5.7.json');
+  // The per-machine crawl config the env probe + PowerShell scripts read. Writable
+  // from the Config tab so an artist sets ProjectPath/EngineRoot without hand-editing
+  // JSON. Fixed path (no user-controlled segment), and gitignored.
+  const localConfigPath = resolve(opts.repoRoot, 'tools', 'node-t3d-metadata', 'local.config.json');
   const runner = createCrawlRunner(opts.repoRoot);
 
   const sendJson = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
@@ -178,6 +182,57 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     res.end(JSON.stringify(index));
   }
 
+  // Write the per-machine crawl config (ProjectPath / EngineRoot / WorkMfContentRoots)
+  // from the Config tab. Same-origin guarded like /api/crawl (this drives a process
+  // spawn target) and only ever writes the fixed local.config.json — no user-controlled
+  // path segment. Fields are merged into any existing config and lightly sanitized
+  // (string, length-capped, no control chars); their validity is reflected back by the
+  // probe, not enforced here. Responds with the fresh probe so the checklist updates.
+  function cleanConfigField(v: unknown): string | null {
+    if (v === undefined || v === null) return null;     // not sent -> leave existing as-is
+    if (typeof v !== 'string') throw new Error('config fields must be strings');
+    const s = v.trim();
+    if (s.length > 4096) throw new Error('config field too long');
+    for (let i = 0; i < s.length; i++) {
+      const code = s.charCodeAt(i);
+      if (code < 0x20 || code === 0x7f) throw new Error('config field has control characters');
+    }
+    return s;
+  }
+  async function handleConfig(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin config requests are refused' }); return; }
+    let body: { ProjectPath?: unknown; EngineRoot?: unknown; WorkMfContentRoots?: unknown };
+    try { body = JSON.parse(await readBody(req)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+
+    const fields: Record<string, string> = {};
+    try {
+      const pp = cleanConfigField(body.ProjectPath); if (pp !== null) fields.ProjectPath = pp;
+      const er = cleanConfigField(body.EngineRoot);  if (er !== null) fields.EngineRoot = er;
+      const cr = cleanConfigField(body.WorkMfContentRoots);
+      if (cr !== null) {
+        if (cr !== '' && !CONTENT_ROOTS_RE.test(cr.replace(/\s+/g, ''))) {
+          throw new Error('invalid WorkMfContentRoots — use UE content paths like "/Game"');
+        }
+        fields.WorkMfContentRoots = cr;
+      }
+    } catch (e) { sendJson(res, 400, { error: (e as Error).message }); return; }
+
+    // Merge into any existing config so a field the UI didn't send is preserved.
+    let existing: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(await readFile(localConfigPath, 'utf-8'));
+      if (parsed && typeof parsed === 'object') existing = parsed as Record<string, unknown>;
+    } catch { /* absent or unparseable — start fresh */ }
+    const merged = { ...existing, ...fields };
+    try {
+      await mkdir(dirname(localConfigPath), { recursive: true });
+      await writeFile(localConfigPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
+    } catch (e) { sendJson(res, 500, { error: `failed to write config: ${(e as Error).message}` }); return; }
+
+    sendJson(res, 200, await probeEnv(opts.repoRoot));
+  }
+
   // CSRF guard for the process-spawning crawl endpoint: a browser request always
   // carries Origin; reject unless its host matches ours. No-Origin requests (curl,
   // the test client) are not a CSRF vector and are allowed. Combined with the
@@ -242,6 +297,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'GET' && urlPath === '/api/workmf') {
       try { await handleWorkMf(res); }
       catch (e) { console.error('workmf handler error:', e); if (!res.headersSent) { res.writeHead(500); res.end(); } }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/config') {
+      try { await handleConfig(req, res); }
+      catch (e) { console.error('config handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/crawl') {

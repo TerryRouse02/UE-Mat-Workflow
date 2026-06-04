@@ -40,6 +40,18 @@ function Body() {
     prevCurrentRef.current = current;
   }, [payload, current, state.connection, pushToast]);
 
+  // Crawl completion toast. Lives here (always mounted) rather than in the Config
+  // tab so the user still gets feedback after switching tabs while a crawl runs.
+  const prevCrawlRef = useRef(state.crawl.status);
+  useEffect(() => {
+    const s = state.crawl;
+    if (prevCrawlRef.current === 'running' && s.status !== 'running') {
+      if (s.status === 'success') pushToast({ variant: 'success', title: '元資料已更新', message: `${s.kind} 爬取完成，已即時刷新。` });
+      else if (s.status === 'error') pushToast({ variant: 'error', title: '爬取失敗', message: s.logs.at(-1) ?? `exit ${s.exitCode}`, detail: s.logs.slice(-8) });
+    }
+    prevCrawlRef.current = s.status;
+  }, [state.crawl, pushToast]);
+
   const errs = current ? (state.errors[current] ?? []) : [];
   const warns = payload?.warnings ?? [];
 

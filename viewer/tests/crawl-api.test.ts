@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { startServer } from '../server/http-server';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
 import { request as httpRequest } from 'node:http';
@@ -81,6 +81,43 @@ describe('crawl API', () => {
     const r = await request(server.port, 'GET', '/api/workmf');
     expect(r.status).toBe(200);
     expect(JSON.parse(r.body)).toBe(null);
+    await server.close();
+  }, 5000);
+
+  it('POST /api/config writes local.config.json and returns the fresh probe', async () => {
+    const root = fixtureRepo();
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    const origin = `http://127.0.0.1:${server.port}`;
+    const r = await request(server.port, 'POST', '/api/config', {
+      headers: { origin },
+      body: JSON.stringify({ ProjectPath: 'C:\\Proj\\Game.uproject', EngineRoot: 'C:\\UE_5.7' }),
+    });
+    expect(r.status).toBe(200);
+    expect(typeof JSON.parse(r.body).ready).toBe('boolean'); // a probe came back
+    const written = JSON.parse(readFileSync(resolve(root, 'tools', 'node-t3d-metadata', 'local.config.json'), 'utf-8'));
+    expect(written.ProjectPath).toBe('C:\\Proj\\Game.uproject');
+    expect(written.EngineRoot).toBe('C:\\UE_5.7');
+    await server.close();
+  }, 5000);
+
+  it('POST /api/config preserves existing fields it was not sent (merge)', async () => {
+    const root = fixtureRepo();
+    writeFileSync(resolve(root, 'tools', 'node-t3d-metadata', 'local.config.json'),
+      JSON.stringify({ ProjectPath: 'C:\\Old.uproject', EngineRoot: 'C:\\UE', WorkMfContentRoots: '/Game/Materials' }));
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    const origin = `http://127.0.0.1:${server.port}`;
+    await request(server.port, 'POST', '/api/config', { headers: { origin }, body: JSON.stringify({ EngineRoot: 'C:\\UE_5.7' }) });
+    const written = JSON.parse(readFileSync(resolve(root, 'tools', 'node-t3d-metadata', 'local.config.json'), 'utf-8'));
+    expect(written.EngineRoot).toBe('C:\\UE_5.7');             // updated
+    expect(written.ProjectPath).toBe('C:\\Old.uproject');      // preserved
+    expect(written.WorkMfContentRoots).toBe('/Game/Materials'); // preserved
+    await server.close();
+  }, 5000);
+
+  it('POST /api/config refuses a cross-origin request', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const r = await request(server.port, 'POST', '/api/config', { headers: { origin: 'http://evil.example:1234' }, body: JSON.stringify({ ProjectPath: 'x' }) });
+    expect(r.status).toBe(403);
     await server.close();
   }, 5000);
 

@@ -71,3 +71,38 @@
 
 /* official MF browser section */
 .lib-mf-root { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--bg2); }
+
+/* Config tab */
+.cfg { display: flex; flex-direction: column; gap: 14px; }
+.cfg-sec { display: flex; flex-direction: column; gap: 7px; }
+.cfg-sec + .cfg-sec { padding-top: 12px; border-top: 1px solid var(--bg2); }
+.cfg-sec-title { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--fg-faint); }
+.cfg-note { font-size: 10px; color: var(--fg-faint); line-height: 1.5; margin: 0; }
+.cfg-field { display: flex; flex-direction: column; gap: 4px; }
+.cfg-field > span { font-size: 11px; color: var(--fg-dim); }
+.cfg-input { width: 100%; box-sizing: border-box; background: var(--bg0); color: var(--fg);
+  border: 1px solid var(--bd); border-radius: 5px; padding: 6px 8px; font: inherit; font-size: 12px; outline: none; }
+.cfg-input:focus { border-color: var(--accent); }
+.cfg-btn { background: var(--accent); color: #fff; border: 0; border-radius: var(--radius);
+  padding: 7px 12px; font: inherit; font-size: 12px; cursor: pointer; text-align: center; }
+.cfg-btn:hover:not(:disabled) { filter: brightness(1.08); }
+.cfg-btn:disabled { opacity: .45; cursor: not-allowed; }
+.cfg-btn.secondary { background: var(--bg2); color: var(--fg); border: 1px solid var(--bd); }
+.cfg-btn.secondary:hover:not(:disabled) { border-color: var(--accent); filter: none; }
+.cfg-msg { font-size: 11px; }
+.cfg-msg.ok { color: var(--ok); }
+.cfg-msg.bad { color: var(--err); }
+.cfg-banner { font-size: 11px; padding: 6px 9px; border-radius: 5px; }
+.cfg-banner.ok { background: rgba(126,201,111,.12); color: var(--ok); }
+.cfg-banner.bad { background: rgba(224,179,77,.10); color: var(--warn); }
+.cfg-check { display: flex; gap: 8px; align-items: flex-start; font-size: 11px; }
+.cfg-check-ico { flex: none; width: 12px; text-align: center; }
+.cfg-check.ok .cfg-check-ico { color: var(--ok); }
+.cfg-check.bad .cfg-check-ico { color: var(--err); }
+.cfg-check-body { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cfg-check-label { color: var(--fg-dim); }
+.cfg-check.ok .cfg-check-label { color: var(--fg); }
+.cfg-check-detail { color: var(--fg-faint); font-size: 10px; line-height: 1.4; word-break: break-word; }
+.cfg-divider { height: 1px; background: var(--bg2); margin: 3px 0; }
+.cfg-log { max-height: 150px; overflow: auto; font-size: 11px; line-height: 1.45; white-space: pre-wrap;
+  background: var(--bg0); border: 1px solid var(--bd); border-radius: 5px; padding: 6px 8px; margin: 0; color: var(--fg-dim); }

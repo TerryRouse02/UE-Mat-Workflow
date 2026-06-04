@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { FileList } from './FileList';
 import { NodeLibrary } from './NodeLibrary';
+import { ConfigPanel } from './ConfigPanel';
 import './sidebar.css';
 
-type Tab = 'files' | 'nodes';
+type Tab = 'files' | 'nodes' | 'config';
 
 export function Sidebar() {
   const [tab, setTab] = useState<Tab>('files');
@@ -18,9 +19,13 @@ export function Sidebar() {
           className={`sidebar-tab ${tab === 'nodes' ? 'active' : ''}`}
           onClick={() => setTab('nodes')}
         >Nodes</button>
+        <button
+          className={`sidebar-tab ${tab === 'config' ? 'active' : ''}`}
+          onClick={() => setTab('config')}
+        >Config</button>
       </div>
       <div className="sidebar-panel">
-        {tab === 'files' ? <FileList /> : <NodeLibrary />}
+        {tab === 'files' ? <FileList /> : tab === 'nodes' ? <NodeLibrary /> : <ConfigPanel />}
       </div>
     </div>
   );

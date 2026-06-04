@@ -105,6 +105,7 @@ interface Ctx {
   popBreadcrumb(i: number): void;
   startCrawl(kind: CrawlKind, contentRoots?: string): void;
   refreshEnv(): void;
+  saveConfig(projectPath: string, engineRoot: string): Promise<{ ok: boolean; error?: string }>;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -183,10 +184,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await startCrawlRequest(kind, dispatch, contentRoots ? { contentRoots } : {});
   }, []);
 
+  // Write the per-machine crawl config from the Config tab, then apply the fresh
+  // probe the server returns so the checklist + crawl gate update immediately.
+  const saveConfig = useCallback(async (projectPath: string, engineRoot: string) => {
+    try {
+      const r = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ProjectPath: projectPath, EngineRoot: engineRoot }),
+      });
+      if (!r.ok) {
+        const e = (await r.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: e.error || `HTTP ${r.status}` };
+      }
+      dispatch({ type: 'setEnv', env: await r.json() });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }, []);
+
   const open = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'open', path }); }, []);
   const enterMF = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'enterMF', mfPath: path }); }, []);
   const popBreadcrumb = useCallback((i: number) => { dispatch({ type: 'popBreadcrumb', toIndex: i }); }, []);
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, refreshEnv }), [state, open, enterMF, popBreadcrumb, startCrawl, refreshEnv]);
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, refreshEnv, saveConfig }), [state, open, enterMF, popBreadcrumb, startCrawl, refreshEnv, saveConfig]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 
