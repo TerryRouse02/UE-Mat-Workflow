@@ -83,8 +83,8 @@ describe('startServer', () => {
     });
 
     expect(hello.files).toEqual([
-      { path: 'mat1/helper.matgraph.json', type: 'MaterialFunction' },
-      { path: 'mat1/main.matgraph.json', type: 'Material' },
+      { path: 'mat1/helper.matgraph.json', type: 'MaterialFunction', nodeCount: 0 },
+      { path: 'mat1/main.matgraph.json', type: 'Material', nodeCount: 0 },
     ]);
 
     ws.close();
@@ -180,6 +180,35 @@ describe('startServer', () => {
     expect(status).toBe(404);
     expect(body).not.toContain('TOP SECRET');
 
+    await server.close();
+  }, 5000);
+
+  it('FileEntry includes nodeCount from the node array length', async () => {
+    const root = mkdtempSync(resolve(tmpdir(), 'srv-'));
+    mkdirSync(resolve(root, 'graphs/proj'), { recursive: true });
+    // Write a graph with exactly 3 nodes so we can assert nodeCount === 3.
+    writeFileSync(resolve(root, 'graphs/proj/mat.matgraph.json'),
+      JSON.stringify({
+        schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'mat',
+        nodes: [
+          { id: 'n1', type: 'Constant' },
+          { id: 'n2', type: 'Constant' },
+          { id: 'n3', type: 'Constant' },
+        ],
+        connections: [],
+      }));
+
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    const ws = new WebSocket(`ws://localhost:${server.port}`);
+    const hello: any = await new Promise((res, rej) => {
+      ws.on('message', d => res(JSON.parse(d.toString())));
+      ws.on('error', rej);
+    });
+
+    expect(hello.files).toHaveLength(1);
+    expect(hello.files[0].nodeCount).toBe(3);
+
+    ws.close();
     await server.close();
   }, 5000);
 });

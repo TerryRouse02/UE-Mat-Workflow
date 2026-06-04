@@ -4,6 +4,7 @@ import type { ResolvedGraph } from './mf-resolver.js';
 export interface FileEntry {
   path: string;
   type: 'Material' | 'MaterialFunction' | 'Unknown';
+  nodeCount?: number;
 }
 
 export type ServerMessage =

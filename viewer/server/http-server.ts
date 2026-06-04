@@ -345,16 +345,18 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   const send = (ws: WebSocket, msg: ServerMessage) => ws.send(JSON.stringify(msg));
 
-  // Any read/parse error → 'Unknown'; user sees it under "Unorganized"
-  // and can investigate. Distinct error types are not surfaced.
-  async function readGraphType(absPath: string): Promise<FileEntry['type']> {
+  // Any read/parse error → type 'Unknown', nodeCount undefined; user sees it
+  // under "Unorganized" and can investigate. Distinct error types are not surfaced.
+  async function readGraphMeta(absPath: string): Promise<{ type: FileEntry['type']; nodeCount: number | undefined }> {
     try {
       const raw = await readFile(absPath, 'utf-8');
-      const parsed = JSON.parse(raw) as { type?: string };
-      if (parsed.type === 'Material' || parsed.type === 'MaterialFunction') return parsed.type;
-      return 'Unknown';
+      const parsed = JSON.parse(raw) as { type?: string; nodes?: unknown };
+      const type: FileEntry['type'] =
+        parsed.type === 'Material' || parsed.type === 'MaterialFunction' ? parsed.type : 'Unknown';
+      const nodeCount = Array.isArray(parsed.nodes) ? parsed.nodes.length : undefined;
+      return { type, nodeCount };
     } catch {
-      return 'Unknown';
+      return { type: 'Unknown', nodeCount: undefined };
     }
   }
 
@@ -368,8 +370,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         const full = join(dir, e.name);
         if (e.isDirectory()) await walk(full);
         else if (e.isFile() && e.name.endsWith('.matgraph.json')) {
-          const type = await readGraphType(full);
-          out.push({ path: toPosixPath(relative(graphsRoot, full)), type });
+          const { type, nodeCount } = await readGraphMeta(full);
+          const entry: FileEntry = { path: toPosixPath(relative(graphsRoot, full)), type };
+          if (nodeCount !== undefined) entry.nodeCount = nodeCount;
+          out.push(entry);
         }
       }
     }
