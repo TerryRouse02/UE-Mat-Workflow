@@ -1,0 +1,60 @@
+// Maps a failed crawl's log output to a likely cause + fix, so the Config tab can
+// tell an artist what went wrong and whether they can fix it themselves. The patterns
+// are grounded in the real strings the PowerShell runners and the UE editor emit
+// (tools/node-t3d-metadata/plugin-src/Scripts/*.ps1 throws + UE plugin-load errors).
+// Extend RULES as new real failures surface — order matters (first match wins).
+
+export interface CrawlDiagnosis {
+  cause: string;
+  fix: string;
+  who: 'you' | 'maintainer';
+}
+
+interface Rule extends CrawlDiagnosis { test: RegExp; }
+
+const RULES: Rule[] = [
+  {
+    test: /could not be loaded|missing or incompatible modules|incompatible module|failed to load because/i,
+    cause: '外掛二進位與你的引擎 build 不相容，UE 載入外掛失敗。',
+    fix: '在終端機跑 Invoke-NodeT3DMetadataMaintenance.ps1 -ForcePackage，對你的引擎重新打包外掛（仍是外部、不會放進專案）。',
+    who: 'you',
+  },
+  {
+    test: /will shadow the packaged plugin/i,
+    cause: '你的 UE 專案裡有一份 Plugins\\UEMatExportMetadata 副本，遮蔽了打包版外掛。',
+    fix: '刪掉專案內那份 Plugins\\UEMatExportMetadata 副本後再爬。',
+    who: 'you',
+  },
+  {
+    test: /Packaged plugin not found/i,
+    cause: '找不到已編譯外掛。',
+    fix: '跑 Invoke-NodeT3DMetadataMaintenance.ps1 -ForcePackage 先把外掛打包好。',
+    who: 'you',
+  },
+  {
+    test: /BuildPlugin failed|Package-Plugin\.ps1 failed/i,
+    cause: '對你的引擎重新打包外掛時編譯失敗（常見於 UE 版本間的 API 差異）。',
+    fix: '看 BuildPlugin 的 log；若是 API 簽章不符（如 GetInputsAndOutputs / EFunctionInputType），需要工具維護者更新 commandlet。',
+    who: 'maintainer',
+  },
+  {
+    test: /Required path not found|ProjectPath not found|ProjectPath is required|EngineRoot is required|not provided and not found in local\.config\.json/i,
+    cause: '專案或引擎路徑沒設好，或檔案不存在。',
+    fix: '回 Config 分頁，確認 ProjectPath 指到 .uproject 檔、EngineRoot 指到 UnrealEngine 根目錄，存檔後再爬。',
+    who: 'you',
+  },
+];
+
+// First matching rule, or null when nothing in the log is recognised (caller then
+// shows the raw log tail and suggests filing it with the maintainer).
+export function diagnoseCrawl(logs: string[]): CrawlDiagnosis | null {
+  const text = logs.join('\n');
+  const r = RULES.find(rule => rule.test.test(text));
+  return r ? { cause: r.cause, fix: r.fix, who: r.who } : null;
+}
+
+// A WorkMF crawl that succeeded but indexed 0 functions usually means the content
+// root didn't point at the folder holding the project's Material Functions.
+export function crawlFoundNothing(logs: string[]): boolean {
+  return /\b0 function\(s\)/i.test(logs.join('\n'));
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useStore } from './store';
 import type { CrawlKind } from './crawlRequest';
+import { diagnoseCrawl, crawlFoundNothing } from './crawlDiagnosis';
 
 // Friendly labels for the env-probe checks (server keys -> what an artist reads).
 const CHECK_LABELS: Record<string, string> = {
@@ -126,9 +127,47 @@ export function ConfigPanel() {
             <button className="cfg-btn" disabled={!ready || running} onClick={() => doCrawl('export')}>重爬節點匯出 (export)</button>
             <button className="cfg-btn" disabled={!ready || running} onClick={() => doCrawl('enginemf')}>重爬引擎 MF (enginemf)</button>
             <button className="cfg-btn" disabled={!ready || running} onClick={() => doCrawl('workmf')}>重爬專案 MF (workmf)</button>
-            {!ready && <p className="cfg-note">完成上方環境檢查後，按鈕就會啟用。</p>}
-            {running && <p className="cfg-note">{crawl.kind} 執行中…（編輯器啟動需數分鐘）</p>}
-            {crawl.logs.length > 0 && <pre className="cfg-log">{crawl.logs.slice(-12).join('\n')}</pre>}
+            {!ready && crawl.status === 'idle' && <p className="cfg-note">完成上方環境檢查後，按鈕就會啟用。</p>}
+
+            {running && (
+              <div className="cfg-report running">
+                <div className="cfg-report-head">⏳ {crawl.kind} 執行中…（編輯器啟動需數分鐘）</div>
+                {crawl.logs.length > 0 && <pre className="cfg-log">{crawl.logs.slice(-12).join('\n')}</pre>}
+              </div>
+            )}
+
+            {!running && crawl.status === 'success' && (
+              <div className="cfg-report ok">
+                <div className="cfg-report-head">✓ {crawl.kind} 完成，已即時刷新。</div>
+                {crawl.kind === 'workmf' && crawlFoundNothing(crawl.logs) && (
+                  <div className="cfg-report-note">⚠ 索引到 0 個專案 MF —— 確認上方 MF content root 對到放 MF 的資料夾。</div>
+                )}
+              </div>
+            )}
+
+            {!running && crawl.status === 'error' && (() => {
+              const d = diagnoseCrawl(crawl.logs);
+              return (
+                <div className="cfg-report bad">
+                  <div className="cfg-report-head">✗ {crawl.kind} 失敗{crawl.exitCode != null ? `（exit ${crawl.exitCode}）` : ''}</div>
+                  {d ? (
+                    <div className="cfg-report-diag">
+                      <div><b>可能原因：</b>{d.cause}</div>
+                      <div><b>解決方法：</b>{d.fix}</div>
+                      <span className={`cfg-who ${d.who}`}>{d.who === 'you' ? '你可以自己處理' : '需要工具維護者'}</span>
+                    </div>
+                  ) : (
+                    <div className="cfg-report-diag">無法自動判斷原因，請看下方 log；必要時附完整 log 回報維護者。</div>
+                  )}
+                  {crawl.logs.length > 0 && (
+                    <details className="cfg-log-details">
+                      <summary>log（最後 {Math.min(crawl.logs.length, 200)} 行）</summary>
+                      <pre className="cfg-log">{crawl.logs.join('\n')}</pre>
+                    </details>
+                  )}
+                </div>
+              );
+            })()}
           </div>
         </>
       )}

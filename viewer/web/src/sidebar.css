@@ -107,3 +107,20 @@
 .cfg-divider { height: 1px; background: var(--bg2); margin: 3px 0; }
 .cfg-log { max-height: 150px; overflow: auto; font-size: 11px; line-height: 1.45; white-space: pre-wrap;
   background: var(--bg0); border: 1px solid var(--bd); border-radius: 5px; padding: 6px 8px; margin: 0; color: var(--fg-dim); }
+
+/* Crawl result report */
+.cfg-report { display: flex; flex-direction: column; gap: 6px; padding: 8px 9px; border-radius: 6px; font-size: 11px; }
+.cfg-report.running { background: var(--bg2); }
+.cfg-report.ok { background: rgba(126,201,111,.10); }
+.cfg-report.bad { background: rgba(224,114,138,.10); }
+.cfg-report-head { font-weight: 600; }
+.cfg-report.ok .cfg-report-head { color: var(--ok); }
+.cfg-report.bad .cfg-report-head { color: var(--err); }
+.cfg-report-note { color: var(--warn); font-size: 10px; line-height: 1.5; }
+.cfg-report-diag { display: flex; flex-direction: column; gap: 4px; color: var(--fg-dim); line-height: 1.55; }
+.cfg-report-diag b { color: var(--fg); }
+.cfg-who { align-self: flex-start; padding: 1px 7px; border-radius: 999px; font-size: 9px; }
+.cfg-who.you { background: rgba(126,201,111,.18); color: var(--ok); }
+.cfg-who.maintainer { background: rgba(214,178,90,.18); color: #d6b25a; }
+.cfg-log-details summary { cursor: pointer; color: var(--fg-faint); font-size: 10px; }
+.cfg-log-details .cfg-log { margin-top: 4px; }
