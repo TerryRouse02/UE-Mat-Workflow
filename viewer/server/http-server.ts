@@ -1,6 +1,6 @@
 import { createServer, type Server, type IncomingMessage } from 'node:http';
 import { readFile, readdir, mkdir, writeFile, access } from 'node:fs/promises';
-import { resolve, join, extname, relative, dirname, sep } from 'node:path';
+import { resolve, join, extname, relative, dirname } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { watchGraphs } from './watcher.js';
 import { loadGraph } from './graph-loader.js';
@@ -10,6 +10,8 @@ import { loadWorkMfIndex } from './workmf-index.js';
 import { probeEnv } from './crawl-env.js';
 import { createCrawlRunner, type CrawlEvent } from './crawl-runner.js';
 import type { ServerMessage, ClientMessage, FileEntry } from './ws-protocol.js';
+import { isInside, toPosixPath, slugifyGraphName, writeGraph } from './graph-write.js';
+export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
 
 export interface ServerOpts {
   repoRoot: string;     // contains graphs/
@@ -38,35 +40,9 @@ const MIME: Record<string, string> = {
   '.map': 'application/json; charset=utf-8',
 };
 
-// Containment check for user-controlled paths: the resolved candidate must be
-// the root itself or live strictly beneath it. Blocks '../' traversal escapes.
-export function isInside(root: string, candidate: string): boolean {
-  const r = resolve(root);
-  const c = resolve(candidate);
-  return c === r || c.startsWith(r + sep);
-}
-
-// Wire paths are always POSIX-style ('/'). On Windows path.relative() returns
-// backslash separators, which the client's path.split('/') logic can't segment:
-// every file collapses to one segment and lands under "Unorganized". Normalize
-// at this boundary so all path consumers (grouping, base names, breadcrumbs)
-// stay platform-neutral.
-export function toPosixPath(p: string): string {
-  return p.replace(/\\/g, '/');
-}
-
-// Turn a user-supplied import name into a filesystem-safe slug used as BOTH the
-// project folder and the file base name (folder-per-project convention). Every
-// char outside [A-Za-z0-9_-] collapses to '_', so no '/', '\' or '.' survives —
-// the result therefore cannot escape graphs/ even before the isInside guard.
-// Empty/garbage input falls back to 'imported'.
-export function slugifyGraphName(raw: unknown): string {
-  const s = String(raw ?? '')
-    .trim()
-    .replace(/[^A-Za-z0-9_-]+/g, '_')
-    .replace(/^[_-]+|[_-]+$/g, '');
-  return s || 'imported';
-}
+// isInside / toPosixPath / slugifyGraphName live in ./graph-write so the
+// project-materials importer can share them without an import cycle. They are
+// imported (for internal use) and re-exported near the top of this file.
 
 async function pathExists(p: string): Promise<boolean> {
   try { await access(p); return true; } catch { return false; }
@@ -134,20 +110,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // folder name = material name = file base name).
     graph.name = finalName;
 
-    const folder = join(graphsRoot, finalName);
-    const filePath = join(folder, `${finalName}.matgraph.json`);
-    // Defence in depth: the slug already strips separators, but re-assert the
-    // write target lives under graphs/ before touching the disk.
-    if (!isInside(graphsRoot, filePath)) { sendJson(res, 400, { error: 'resolved path escapes graphs root' }); return; }
-
+    let relPath: string;
     try {
-      await mkdir(folder, { recursive: true });
-      // UTF-8 without BOM, trailing newline — matches authored files.
-      await writeFile(filePath, JSON.stringify(graph, null, 2) + '\n', 'utf-8');
+      relPath = await writeGraph(graphsRoot, finalName, finalName, graph);
     } catch (e) {
       sendJson(res, 500, { error: `failed to write file: ${(e as Error).message}` }); return;
     }
-    sendJson(res, 200, { path: toPosixPath(relative(graphsRoot, filePath)), name: finalName });
+    sendJson(res, 200, { path: relPath, name: finalName });
   }
 
   // Serve a committed agent-pack data file so the web can re-fetch it at runtime
