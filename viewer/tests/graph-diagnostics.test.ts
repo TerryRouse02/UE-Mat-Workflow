@@ -66,4 +66,31 @@ describe('diagnoseGraph', () => {
     const out = diagnoseGraph(mat([{ id: 'm', type: 'Multiply' }, { id: 'OUT', type: 'MaterialOutput' }], [{ from: 'm:Result', to: 'OUT:Nope' }]), db);
     expect(out.some(i => i.nodeId === 'OUT' && /input pin/.test(i.message))).toBe(true);
   });
+
+  it('emits a comment-overlap warning for sibling-overlapping comments', () => {
+    // X=[a, shared], Y=[b, shared]: 'shared' is in both non-nested comments → sibling overlap
+    const graph = mat(
+      [{ id: 'a', type: 'Multiply' }, { id: 'b', type: 'Multiply' }, { id: 'shared', type: 'MaterialOutput' }],
+    ) as never;
+    (graph as any).comments = [
+      { id: 'X', text: 'X', contains: ['a', 'shared'] },
+      { id: 'Y', text: 'Y', contains: ['b', 'shared'] },
+    ];
+    const out = diagnoseGraph(graph, db);
+    const overlap = out.find(i => i.kind === 'comment-overlap');
+    expect(overlap).toBeTruthy();
+    expect(overlap!.severity).toBe('warning');
+    expect(overlap!.message).toMatch(/重疊|overlap/);
+    expect(overlap!.nodeId).toBeUndefined();
+  });
+
+  it('does not emit comment-overlap for properly nested comments', () => {
+    const graph = mat([{ id: 'n1', type: 'Multiply' }, { id: 'n2', type: 'MaterialOutput' }]) as never;
+    (graph as any).comments = [
+      { id: 'outer', text: 'outer', contains: ['n1', 'n2'] },
+      { id: 'inner', text: 'inner', contains: ['n1'] },
+    ];
+    const out = diagnoseGraph(graph, db);
+    expect(out.some(i => i.kind === 'comment-overlap')).toBe(false);
+  });
 });

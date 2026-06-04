@@ -1,6 +1,7 @@
 import type { MatGraph, DerivedPins } from './protocol';
 import type { NodeDB } from '../../server/db-types';
 import { validateConnectionPins } from './validate';
+import { commentOverlaps } from './commentBounds';
 
 export type GraphIssueKind =
   | 'missing-output'
@@ -9,7 +10,8 @@ export type GraphIssueKind =
   | 'mf-no-output'
   | 'unknown-type'
   | 'bad-pin'
-  | 'unresolved-mf';
+  | 'unresolved-mf'
+  | 'comment-overlap';
 
 export interface GraphIssue {
   severity: 'error' | 'warning';
@@ -86,6 +88,15 @@ export function diagnoseGraph(
     if (mfPinsUnresolved(derivedPins?.[n.id])) {
       issues.push({ severity: 'warning', kind: 'unresolved-mf', message: `MaterialFunctionCall「${n.id}」沒有解析到 pin——MF 缺失或需要先爬取它的 index。`, nodeId: n.id });
     }
+  }
+
+  // Sibling-overlapping comments: a node belongs to two or more mutually-incomparable comments.
+  for (const { nodeId, commentIds } of commentOverlaps(graph.comments ?? [])) {
+    issues.push({
+      severity: 'warning',
+      kind: 'comment-overlap',
+      message: `節點「${nodeId}」同時屬於多個無包含關係的 comment（${commentIds.join('、')}），存在 comment 重疊（overlap）。`,
+    });
   }
 
   return issues;
