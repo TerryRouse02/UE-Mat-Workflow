@@ -10,6 +10,7 @@ describe('startCrawlRequest', () => {
     const request = startCrawlRequest(
       'enginemf',
       (action) => actions.push(action),
+      {},
       () => fetchPromise,
     );
 
@@ -22,5 +23,15 @@ describe('startCrawlRequest', () => {
     await request;
 
     expect(actions).toContainEqual({ type: 'crawlAccepted', jobId: 'crawl-7' });
+  });
+
+  it('includes contentRoots in the POST body when provided (workmf)', async () => {
+    let sentBody: unknown;
+    const fakeFetch = (_url: RequestInfo | URL, init?: RequestInit) => {
+      sentBody = JSON.parse(String(init?.body));
+      return Promise.resolve(new Response(JSON.stringify({ jobId: 'crawl-9' }), { status: 200, headers: { 'content-type': 'application/json' } }));
+    };
+    await startCrawlRequest('workmf', () => {}, { contentRoots: '/Game/Materials' }, fakeFetch);
+    expect(sentBody).toEqual({ kind: 'workmf', contentRoots: '/Game/Materials' });
   });
 });

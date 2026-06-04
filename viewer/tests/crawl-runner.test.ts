@@ -61,6 +61,16 @@ describe('createCrawlRunner', () => {
     expect(cmd('workmf').args.join(' ')).toMatch(/Run-WorkMfIndex\.ps1/);
   });
 
+  it('passes -ContentRoots to the workmf crawl only when given', () => {
+    expect(defaultCommandFor('/repo', 'workmf').args).not.toContain('-ContentRoots');
+    const withRoots = defaultCommandFor('/repo', 'workmf', { contentRoots: '/Game/Materials,/MyPlugin' });
+    const i = withRoots.args.indexOf('-ContentRoots');
+    expect(i).toBeGreaterThan(-1);
+    expect(withRoots.args[i + 1]).toBe('/Game/Materials,/MyPlugin');
+    // contentRoots is workmf-only — it must not leak into the other kinds.
+    expect(defaultCommandFor('/repo', 'export', { contentRoots: '/Game' }).args).not.toContain('-ContentRoots');
+  });
+
   it('rejects a second crawl while one is running (single-job lock)', async () => {
     const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', 'setTimeout(() => {}, 300)'] });
     const runner = createCrawlRunner(tmpdir(), { commandFor });

@@ -96,7 +96,7 @@ interface Ctx {
   open(path: string): void;
   enterMF(path: string): void;
   popBreadcrumb(i: number): void;
-  startCrawl(kind: CrawlKind): void;
+  startCrawl(kind: CrawlKind, contentRoots?: string): void;
   refreshEnv(): void;
 }
 
@@ -172,8 +172,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.crawl.status, state.crawl.kind]);
 
-  const startCrawl = useCallback(async (kind: CrawlKind) => {
-    await startCrawlRequest(kind, dispatch);
+  const startCrawl = useCallback(async (kind: CrawlKind, contentRoots?: string) => {
+    await startCrawlRequest(kind, dispatch, contentRoots ? { contentRoots } : {});
   }, []);
 
   const open = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'open', path }); }, []);

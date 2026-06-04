@@ -30,13 +30,20 @@ export interface SpawnSpec {
   args: string[];
 }
 
+export interface CrawlStartOpts {
+  // Only meaningful for 'workmf': the UE content root(s) to crawl, e.g. "/Game"
+  // or "/Game/Materials,/MyPlugin". Omitted → the script's own default (/Game,
+  // the whole project Content/). Validated at the HTTP boundary before it reaches here.
+  contentRoots?: string;
+}
+
 export type SpawnImpl = (spec: SpawnSpec, cwd: string) => ChildProcess;
-export type CommandFor = (repoRoot: string, kind: CrawlKind) => SpawnSpec;
+export type CommandFor = (repoRoot: string, kind: CrawlKind, opts?: CrawlStartOpts) => SpawnSpec;
 
 // The actual PowerShell invocation per crawl kind, kept in ONE place so the
 // Windows side can confirm/adjust the exact args without touching the runner.
-// Both scripts read ProjectPath/EngineRoot from local.config.json.
-export const defaultCommandFor: CommandFor = (repoRoot, kind) => {
+// All three scripts read ProjectPath/EngineRoot from local.config.json.
+export const defaultCommandFor: CommandFor = (repoRoot, kind, opts) => {
   const tool = resolve(repoRoot, 'tools', 'node-t3d-metadata');
   const ps = (file: string, extra: string[]): SpawnSpec => ({
     command: 'powershell',
@@ -53,8 +60,9 @@ export const defaultCommandFor: CommandFor = (repoRoot, kind) => {
     case 'workmf':
       // Regenerates the gitignored agent-pack/workmf-index.json — the user's OWN
       // project Material Functions. The script reads ProjectPath/EngineRoot from
-      // local.config.json (same fallback as enginemf), so no args are needed.
-      return ps('plugin-src/Scripts/Run-WorkMfIndex.ps1', []);
+      // local.config.json (same fallback as enginemf). Optional -ContentRoots
+      // narrows/widens which project folders are crawled (default /Game).
+      return ps('plugin-src/Scripts/Run-WorkMfIndex.ps1', opts?.contentRoots ? ['-ContentRoots', opts.contentRoots] : []);
   }
 };
 
@@ -98,7 +106,7 @@ export interface RunnerOpts {
 }
 
 export interface CrawlRunner {
-  start(kind: CrawlKind, emit: (e: CrawlEvent) => void): string;
+  start(kind: CrawlKind, emit: (e: CrawlEvent) => void, opts?: CrawlStartOpts): string;
   current(): CrawlStatus;
 }
 
@@ -110,12 +118,12 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
   let status: CrawlStatus = { status: 'idle' };
   let counter = 0;
 
-  function start(kind: CrawlKind, emit: (e: CrawlEvent) => void): string {
+  function start(kind: CrawlKind, emit: (e: CrawlEvent) => void, startOpts?: CrawlStartOpts): string {
     if (status.status === 'running') throw new Error('a crawl is already running');
     const jobId = `crawl-${++counter}`;
     status = { status: 'running', jobId, kind };
 
-    const child = spawnImpl(commandFor(repoRoot, kind), repoRoot);
+    const child = spawnImpl(commandFor(repoRoot, kind, startOpts), repoRoot);
     emit({ type: 'started', jobId, kind });
 
     const splitter = lineSplitter((line) => emit({ type: 'log', jobId, line }));

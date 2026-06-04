@@ -31,6 +31,7 @@ function WatchPill() {
 function CrawlControl({ pushToast }: { pushToast: (t: Omit<ToastItem, 'id'>) => void }) {
   const { state, startCrawl } = useStore();
   const [open, setOpen] = useState(false);
+  const [workmfRoot, setWorkmfRoot] = useState(() => localStorage.getItem('ue-workmf-root') || '/Game');
   const { env, crawl, connection } = state;
   const live = connection === 'live';
   const ready = live && !!env?.ready;
@@ -64,7 +65,14 @@ function CrawlControl({ pushToast }: { pushToast: (t: Omit<ToastItem, 'id'>) => 
               <label>爬取本機 UE 元資料 <span className="hint-txt">在這台 Windows + UE 機器上執行</span></label>
               <button onClick={() => startCrawl('export')}>重爬節點匯出 (nodes-ue5.7.export.json)</button>
               <button onClick={() => startCrawl('enginemf')}>重爬引擎 MF (enginemf-index)</button>
-              <button onClick={() => startCrawl('workmf')}>重爬專案 MF (workmf-index)</button>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, borderTop: '1px solid var(--line, #2a2a2a)', paddingTop: 6 }}>
+                <button onClick={() => startCrawl('workmf', workmfRoot.trim() || '/Game')}>重爬專案 MF (workmf-index)</button>
+                <label className="hint-txt">Content Root（專案內要爬的資料夾，逗號分隔多個）</label>
+                <input value={workmfRoot} onChange={e => { setWorkmfRoot(e.target.value); localStorage.setItem('ue-workmf-root', e.target.value); }} placeholder="/Game" />
+                <span className="hint-txt" style={{ wordBreak: 'break-all' }}>
+                  專案：{env?.projectPath || '（讀 local.config.json）'}
+                </span>
+              </div>
             </div>
           )}
           {!ready && !running && (

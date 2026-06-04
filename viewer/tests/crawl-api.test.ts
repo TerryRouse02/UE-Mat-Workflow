@@ -86,6 +86,17 @@ describe('crawl API', () => {
     await server.close();
   }, 5000);
 
+  it('POST /api/crawl accepts a valid contentRoots but rejects a malformed one', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const origin = `http://127.0.0.1:${server.port}`;
+    const ok = await request(server.port, 'POST', '/api/crawl', { headers: { origin }, body: JSON.stringify({ kind: 'workmf', contentRoots: '/Game/Materials,/MyPlugin' }) });
+    expect(ok.status).toBe(200);
+    // A value that could be mistaken for a PowerShell flag must be refused, not spawned.
+    const evil = await request(server.port, 'POST', '/api/crawl', { headers: { origin }, body: JSON.stringify({ kind: 'workmf', contentRoots: '-Command rm -rf' }) });
+    expect(evil.status).toBe(400);
+    await server.close();
+  }, 5000);
+
   it('WS: a cross-origin upgrade is closed, never served the file list', async () => {
     const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin: 'http://evil.example' });

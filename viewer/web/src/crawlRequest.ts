@@ -8,13 +8,16 @@ export type CrawlAction =
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-export async function startCrawlRequest(kind: CrawlKind, dispatch: (action: CrawlAction) => void, fetchImpl: FetchLike = fetch): Promise<void> {
+// contentRoots is only honoured for kind 'workmf' (the server ignores it otherwise).
+export interface StartCrawlOpts { contentRoots?: string }
+
+export async function startCrawlRequest(kind: CrawlKind, dispatch: (action: CrawlAction) => void, opts: StartCrawlOpts = {}, fetchImpl: FetchLike = fetch): Promise<void> {
   dispatch({ type: 'crawlStarted', kind, jobId: '' });
   try {
     const r = await fetchImpl('/api/crawl', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ kind }),
+      body: JSON.stringify({ kind, ...(opts.contentRoots ? { contentRoots: opts.contentRoots } : {}) }),
     });
     if (!r.ok) {
       const msg = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));

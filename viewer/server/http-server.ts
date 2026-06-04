@@ -149,6 +149,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // after a crawl (no rebuild). Allowlist by filename pattern — the exact set the
   // web bundles — so no arbitrary path can be read.
   const AGENT_PACK_RE = /^(nodes-ue[\d.]+(?:\.export)?|enginemf-index-ue[\d.]+)\.json$/;
+  // One or more UE content roots: each "/Word(/Word)*", comma-separated. Anchors out
+  // anything that could be mistaken for a flag or carry path/shell-escape characters.
+  const CONTENT_ROOTS_RE = /^\/\w+(\/\w+)*(,\/\w+(\/\w+)*)*$/;
   async function handleAgentPack(urlPath: string, res: import('node:http').ServerResponse) {
     const file = decodeURIComponent(urlPath.slice('/api/agent-pack/'.length));
     const candidate = resolve(agentPackRoot, file);
@@ -180,16 +183,25 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   async function handleCrawl(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin crawl requests are refused' }); return; }
-    let body: { kind?: unknown };
+    let body: { kind?: unknown; contentRoots?: unknown };
     try { body = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     const kind = body.kind;
     if (kind !== 'export' && kind !== 'enginemf' && kind !== 'workmf') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
+    // contentRoots (workmf only) becomes a literal arg to the spawned editor. Constrain it
+    // to UE content-root syntax — leading '/', word segments, comma-separated — so it can
+    // never start with '-' (PowerShell param injection) or carry shell/path-escape chars.
+    let contentRoots: string | undefined;
+    if (body.contentRoots !== undefined) {
+      const cr = String(body.contentRoots).replace(/\s+/g, '');
+      if (!CONTENT_ROOTS_RE.test(cr)) { sendJson(res, 400, { error: 'invalid contentRoots — use UE content paths like "/Game" or "/Game/Materials,/MyPlugin"' }); return; }
+      contentRoots = cr;
+    }
     try {
       const jobId = runner.start(kind, (e) => {
         const msg = crawlEventToMsg(e);
         for (const ws of wss.clients) safeSend(ws, msg);
-      });
+      }, contentRoots ? { contentRoots } : undefined);
       sendJson(res, 200, { jobId });
     } catch (e) {
       // Already running — single-job lock.
