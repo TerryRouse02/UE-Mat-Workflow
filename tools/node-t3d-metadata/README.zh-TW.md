@@ -80,6 +80,66 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Sc
 - **WorkMF**——以 UE 資產路徑索引「專案自己的」Material Function，讓 viewer、匯出器與編寫 agent 都能使用它們。執行 `plugin-src\Scripts\Run-WorkMfIndex.ps1`；細節見 `docs\WORKMF.md`。其輸出保留在本機且已 gitignore。
 - **Engine MF**——同一套爬取，指向官方 `/Engine/Functions` 函式庫，讓呼叫內建 MF（CustomRotator、BumpOffset_Advanced…）的材質能帶著正確的引腳往返。執行 `plugin-src\Scripts\Run-EngineMfIndex.ps1`；細節見 `docs\ENGINE_MF.md`。它的輸出**是會提交的**（所有使用者共用的穩定出貨資料）。
 
+## 從 web viewer 觸發爬取（免終端機）
+
+上面三種爬取也可以**直接從 viewer 的瀏覽器介面**觸發——標題列有一顆 **`爬取`** 按鈕——
+所以刷新元資料完全不必開終端機。它是**本機優先（local-first）**：viewer server、
+`UnrealEditor-Cmd.exe`、瀏覽器全部跑在**同一台 Windows 機器**上（server 綁 `127.0.0.1`，
+而且只有同源、同機的網頁才能啟動爬取）。
+
+### 1. 配置外掛（一次性）
+
+按鈕所需的一切都讀自 `local.config.json`——瀏覽器裡不必輸入任何路徑。
+
+1. **Windows + UE**——爬取會啟動 `UnrealEditor-Cmd.exe`，所以按鈕只在裝有 UE 的 Windows 上有效。
+2. **`local.config.json`**——把 `local.config.example.json` 複製成 `local.config.json`，填入
+   `ProjectPath`（`.uproject` **檔案**）與 `EngineRoot`（你的 `UnrealEngine` 根目錄）。此檔已
+   gitignore（每台機器自己一份），是按鈕唯一讀取的設定來源。
+3. **已編譯外掛**——已隨 repo 提交在 `compiled/` 底下，所以 plugin 檢查開箱即綠。只有在你改過
+   `plugin-src/` 時才需要重建（跑一次[一般流程](#一般流程)，或加 `-ForcePackage`）。
+4. **沒有遮蔽用的副本**——確認你的 UE 專案裡**沒有**自己的 `Plugins\UEMatExportMetadata\` 副本；
+   專案內的副本會遮蔽打包版，探測會因此擋下爬取。
+
+### 2. 把 viewer link 起來
+
+在同一台 Windows 機器、從 repo 根目錄：
+
+```bash
+pnpm build && pnpm start     # 提供 http://localhost:5790（會自動嘗試 5790-5799）
+# 正在改 UI？改用：  pnpm dev
+```
+
+在**那台機器上**的瀏覽器開啟 `http://localhost:5790`。
+
+### 3. 點亮按鈕
+
+標題列的 **`爬取`** 按鈕會在本機環境探測全綠時自動啟用。若它一直是灰的，**把游標移上去**——
+提示會明確列出是哪一項檢查沒過。所有檢查都必須通過：
+
+| 檢查項 | 意義 |
+|---|---|
+| platform | 跑在 Windows 上 |
+| config | `local.config.json` 有 `ProjectPath` + `EngineRoot` |
+| engine | 在 `EngineRoot` 底下找到 `UnrealEditor-Cmd.exe` |
+| project | `ProjectPath` 指向存在的 `.uproject` **檔案**（不是資料夾） |
+| plugin | 已編譯外掛 DLL 存在（隨 `compiled/` 出貨） |
+| noShadow | 專案內沒有 `Plugins\UEMatExportMetadata` 副本遮蔽打包版外掛 |
+
+### 各選項實際執行什麼
+
+點 **`爬取`** 會展開一個有三種爬取的選單；每一項都執行本 README 所記載的同一套腳本（從
+`local.config.json` 讀 `ProjectPath` / `EngineRoot`），完成後 viewer 即時刷新：
+
+| 選單項目 | kind | 寫入 | 腳本 |
+|---|---|---|---|
+| 重爬節點匯出 | export | `agent-pack\nodes-ue5.7.export.json` | `Invoke-NodeT3DMetadataMaintenance.ps1 -SkipViewerTests` |
+| 重爬引擎 MF | enginemf | `agent-pack\enginemf-index-ue5.7.json` | `plugin-src\Scripts\Run-EngineMfIndex.ps1` |
+| 重爬專案 MF | workmf | `agent-pack\workmf-index.json`（本機、已 gitignore） | `plugin-src\Scripts\Run-WorkMfIndex.ps1 -ContentRoots <roots>` |
+
+**專案 MF（workmf）** 那一項有一個 **Content Root** 欄位（預設 `/Game`；多個用逗號分隔），指定要
+爬專案裡哪些資料夾，並顯示解析後的專案路徑。第一次啟動編輯器要等幾分鐘——進度會串流進浮層，
+完成時用 toast 回報成功或失敗。同一時間只跑一個爬取（前一個還沒結束時，第二次會被拒絕）。
+
 ## Agent Skill
 
 可攜式 skill 位於 `skill/node-t3d-metadata/SKILL.md`。任何 agent 直接讀那個檔案即可使用。若要安裝到某個 agent 專屬的 skill 註冊處，把整個 `skill/node-t3d-metadata` 資料夾複製到該 agent 的 skills 目錄即可。
