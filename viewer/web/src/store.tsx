@@ -1,9 +1,10 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
 import { connect } from './ws-client';
+import { startCrawlRequest, type CrawlAction, type CrawlKind } from './crawlRequest';
 import type { ServerMessage, GraphPayload, FileEntry } from './protocol';
 import type { EnvStatus } from '../../server/crawl-types';
 
-export type CrawlKind = 'export' | 'enginemf';
+export type { CrawlKind };
 
 interface CrawlState {
   status: 'idle' | 'running' | 'success' | 'error';
@@ -39,9 +40,7 @@ type Action =
   | { type: 'wsClosed' }
   | { type: 'snapshot' }
   | { type: 'setEnv'; env: EnvStatus }
-  | { type: 'crawlStarted'; kind: string; jobId: string }
-  | { type: 'crawlLog'; line: string }
-  | { type: 'crawlDone'; status: 'success' | 'error'; exitCode: number | null };
+  | CrawlAction;
 
 const idleCrawl: CrawlState = { status: 'idle', kind: null, jobId: null, logs: [], exitCode: null };
 
@@ -73,6 +72,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, env: a.env };
     case 'crawlStarted':
       return { ...s, crawl: { status: 'running', kind: a.kind, jobId: a.jobId, logs: [], exitCode: null } };
+    case 'crawlAccepted':
+      return { ...s, crawl: { ...s.crawl, jobId: a.jobId } };
     case 'crawlLog':
       // Cap the buffer — a multi-minute editor run emits a lot of lines.
       return { ...s, crawl: { ...s.crawl, logs: [...s.crawl.logs.slice(-199), a.line] } };
@@ -157,20 +158,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => { if (state.connection === 'live') void refreshEnv(); }, [state.connection, refreshEnv]);
 
   const startCrawl = useCallback(async (kind: CrawlKind) => {
-    try {
-      const r = await fetch('/api/crawl', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ kind }) });
-      if (!r.ok) {
-        const msg = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));
-        dispatch({ type: 'crawlStarted', kind, jobId: '' });
-        dispatch({ type: 'crawlLog', line: `crawl request rejected: ${msg.error ?? r.status}` });
-        dispatch({ type: 'crawlDone', status: 'error', exitCode: null });
-      }
-      // On success the server streams crawlStarted/crawlLog/crawlDone over the WS.
-    } catch (e) {
-      dispatch({ type: 'crawlStarted', kind, jobId: '' });
-      dispatch({ type: 'crawlLog', line: `crawl request error: ${(e as Error).message}` });
-      dispatch({ type: 'crawlDone', status: 'error', exitCode: null });
-    }
+    await startCrawlRequest(kind, dispatch);
   }, []);
 
   const open = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'open', path }); }, []);

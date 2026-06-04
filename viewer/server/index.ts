@@ -1,11 +1,12 @@
 import { resolve } from 'node:path';
 import { startServer } from './http-server.js';
+import { resolveRepoRoot } from './repo-root.js';
 
 const BASE_PORT = 5790;
 const MAX_ATTEMPTS = 10;
 
 async function main() {
-  const repoRoot = process.cwd();
+  const repoRoot = resolveRepoRoot();
   const webDist = resolve(repoRoot, 'viewer/web/dist');
 
   for (let i = 0; i < MAX_ATTEMPTS; i++) {
