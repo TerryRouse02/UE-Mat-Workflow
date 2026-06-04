@@ -6,6 +6,7 @@ import { Graph } from './Graph';
 import { Inspector } from './Inspector';
 import { ToastStack, type ToastItem } from './Toast';
 import { DbProvider, useDb } from './dbContext';
+import { shouldConfirmOpen } from './largeGraphGate';
 
 function Body() {
   const { state, open, enterMF } = useStore();
@@ -21,7 +22,10 @@ function Body() {
   const [focusReq, setFocusReq] = useState<{ id: string; nonce: number; path: string } | null>(null);
 
   useEffect(() => {
-    if (!state.currentPath && state.files.length > 0) open(state.files[0].path);
+    if (!state.currentPath && state.files.length > 0) {
+      // Skip startup auto-open for large graphs to avoid freezing the UI.
+      if (!shouldConfirmOpen(state.files[0].nodeCount)) open(state.files[0].path);
+    }
   }, [state.files, state.currentPath, open]);
 
   const current = state.breadcrumb[state.breadcrumb.length - 1];

@@ -199,10 +199,12 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
       };
     });
 
+    // Build a Map<id, type> once so edge coloring is O(E) not O(E×N).
+    const nodeTypeById = new Map(graph.nodes.map(n => [n.id, n.type]));
     const rfEdges: Edge[] = graph.connections.map((c, i) => {
       const [src, srcPin] = splitRef(c.from);
       const [tgt, tgtPin] = splitRef(c.to);
-      const srcNodeType = graph.nodes.find(n => n.id === src)?.type ?? '';
+      const srcNodeType = nodeTypeById.get(src) ?? '';
       const srcType = derivedPins[src]?.outputs.find(o => o.name === srcPin)?.type
         ?? db.nodes[srcNodeType]?.outputs?.find(o => o.name === srcPin)?.type;
       return { id: `e${i}`, source: src, sourceHandle: srcPin, target: tgt, targetHandle: tgtPin,

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from './store';
 import { groupFiles, type Project, type FileEntry } from './groupFiles';
+import { shouldConfirmOpen } from './largeGraphGate';
 
 type SubTab = 'material' | 'function';
 
@@ -30,13 +31,24 @@ function FileRow({ entry }: { entry: FileEntry }) {
     ? ((loaded.warnings.length || errored) ? 'warn' : 'ok')
     : (errored ? 'warn' : null);
   const count = loaded ? loaded.graph.nodes.length : null;
+  // Prefer the loaded node count (live); fall back to the server-reported nodeCount.
+  const displayCount = count ?? entry.nodeCount ?? null;
+  const handleClick = () => {
+    if (shouldConfirmOpen(entry.nodeCount)) {
+      const ok = window.confirm(
+        `此圖表包含 ${entry.nodeCount} 個節點，載入可能需要較長時間。確定要開啟嗎？`,
+      );
+      if (!ok) return;
+    }
+    open(entry.path);
+  };
   return (
     <button className={`tree-file ${fileClass(entry.type)} ${active ? 'active' : ''}`}
-      onClick={() => open(entry.path)} title={entry.path}>
+      onClick={handleClick} title={entry.path}>
       <span className="tree-file-icon">{icon(entry.type)}</span>
       <span className="tree-file-name">{baseName(entry.path)}</span>
       {status && <span className={`st-dot st-${status}`} />}
-      {count != null && <span className="tree-count">{count}</span>}
+      {displayCount != null && <span className="tree-count">{displayCount}</span>}
     </button>
   );
 }
