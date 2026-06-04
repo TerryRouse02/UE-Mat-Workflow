@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useStore } from './store';
 import { formatSyncAgo } from './syncStatus';
-import { hasMaterialFunctionCall } from './graphInfo';
 import { graphToUET3D } from './export/ueT3D';
 import { ImportModal } from './ImportModal';
 import { useDb } from './dbContext';
@@ -29,15 +28,15 @@ function WatchPill() {
 export function Header({ graph, derivedPins, positions, pushToast }: HeaderProps) {
   const { state, popBreadcrumb, open } = useStore();
   const { exportMeta, supported } = useDb();
-  const [mfRoot, setMfRoot] = useState(() => localStorage.getItem('ue-mf-root') || '/Game/');
-  const [popoverOpen, setPopoverOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const usesMF = hasMaterialFunctionCall(graph);
   // Import writes to disk via the server; a static export snapshot has no server.
   const canImport = state.connection !== 'snapshot';
 
   const doExport = async () => {
     if (!graph || !derivedPins || !supported) return;
+    // The MF content root (where local MFs live in UE, for auto-link asset paths) is
+    // set in the Config tab and persisted in localStorage. Read it fresh at export time.
+    const mfRoot = (localStorage.getItem('ue-mf-root') || localStorage.getItem('ue-workmf-root') || '/Game').trim() || '/Game';
     const { text, warnings } = graphToUET3D(graph, positions, exportMeta, derivedPins, { mfContentRoot: mfRoot });
     const count = text ? (text.match(/^Begin Object Class=\/Script\/UnrealEd\.MaterialGraphNode/gm)?.length ?? 0) : 0;
     try {
@@ -70,17 +69,8 @@ export function Header({ graph, derivedPins, positions, pushToast }: HeaderProps
       </div>
       <div className="hdr-right">
         <WatchPill />
-        <div className="export-group">
-          <button className="btn-export" onClick={doExport} disabled={!graph || !supported}
-            title={graph && !supported ? `UE ${state.graphs[state.breadcrumb[state.breadcrumb.length - 1]]?.graph.ueVersion ?? ''} not supported — export disabled` : undefined}>導出到 UE</button>
-          <button className={`btn-mfroot ${usesMF ? 'hint' : ''}`} title="MF content root" onClick={() => setPopoverOpen(o => !o)}>⚙</button>
-          {popoverOpen && (
-            <div className="mfroot-popover">
-              <label>MF content root <span className="hint-txt">where your MaterialFunctions live in UE</span></label>
-              <input value={mfRoot} onChange={e => { setMfRoot(e.target.value); localStorage.setItem('ue-mf-root', e.target.value); }} />
-            </div>
-          )}
-        </div>
+        <button className="btn-export" onClick={doExport} disabled={!graph || !supported}
+          title={graph && !supported ? `UE ${state.graphs[state.breadcrumb[state.breadcrumb.length - 1]]?.graph.ueVersion ?? ''} not supported — export disabled` : undefined}>導出到 UE</button>
         <button className="btn-import" onClick={() => setImportOpen(true)} disabled={!canImport}
           title={canImport ? 'Paste a UE material selection to import' : 'Import needs the live viewer server'}>導入</button>
       </div>

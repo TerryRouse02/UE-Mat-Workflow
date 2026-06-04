@@ -153,9 +153,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // after a crawl (no rebuild). Allowlist by filename pattern — the exact set the
   // web bundles — so no arbitrary path can be read.
   const AGENT_PACK_RE = /^(nodes-ue[\d.]+(?:\.export)?|enginemf-index-ue[\d.]+)\.json$/;
-  // One or more UE content roots: each "/Word(/Word)*", comma-separated. Anchors out
-  // anything that could be mistaken for a flag or carry path/shell-escape characters.
-  const CONTENT_ROOTS_RE = /^\/\w+(\/\w+)*(,\/\w+(\/\w+)*)*$/;
+  // A single UE content root "/Word(/Word)*" — leading '/', word segments only.
+  // One folder by design (studio convention keeps a project's Material Functions in one
+  // place). Anchors out anything that could be mistaken for a flag or carry path/shell-
+  // escape characters (no comma either, so it can't smuggle a second arg).
+  const CONTENT_ROOT_RE = /^\/\w+(\/\w+)*$/;
   async function handleAgentPack(urlPath: string, res: import('node:http').ServerResponse) {
     const file = decodeURIComponent(urlPath.slice('/api/agent-pack/'.length));
     const candidate = resolve(agentPackRoot, file);
@@ -211,8 +213,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       const er = cleanConfigField(body.EngineRoot);  if (er !== null) fields.EngineRoot = er;
       const cr = cleanConfigField(body.WorkMfContentRoots);
       if (cr !== null) {
-        if (cr !== '' && !CONTENT_ROOTS_RE.test(cr.replace(/\s+/g, ''))) {
-          throw new Error('invalid WorkMfContentRoots — use UE content paths like "/Game"');
+        if (cr !== '' && !CONTENT_ROOT_RE.test(cr.replace(/\s+/g, ''))) {
+          throw new Error('invalid WorkMfContentRoots — use a single UE content path like "/Game"');
         }
         fields.WorkMfContentRoots = cr;
       }
@@ -257,12 +259,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     const kind = body.kind;
     if (kind !== 'export' && kind !== 'enginemf' && kind !== 'workmf') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
     // contentRoots (workmf only) becomes a literal arg to the spawned editor. Constrain it
-    // to UE content-root syntax — leading '/', word segments, comma-separated — so it can
-    // never start with '-' (PowerShell param injection) or carry shell/path-escape chars.
+    // to a single UE content root — leading '/', word segments — so it can never start with
+    // '-' (PowerShell param injection) or carry shell/path-escape chars (no comma → no second arg).
     let contentRoots: string | undefined;
     if (body.contentRoots !== undefined) {
       const cr = String(body.contentRoots).replace(/\s+/g, '');
-      if (!CONTENT_ROOTS_RE.test(cr)) { sendJson(res, 400, { error: 'invalid contentRoots — use UE content paths like "/Game" or "/Game/Materials,/MyPlugin"' }); return; }
+      if (!CONTENT_ROOT_RE.test(cr)) { sendJson(res, 400, { error: 'invalid contentRoots — use a single UE content path like "/Game"' }); return; }
       contentRoots = cr;
     }
     try {

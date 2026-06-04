@@ -153,11 +153,14 @@ describe('crawl API', () => {
     await server.close();
   }, 5000);
 
-  it('POST /api/crawl accepts a valid contentRoots but rejects a malformed one', async () => {
+  it('POST /api/crawl accepts a single content root but rejects multiple / malformed', async () => {
     const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
     const origin = `http://127.0.0.1:${server.port}`;
-    const ok = await request(server.port, 'POST', '/api/crawl', { headers: { origin }, body: JSON.stringify({ kind: 'workmf', contentRoots: '/Game/Materials,/MyPlugin' }) });
+    const ok = await request(server.port, 'POST', '/api/crawl', { headers: { origin }, body: JSON.stringify({ kind: 'workmf', contentRoots: '/Game/Materials' }) });
     expect(ok.status).toBe(200);
+    // One folder only (studio convention): a comma-separated list is refused.
+    const multi = await request(server.port, 'POST', '/api/crawl', { headers: { origin }, body: JSON.stringify({ kind: 'workmf', contentRoots: '/Game/Materials,/MyPlugin' }) });
+    expect(multi.status).toBe(400);
     // A value that could be mistaken for a PowerShell flag must be refused, not spawned.
     const evil = await request(server.port, 'POST', '/api/crawl', { headers: { origin }, body: JSON.stringify({ kind: 'workmf', contentRoots: '-Command rm -rf' }) });
     expect(evil.status).toBe(400);

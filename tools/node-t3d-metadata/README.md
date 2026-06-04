@@ -173,15 +173,13 @@ in-panel and the viewer refreshes live when each finishes. Only one runs at a ti
 |---|---|---|---|
 | 重爬節點匯出 | export | `agent-pack\nodes-ue5.7.export.json` | `Invoke-NodeT3DMetadataMaintenance.ps1 -SkipViewerTests` |
 | 重爬引擎 MF | enginemf | `agent-pack\enginemf-index-ue5.7.json` | `plugin-src\Scripts\Run-EngineMfIndex.ps1` |
-| 重爬專案 MF | workmf | `agent-pack\workmf-index.json` (local, gitignored) | `plugin-src\Scripts\Run-WorkMfIndex.ps1 -ContentRoots <roots>` |
+| 重爬專案 MF | workmf | `agent-pack\workmf-index.json` (local, gitignored) | `plugin-src\Scripts\Run-WorkMfIndex.ps1 -ContentRoots <root>` |
 
-The **專案 MF (workmf)** button has its own **Content Root** field (default `/Game`,
-comma-separate several) for which project folders to crawl.
-
-The **專案 MF (workmf)** item has a **Content Root** field (default `/Game`; comma-separate
-several) for which project folders to crawl, and shows the resolved project path. The first
-editor launch takes a few minutes — progress streams into the popover and a toast reports
-success or failure. Only one crawl runs at a time (a second is refused until the first ends).
+The crawl reads its scope from the single **MF content root** field in the Config tab
+(default `/Game`) — **one folder**, the same value Export uses to resolve local Material
+Functions. Studio material pipelines keep a project's MFs in one place, so the crawl scans
+exactly one folder. The first editor launch takes a few minutes; progress streams in-panel and
+a toast reports success or failure, and only one crawl runs at a time.
 
 ## Agent Skill
 

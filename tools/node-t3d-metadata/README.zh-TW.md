@@ -140,10 +140,10 @@ pnpm build && pnpm start     # 提供 http://localhost:5790（會自動嘗試 57
 |---|---|---|---|
 | 重爬節點匯出 | export | `agent-pack\nodes-ue5.7.export.json` | `Invoke-NodeT3DMetadataMaintenance.ps1 -SkipViewerTests` |
 | 重爬引擎 MF | enginemf | `agent-pack\enginemf-index-ue5.7.json` | `plugin-src\Scripts\Run-EngineMfIndex.ps1` |
-| 重爬專案 MF | workmf | `agent-pack\workmf-index.json`（本機、已 gitignore） | `plugin-src\Scripts\Run-WorkMfIndex.ps1 -ContentRoots <roots>` |
+| 重爬專案 MF | workmf | `agent-pack\workmf-index.json`（本機、已 gitignore） | `plugin-src\Scripts\Run-WorkMfIndex.ps1 -ContentRoots <root>` |
 
-**重爬專案 MF（workmf）** 旁有自己的 **Content Root** 欄位（預設 `/Game`；多個用逗號分隔），指定要
-爬專案裡哪些資料夾。
+爬取的範圍來自 Config 分頁那個**單一** **MF content root** 欄位（預設 `/Game`）——**一個資料夾**，
+也就是導出解析本地 MF 用的同一個。依大廠材質規範,專案 MF 都集中在單一資料夾,所以爬取只掃這一個。
 
 ## Agent Skill
 
