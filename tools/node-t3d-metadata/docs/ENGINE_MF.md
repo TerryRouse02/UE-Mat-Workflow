@@ -43,7 +43,7 @@ machine and commits the result. Until then, official-MF calls warn (not crash).
 
 ## Run it (on the UE 5.7 machine)
 
-> **No terminal?** The viewer's **`爬取`** button runs this exact crawl (the `enginemf` kind) and
+> **No terminal?** The viewer's **Config tab** runs this exact crawl (the `enginemf` kind) and
 > refreshes live — see the tool
 > [`README.md`](../README.md#trigger-a-crawl-from-the-web-viewer-no-terminal). The CLI below is the
 > equivalent, and the only option for headless / agent runs.

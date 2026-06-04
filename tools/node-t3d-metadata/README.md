@@ -113,44 +113,37 @@ The same commandlet/plugin powers two more modes (each with a one-command runner
 
 ## Trigger a crawl from the web viewer (no terminal)
 
-All three crawls above can also be launched from the **viewer's browser UI** — a **`爬取`
-(Crawl)** button in the header — so refreshing the metadata never requires opening a terminal.
-It is **local-first**: the viewer server, `UnrealEditor-Cmd.exe`, and the browser all run on the
-**same Windows machine** (the server binds `127.0.0.1`, and only a same-origin page on that
-machine can start a crawl).
+All three crawls above can also be run from the **viewer's Config tab** (the third sidebar tab,
+next to Files and Nodes) — no terminal, no hand-edited JSON. It is **local-first**: the viewer
+server, `UnrealEditor-Cmd.exe`, and the browser all run on the **same Windows machine** (the server
+binds `127.0.0.1`, and only a same-origin page on that machine can configure or start a crawl).
 
-### 1. Configure the plugin (one time)
+### 1. Start the viewer
 
-The button reads everything from `local.config.json` — no paths are typed in the browser.
-
-1. **Windows + UE** — the crawl spawns `UnrealEditor-Cmd.exe`, so the button only works on Windows
-   with a UE install.
-2. **`local.config.json`** — copy `local.config.example.json` to `local.config.json` and fill in
-   `ProjectPath` (the `.uproject` **file**) + `EngineRoot` (your `UnrealEngine` root). It is
-   gitignored (per-machine) and is the single source the button reads.
-3. **Compiled plugin** — already shipped under `compiled/` (committed to the repo), so the plugin
-   check passes out of the box. Only rebuild it if you edited `plugin-src/` (run the
-   [Normal Flow](#normal-flow) once, or with `-ForcePackage`).
-4. **No shadowing copy** — make sure your UE project does **not** carry its own
-   `Plugins\UEMatExportMetadata\` copy; a project-local copy shadows the packaged one and the
-   probe blocks the run.
-
-### 2. Link the viewer to the crawl
-
-On that same Windows machine, from the repo root:
+On the Windows machine with UE installed, from the repo root:
 
 ```bash
 pnpm build && pnpm start     # serves http://localhost:5790 (auto-tries 5790-5799)
 # iterating on the UI instead?  pnpm dev
 ```
 
-Open `http://localhost:5790` in a browser **on that machine**.
+Open `http://localhost:5790` in a browser **on that machine** and click the **Config** tab.
 
-### 3. Activate the button
+### 2. Set the project paths (in the Config tab)
 
-The header's **`爬取`** button enables itself once the local environment probe is green. If it
-stays greyed out, **hover it** — the tooltip lists exactly which check failed. Every check must
-pass:
+Under **專案路徑**, fill in **`.uproject` 路徑** (`ProjectPath`) and **UE 引擎根目錄**
+(`EngineRoot`), then click **儲存設定**. That writes `tools/node-t3d-metadata/local.config.json`
+for you (gitignored, per-machine) — the same file the PowerShell scripts read, so you never edit
+JSON by hand. (Pre-filling it manually or with the [Normal Flow](#normal-flow) still works.)
+
+The compiled plugin already ships under `compiled/` (committed), so that check passes out of the
+box — only rebuild it if you edited `plugin-src/`. Also make sure your UE project carries no
+`Plugins\UEMatExportMetadata\` copy, which would shadow the packaged one.
+
+### 3. Read the environment checklist
+
+The **環境檢查** section turns every probe check into a green ✓ / red ✗ row, so you see exactly
+what's still missing instead of guessing. All must be green before the crawl buttons enable:
 
 | Check | Means |
 |---|---|
@@ -161,17 +154,20 @@ pass:
 | plugin | the compiled plugin DLL is present (shipped in `compiled/`) |
 | noShadow | no project-local `Plugins\UEMatExportMetadata` copy shadows the packaged plugin |
 
-### What each menu item runs
+### 4. Crawl
 
-Clicking **`爬取`** opens a menu with the three crawls; each runs the same script this README
-documents (reading `ProjectPath` / `EngineRoot` from `local.config.json`) and the viewer refreshes
-live when it finishes:
+Once the checklist is green, the **爬取 UE 元資料** section's buttons run the same scripts this
+README documents (reading `ProjectPath` / `EngineRoot` from `local.config.json`); progress streams
+in-panel and the viewer refreshes live when each finishes. Only one runs at a time.
 
-| Menu item | Kind | Writes | Script |
+| Button | Kind | Writes | Script |
 |---|---|---|---|
 | 重爬節點匯出 | export | `agent-pack\nodes-ue5.7.export.json` | `Invoke-NodeT3DMetadataMaintenance.ps1 -SkipViewerTests` |
 | 重爬引擎 MF | enginemf | `agent-pack\enginemf-index-ue5.7.json` | `plugin-src\Scripts\Run-EngineMfIndex.ps1` |
 | 重爬專案 MF | workmf | `agent-pack\workmf-index.json` (local, gitignored) | `plugin-src\Scripts\Run-WorkMfIndex.ps1 -ContentRoots <roots>` |
+
+The **專案 MF (workmf)** button has its own **Content Root** field (default `/Game`,
+comma-separate several) for which project folders to crawl.
 
 The **專案 MF (workmf)** item has a **Content Root** field (default `/Game`; comma-separate
 several) for which project folders to crawl, and shows the resolved project path. The first

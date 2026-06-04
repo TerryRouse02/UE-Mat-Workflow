@@ -82,39 +82,36 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Sc
 
 ## 從 web viewer 觸發爬取（免終端機）
 
-上面三種爬取也可以**直接從 viewer 的瀏覽器介面**觸發——標題列有一顆 **`爬取`** 按鈕——
-所以刷新元資料完全不必開終端機。它是**本機優先（local-first）**：viewer server、
-`UnrealEditor-Cmd.exe`、瀏覽器全部跑在**同一台 Windows 機器**上（server 綁 `127.0.0.1`，
-而且只有同源、同機的網頁才能啟動爬取）。
+上面三種爬取也可以**直接在 viewer 的 Config 分頁**完成（側欄第三個分頁，在 Files、Nodes 旁邊）——
+免終端機、免手改 JSON。它是**本機優先（local-first）**：viewer server、`UnrealEditor-Cmd.exe`、
+瀏覽器全部跑在**同一台 Windows 機器**上（server 綁 `127.0.0.1`，而且只有同源、同機的網頁才能
+設定或啟動爬取）。
 
-### 1. 配置外掛（一次性）
+### 1. 啟動 viewer
 
-按鈕所需的一切都讀自 `local.config.json`——瀏覽器裡不必輸入任何路徑。
-
-1. **Windows + UE**——爬取會啟動 `UnrealEditor-Cmd.exe`，所以按鈕只在裝有 UE 的 Windows 上有效。
-2. **`local.config.json`**——把 `local.config.example.json` 複製成 `local.config.json`，填入
-   `ProjectPath`（`.uproject` **檔案**）與 `EngineRoot`（你的 `UnrealEngine` 根目錄）。此檔已
-   gitignore（每台機器自己一份），是按鈕唯一讀取的設定來源。
-3. **已編譯外掛**——已隨 repo 提交在 `compiled/` 底下，所以 plugin 檢查開箱即綠。只有在你改過
-   `plugin-src/` 時才需要重建（跑一次[一般流程](#一般流程)，或加 `-ForcePackage`）。
-4. **沒有遮蔽用的副本**——確認你的 UE 專案裡**沒有**自己的 `Plugins\UEMatExportMetadata\` 副本；
-   專案內的副本會遮蔽打包版，探測會因此擋下爬取。
-
-### 2. 把 viewer link 起來
-
-在同一台 Windows 機器、從 repo 根目錄：
+在裝有 UE 的 Windows 機器、從 repo 根目錄：
 
 ```bash
 pnpm build && pnpm start     # 提供 http://localhost:5790（會自動嘗試 5790-5799）
 # 正在改 UI？改用：  pnpm dev
 ```
 
-在**那台機器上**的瀏覽器開啟 `http://localhost:5790`。
+在**那台機器上**的瀏覽器開啟 `http://localhost:5790`，點 **Config** 分頁。
 
-### 3. 點亮按鈕
+### 2. 設定專案路徑（在 Config 分頁）
 
-標題列的 **`爬取`** 按鈕會在本機環境探測全綠時自動啟用。若它一直是灰的，**把游標移上去**——
-提示會明確列出是哪一項檢查沒過。所有檢查都必須通過：
+在 **專案路徑** 區塊填入 **`.uproject` 路徑**（`ProjectPath`）與 **UE 引擎根目錄**（`EngineRoot`），
+按 **儲存設定**。這會幫你寫好 `tools/node-t3d-metadata/local.config.json`（已 gitignore、每台機器
+自己一份）——就是 PowerShell 腳本讀的那個檔，所以你完全不必手改 JSON。（要手動先填、或用
+[一般流程](#一般流程)先建好也可以。）
+
+已編譯外掛已隨 repo 提交在 `compiled/` 底下，所以那一項開箱即綠——只有改過 `plugin-src/` 才需重建。
+另外確認你的 UE 專案裡沒有 `Plugins\UEMatExportMetadata\` 副本，否則會遮蔽打包版。
+
+### 3. 看環境檢查清單
+
+**環境檢查** 區塊會把每一項探測變成綠 ✓／紅 ✗ 一列，讓你一眼看出還缺什麼、不用猜。全部變綠後，
+爬取按鈕才會啟用：
 
 | 檢查項 | 意義 |
 |---|---|
@@ -125,20 +122,20 @@ pnpm build && pnpm start     # 提供 http://localhost:5790（會自動嘗試 57
 | plugin | 已編譯外掛 DLL 存在（隨 `compiled/` 出貨） |
 | noShadow | 專案內沒有 `Plugins\UEMatExportMetadata` 副本遮蔽打包版外掛 |
 
-### 各選項實際執行什麼
+### 4. 爬取
 
-點 **`爬取`** 會展開一個有三種爬取的選單；每一項都執行本 README 所記載的同一套腳本（從
-`local.config.json` 讀 `ProjectPath` / `EngineRoot`），完成後 viewer 即時刷新：
+清單全綠後，**爬取 UE 元資料** 區塊的按鈕會執行本 README 所記載的同一套腳本（從
+`local.config.json` 讀 `ProjectPath` / `EngineRoot`）；進度直接串流在面板裡，每次完成後 viewer
+即時刷新。同一時間只跑一個。
 
-| 選單項目 | kind | 寫入 | 腳本 |
+| 按鈕 | kind | 寫入 | 腳本 |
 |---|---|---|---|
 | 重爬節點匯出 | export | `agent-pack\nodes-ue5.7.export.json` | `Invoke-NodeT3DMetadataMaintenance.ps1 -SkipViewerTests` |
 | 重爬引擎 MF | enginemf | `agent-pack\enginemf-index-ue5.7.json` | `plugin-src\Scripts\Run-EngineMfIndex.ps1` |
 | 重爬專案 MF | workmf | `agent-pack\workmf-index.json`（本機、已 gitignore） | `plugin-src\Scripts\Run-WorkMfIndex.ps1 -ContentRoots <roots>` |
 
-**專案 MF（workmf）** 那一項有一個 **Content Root** 欄位（預設 `/Game`；多個用逗號分隔），指定要
-爬專案裡哪些資料夾，並顯示解析後的專案路徑。第一次啟動編輯器要等幾分鐘——進度會串流進浮層，
-完成時用 toast 回報成功或失敗。同一時間只跑一個爬取（前一個還沒結束時，第二次會被拒絕）。
+**重爬專案 MF（workmf）** 旁有自己的 **Content Root** 欄位（預設 `/Game`；多個用逗號分隔），指定要
+爬專案裡哪些資料夾。
 
 ## Agent Skill
 

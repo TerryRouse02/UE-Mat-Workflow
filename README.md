@@ -44,12 +44,13 @@ pnpm dev
 
 (Backend/server `.ts` changes still need a re-run of `pnpm dev`.)
 
-The sidebar has two tabs:
+The sidebar has three tabs:
 
 | Tab | What it shows |
 |---|---|
 | **Files** | Your materials, grouped by project folder. Every sub-folder under `graphs/` is one project showing all its files; only files at the `graphs/` root fall under "Unorganized". |
 | **Nodes** | The full UE 5.7 node library — search by name or description, browse by category, click a node to see its inputs / outputs / params with type info and badges (verified, dynamic-pin, deprecated). Below it sit two collapsible browsers: **Official Material Functions** (the engine's `/Engine/Functions` library) and **Project Material Functions** (your own `/Game` MFs, shown live once a WorkMF crawl has indexed them). |
+| **Config** | Set the crawl's `ProjectPath` + `EngineRoot` and **Save** (writes `local.config.json` for you), read the environment checklist, and run the UE metadata crawls — all button-driven, no terminal. Windows only; see [Refresh UE metadata from the browser](#refresh-ue-metadata-from-the-browser-windows). |
 
 The viewer hot-reloads when files change.
 
@@ -57,14 +58,14 @@ The viewer hot-reloads when files change.
 
 ## Refresh UE metadata from the browser (Windows)
 
-The viewer can run the local UE crawls itself — a **`爬取` (Crawl)** button in the header
-regenerates the node export metadata, the engine-MF index, or your own project-MF index without
-touching a terminal. It's **local-first**: the server, `UnrealEditor-Cmd.exe`, and the browser all
-run on the same Windows machine.
+The viewer can run the local UE crawls itself — the sidebar's **Config tab** regenerates the node
+export metadata, the engine-MF index, or your own project-MF index without touching a terminal.
+It's **local-first**: the server, `UnrealEditor-Cmd.exe`, and the browser all run on the same
+Windows machine.
 
-Create `tools/node-t3d-metadata/local.config.json` (`ProjectPath` + `EngineRoot`), open the viewer
-on that machine, and the button lights up once its environment probe is green — hover it to see
-what's still missing. The full walkthrough, including which menu item runs which crawl, is in
+In the Config tab you type your `ProjectPath` + `EngineRoot` and click **Save** (it writes
+`tools/node-t3d-metadata/local.config.json` for you — no JSON editing), watch the environment
+checklist turn green, then click the crawl buttons. The full walkthrough is in
 [`tools/node-t3d-metadata/README.md`](./tools/node-t3d-metadata/README.md#trigger-a-crawl-from-the-web-viewer-no-terminal).
 
 ---
