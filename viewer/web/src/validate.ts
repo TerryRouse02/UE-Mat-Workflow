@@ -6,6 +6,8 @@ import { splitRef } from './connstr';
 export interface ConnectionPinIssue {
   from: string;
   to: string;
+  /** The node the offending pin belongs to (source node for a bad output, dest for a bad input). */
+  nodeId: string;
   problem: string;
 }
 
@@ -79,7 +81,7 @@ export function validateConnectionPins(graph: MatGraph, db: NodeDB): ConnectionP
       const sets = pinSetsFor(srcType, db);
       if (sets && !sets.skip && !sets.outputs.has(srcPin)) {
         issues.push({
-          from: c.from, to: c.to,
+          from: c.from, to: c.to, nodeId: srcId,
           problem: `Connection from "${c.from}": node "${srcId}" (${srcType}) has no output pin "${srcPin}".`,
         });
       }
@@ -91,7 +93,7 @@ export function validateConnectionPins(graph: MatGraph, db: NodeDB): ConnectionP
       const sets = pinSetsFor(dstType, db);
       if (sets && !sets.skip && !sets.inputs.has(dstPin)) {
         issues.push({
-          from: c.from, to: c.to,
+          from: c.from, to: c.to, nodeId: dstId,
           problem: `Connection to "${c.to}": node "${dstId}" (${dstType}) has no input pin "${dstPin}".`,
         });
       }

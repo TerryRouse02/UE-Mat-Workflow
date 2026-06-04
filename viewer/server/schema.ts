@@ -20,6 +20,11 @@ export function validateGraph(input: unknown): ValidationResult {
   if (g.type !== 'Material' && g.type !== 'MaterialFunction') {
     errors.push(`type must be "Material" or "MaterialFunction"`);
   }
+  // The key may be present but not an array (e.g. `"connections": null`). Reject it
+  // here so a malformed-but-key-complete graph never reaches the client, where an
+  // unguarded `graph.connections`/`graph.nodes` deref would throw.
+  if ('nodes' in g && !Array.isArray(g.nodes)) errors.push('nodes must be an array');
+  if ('connections' in g && !Array.isArray(g.connections)) errors.push('connections must be an array');
 
   const nodes = Array.isArray(g.nodes) ? (g.nodes as { id: unknown; type: unknown }[]) : [];
   const ids = new Set<string>();

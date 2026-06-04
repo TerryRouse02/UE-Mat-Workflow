@@ -13,10 +13,12 @@ function Body() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
-  // A debug-panel issue click asks the canvas to centre + highlight a node. The nonce
-  // makes repeated clicks on the same node re-fire the focus effect in Graph.
-  const [focusReq, setFocusReq] = useState<{ id: string; nonce: number } | null>(null);
-  const focusNode = useCallback((id: string) => setFocusReq({ id, nonce: Date.now() }), []);
+  // A debug-panel issue click asks the canvas to centre + highlight a node. focusReq is
+  // tagged with `path` (the graph it was issued from) so a stale request can never fire on
+  // a different graph that happens to share a node id — see the guarded `focus` prop below.
+  // The nonce is a monotonic counter (not a timestamp) so repeat clicks always re-fire and
+  // two clicks can never collide on one value. (`focusNode` is defined after `current`.)
+  const [focusReq, setFocusReq] = useState<{ id: string; nonce: number; path: string } | null>(null);
 
   useEffect(() => {
     if (!state.currentPath && state.files.length > 0) open(state.files[0].path);
@@ -24,12 +26,19 @@ function Body() {
 
   const current = state.breadcrumb[state.breadcrumb.length - 1];
   const payload = current ? state.graphs[current] : undefined;
+  const focusNode = useCallback((id: string) => {
+    if (current) setFocusReq(prev => ({ id, nonce: (prev?.nonce ?? 0) + 1, path: current }));
+  }, [current]);
 
   const pushToast = useCallback((t: Omit<ToastItem, 'id'>) =>
     setToasts(ts => [...ts, { id: Date.now() + Math.random(), ...t }]), []);
   const closeToast = (id: number) => setToasts(ts => ts.filter(t => t.id !== id));
 
-  useEffect(() => { setSelectedNodeId(null); }, [current]);
+  // Reset per-graph view state on navigation. Clearing focusReq here is hygiene; the real
+  // guard against a stale focus firing on the next graph is the path check on the `focus`
+  // prop below (the child's mount effect runs BEFORE this parent effect, so this reset
+  // alone cannot prevent the cross-graph misfire — the path tag can).
+  useEffect(() => { setSelectedNodeId(null); setFocusReq(null); }, [current]);
 
   // Hot-reload notice: only when the SAME path's payload object changes while
   // live (a real disk reload) — not when `current` changes from navigation.
@@ -88,7 +97,7 @@ function Body() {
             </div>
           )}
           {payload
-            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} focus={focusReq} />
+            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} />
             : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
         <Inspector graph={payload?.graph} selectedNodeId={selectedNodeId} derivedPins={payload?.derivedPins} errors={errs} onFocusNode={focusNode} />

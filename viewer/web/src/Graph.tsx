@@ -10,6 +10,7 @@ import { applyLayout, computeNodeHeight, computeNodeWidth } from './layout';
 import type { GraphPayload } from './protocol';
 import type { NodeDB } from '../../server/db-types';
 import { validateConnectionPins } from './validate';
+import { mfPinsUnresolved } from './graphDiagnostics';
 import { pinColor } from './theme/colors';
 import { splitRef } from './connstr';
 
@@ -101,12 +102,9 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
     // the same `warning` mechanism as "Unknown node type".
     const pinIssuesByNode = new Map<string, string[]>();
     for (const issue of validateConnectionPins(graph, db)) {
-      const srcId = splitRef(issue.from)[0];
-      const dstId = splitRef(issue.to)[0];
-      const target = issue.problem.includes('no input pin') ? dstId : srcId;
-      const list = pinIssuesByNode.get(target) ?? [];
+      const list = pinIssuesByNode.get(issue.nodeId) ?? [];
       list.push(issue.problem);
-      pinIssuesByNode.set(target, list);
+      pinIssuesByNode.set(issue.nodeId, list);
     }
 
     const rfNodes: Node[] = graph.nodes.map(n => {
@@ -135,7 +133,7 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
             inputs: pins.inputs, outputs: pins.outputs,
             params: n.params,
             onDoubleClick: () => onEnterMF(mfRefAbs),
-            warning: pins.inputs.length === 0 && pins.outputs.length === 0 ? 'MaterialFunction missing or empty' : undefined,
+            warning: mfPinsUnresolved(derivedPins[n.id]) ? 'MaterialFunction missing or empty' : undefined,
           },
         };
       }
@@ -246,19 +244,25 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
   }, [nodesInitialized, initialLayout.nodes, rf]);
 
   // Debug-panel focus: centre the viewport on a node and highlight it (via selId,
-  // which dims everything but it + its neighbours). Keyed on the nonce so clicking
-  // the same issue twice re-centres. Doesn't touch the App's node selection, so the
-  // Inspector keeps showing the debug list.
+  // which dims everything but it + its neighbours). Doesn't touch the App's node
+  // selection, so the Inspector keeps showing the debug list.
+  //
+  // Read the node from React Flow's live store (rf.getNode) rather than the `nodes`
+  // state closure: that gives the node's *measured* width/height — correct even for
+  // reserved nodes (MaterialOutput/FunctionInput/FunctionOutput) whose data shape
+  // carries no pins, so computeNodeWidth/Height would otherwise under-estimate and
+  // mis-centre — and its current position, with no dependency on a stale `nodes` snapshot.
   useEffect(() => {
     if (!focus) return;
-    const n = nodes.find(x => x.id === focus.id);
-    if (!n) return;
-    const w = computeNodeWidth(n.data);
-    const h = computeNodeHeight(n.data);
-    rf.setCenter(n.position.x + w / 2, n.position.y + h / 2, { zoom: 1.1, duration: 400 });
+    const rn = rf.getNode(focus.id);
+    if (!rn) return;
+    const w = rn.width ?? computeNodeWidth(rn.data);
+    const h = rn.height ?? computeNodeHeight(rn.data);
+    const px = rn.positionAbsolute?.x ?? rn.position.x;
+    const py = rn.positionAbsolute?.y ?? rn.position.y;
+    rf.setCenter(px + w / 2, py + h / 2, { zoom: 1.1, duration: 400 });
     setSelId(focus.id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focus?.nonce]);
+  }, [focus, rf]);
 
   const commentNodes: Node[] = useMemo(() => {
     if (!graph.comments) return [];

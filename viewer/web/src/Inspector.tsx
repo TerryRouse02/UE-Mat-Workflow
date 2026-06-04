@@ -1,15 +1,15 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import type { MatGraph } from './protocol';
 import { useDb } from './dbContext';
 import { pinColor, catColor } from './theme/colors';
-import { diagnoseGraph } from './graphDiagnostics';
+import { diagnoseGraph, isUnknownNodeType, type GraphIssue } from './graphDiagnostics';
 import './inspector.css';
 
 export interface InspectorProps {
   graph?: MatGraph;
   selectedNodeId: string | null;
   derivedPins?: Record<string, { inputs: { name: string; type: string }[]; outputs: { name: string; type: string }[] }>;
-  /** Schema errors for the current file when it failed to load (no graph). */
+  /** Schema errors for the current file when it failed to load (or is stale after a re-validation failure). */
   errors?: string[];
   /** Focus a node on the canvas when a debug issue is clicked. */
   onFocusNode?: (id: string) => void;
@@ -52,36 +52,65 @@ function PinList({ title, pins }: { title: string; pins: { name: string; type: s
   );
 }
 
+// One rendering path for issue rows, shared by the failed-load panel and the
+// unselected health panel. A node-tied issue is a focus button; the rest are static.
+function IssueList({ title, issues, onFocusNode }: { title: string; issues: GraphIssue[]; onFocusNode?: (id: string) => void }) {
+  return (
+    <div className="insp-section">
+      <div className="insp-sub">{title}</div>
+      {issues.map((iss, i) => (
+        <button key={i} type="button"
+          className={`insp-issue ${iss.severity}${iss.nodeId ? '' : ' static'}`}
+          disabled={!iss.nodeId}
+          title={iss.nodeId ? '點擊聚焦該節點' : undefined}
+          onClick={() => iss.nodeId && onFocusNode?.(iss.nodeId)}>
+          <span className="insp-issue-ico">{iss.severity === 'error' ? '✗' : '⚠'}</span>
+          <span className="insp-issue-msg">{iss.message}</span>
+          {iss.nodeId && <span className="insp-issue-go">→</span>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export function Inspector({ graph, selectedNodeId, derivedPins, errors, onFocusNode }: InspectorProps) {
   const { db } = useDb();
-  // Reserved types (MaterialOutput, MaterialFunctionCall, FunctionInput/Output)
-  // live in db.reservedTypes, not db.nodes — they are first-class, handled types,
-  // NOT unknown expressions.
-  const reserved = new Set(db.reservedTypes ?? []);
-  if (!graph) {
-    // No graph means it failed schema validation; show why it won't load.
-    if (errors && errors.length > 0) {
-      return (
-        <aside className="inspector-wrap insp">
-          <div className="insp-eyebrow"><span className="mono">載入失敗</span></div>
-          <div className="insp-health bad">✗ 此檔無法載入（{errors.length}）</div>
-          <div className="insp-section">
-            <div className="insp-sub">錯誤</div>
-            {errors.map((e, i) => (
-              <div key={i} className="insp-issue error static"><span className="insp-issue-ico">✗</span><span className="insp-issue-msg">{e}</span></div>
-            ))}
-          </div>
-        </aside>
-      );
-    }
-    return <aside className="inspector-wrap" />;
+
+  // The graph-level health report is recomputed only when the graph / DB / resolved
+  // pins actually change — not on every parent re-render (toasts, node drags, crawl ticks).
+  const health = useMemo(() => {
+    if (!graph) return null;
+    const issues = diagnoseGraph(graph, db, derivedPins);
+    const unknownCount = issues.filter(i => i.kind === 'unknown-type').length;
+    const mfCount = graph.nodes.filter(n => n.type === 'MaterialFunctionCall').length;
+    const errCount = issues.filter(i => i.severity === 'error').length;
+    const warnCount = issues.length - errCount;
+    return { issues, unknownCount, mfCount, errCount, warnCount, level: errCount ? 'bad' : warnCount ? 'warn' : 'ok' };
+  }, [graph, db, derivedPins]);
+
+  // A file that failed validation surfaces its errors here — even if a previously
+  // loaded payload is still cached (the store keeps the last-good graph on a
+  // re-validation failure), so we must check errors BEFORE the health panel.
+  if (errors && errors.length > 0) {
+    return (
+      <aside className="inspector-wrap insp">
+        <div className="insp-eyebrow"><span className="mono">載入失敗</span></div>
+        <div className="insp-health bad">✗ 此檔無法載入（{errors.length}）</div>
+        <IssueList title="錯誤" issues={errors.map(e => ({ severity: 'error', message: e }))} />
+      </aside>
+    );
   }
+  if (!graph) return <aside className="inspector-wrap" />;
 
   const node = selectedNodeId ? graph.nodes.find(n => n.id === selectedNodeId) : undefined;
 
   if (node) {
+    // Reserved types (MaterialOutput, MaterialFunctionCall, FunctionInput/Output)
+    // live in db.reservedTypes, not db.nodes — they are first-class, handled types,
+    // NOT unknown expressions.
+    const reserved = new Set(db.reservedTypes ?? []);
     const def = db.nodes[node.type];
-    const unknown = !def && !reserved.has(node.type);
+    const unknown = isUnknownNodeType(node.type, db, reserved);
     const params = Object.entries(node.params ?? {});
     return (
       <aside className="inspector-wrap insp">
@@ -121,40 +150,20 @@ export function Inspector({ graph, selectedNodeId, derivedPins, errors, onFocusN
   }
 
   // Unselected: a graph-level debug / health report for the open file.
-  const unknownCount = graph.nodes.filter(n => !db.nodes[n.type] && !reserved.has(n.type)).length;
-  const mfCount = graph.nodes.filter(n => n.type === 'MaterialFunctionCall').length;
-  const issues = diagnoseGraph(graph, db, derivedPins);
-  const errCount = issues.filter(i => i.severity === 'error').length;
-  const warnCount = issues.length - errCount;
-  const health = errCount ? 'bad' : warnCount ? 'warn' : 'ok';
+  const { issues, unknownCount, mfCount, errCount, warnCount, level } = health!;
   return (
     <aside className="inspector-wrap insp">
       <div className="insp-eyebrow"><span className="mono">{graph.type === 'MaterialFunction' ? 'MaterialFunction' : 'Material'}</span></div>
       <div className="insp-title">{graph.name}</div>
       <div className="insp-subtitle">{graph.nodes.length} nodes · {graph.connections.length} links</div>
 
-      <div className={`insp-health ${health}`}>
+      <div className={`insp-health ${level}`}>
         {errCount ? `✗ ${errCount} 個問題${warnCount ? ` · ${warnCount} 警告` : ''}`
           : warnCount ? `⚠ ${warnCount} 個警告`
           : '✓ 沒發現問題'}
       </div>
 
-      {issues.length > 0 && (
-        <div className="insp-section">
-          <div className="insp-sub">問題 / 缺什麼</div>
-          {issues.map((iss, i) => (
-            <button key={i} type="button"
-              className={`insp-issue ${iss.severity}${iss.nodeId ? '' : ' static'}`}
-              disabled={!iss.nodeId}
-              title={iss.nodeId ? '點擊聚焦該節點' : undefined}
-              onClick={() => iss.nodeId && onFocusNode?.(iss.nodeId)}>
-              <span className="insp-issue-ico">{iss.severity === 'error' ? '✗' : '⚠'}</span>
-              <span className="insp-issue-msg">{iss.message}</span>
-              {iss.nodeId && <span className="insp-issue-go">→</span>}
-            </button>
-          ))}
-        </div>
-      )}
+      {issues.length > 0 && <IssueList title="問題 / 缺什麼" issues={issues} onFocusNode={onFocusNode} />}
 
       <div className="insp-section">
         <div className="insp-sub">Export readiness</div>
