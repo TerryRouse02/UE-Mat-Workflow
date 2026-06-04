@@ -13,6 +13,7 @@ import { validateConnectionPins } from './validate';
 import { mfPinsUnresolved } from './graphDiagnostics';
 import { pinColor } from './theme/colors';
 import { splitRef } from './connstr';
+import { computeCommentBounds } from './commentBounds';
 
 function setHandleHighlight(nodeId: string, handleId: string | null | undefined, on: boolean) {
   if (!handleId) return;
@@ -268,57 +269,38 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
     if (!graph.comments) return [];
     const byId = new Map(nodes.map(n => [n.id, n]));
 
+    // Build nodeRect from live node positions so boxes follow drags.
+    const nodeRect = (id: string) => {
+      const n = byId.get(id);
+      if (!n) return undefined;
+      return {
+        x: n.position.x,
+        y: n.position.y,
+        width: computeNodeWidth(n.data),
+        height: computeNodeHeight(n.data),
+      };
+    };
+
+    const boundsMap = computeCommentBounds(graph.comments, nodeRect);
+
     return graph.comments.map(c => {
       const clusterId = 'comment-' + c.id;
-      const bounds = initialLayout.clusterBounds[clusterId];
+      const computed = boundsMap.get(c.id);
 
-      // Compute bounds from live node positions (so the box follows drags)
-      // Fall back to dagre cluster bounds if there's nothing else.
-      const insideBoxes = c.contains
-        .map(id => {
-          const n = byId.get(id);
-          if (!n) return null;
-          return {
-            x: n.position.x,
-            y: n.position.y,
-            w: computeNodeWidth(n.data),
-            h: computeNodeHeight(n.data),
-          };
-        })
-        .filter((b): b is { x: number; y: number; w: number; h: number } => b !== null);
-
-      let x: number, y: number, w: number, h: number;
-
-      if (insideBoxes.length > 0) {
-        const minX = Math.min(...insideBoxes.map(b => b.x));
-        const maxX = Math.max(...insideBoxes.map(b => b.x + b.w));
-        const minY = Math.min(...insideBoxes.map(b => b.y));
-        const maxY = Math.max(...insideBoxes.map(b => b.y + b.h));
-        const PAD_X = 32;
-        const PAD_TOP = 36;
-        const PAD_BOTTOM = 24;
-        x = minX - PAD_X;
-        y = minY - PAD_TOP;
-        w = (maxX - minX) + PAD_X * 2;
-        h = (maxY - minY) + PAD_TOP + PAD_BOTTOM;
-      } else if (bounds) {
-        x = bounds.x;
-        y = bounds.y;
-        w = bounds.width;
-        h = bounds.height;
-      } else {
-        return null;
-      }
+      // Fall back to dagre cluster bounds if computeCommentBounds produced no rect.
+      const fallback = initialLayout.clusterBounds[clusterId];
+      const rect = computed ?? fallback;
+      if (!rect) return null;
 
       return {
         id: clusterId,
         type: 'commentBox',
-        position: { x, y },
+        position: { x: rect.x, y: rect.y },
         data: {
           text: c.text,
           color: c.color ?? '#888',
-          width: w,
-          height: h,
+          width: rect.width,
+          height: rect.height,
         },
         draggable: false,
         selectable: false,
