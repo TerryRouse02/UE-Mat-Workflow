@@ -153,6 +153,14 @@ describe('crawl API', () => {
     await server.close();
   }, 5000);
 
+  it('POST /api/crawl accepts the projectmat kind (not rejected as unknown)', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const r = await request(server.port, 'POST', '/api/crawl', { headers: { origin: `http://127.0.0.1:${server.port}` }, body: JSON.stringify({ kind: 'projectmat' }) });
+    expect(r.status).toBe(200);
+    expect(JSON.parse(r.body).jobId).toMatch(/^crawl-/);
+    await server.close();
+  }, 5000);
+
   it('POST /api/crawl accepts a single content root but rejects multiple / malformed', async () => {
     const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
     const origin = `http://127.0.0.1:${server.port}`;

@@ -8,10 +8,12 @@ import { materialStructureWarnings } from './schema.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
 import { loadWorkMfIndex } from './workmf-index.js';
 import { probeEnv } from './crawl-env.js';
-import { createCrawlRunner, type CrawlEvent } from './crawl-runner.js';
+import { createCrawlRunner, type CrawlEvent, PROJECTMAT_STAGING_REL } from './crawl-runner.js';
 import type { ServerMessage, ClientMessage, FileEntry } from './ws-protocol.js';
 import { isInside, toPosixPath, slugifyGraphName, writeGraph } from './graph-write.js';
 export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
+import { importProjectMaterials } from './projectmat-importer.js';
+import type { ExportMeta } from '../web/src/export/export-meta-types.js';
 
 export interface ServerOpts {
   repoRoot: string;     // contains graphs/
@@ -221,13 +223,33 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     return { kind: 'crawlDone', jobId: e.jobId, status: e.status, exitCode: e.exitCode };
   }
 
+  // Post-crawl hook for 'projectmat': convert the staged T3D dumps the commandlet
+  // wrote into openable graphs under graphs/_project/ via the shared converter.
+  async function importStagedProjectMaterials(jobId: string) {
+    const log = (line: string) => {
+      const m = crawlEventToMsg({ type: 'log', jobId, line });
+      for (const ws of wss.clients) safeSend(ws, m);
+    };
+    try {
+      const exportMeta = JSON.parse(
+        await readFile(resolve(opts.repoRoot, 'agent-pack', 'nodes-ue5.7.export.json'), 'utf-8'),
+      ) as ExportMeta;
+      const stagingDir = resolve(opts.repoRoot, PROJECTMAT_STAGING_REL);
+      const { imported, warnings } = await importProjectMaterials({ stagingDir, graphsRoot, exportMeta });
+      log(`project materials: imported ${imported.length}${imported.length ? ` (${imported.join(', ')})` : ''}`);
+      for (const w of warnings) log(`  warning: ${w}`);
+    } catch (e) {
+      log(`project-materials import failed: ${(e as Error).message}`);
+    }
+  }
+
   async function handleCrawl(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin crawl requests are refused' }); return; }
     let body: { kind?: unknown; contentRoots?: unknown };
     try { body = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     const kind = body.kind;
-    if (kind !== 'export' && kind !== 'enginemf' && kind !== 'workmf') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
+    if (kind !== 'export' && kind !== 'enginemf' && kind !== 'workmf' && kind !== 'projectmat') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
     // contentRoots (workmf only) becomes a literal arg to the spawned editor. Constrain it
     // to a single UE content root — leading '/', word segments — so it can never start with
     // '-' (PowerShell param injection) or carry shell/path-escape chars (no comma → no second arg).
@@ -241,6 +263,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       const jobId = runner.start(kind, (e) => {
         const msg = crawlEventToMsg(e);
         for (const ws of wss.clients) safeSend(ws, msg);
+        // After a successful project-materials crawl, convert the staged T3D dumps
+        // into openable graphs under graphs/_project/. The chokidar watcher then
+        // refreshes the file list; import results append as trailing crawl-log lines.
+        if (kind === 'projectmat' && e.type === 'done' && e.status === 'success') {
+          void importStagedProjectMaterials(e.jobId);
+        }
       }, contentRoots ? { contentRoots } : undefined);
       sendJson(res, 200, { jobId });
     } catch (e) {

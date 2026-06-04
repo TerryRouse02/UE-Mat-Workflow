@@ -1,4 +1,4 @@
-export type CrawlKind = 'export' | 'enginemf' | 'workmf';
+export type CrawlKind = 'export' | 'enginemf' | 'workmf' | 'projectmat';
 
 export type CrawlAction =
   | { type: 'crawlStarted'; kind: string; jobId: string }
@@ -8,7 +8,7 @@ export type CrawlAction =
 
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
-// contentRoots is only honoured for kind 'workmf' (the server ignores it otherwise).
+// contentRoots is honoured for kind 'workmf' and 'projectmat' (ignored otherwise).
 export interface StartCrawlOpts { contentRoots?: string }
 
 export async function startCrawlRequest(kind: CrawlKind, dispatch: (action: CrawlAction) => void, opts: StartCrawlOpts = {}, fetchImpl: FetchLike = fetch): Promise<void> {

@@ -61,6 +61,13 @@ describe('createCrawlRunner', () => {
     expect(cmd('workmf').args.join(' ')).toMatch(/Run-WorkMfIndex\.ps1/);
   });
 
+  it('maps the projectmat crawl to Run-ProjectMaterials.ps1 with a staging dir', () => {
+    const cmd = defaultCommandFor('/repo', 'projectmat');
+    expect(cmd.args.join(' ')).toMatch(/Run-ProjectMaterials\.ps1/);
+    expect(cmd.args).toContain('-StagingDir');
+    expect(defaultCommandFor('/repo', 'projectmat', { contentRoots: '/Game/Mats' }).args).toContain('-ContentRoots');
+  });
+
   it('passes -ContentRoots to the workmf crawl only when given', () => {
     expect(defaultCommandFor('/repo', 'workmf').args).not.toContain('-ContentRoots');
     const withRoots = defaultCommandFor('/repo', 'workmf', { contentRoots: '/Game/Materials,/MyPlugin' });
