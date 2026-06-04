@@ -30,6 +30,7 @@ export interface FileEntry {
   path: string;
   type: 'Material' | 'MaterialFunction' | 'Unknown';
   nodeCount?: number;
+  origin?: 'agent' | 'crawled';
 }
 
 export type ServerMessage =

@@ -12,7 +12,7 @@ import { createCrawlRunner, type CrawlEvent, PROJECTMAT_STAGING_REL } from './cr
 import type { ServerMessage, ClientMessage, FileEntry } from './ws-protocol.js';
 import { isInside, toPosixPath, slugifyGraphName, writeGraph } from './graph-write.js';
 export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
-import { importProjectMaterials } from './projectmat-importer.js';
+import { importProjectMaterials, PROJECT_DIR } from './projectmat-importer.js';
 import type { ExportMeta } from '../web/src/export/export-meta-types.js';
 
 export interface ServerOpts {
@@ -368,7 +368,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         if (e.isDirectory()) await walk(full);
         else if (e.isFile() && e.name.endsWith('.matgraph.json')) {
           const { type, nodeCount } = await readGraphMeta(full);
-          const entry: FileEntry = { path: toPosixPath(relative(graphsRoot, full)), type };
+          const posixPath = toPosixPath(relative(graphsRoot, full));
+          const origin: FileEntry['origin'] = posixPath.startsWith(PROJECT_DIR + '/') ? 'crawled' : 'agent';
+          const entry: FileEntry = { path: posixPath, type, origin };
           if (nodeCount !== undefined) entry.nodeCount = nodeCount;
           out.push(entry);
         }
