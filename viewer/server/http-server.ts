@@ -4,6 +4,7 @@ import { resolve, join, extname, relative, dirname, sep } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { watchGraphs } from './watcher.js';
 import { loadGraph } from './graph-loader.js';
+import { materialStructureWarnings } from './schema.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
 import { loadWorkMfIndex } from './workmf-index.js';
 import { probeEnv } from './crawl-env.js';
@@ -400,7 +401,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     const resolved = await resolveMaterialFunctions(loaded.graph, dirname(abs), new Set(), { workMfIndex, engineMfIndex });
     return {
       kind: 'graph', path: relPath,
-      payload: { graph: resolved.graph, derivedPins: resolved.derivedPins, warnings: [...indexWarnings, ...engineWarnings, ...resolved.warnings] },
+      payload: {
+        graph: resolved.graph, derivedPins: resolved.derivedPins,
+        warnings: [...materialStructureWarnings(loaded.graph), ...indexWarnings, ...engineWarnings, ...resolved.warnings],
+      },
     };
   }
 

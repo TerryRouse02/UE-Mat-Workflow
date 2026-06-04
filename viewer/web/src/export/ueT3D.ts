@@ -1459,6 +1459,14 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
   const graphType: MatGraph['type'] =
     importNodes.some(n => n.type === 'FunctionInput' || n.type === 'FunctionOutput') ? 'MaterialFunction' : 'Material';
 
+  // The root node carries the material's final output connections, but a UE clipboard
+  // copy only includes it when the whole material was selected. If we recovered nodes
+  // but no output (and this isn't a function), the final wires simply weren't in the
+  // paste — say so instead of silently dropping them.
+  if (graphType === 'Material' && !outputNode && importNodes.length > 0) {
+    warnings.push('No material output was in the pasted selection — the final output connections were not copied. In UE, Select All (Ctrl+A) before copying to include them.');
+  }
+
   const graph: MatGraph = {
     schemaVersion: '1.0',
     ueVersion: meta.ueVersion,

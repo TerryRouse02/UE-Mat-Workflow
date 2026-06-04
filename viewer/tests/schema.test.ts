@@ -1,11 +1,33 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { validateGraph } from '../server/schema';
+import { validateGraph, materialStructureWarnings } from '../server/schema';
 
 function loadJson(rel: string) {
   return JSON.parse(readFileSync(resolve(__dirname, '..', '..', rel), 'utf-8'));
 }
+
+describe('materialStructureWarnings', () => {
+  const mat = (nodes: { id: string; type: string }[], type = 'Material') =>
+    ({ schemaVersion: '1.0', ueVersion: '5.7', type, name: 'm', nodes, connections: [] }) as never;
+
+  it('passes a Material with exactly one MaterialOutput', () => {
+    expect(materialStructureWarnings(mat([{ id: 'a', type: 'Multiply' }, { id: 'OUT', type: 'MaterialOutput' }]))).toEqual([]);
+  });
+  it('warns when a Material has no MaterialOutput', () => {
+    const w = materialStructureWarnings(mat([{ id: 'a', type: 'Multiply' }]));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(/found none/);
+  });
+  it('warns (and names the ids) when a Material has more than one MaterialOutput', () => {
+    const w = materialStructureWarnings(mat([{ id: 'OUT', type: 'MaterialOutput' }, { id: 'OUT2', type: 'MaterialOutput' }]));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(/found 2 \(OUT, OUT2\)/);
+  });
+  it('does not check MaterialFunction graphs (they use FunctionOutput)', () => {
+    expect(materialStructureWarnings(mat([{ id: 'i', type: 'FunctionInput' }, { id: 'o', type: 'FunctionOutput' }], 'MaterialFunction'))).toEqual([]);
+  });
+});
 
 describe('validateGraph', () => {
   it('accepts the basic PBR example', () => {

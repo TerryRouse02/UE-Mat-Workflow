@@ -52,3 +52,15 @@ export function validateGraph(input: unknown): ValidationResult {
 
   return { errors, graph: errors.length === 0 ? (input as MatGraph) : null };
 }
+
+// Structural convention surfaced as a WARNING (render + flag), not a hard error so
+// the canvas is never blanked: a Material must funnel into exactly one MaterialOutput
+// node (SPEC hard rule 6). The server runs this when it loads any graph, so both
+// agent-authored and reverse-imported materials are held to the convention visibly.
+export function materialStructureWarnings(graph: MatGraph): string[] {
+  if (graph.type !== 'Material') return [];
+  const outs = graph.nodes.filter(n => n.type === 'MaterialOutput');
+  if (outs.length === 1) return [];
+  if (outs.length === 0) return ['A Material must have exactly one MaterialOutput node — found none.'];
+  return [`A Material must have exactly one MaterialOutput node — found ${outs.length} (${outs.map(n => n.id).join(', ')}).`];
+}

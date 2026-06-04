@@ -1,6 +1,7 @@
 import { readFile, writeFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { loadGraph } from './graph-loader.js';
+import { materialStructureWarnings } from './schema.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
 import { loadWorkMfIndex } from './workmf-index.js';
 import { isInside } from './http-server.js';
@@ -62,7 +63,7 @@ async function main() {
     entry: `${name}.matgraph.json`,
     files: allFiles,
     derivedPins: resolved.derivedPins,
-    warnings: [...indexWarnings, ...resolved.warnings],
+    warnings: [...materialStructureWarnings(loaded.graph), ...indexWarnings, ...resolved.warnings],
   })};</script>`;
   const final = inlined.replace('</body>', `${dataInject}</body>`);
 

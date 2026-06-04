@@ -86,4 +86,12 @@ Begin Object Class=/Script/UnrealEd.MaterialGraphNode Name="MaterialGraphNode_1"
     expect(graph.connections).toContainEqual({ from: 'Constant_0:Value', to: 'Multiply_0:A' });
     expect(warnings.filter(w => /not found - wire dropped/.test(w))).toEqual([]);
   });
+
+  // The knot fixture is expression-only (Constant -> Multiply), no MaterialGraphNode_Root —
+  // i.e. a partial selection where the final output wires were never copied. Surface that.
+  it('warns when the paste has no material output (root not selected)', () => {
+    const { graph, warnings } = parseUET3D(knotFixture, META, { name: 'r' });
+    expect(graph.nodes.some(n => n.type === 'MaterialOutput')).toBe(false);
+    expect(warnings.some(w => /No material output was in the pasted selection/.test(w))).toBe(true);
+  });
 });

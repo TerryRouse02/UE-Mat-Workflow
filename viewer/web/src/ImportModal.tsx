@@ -68,8 +68,8 @@ export function ImportModal({ exportMeta, open, pushToast, onClose }: ImportModa
           <button className="import-x" onClick={onClose} title="關閉">✕</button>
         </div>
         <p className="import-hint">
-          在 UE 材質編輯器選取節點後 <kbd>Ctrl</kbd>+<kbd>C</kbd>，把內容貼到下方。
-          解析版本：UE {exportMeta.ueVersion}。
+          在 UE 材質編輯器<b>全選</b> <kbd>Ctrl</kbd>+<kbd>A</kbd>、複製 <kbd>Ctrl</kbd>+<kbd>C</kbd>，把內容貼到下方。
+          （全選才會包含根節點，最終輸出連線才不會掉。）解析版本：UE {exportMeta.ueVersion}。
         </p>
         <label className="import-field">
           <span>名稱 <em>（資料夾名 = 材質名；留空則自動命名，衝突會自動加後綴）</em></span>
