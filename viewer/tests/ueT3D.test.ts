@@ -466,6 +466,57 @@ describe('graphToUET3D', () => {
     expect(text).toContain('CommentColor=(R=1.0,G=0.0,B=0.0,A=1.0)');
   });
 
+  it('nested comments: exported outer rect strictly encloses inner rect (hierarchical bounds)', () => {
+    // outer comment contains n1 + n2; inner comment contains only n1 (nested).
+    // With hierarchical nesting:
+    //   - inner hulls only n1 → inner rect is sized for n1 (including node width/height)
+    //   - outer wraps inner's padded rect + n2 → outer.x < inner.x (extra padding layer)
+    // Old flat code: both compute from raw x,y point positions with same -40 offset → outer.x === inner.x.
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        { id: 'n1', type: 'Constant', params: { R: 1 } },
+        { id: 'n2', type: 'Constant', params: { R: 2 } },
+      ],
+      connections: [],
+      comments: [
+        { id: 'outer', text: 'outer', color: '#888888', contains: ['n1', 'n2'] },
+        { id: 'inner', text: 'inner', color: '#444444', contains: ['n1'] },
+      ],
+    };
+    const { text } = graphToUET3D(graph, layout({ n1: [0, 0], n2: [400, 0] }), META, NO_PINS);
+
+    // Parse all MaterialGraphNode_Comment blocks to extract NodePosX/Y and NodeWidth/Height
+    const commentBlocks: { text: string; x: number; y: number; w: number; h: number }[] = [];
+    const blockRe = /Begin Object Class=\/Script\/UnrealEd\.MaterialGraphNode_Comment[\s\S]*?^End Object/gm;
+    for (const match of text.matchAll(blockRe)) {
+      const block = match[0];
+      const nodeComment = /NodeComment="([^"]*)"/.exec(block)?.[1] ?? '';
+      const x = parseInt(/NodePosX=(-?\d+)/.exec(block)?.[1] ?? '0', 10);
+      const y = parseInt(/NodePosY=(-?\d+)/.exec(block)?.[1] ?? '0', 10);
+      const w = parseInt(/NodeWidth=(\d+)/.exec(block)?.[1] ?? '0', 10);
+      const h = parseInt(/NodeHeight=(\d+)/.exec(block)?.[1] ?? '0', 10);
+      commentBlocks.push({ text: nodeComment, x, y, w, h });
+    }
+
+    expect(commentBlocks).toHaveLength(2);
+    const outerBlock = commentBlocks.find(b => b.text === 'outer')!;
+    const innerBlock = commentBlocks.find(b => b.text === 'inner')!;
+    expect(outerBlock).toBeTruthy();
+    expect(innerBlock).toBeTruthy();
+
+    // Outer rect must fully enclose inner rect
+    expect(outerBlock.x).toBeLessThanOrEqual(innerBlock.x);
+    expect(outerBlock.y).toBeLessThanOrEqual(innerBlock.y);
+    expect(outerBlock.x + outerBlock.w).toBeGreaterThanOrEqual(innerBlock.x + innerBlock.w);
+    expect(outerBlock.y + outerBlock.h).toBeGreaterThanOrEqual(innerBlock.y + innerBlock.h);
+
+    // With hierarchical bounds, outer wraps inner's PADDED box → outer.x strictly less than inner.x.
+    // Old flat code uses raw x/y positions, giving outer.x == inner.x when n1 is leftmost in both.
+    expect(outerBlock.x).toBeLessThan(innerBlock.x);
+    expect(outerBlock.y).toBeLessThan(innerBlock.y);
+  });
+
   it('emits a MaterialFunctionCall with auto-link path + warning for a local MF', () => {
     const graph: MatGraph = {
       schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',

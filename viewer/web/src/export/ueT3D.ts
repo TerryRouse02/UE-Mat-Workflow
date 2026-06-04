@@ -3,6 +3,11 @@ import type { ExportMeta, NodeExportMeta, OutputMeta, ParamMeta } from './export
 import { splitRef } from '../connstr';
 import { MATERIAL_ATTRIBUTE_PINS } from '../material-attributes';
 import { MATERIAL_ATTRIBUTE_GUIDS } from '../material-attribute-guids';
+import { computeCommentBounds } from '../commentBounds';
+import { NODE_W } from '../layout';
+
+// Fixed node height estimate for export context (pin data unavailable).
+const EXPORT_NODE_H = 80;
 
 export interface UEExportOptions { mfContentRoot?: string; }
 export interface UEExportResult { text: string; warnings: string[]; }
@@ -635,21 +640,29 @@ export function graphToUET3D(
 
   const lines: string[] = [];
 
+  // Build nodeRect from the export layout; use fixed dimensions since pin data is unavailable.
+  const exportNodeRect = (id: string) => {
+    const pos = effectiveLayout[id];
+    if (!pos) return undefined;
+    return { x: pos.x, y: pos.y, width: NODE_W, height: EXPORT_NODE_H };
+  };
+  const commentBoundsMap = computeCommentBounds(
+    comments,
+    exportNodeRect,
+    { padX: 40, padTop: 50, padBottom: 100 },
+  );
+
   for (const comment of comments) {
-    const pts = comment.contains.map(id => effectiveLayout[id]).filter(Boolean) as { x: number; y: number }[];
+    const cb = commentBoundsMap.get(comment.id);
     let x = 0;
     let y = 0;
     let w = 400;
     let h = 200;
-    if (pts.length > 0) {
-      const minX = Math.min(...pts.map(p => p.x));
-      const maxX = Math.max(...pts.map(p => p.x));
-      const minY = Math.min(...pts.map(p => p.y));
-      const maxY = Math.max(...pts.map(p => p.y));
-      x = Math.round(minX - 40);
-      y = Math.round(minY - 50);
-      w = Math.round((maxX - minX) + 300);
-      h = Math.round((maxY - minY) + 200);
+    if (cb) {
+      x = Math.round(cb.x);
+      y = Math.round(cb.y);
+      w = Math.round(cb.width);
+      h = Math.round(cb.height);
     }
 
     lines.push(`Begin Object Class=/Script/UnrealEd.MaterialGraphNode_Comment Name="${comment.graphNodeName}" ExportPath="/Script/UnrealEd.MaterialGraphNode_Comment'${GRAPH_ROOT}.${comment.graphNodeName}'"`);
