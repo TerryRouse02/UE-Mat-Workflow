@@ -91,6 +91,10 @@ node -e "const{loadWorkMfIndex}=require('./viewer/dist/server/workmf-index.js');
 ## Guardrails
 
 - The output stays on the user's machine. Do not commit `agent-pack/workmf-index.json`.
+- **No plugin is copied into your UE project.** The crawl mounts the packaged plugin externally
+  (`-plugin=<compiled .uplugin>`) and refuses to run if a `Plugins\UEMatExportMetadata\` copy
+  exists in the project (it would shadow the packaged build). If the committed binary doesn't match
+  your engine build and the plugin fails to load, repackage for your engine with `-ForcePackage`.
 - Re-run after adding/renaming/changing a project Material Function's inputs/outputs.
 - `bRecursiveClasses=false` indexes concrete `UMaterialFunction` only (not material layers/blends).
 - If a referenced MF is missing from the index, the authoring agent must STOP and ask for a

@@ -136,9 +136,18 @@ Under **專案路徑**, fill in **`.uproject` 路徑** (`ProjectPath`) and **UE 
 for you (gitignored, per-machine) — the same file the PowerShell scripts read, so you never edit
 JSON by hand. (Pre-filling it manually or with the [Normal Flow](#normal-flow) still works.)
 
-The compiled plugin already ships under `compiled/` (committed), so that check passes out of the
-box — only rebuild it if you edited `plugin-src/`. Also make sure your UE project carries no
-`Plugins\UEMatExportMetadata\` copy, which would shadow the packaged one.
+**Nothing is added to your UE project.** The crawl mounts the packaged plugin straight from
+`compiled/` on the UE command line (`UnrealEditor-Cmd.exe <project> -plugin=<compiled .uplugin> …`),
+so your project folder is never touched — the crawl even **refuses to run if a
+`Plugins\UEMatExportMetadata\` copy exists in your project** (that copy would shadow the packaged
+one — this is exactly what the `noShadow` check guards). Because the compiled plugin is committed,
+this works out of the box; only rebuild it if you edited `plugin-src/`.
+
+> **One exception (engine binary match).** The committed binary is built for a specific UE 5.7
+> build. If your engine is a different build and a crawl fails to *load* the plugin, rebuild it for
+> *your* engine once with `Invoke-NodeT3DMetadataMaintenance.ps1 -ForcePackage` — still external,
+> still nothing copied into your project. (The probe only checks the DLL exists, not that it
+> matches your engine, so this surfaces as a crawl-time load error rather than a red check.)
 
 ### 3. Read the environment checklist
 

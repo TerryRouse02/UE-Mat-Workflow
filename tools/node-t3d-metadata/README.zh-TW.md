@@ -105,8 +105,16 @@ pnpm build && pnpm start     # 提供 http://localhost:5790（會自動嘗試 57
 自己一份）——就是 PowerShell 腳本讀的那個檔，所以你完全不必手改 JSON。（要手動先填、或用
 [一般流程](#一般流程)先建好也可以。）
 
-已編譯外掛已隨 repo 提交在 `compiled/` 底下，所以那一項開箱即綠——只有改過 `plugin-src/` 才需重建。
-另外確認你的 UE 專案裡沒有 `Plugins\UEMatExportMetadata\` 副本，否則會遮蔽打包版。
+**不會在你的 UE 專案放任何東西。** 爬取是用 UE 命令列直接從 `compiled/` 掛載打包好的外掛
+（`UnrealEditor-Cmd.exe <專案> -plugin=<compiled .uplugin> …`），所以你的專案資料夾完全不會被動到——
+而且只要你專案裡**存在 `Plugins\UEMatExportMetadata\` 副本，爬取會直接拒跑**（那個副本會遮蔽打包版，
+這正是 `noShadow` 檢查在防的事）。因為已編譯外掛已隨 repo 提交，所以開箱即用；只有改過 `plugin-src/`
+才需重建。
+
+> **唯一例外（外掛二進位要對得上引擎）。** committed 的二進位是針對某個 UE 5.7 build 編的。若你的引擎
+> 是不同 build、而爬取因此**載入**外掛失敗，就對**你自己的引擎**重打包一次：
+> `Invoke-NodeT3DMetadataMaintenance.ps1 -ForcePackage`——依然是外部、依然不會拷貝進你的專案。
+> （探測只檢查 DLL 是否存在，不檢查是否吻合你的引擎，所以這會以爬取當下的載入錯誤出現，而不是紅色檢查。）
 
 ### 3. 看環境檢查清單
 

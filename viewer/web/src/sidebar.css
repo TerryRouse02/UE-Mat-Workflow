@@ -78,6 +78,7 @@
 .cfg-sec + .cfg-sec { padding-top: 12px; border-top: 1px solid var(--bg2); }
 .cfg-sec-title { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--fg-faint); }
 .cfg-note { font-size: 10px; color: var(--fg-faint); line-height: 1.5; margin: 0; }
+.cfg-note code { font-family: ui-monospace, Menlo, monospace; color: var(--fg-dim); }
 .cfg-field { display: flex; flex-direction: column; gap: 4px; }
 .cfg-field > span { font-size: 11px; color: var(--fg-dim); }
 .cfg-input { width: 100%; box-sizing: border-box; background: var(--bg0); color: var(--fg);

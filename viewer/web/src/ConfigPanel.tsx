@@ -94,6 +94,10 @@ export function ConfigPanel() {
             </div>
           );
         })}
+        <p className="cfg-note">
+          外掛已內附在 repo（<code>compiled/</code>），不需放進你的專案。若爬取因引擎版本不符而
+          載入失敗，在終端機用 <code>-ForcePackage</code> 對你的引擎重新打包一次即可。
+        </p>
         <button className="cfg-btn secondary" onClick={() => void refreshEnv()}>重新檢查</button>
       </div>
 
