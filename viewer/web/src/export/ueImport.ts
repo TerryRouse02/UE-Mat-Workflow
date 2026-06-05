@@ -2,7 +2,7 @@
 // No imports from React, ReactFlow, node:, or ../layout — safe to import from the server.
 import type { MatGraph, NodeJson, ConnectionJson, CommentJson } from '../protocol';
 import type { ExportMeta, NodeExportMeta, ParamMeta } from './export-meta-types';
-import { MATERIAL_ATTRIBUTE_GUIDS } from '../material-attribute-guids';
+import { MATERIAL_ATTRIBUTE_GUIDS } from '../material-attribute-guids.js';
 
 export interface UEImportResult { graph: MatGraph; warnings: string[]; }
 
