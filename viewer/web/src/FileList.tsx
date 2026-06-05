@@ -105,7 +105,14 @@ function CrawledSection({ projects }: { projects: Project[] }) {
   );
 }
 
-export function FileList() {
+export interface FileListProps {
+  /** Navigates to the config tab (for "前往爬取" empty-state CTA). Task D will wire this. */
+  onGotoConfig?(): void;
+  /** Called when a large-graph entry is clicked, instead of window.confirm. Task D will wire this. */
+  onLargeGraph?(file: FileEntry): void;
+}
+
+export function FileList(_props: FileListProps = {}) {
   const { state } = useStore();
   const [query, setQuery] = useState('');
   const [sub, setSub] = useState<SubTab>('material');

@@ -17,7 +17,13 @@ const CHECK_ORDER = ['platform', 'config', 'engine', 'project', 'plugin', 'noSha
 // The Config tab: set the crawl's project paths, see exactly what's still missing,
 // and run the crawls — all button-driven, no JSON editing. Writes the same
 // local.config.json the PowerShell scripts read, via POST /api/config.
-export function ConfigPanel() {
+export interface ConfigPanelProps {
+  /** MF root passed from App (lifted state). When omitted, ConfigPanel owns it internally. */
+  mfRoot?: string;
+  setMfRoot?: (v: string) => void;
+}
+
+export function ConfigPanel({ mfRoot: mfRootProp, setMfRoot: setMfRootProp }: ConfigPanelProps = {}) {
   const { state, saveConfig, refreshEnv, startCrawl } = useStore();
   const { env, crawl, connection } = state;
   const live = connection === 'live';
@@ -28,8 +34,14 @@ export function ConfigPanel() {
   const [engineRoot, setEngineRoot] = useState('');
   // One MF content root, shared by the WorkMF crawl (scan scope) and the T3D export
   // (asset path for local MFs). Falls back to the legacy crawl key so an existing
-  // setting carries over.
-  const [mfRoot, setMfRoot] = useState(() => localStorage.getItem('ue-mf-root') || localStorage.getItem('ue-workmf-root') || '/Game');
+  // setting carries over. When App passes mfRoot as a prop, use that; otherwise own it.
+  const [mfRootLocal, setMfRootLocal] = useState(() => localStorage.getItem('ue-mf-root') || localStorage.getItem('ue-workmf-root') || '/Game');
+  const mfRoot = mfRootProp !== undefined ? mfRootProp : mfRootLocal;
+  const setMfRoot = (v: string) => {
+    localStorage.setItem('ue-mf-root', v);
+    if (setMfRootProp) setMfRootProp(v);
+    else setMfRootLocal(v);
+  };
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null);
 
@@ -61,7 +73,7 @@ export function ConfigPanel() {
       <label className="cfg-field">
         <span>你的 MaterialFunction 在 UE 的根目錄</span>
         <input className="cfg-input" value={mfRoot} spellCheck={false} placeholder="/Game"
-          onChange={e => { setMfRoot(e.target.value); localStorage.setItem('ue-mf-root', e.target.value); }} />
+          onChange={e => setMfRoot(e.target.value)} />
       </label>
       <p className="cfg-note">
         一個資料夾兩用：<b>爬取專案 MF</b> 掃描這裡，<b>導出到 UE</b> 也用它把本地

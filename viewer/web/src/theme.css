@@ -43,11 +43,9 @@ body { margin: 0; background: var(--bg-app); color: var(--text);
 .banner.warn .ico { color: var(--warn); }
 .banner.info { background: rgba(78,160,214,.1); color: #bfe0f5; border-bottom-color: rgba(78,160,214,.28); }
 .banner .x { margin-left: auto; cursor: pointer; color: inherit; opacity: .7; background: none; border: 0; font-size: 14px; }
-/* legacy layout helpers (used until App.tsx migrates to Task C grid) */
-.sidebar-wrap { width: 264px; flex: none; border-right: 1px solid var(--bd); background: var(--bg1); overflow-y: auto; }
-.canvas-wrap { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+/* canvas-wrap: center column of the body grid */
+.canvas-wrap { display: flex; flex-direction: column; min-height: 0; position: relative; background: var(--bg-canvas); overflow: hidden; }
 .canvas-wrap .react-flow { flex: 1 1 auto; min-height: 0; }
-.inspector-wrap { width: 300px; flex: none; border-left: 1px solid var(--bd); background: var(--bg1); overflow-y: auto; }
 .canvas-empty { color: var(--fg-faint); padding: 20px; }
 .canvas-topbar { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 12px; background: var(--bg1); border-bottom: 1px solid var(--bd); flex: none; }
 .canvas-banner { flex: none; padding: 8px 12px; font-size: 12px; line-height: 1.5; color: var(--warn); background: var(--bg2); border-bottom: 1px solid var(--bd); border-left: 3px solid var(--warn); }

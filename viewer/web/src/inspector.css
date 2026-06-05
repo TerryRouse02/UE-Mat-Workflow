@@ -1,3 +1,6 @@
+/* inspector-wrap: right column of the body grid */
+.inspector-wrap { background: var(--bg-panel); min-height: 0; overflow-y: auto; }
+
 .insp { padding: 14px; font-size: 12px; }
 .insp-eyebrow { display: flex; align-items: center; gap: 6px; color: var(--fg-faint); font-size: 11px; }
 .insp-catdot { width: 8px; height: 8px; border-radius: 50%; }

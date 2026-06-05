@@ -13,6 +13,10 @@ export interface InspectorProps {
   errors?: string[];
   /** Focus a node on the canvas when a debug issue is clicked. */
   onFocusNode?: (id: string) => void;
+  /** Node provenance map — wired by Task G; accepted here as a no-op so App.tsx need not change. */
+  nodeProvenance?: Record<string, { source: string; freshnessTs: string | null }>;
+  /** Trigger a re-crawl of a node's source — wired by Task G; no-op until then. */
+  onRecrawlNode?: (source: string) => void;
 }
 
 function isCodeLike(v: unknown): v is string {
@@ -73,7 +77,7 @@ function IssueList({ title, issues, onFocusNode }: { title: string; issues: Grap
   );
 }
 
-export function Inspector({ graph, selectedNodeId, derivedPins, errors, onFocusNode }: InspectorProps) {
+export function Inspector({ graph, selectedNodeId, derivedPins, errors, onFocusNode, nodeProvenance: _nodeProvenance, onRecrawlNode: _onRecrawlNode }: InspectorProps) {
   const { db } = useDb();
 
   // The graph-level health report is recomputed only when the graph / DB / resolved
