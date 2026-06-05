@@ -15,6 +15,23 @@ export interface InspectorProps {
   errors?: string[];
   /** Focus a node on the canvas when a debug issue is clicked. */
   onFocusNode?: (id: string) => void;
+  /** Open graph's path — used to surface crawl freshness for crawled materials. */
+  currentPath?: string;
+}
+
+function agoShort(ts: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (s < 60) return `${s} 秒前`;
+  const m = Math.floor(s / 60); if (m < 60) return `${m} 分鐘前`;
+  const h = Math.floor(m / 60); if (h < 24) return `${h} 小時前`;
+  return `${Math.floor(h / 24)} 天前`;
+}
+// Freshness chip for crawled project materials (graphs/_project/…), driven by the
+// real projectmat crawl timestamp. Agent-authored graphs have no such stamp.
+function crawledFresh(currentPath?: string): { label: string; cls: string } | null {
+  if (!currentPath || !currentPath.startsWith('_project/')) return null;
+  const ts = Number(localStorage.getItem('ue-crawl-fresh-projectmat') || 0);
+  return ts ? { label: '上次爬取 ' + agoShort(ts), cls: 'fresh-fresh' } : { label: '爬取(唯讀)', cls: 'fresh-missing' };
 }
 
 function isCodeLike(v: unknown): v is string {
@@ -79,7 +96,7 @@ function IssueRows({ issues, onFocusNode }: { issues: GraphIssue[]; onFocusNode?
   );
 }
 
-export function Inspector({ graph, selectedNodeId, derivedPins, errors, onFocusNode }: InspectorProps) {
+export function Inspector({ graph, selectedNodeId, derivedPins, errors, onFocusNode, currentPath }: InspectorProps) {
   const { db } = useDb();
   const [mode, setMode] = useState<Mode>('health');
   // Selecting a node jumps to node-detail; clearing it falls back to health.
@@ -162,6 +179,18 @@ export function Inspector({ graph, selectedNodeId, derivedPins, errors, onFocusN
         )}
         <PinList title="Inputs" pins={inputPins} />
         <PinList title="Outputs" pins={outputPins} />
+        <div className="isec">
+          <div className="lbl">Properties</div>
+          <div className="metagrid">
+            <span className="mk">ID</span><span className="mv">{node.id}</span>
+            <span className="mk">Type</span><span className="mv">{node.type}</span>
+            <span className="mk">Category</span><span className="mv">{def?.category ?? 'Unknown'}</span>
+            {node.type === 'MaterialFunctionCall' && node.params?.MaterialFunction != null && (
+              <><span className="mk">Function</span><span className="mv">{String(node.params.MaterialFunction)}</span></>
+            )}
+            <span className="mk">Pins</span><span className="mv">{inputPins.length} in · {outputPins.length} out</span>
+          </div>
+        </div>
         {params.length > 0 && (
           <div className="isec">
             <div className="lbl">Parameters</div>
@@ -199,6 +228,20 @@ export function Inspector({ graph, selectedNodeId, derivedPins, errors, onFocusN
         <div className="ready-row ok">✓ {graph.nodes.length - unknownCount} / {graph.nodes.length} 個節點可對應</div>
         {mfCount > 0 && <div className="ready-row warn">ƒ {mfCount} 個 MaterialFunction 連結</div>}
       </div>
+      {(() => {
+        const fresh = crawledFresh(currentPath);
+        return (
+          <div className="isec">
+            <div className="lbl-row"><span className="lbl">Metadata</span>{fresh && <span className={`fresh ${fresh.cls}`}>{fresh.label}</span>}</div>
+            <div className="metagrid">
+              <span className="mk">UE 版本</span><span className="mv">{graph.ueVersion}</span>
+              <span className="mk">Schema</span><span className="mv">{graph.schemaVersion}</span>
+              <span className="mk">類型</span><span className="mv">{graph.type}</span>
+              <span className="mk">節點 / 連線</span><span className="mv">{graph.nodes.length} / {graph.connections.length}</span>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

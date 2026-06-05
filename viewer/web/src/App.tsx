@@ -7,6 +7,7 @@ import { Inspector } from './Inspector';
 import { ToastStack, type ToastItem } from './Toast';
 import { DbProvider, useDb } from './dbContext';
 import { shouldConfirmOpen } from './largeGraphGate';
+import { CommandPalette, type Tab } from './CommandPalette';
 
 function Body() {
   const { state, open, enterMF } = useStore();
@@ -20,6 +21,17 @@ function Body() {
   // The nonce is a monotonic counter (not a timestamp) so repeat clicks always re-fire and
   // two clicks can never collide on one value. (`focusNode` is defined after `current`.)
   const [focusReq, setFocusReq] = useState<{ id: string; nonce: number; path: string } | null>(null);
+  // Active sidebar tab + command palette live here so the chrome (search / icon
+  // buttons / palette) can drive navigation across Header ↔ Sidebar.
+  const [tab, setTab] = useState<Tab>('files');
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); setPaletteOpen(o => !o); }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
   useEffect(() => {
     if (!state.currentPath && state.files.length > 0) {
@@ -76,9 +88,10 @@ function Body() {
 
   return (
     <div className="app">
-      <Header graph={payload?.graph} derivedPins={payload?.derivedPins} positions={positions} pushToast={pushToast} />
+      <Header graph={payload?.graph} derivedPins={payload?.derivedPins} positions={positions} pushToast={pushToast}
+        onOpenPalette={() => setPaletteOpen(true)} onGoConfig={() => setTab('config')} />
       <div className="body" style={bodyStyle}>
-        <aside className="panel left"><Sidebar /></aside>
+        <aside className="panel left"><Sidebar tab={tab} setTab={setTab} /></aside>
         <main className="canvas-wrap">
           {payload && (
             <div className="canvas-topbar">
@@ -107,10 +120,11 @@ function Body() {
             : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
         <aside className="panel right">
-          <Inspector graph={payload?.graph} selectedNodeId={selectedNodeId} derivedPins={payload?.derivedPins} errors={errs} onFocusNode={focusNode} />
+          <Inspector graph={payload?.graph} selectedNodeId={selectedNodeId} derivedPins={payload?.derivedPins} errors={errs} onFocusNode={focusNode} currentPath={current} />
         </aside>
       </div>
       <ToastStack toasts={toasts} onClose={closeToast} />
+      <CommandPalette open={paletteOpen} onClose={() => setPaletteOpen(false)} setTab={setTab} />
     </div>
   );
 }

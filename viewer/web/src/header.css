@@ -28,3 +28,16 @@
 .chrome .conn.reconnecting .dot { background: var(--warn); box-shadow: 0 0 0 3px rgba(224,166,78,.16); animation: pulse 1.3s ease-in-out infinite; }
 .chrome .conn.snapshot .dot { background: var(--text-mute); }
 @keyframes pulse { 50% { opacity: .4; } }
+
+/* right-side icon buttons + overflow menu */
+.chrome .iconbtn { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 7px; border: 1px solid transparent; background: transparent; color: var(--text-dim); cursor: pointer; flex: 0 0 auto; }
+.chrome .iconbtn:hover, .chrome .iconbtn.on { background: var(--bg-elev); color: var(--text); }
+.chrome .more-wrap { position: relative; }
+.chrome .menu { position: absolute; top: 38px; right: 0; z-index: 50; min-width: 220px; background: var(--bg-panel); border: 1px solid var(--border-strong); border-radius: 9px; box-shadow: 0 16px 44px rgba(0,0,0,.5); padding: 6px; }
+.chrome .menu-label { font-size: 9.5px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-mute); padding: 6px 9px 4px; }
+.chrome .menu-item { display: flex; align-items: center; gap: 9px; width: 100%; text-align: left; background: transparent; border: 0; color: var(--text); font: inherit; font-size: 12.5px; padding: 8px 9px; border-radius: 6px; cursor: pointer; }
+.chrome .menu-item:hover:not(:disabled) { background: var(--bg-elev); }
+.chrome .menu-item:disabled { opacity: .45; cursor: not-allowed; }
+.chrome .menu-item .mi-ico { width: 16px; display: grid; place-items: center; color: var(--text-dim); }
+.chrome .menu-item .mi-hint { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--text-mute); }
+.chrome .menu-div { height: 1px; background: var(--hairline); margin: 5px 6px; }

@@ -59,3 +59,14 @@
 .issue.error .sevpill { color: var(--error); background: rgba(224,89,78,.14); }
 .issue.warning .sevpill { color: var(--warn); background: rgba(224,166,78,.14); }
 .issue.info .sevpill { color: var(--info); background: rgba(78,160,214,.14); }
+
+/* node-detail: property table + freshness chip */
+.isec .lbl-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.isec .lbl-row .lbl { margin-bottom: 0; }
+.metagrid { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; font-size: 11.5px; align-items: baseline; }
+.metagrid .mk { color: var(--text-mute); }
+.metagrid .mv { font-family: var(--font-mono); color: var(--text-dim); text-align: right; word-break: break-all; }
+.fresh { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; padding: 2px 8px; border-radius: 11px; font-family: var(--font-mono); }
+.fresh.fresh-fresh { color: var(--ok); background: rgba(78,196,110,.12); }
+.fresh.fresh-stale { color: var(--warn); background: rgba(224,166,78,.13); }
+.fresh.fresh-missing { color: var(--text-mute); background: var(--bg-panel-2); border: 1px solid var(--border); }

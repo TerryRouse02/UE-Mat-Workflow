@@ -1,15 +1,12 @@
-import { useState } from 'react';
 import { useStore } from './store';
 import { FileList } from './FileList';
 import { NodeLibrary } from './NodeLibrary';
 import { ConfigPanel } from './ConfigPanel';
+import type { Tab } from './CommandPalette';
 import './sidebar.css';
 
-type Tab = 'files' | 'nodes' | 'config';
-
-export function Sidebar() {
+export function Sidebar({ tab, setTab }: { tab: Tab; setTab: (t: Tab) => void }) {
   const { state } = useStore();
-  const [tab, setTab] = useState<Tab>('files');
 
   // Status cue on the Config tab so a crawl's progress/outcome is visible from
   // any tab (the user may be browsing Files when an editor run finishes).
