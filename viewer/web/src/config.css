@@ -1,0 +1,185 @@
+/* Config panel — ported from docs/design-ref/mockup-with-css.html lines 753–857 */
+
+/* ---------- Config panel root ---------- */
+.cfg { overflow:auto; flex:1; min-height:0; display:flex; flex-direction:column; }
+.cfg-sec { padding:14px 15px; border-bottom:1px solid var(--hairline); flex:0 0 auto; }
+.cfg-sec .sech { display:flex; align-items:center; gap:9px; margin-bottom:12px; }
+.cfg-sec .secn {
+  width:18px; height:18px; flex:0 0 18px; border-radius:5px;
+  background:var(--bg-elev); border:1px solid var(--border);
+  display:grid; place-items:center;
+  font-family:var(--font-mono); font-size:10px; color:var(--text-dim);
+}
+.cfg-sec .sect { font-size:12px; font-weight:650; color:var(--text); }
+.cfg-sec .secd { font-size:10.5px; color:var(--text-mute); margin-left:auto; }
+
+/* ---------- Field row ---------- */
+.field { margin-bottom:11px; }
+.field:last-child { margin-bottom:0; }
+.field > label { display:block; font-size:11px; color:var(--text-dim); margin-bottom:5px; }
+.field .inp {
+  display:flex; align-items:center; gap:8px;
+  background:var(--bg-canvas); border:1px solid var(--border); border-radius:6px; padding:7px 9px;
+}
+.field .inp:focus-within { border-color:var(--accent-dim); }
+.field .inp input { all:unset; flex:1; min-width:0; font-family:var(--font-mono); font-size:11px; color:var(--text); }
+.field .inp .pfx { font-family:var(--font-mono); font-size:11px; color:var(--text-mute); }
+
+/* ---------- Env gate ---------- */
+.envbanner {
+  display:flex; align-items:center; gap:9px;
+  padding:10px 12px; border-radius:8px; margin-bottom:12px;
+  font-size:12.5px; font-weight:600;
+}
+.envbanner.ready { background:rgba(78,196,110,.1); border:1px solid rgba(78,196,110,.32); color:var(--ok); }
+.envbanner.notready { background:rgba(224,89,78,.1); border:1px solid rgba(224,89,78,.32); color:#f0a59c; }
+.envbanner .sub { font-weight:400; color:var(--text-dim); font-size:11px; }
+.envlist2 { display:flex; flex-direction:column; gap:2px; }
+.envrow2 { display:flex; align-items:center; gap:10px; padding:6px 4px; }
+.envrow2 .ei {
+  width:17px; height:17px; flex:0 0 17px; border-radius:50%;
+  display:grid; place-items:center;
+}
+.envrow2.ok .ei { background:rgba(78,196,110,.16); color:var(--ok); }
+.envrow2.bad .ei { background:rgba(224,89,78,.16); color:var(--error); }
+.envrow2 .el2 { flex:1; font-size:12px; }
+.envrow2 .el2 .en { font-family:var(--font-mono); font-size:9.5px; color:var(--text-mute); margin-left:6px; }
+.envrow2 .ed2 { font-family:var(--font-mono); font-size:10px; color:var(--text-mute); max-width:46%; text-align:right; word-break:break-word; }
+.envrow2.bad .ed2 { color:#e0857c; }
+
+/* ---------- Crawl buttons ---------- */
+.tier-label {
+  display:flex; align-items:center; gap:8px;
+  font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-mute);
+  margin:4px 0 9px;
+}
+.tier-label .ln { flex:1; height:1px; background:var(--hairline); }
+
+.crawlbtn {
+  display:block; width:100%; text-align:left;
+  background:var(--bg-elev); border:1px solid var(--border); border-left:3px solid var(--accent);
+  border-radius:8px; padding:11px 12px; margin-bottom:10px;
+  cursor:pointer; color:var(--text); font:inherit;
+}
+.crawlbtn:hover:not(:disabled) { border-color:var(--border-strong); border-left-color:var(--accent); background:var(--bg-panel-2); }
+.crawlbtn:disabled { opacity:.45; cursor:not-allowed; }
+.crawlbtn .cbh { display:flex; align-items:center; gap:9px; }
+.crawlbtn .cbrun {
+  width:24px; height:24px; flex:0 0 24px; border-radius:6px;
+  background:var(--accent-ghost); color:var(--accent);
+  display:grid; place-items:center;
+}
+.crawlbtn .cbtitle { font-weight:650; font-size:12.5px; }
+.crawlbtn .cben { font-size:9.5px; color:var(--text-mute); font-family:var(--font-mono); margin-top:1px; }
+.crawlbtn .cbdesc { font-size:11px; color:var(--text-dim); margin-top:7px; line-height:1.4; }
+.crawlbtn .cbrefresh { font-size:10px; color:var(--text-mute); margin-top:6px; display:flex; align-items:center; gap:5px; }
+.crawlbtn .cbfoot { display:flex; align-items:center; margin-top:9px; gap:8px; }
+
+/* advanced crawl button variant */
+.crawlbtn.adv { background:transparent; border-style:dashed; border-left-width:1px; border-left-style:dashed; padding:9px 11px; }
+.crawlbtn.adv .cbtitle { font-size:11.5px; font-weight:600; color:var(--text-dim); }
+.crawlbtn.adv .cbrun { background:var(--bg-canvas); color:var(--text-mute); width:20px; height:20px; flex-basis:20px; }
+
+/* ---------- FreshBadge ---------- */
+.freshbadge {
+  display:inline-flex; align-items:center; gap:5px;
+  font-family:var(--font-mono); font-size:9.5px; padding:2px 8px; border-radius:10px;
+}
+.freshbadge.never { color:var(--text-mute); background:var(--bg-canvas); border:1px solid var(--border); }
+.freshbadge.has { color:var(--text-dim); background:var(--bg-canvas); border:1px solid var(--border); }
+.freshbadge.now { color:var(--ok); background:rgba(78,196,110,.12); border:1px solid rgba(78,196,110,.28); }
+
+/* ---------- Advanced toggle row ---------- */
+.advrow {
+  display:flex; align-items:center; gap:8px;
+  cursor:pointer; color:var(--text-dim); font-size:11.5px;
+  padding:9px 0; margin-top:2px; border-top:1px solid var(--hairline);
+}
+.advrow:hover { color:var(--text); }
+.advrow .caret { transition:transform .12s; color:var(--text-mute); }
+.advrow.open .caret { transform:rotate(90deg); }
+.advrow .hint { margin-left:auto; font-size:10px; color:var(--text-mute); }
+
+/* ---------- Run panel (live takeover) ---------- */
+.runwrap { display:flex; flex-direction:column; flex:1; min-height:0; padding:14px 15px; }
+.run-head { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+.run-ico {
+  width:28px; height:28px; flex:0 0 28px; border-radius:7px;
+  display:grid; place-items:center;
+  background:var(--accent-ghost); color:var(--accent);
+}
+.run-ico.ok { background:rgba(78,196,110,.14); color:var(--ok); }
+.run-ico.err { background:rgba(224,89,78,.14); color:var(--error); }
+.run-title { font-size:13px; font-weight:650; }
+.run-sub { font-size:10.5px; color:var(--text-dim); }
+.run-elapsed { margin-left:auto; font-family:var(--font-mono); font-size:11px; color:var(--text-dim); text-align:right; }
+
+.runlog {
+  font-family:var(--font-mono); font-size:11px;
+  background:var(--bg-canvas); border:1px solid var(--border); border-radius:8px;
+  padding:10px 12px; flex:1; min-height:120px; overflow:auto; line-height:1.7;
+}
+.runlog .ll { display:flex; gap:10px; }
+.runlog .lt { color:var(--text-mute); flex:0 0 50px; text-align:right; }
+.runlog .lm { flex:1; word-break:break-word; }
+.runlog .ll.ok .lm { color:var(--ok); }
+.runlog .ll.warn .lm { color:var(--warn); }
+.runlog .ll.error .lm { color:var(--error); }
+.runlog .ll.info .lm { color:var(--text-dim); }
+.runlog .ll.dim .lm { color:var(--text-mute); }
+.run-actions { display:flex; gap:9px; margin-top:11px; }
+
+/* ---------- Progress bar ---------- */
+.progress { height:6px; background:var(--bg-canvas); border-radius:4px; overflow:hidden; margin:4px 0 12px; }
+.progress .bar { height:100%; background:linear-gradient(90deg,var(--accent-dim),var(--accent)); transition:width .3s; }
+
+/* ---------- Run result ---------- */
+.run-result { border-radius:8px; padding:12px 13px; margin-top:11px; }
+.run-result.ok { background:rgba(78,196,110,.09); border:1px solid rgba(78,196,110,.3); }
+.run-result.err { background:rgba(224,89,78,.09); border:1px solid rgba(224,89,78,.3); }
+.run-result .rt { font-size:13px; font-weight:650; display:flex; align-items:center; gap:8px; }
+.run-result.ok .rt { color:var(--ok); }
+.run-result.err .rt { color:#f0a59c; }
+.run-result .cause { font-size:11.5px; color:var(--text-dim); margin-top:9px; line-height:1.5; }
+.run-result .fixpill {
+  display:inline-flex; align-items:center; gap:6px;
+  font-size:10.5px; padding:3px 9px; border-radius:11px; margin-top:9px;
+}
+.run-result .fixpill.self { background:rgba(78,196,110,.13); color:var(--ok); }
+.run-result .fixpill.maint { background:rgba(224,166,78,.13); color:var(--warn); }
+.run-result .fix-text { font-size:11.5px; color:var(--text); margin-top:8px; }
+
+/* ---------- Log details ---------- */
+.logdetails { margin-top:10px; }
+.logdetails summary {
+  cursor:pointer; font-size:11px; color:var(--text-dim);
+  list-style:none; display:flex; align-items:center; gap:6px;
+}
+.logdetails summary::-webkit-details-marker { display:none; }
+.logdetails summary .caret { transition:transform .12s; }
+.logdetails[open] summary .caret { transform:rotate(90deg); }
+.logdetails .runlog { flex:none; height:150px; margin-top:8px; }
+
+/* ---------- Config offline / reconnecting states ---------- */
+.cfg-notice {
+  margin:14px 15px; padding:16px;
+  border:1px dashed var(--border-strong); border-radius:9px; text-align:center;
+}
+.cfg-notice .ni {
+  width:38px; height:38px; margin:0 auto 11px; border-radius:9px;
+  display:grid; place-items:center; background:var(--bg-elev); color:var(--text-dim);
+}
+.cfg-notice .nt { font-size:13px; font-weight:600; margin-bottom:5px; }
+.cfg-notice .nd { font-size:11.5px; color:var(--text-dim); line-height:1.5; }
+
+.reconnect-spin {
+  display:grid; place-items:center;
+  padding:40px 16px; text-align:center; gap:12px; color:var(--text-dim);
+}
+
+/* note / sub-text ---------- */
+.cfg .note { font-size:11px; color:var(--text-mute); margin-top:4px; }
+
+/* spin animation (shared with .spin in chrome.css; safe to redeclare) */
+@keyframes cfg-spin { to { transform:rotate(360deg); } }
+.cfg .spin { animation:cfg-spin 1s linear infinite; }
