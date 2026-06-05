@@ -112,7 +112,7 @@ describe('groupFiles', () => {
   });
 
   it('empty input returns empty projects + unorganized', () => {
-    expect(groupFiles([])).toEqual({ projects: [], unorganized: [] });
+    expect(groupFiles([])).toEqual({ projects: [], unorganized: [], crawledProjects: [] });
   });
 
   it('a folder with one Material and no MFs is a valid project', () => {
@@ -122,5 +122,35 @@ describe('groupFiles', () => {
       files: [F('solo/main.matgraph.json', 'Material')],
     }]);
     expect(result.unorganized).toEqual([]);
+  });
+
+  it('a _project/Foo/Foo.matgraph.json entry groups as crawled / separate from agent projects', () => {
+    const crawledEntry: FileEntry = {
+      path: '_project/Foo/Foo.matgraph.json',
+      type: 'Material',
+      origin: 'crawled',
+    };
+    const agentEntry: FileEntry = {
+      path: 'obsidian/obsidian.matgraph.json',
+      type: 'Material',
+      origin: 'agent',
+    };
+    const result = groupFiles([crawledEntry, agentEntry]);
+    // crawled entry must NOT appear in agent projects
+    expect(result.projects).toHaveLength(1);
+    expect(result.projects[0].folder).toBe('obsidian');
+    expect(result.projects[0].files).toHaveLength(1);
+    // crawled entry must appear in crawledProjects
+    expect(result.crawledProjects).toHaveLength(1);
+    expect(result.crawledProjects[0].folder).toBe('Foo');
+    expect(result.crawledProjects[0].files[0].path).toBe('_project/Foo/Foo.matgraph.json');
+  });
+
+  it('crawled entries with no agent entries still populate crawledProjects only', () => {
+    const e: FileEntry = { path: '_project/Rock/Rock.matgraph.json', type: 'Material', origin: 'crawled' };
+    const result = groupFiles([e]);
+    expect(result.projects).toHaveLength(0);
+    expect(result.crawledProjects).toHaveLength(1);
+    expect(result.crawledProjects[0].folder).toBe('Rock');
   });
 });

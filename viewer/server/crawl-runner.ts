@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 // an injectable spawnImpl + commandFor so it is fully unit-testable off-Windows
 // with a mock script; the Windows end-to-end run is verified separately.
 
-export type CrawlKind = 'export' | 'enginemf' | 'workmf';
+export type CrawlKind = 'export' | 'enginemf' | 'workmf' | 'projectmat';
 
 export type CrawlEvent =
   | { type: 'started'; jobId: string; kind: CrawlKind }
@@ -31,7 +31,7 @@ export interface SpawnSpec {
 }
 
 export interface CrawlStartOpts {
-  // Only meaningful for 'workmf': the UE content root(s) to crawl, e.g. "/Game"
+  // Meaningful for 'workmf'/'projectmat': the UE content root(s) to crawl, e.g. "/Game"
   // or "/Game/Materials,/MyPlugin". Omitted → the script's own default (/Game,
   // the whole project Content/). Validated at the HTTP boundary before it reaches here.
   contentRoots?: string;
@@ -43,6 +43,10 @@ export type CommandFor = (repoRoot: string, kind: CrawlKind, opts?: CrawlStartOp
 // The actual PowerShell invocation per crawl kind, kept in ONE place so the
 // Windows side can confirm/adjust the exact args without touching the runner.
 // All three scripts read ProjectPath/EngineRoot from local.config.json.
+// Staging dir the projectmat commandlet writes UE T3D dumps into (gitignored,
+// cleaned by the server after import). Shared with http-server's post-crawl hook.
+export const PROJECTMAT_STAGING_REL = 'tools/node-t3d-metadata/projectmat-staging';
+
 export const defaultCommandFor: CommandFor = (repoRoot, kind, opts) => {
   const tool = resolve(repoRoot, 'tools', 'node-t3d-metadata');
   const ps = (file: string, extra: string[]): SpawnSpec => ({
@@ -63,6 +67,12 @@ export const defaultCommandFor: CommandFor = (repoRoot, kind, opts) => {
       // local.config.json (same fallback as enginemf). Optional -ContentRoots
       // narrows/widens which project folders are crawled (default /Game).
       return ps('plugin-src/Scripts/Run-WorkMfIndex.ps1', opts?.contentRoots ? ['-ContentRoots', opts.contentRoots] : []);
+    case 'projectmat':
+      // Exports each /Game UMaterial as a T3D dump into the staging dir (the
+      // Windows/Codex commandlet); the server converts the dumps after the crawl
+      // (importProjectMaterials). Optional -ContentRoots narrows the /Game scan.
+      return ps('plugin-src/Scripts/Run-ProjectMaterials.ps1',
+        ['-StagingDir', resolve(repoRoot, PROJECTMAT_STAGING_REL), ...(opts?.contentRoots ? ['-ContentRoots', opts.contentRoots] : [])]);
   }
 };
 

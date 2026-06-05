@@ -47,7 +47,11 @@ export function ConfigPanel() {
   };
 
   const doCrawl = (kind: CrawlKind) =>
-    kind === 'workmf' ? startCrawl('workmf', mfRoot.trim() || '/Game') : startCrawl(kind);
+    (kind === 'workmf' || kind === 'projectmat')
+      ? startCrawl(kind, mfRoot.trim() || '/Game')
+      : startCrawl(kind);
+
+  const [advancedOpen, setAdvancedOpen] = useState(false);
 
   // One content root, two uses — always shown (export works offline too, so this must
   // be reachable even in snapshot/reconnecting where the crawl sections are hidden).
@@ -124,9 +128,22 @@ export function ConfigPanel() {
 
           <div className="cfg-sec">
             <div className="cfg-sec-title">爬取 UE 元資料</div>
-            <button className="cfg-btn" disabled={!ready || running} onClick={() => doCrawl('export')}>重爬節點匯出 (export)</button>
-            <button className="cfg-btn" disabled={!ready || running} onClick={() => doCrawl('enginemf')}>重爬引擎 MF (enginemf)</button>
-            <button className="cfg-btn" disabled={!ready || running} onClick={() => doCrawl('workmf')}>重爬專案 MF (workmf)</button>
+            <div className="cfg-crawl-group">
+              <div className="cfg-crawl-group-label">主要（專案）</div>
+              <button className="cfg-btn" disabled={!ready || running} onClick={() => doCrawl('workmf')}>重爬專案 Material Function</button>
+              <button className="cfg-btn" disabled={!ready || running} onClick={() => doCrawl('projectmat')}>重爬專案母材質</button>
+            </div>
+            <div className="cfg-crawl-group cfg-crawl-group-advanced">
+              <button className="cfg-crawl-advanced-toggle" onClick={() => setAdvancedOpen(o => !o)}>
+                {advancedOpen ? '▼' : '▶'} 進階／維護（官方原生，一般用不到）
+              </button>
+              {advancedOpen && (
+                <div className="cfg-crawl-advanced-body">
+                  <button className="cfg-btn" disabled={!ready || running} onClick={() => doCrawl('export')}>重爬節點導出</button>
+                  <button className="cfg-btn" disabled={!ready || running} onClick={() => doCrawl('enginemf')}>重爬引擎 Material Function</button>
+                </div>
+              )}
+            </div>
             {!ready && crawl.status === 'idle' && <p className="cfg-note">完成上方環境檢查後，按鈕就會啟用。</p>}
 
             {running && (

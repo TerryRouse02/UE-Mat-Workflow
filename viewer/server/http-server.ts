@@ -1,6 +1,6 @@
 import { createServer, type Server, type IncomingMessage } from 'node:http';
 import { readFile, readdir, mkdir, writeFile, access } from 'node:fs/promises';
-import { resolve, join, extname, relative, dirname, sep } from 'node:path';
+import { resolve, join, extname, relative, dirname } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { watchGraphs } from './watcher.js';
 import { loadGraph } from './graph-loader.js';
@@ -8,8 +8,12 @@ import { materialStructureWarnings } from './schema.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
 import { loadWorkMfIndex } from './workmf-index.js';
 import { probeEnv } from './crawl-env.js';
-import { createCrawlRunner, type CrawlEvent } from './crawl-runner.js';
+import { createCrawlRunner, type CrawlEvent, PROJECTMAT_STAGING_REL } from './crawl-runner.js';
 import type { ServerMessage, ClientMessage, FileEntry } from './ws-protocol.js';
+import { isInside, toPosixPath, slugifyGraphName, writeGraph } from './graph-write.js';
+export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
+import { importProjectMaterials, PROJECT_DIR } from './projectmat-importer.js';
+import type { ExportMeta } from '../web/src/export/export-meta-types.js';
 
 export interface ServerOpts {
   repoRoot: string;     // contains graphs/
@@ -38,35 +42,9 @@ const MIME: Record<string, string> = {
   '.map': 'application/json; charset=utf-8',
 };
 
-// Containment check for user-controlled paths: the resolved candidate must be
-// the root itself or live strictly beneath it. Blocks '../' traversal escapes.
-export function isInside(root: string, candidate: string): boolean {
-  const r = resolve(root);
-  const c = resolve(candidate);
-  return c === r || c.startsWith(r + sep);
-}
-
-// Wire paths are always POSIX-style ('/'). On Windows path.relative() returns
-// backslash separators, which the client's path.split('/') logic can't segment:
-// every file collapses to one segment and lands under "Unorganized". Normalize
-// at this boundary so all path consumers (grouping, base names, breadcrumbs)
-// stay platform-neutral.
-export function toPosixPath(p: string): string {
-  return p.replace(/\\/g, '/');
-}
-
-// Turn a user-supplied import name into a filesystem-safe slug used as BOTH the
-// project folder and the file base name (folder-per-project convention). Every
-// char outside [A-Za-z0-9_-] collapses to '_', so no '/', '\' or '.' survives —
-// the result therefore cannot escape graphs/ even before the isInside guard.
-// Empty/garbage input falls back to 'imported'.
-export function slugifyGraphName(raw: unknown): string {
-  const s = String(raw ?? '')
-    .trim()
-    .replace(/[^A-Za-z0-9_-]+/g, '_')
-    .replace(/^[_-]+|[_-]+$/g, '');
-  return s || 'imported';
-}
+// isInside / toPosixPath / slugifyGraphName live in ./graph-write so the
+// project-materials importer can share them without an import cycle. They are
+// imported (for internal use) and re-exported near the top of this file.
 
 async function pathExists(p: string): Promise<boolean> {
   try { await access(p); return true; } catch { return false; }
@@ -134,20 +112,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // folder name = material name = file base name).
     graph.name = finalName;
 
-    const folder = join(graphsRoot, finalName);
-    const filePath = join(folder, `${finalName}.matgraph.json`);
-    // Defence in depth: the slug already strips separators, but re-assert the
-    // write target lives under graphs/ before touching the disk.
-    if (!isInside(graphsRoot, filePath)) { sendJson(res, 400, { error: 'resolved path escapes graphs root' }); return; }
-
+    let relPath: string;
     try {
-      await mkdir(folder, { recursive: true });
-      // UTF-8 without BOM, trailing newline — matches authored files.
-      await writeFile(filePath, JSON.stringify(graph, null, 2) + '\n', 'utf-8');
+      relPath = await writeGraph(graphsRoot, finalName, finalName, graph);
     } catch (e) {
       sendJson(res, 500, { error: `failed to write file: ${(e as Error).message}` }); return;
     }
-    sendJson(res, 200, { path: toPosixPath(relative(graphsRoot, filePath)), name: finalName });
+    sendJson(res, 200, { path: relPath, name: finalName });
   }
 
   // Serve a committed agent-pack data file so the web can re-fetch it at runtime
@@ -252,13 +223,33 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     return { kind: 'crawlDone', jobId: e.jobId, status: e.status, exitCode: e.exitCode };
   }
 
+  // Post-crawl hook for 'projectmat': convert the staged T3D dumps the commandlet
+  // wrote into openable graphs under graphs/_project/ via the shared converter.
+  async function importStagedProjectMaterials(jobId: string) {
+    const log = (line: string) => {
+      const m = crawlEventToMsg({ type: 'log', jobId, line });
+      for (const ws of wss.clients) safeSend(ws, m);
+    };
+    try {
+      const exportMeta = JSON.parse(
+        await readFile(resolve(opts.repoRoot, 'agent-pack', 'nodes-ue5.7.export.json'), 'utf-8'),
+      ) as ExportMeta;
+      const stagingDir = resolve(opts.repoRoot, PROJECTMAT_STAGING_REL);
+      const { imported, warnings } = await importProjectMaterials({ stagingDir, graphsRoot, exportMeta });
+      log(`project materials: imported ${imported.length}${imported.length ? ` (${imported.join(', ')})` : ''}`);
+      for (const w of warnings) log(`  warning: ${w}`);
+    } catch (e) {
+      log(`project-materials import failed: ${(e as Error).message}`);
+    }
+  }
+
   async function handleCrawl(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin crawl requests are refused' }); return; }
     let body: { kind?: unknown; contentRoots?: unknown };
     try { body = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     const kind = body.kind;
-    if (kind !== 'export' && kind !== 'enginemf' && kind !== 'workmf') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
+    if (kind !== 'export' && kind !== 'enginemf' && kind !== 'workmf' && kind !== 'projectmat') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
     // contentRoots (workmf only) becomes a literal arg to the spawned editor. Constrain it
     // to a single UE content root — leading '/', word segments — so it can never start with
     // '-' (PowerShell param injection) or carry shell/path-escape chars (no comma → no second arg).
@@ -272,6 +263,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       const jobId = runner.start(kind, (e) => {
         const msg = crawlEventToMsg(e);
         for (const ws of wss.clients) safeSend(ws, msg);
+        // After a successful project-materials crawl, convert the staged T3D dumps
+        // into openable graphs under graphs/_project/. The chokidar watcher then
+        // refreshes the file list; import results append as trailing crawl-log lines.
+        if (kind === 'projectmat' && e.type === 'done' && e.status === 'success') {
+          void importStagedProjectMaterials(e.jobId);
+        }
       }, contentRoots ? { contentRoots } : undefined);
       sendJson(res, 200, { jobId });
     } catch (e) {
@@ -345,16 +342,18 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   const send = (ws: WebSocket, msg: ServerMessage) => ws.send(JSON.stringify(msg));
 
-  // Any read/parse error → 'Unknown'; user sees it under "Unorganized"
-  // and can investigate. Distinct error types are not surfaced.
-  async function readGraphType(absPath: string): Promise<FileEntry['type']> {
+  // Any read/parse error → type 'Unknown', nodeCount undefined; user sees it
+  // under "Unorganized" and can investigate. Distinct error types are not surfaced.
+  async function readGraphMeta(absPath: string): Promise<{ type: FileEntry['type']; nodeCount: number | undefined }> {
     try {
       const raw = await readFile(absPath, 'utf-8');
-      const parsed = JSON.parse(raw) as { type?: string };
-      if (parsed.type === 'Material' || parsed.type === 'MaterialFunction') return parsed.type;
-      return 'Unknown';
+      const parsed = JSON.parse(raw) as { type?: string; nodes?: unknown };
+      const type: FileEntry['type'] =
+        parsed.type === 'Material' || parsed.type === 'MaterialFunction' ? parsed.type : 'Unknown';
+      const nodeCount = Array.isArray(parsed.nodes) ? parsed.nodes.length : undefined;
+      return { type, nodeCount };
     } catch {
-      return 'Unknown';
+      return { type: 'Unknown', nodeCount: undefined };
     }
   }
 
@@ -368,8 +367,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         const full = join(dir, e.name);
         if (e.isDirectory()) await walk(full);
         else if (e.isFile() && e.name.endsWith('.matgraph.json')) {
-          const type = await readGraphType(full);
-          out.push({ path: toPosixPath(relative(graphsRoot, full)), type });
+          const { type, nodeCount } = await readGraphMeta(full);
+          const posixPath = toPosixPath(relative(graphsRoot, full));
+          const origin: FileEntry['origin'] = posixPath.startsWith(PROJECT_DIR + '/') ? 'crawled' : 'agent';
+          const entry: FileEntry = { path: posixPath, type, origin };
+          if (nodeCount !== undefined) entry.nodeCount = nodeCount;
+          out.push(entry);
         }
       }
     }

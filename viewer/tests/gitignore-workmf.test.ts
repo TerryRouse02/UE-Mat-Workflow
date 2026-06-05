@@ -23,6 +23,10 @@ describe('local-only files are gitignored', () => {
     expect(isIgnored('tools/node-t3d-metadata/local.config.json')).toBe(true);
   });
 
+  it('ignores project material crawl staging', () => {
+    expect(isIgnored('tools/node-t3d-metadata/projectmat-staging/M_Test.t3d')).toBe(true);
+  });
+
   it('does NOT ignore the committed example index', () => {
     expect(isIgnored('agent-pack/workmf-index.example.json')).toBe(false);
   });

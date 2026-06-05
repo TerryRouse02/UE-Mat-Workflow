@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useStore } from './store';
 import { groupFiles, type Project, type FileEntry } from './groupFiles';
+import { shouldConfirmOpen } from './largeGraphGate';
 
 type SubTab = 'material' | 'function';
 
@@ -30,13 +31,24 @@ function FileRow({ entry }: { entry: FileEntry }) {
     ? ((loaded.warnings.length || errored) ? 'warn' : 'ok')
     : (errored ? 'warn' : null);
   const count = loaded ? loaded.graph.nodes.length : null;
+  // Prefer the loaded node count (live); fall back to the server-reported nodeCount.
+  const displayCount = count ?? entry.nodeCount ?? null;
+  const handleClick = () => {
+    if (shouldConfirmOpen(entry.nodeCount)) {
+      const ok = window.confirm(
+        `此圖表包含 ${entry.nodeCount} 個節點，載入可能需要較長時間。確定要開啟嗎？`,
+      );
+      if (!ok) return;
+    }
+    open(entry.path);
+  };
   return (
     <button className={`tree-file ${fileClass(entry.type)} ${active ? 'active' : ''}`}
-      onClick={() => open(entry.path)} title={entry.path}>
+      onClick={handleClick} title={entry.path}>
       <span className="tree-file-icon">{icon(entry.type)}</span>
       <span className="tree-file-name">{baseName(entry.path)}</span>
       {status && <span className={`st-dot st-${status}`} />}
-      {count != null && <span className="tree-count">{count}</span>}
+      {displayCount != null && <span className="tree-count">{displayCount}</span>}
     </button>
   );
 }
@@ -74,18 +86,40 @@ function UnorganizedSection({ entries }: { entries: FileEntry[] }) {
   );
 }
 
+function CrawledSection({ projects }: { projects: Project[] }) {
+  const [open, setOpen] = useState(true);
+  if (projects.length === 0) return null;
+  return (
+    <div className="tree-section-crawled">
+      <div className="tree-section-header" onClick={() => setOpen(!open)}>
+        <span className="tree-section-toggle">{open ? '▼' : '▶'}</span>
+        <span className="tree-section-title">專案母材質（爬取）</span>
+        <span className="tree-badge-crawled">爬取</span>
+      </div>
+      {open && (
+        <div className="tree-section-body">
+          {projects.map(p => <ProjectFolder key={p.folder} project={p} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function FileList() {
   const { state } = useStore();
   const [query, setQuery] = useState('');
   const [sub, setSub] = useState<SubTab>('material');
   const q = query.trim().toLowerCase();
-  const { projects, unorganized } = groupFiles(state.files);
+  const { projects, unorganized, crawledProjects } = groupFiles(state.files);
 
   const matchFile = (e: FileEntry) =>
     inSubTab(e.type, sub) &&
     (!q || baseName(e.path).toLowerCase().includes(q) || e.path.toLowerCase().includes(q));
 
   const visibleProjects = projects
+    .map(p => ({ ...p, files: p.files.filter(matchFile) }))
+    .filter(p => p.files.length > 0);
+  const visibleCrawled = crawledProjects
     .map(p => ({ ...p, files: p.files.filter(matchFile) }))
     .filter(p => p.files.length > 0);
   const visibleUnorg = unorganized.filter(matchFile);
@@ -104,8 +138,9 @@ export function FileList() {
       </div>
       {visibleProjects.map(p => <ProjectFolder key={p.folder} project={p} />)}
       <UnorganizedSection entries={visibleUnorg} />
+      <CrawledSection projects={visibleCrawled} />
       {nothing && <div className="sb-empty">No graphs yet. AI writes to graphs/&lt;project&gt;/&lt;name&gt;.matgraph.json</div>}
-      {!nothing && visibleProjects.length === 0 && visibleUnorg.length === 0 && <div className="sb-empty">No matches.</div>}
+      {!nothing && visibleProjects.length === 0 && visibleUnorg.length === 0 && visibleCrawled.length === 0 && <div className="sb-empty">No matches.</div>}
     </div>
   );
 }
