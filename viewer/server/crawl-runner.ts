@@ -118,6 +118,7 @@ export interface RunnerOpts {
 export interface CrawlRunner {
   start(kind: CrawlKind, emit: (e: CrawlEvent) => void, opts?: CrawlStartOpts): string;
   current(): CrawlStatus;
+  cancel(): boolean;
 }
 
 export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): CrawlRunner {
@@ -127,6 +128,7 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
 
   let status: CrawlStatus = { status: 'idle' };
   let counter = 0;
+  let currentChild: ChildProcess | null = null;
 
   function start(kind: CrawlKind, emit: (e: CrawlEvent) => void, startOpts?: CrawlStartOpts): string {
     if (status.status === 'running') throw new Error('a crawl is already running');
@@ -134,6 +136,7 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
     status = { status: 'running', jobId, kind };
 
     const child = spawnImpl(commandFor(repoRoot, kind, startOpts), repoRoot);
+    currentChild = child;
     emit({ type: 'started', jobId, kind });
 
     const splitter = lineSplitter((line) => emit({ type: 'log', jobId, line }));
@@ -147,6 +150,7 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
       if (finished) return;      // 'error' then 'close' must not double-emit
       finished = true;
       clearTimeout(timer);
+      currentChild = null;
       splitter.flush();
       const ok = exitCode === 0;
       status = { status: ok ? 'success' : 'error', jobId, kind, exitCode };
@@ -158,5 +162,11 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
     return jobId;
   }
 
-  return { start, current: () => status };
+  function cancel(): boolean {
+    if (status.status !== 'running' || !currentChild) return false;
+    try { currentChild.kill(); } catch { /* already gone */ }
+    return true;
+  }
+
+  return { start, current: () => status, cancel };
 }

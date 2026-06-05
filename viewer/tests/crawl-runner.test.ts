@@ -86,4 +86,41 @@ describe('createCrawlRunner', () => {
     await finished;
     expect(runner.current().status).toBe('success');
   });
+
+  it('cancel() returns false when idle (no crawl running)', () => {
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', 'setTimeout(() => {}, 300)'] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+    expect(runner.cancel()).toBe(false);
+  });
+
+  it('cancel() returns true, kills the child, and emits a done error event', async () => {
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', 'setTimeout(() => {}, 5000)'] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+
+    let killCalled = false;
+    const events: CrawlEvent[] = [];
+    const donePromise = new Promise<void>((resolve) => {
+      runner.start('export', (e) => {
+        events.push(e);
+        if (e.type === 'done') resolve();
+      });
+    });
+
+    // Give the child a chance to actually start
+    await new Promise<void>((r) => setTimeout(r, 50));
+    const result = runner.cancel();
+    expect(result).toBe(true);
+
+    await donePromise;
+    const doneEvent = events.find(e => e.type === 'done') as Extract<CrawlEvent, { type: 'done' }> | undefined;
+    expect(doneEvent).toBeDefined();
+    expect(doneEvent?.status).toBe('error');
+  });
+
+  it('cancel() returns false after a crawl has already finished', async () => {
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', 'process.exit(0)'] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+    await runToDone(runner, 'export');
+    expect(runner.cancel()).toBe(false);
+  });
 });

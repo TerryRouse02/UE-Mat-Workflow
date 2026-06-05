@@ -1,5 +1,12 @@
 // Duplicate of viewer/server/ws-protocol.ts. Keep in sync.
 
+export type NodeSource = 'export' | 'workmf' | 'enginemf' | 'projectmat' | 'unresolved';
+
+export interface NodeProvenance {
+  source: NodeSource;
+  freshnessTs: string | null;
+}
+
 export interface NodeJson { id: string; type: string; params?: Record<string, unknown>; }
 export interface ConnectionJson { from: string; to: string; }
 export interface CommentJson { id: string; text: string; color?: string; contains: string[]; }
@@ -24,6 +31,7 @@ export interface GraphPayload {
   graph: MatGraph;
   derivedPins: Record<string, DerivedPins>;
   warnings: string[];
+  nodeProvenance?: Record<string, NodeProvenance>;
 }
 
 export interface FileEntry {

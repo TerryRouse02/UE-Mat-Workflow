@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
 import { connect } from './ws-client';
-import { startCrawlRequest, type CrawlAction, type CrawlKind } from './crawlRequest';
+import { startCrawlRequest, cancelCrawlRequest, type CrawlAction, type CrawlKind } from './crawlRequest';
 import type { ServerMessage, GraphPayload, FileEntry } from './protocol';
 import type { EnvStatus } from '../../server/crawl-types';
 
@@ -44,6 +44,7 @@ type Action =
   | { type: 'wsClosed' }
   | { type: 'snapshot' }
   | { type: 'setEnv'; env: EnvStatus }
+  | { type: 'crawlReset' }
   | CrawlAction;
 
 const idleCrawl: CrawlState = { status: 'idle', kind: null, jobId: null, logs: [], exitCode: null };
@@ -74,6 +75,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, breadcrumb: s.breadcrumb.slice(0, a.toIndex + 1) };
     case 'setEnv':
       return { ...s, env: a.env };
+    case 'crawlReset':
+      return { ...s, crawl: idleCrawl };
     case 'crawlStarted':
       return { ...s, crawl: { status: 'running', kind: a.kind, jobId: a.jobId, logs: [], exitCode: null } };
     case 'crawlAccepted':
@@ -104,6 +107,8 @@ interface Ctx {
   enterMF(path: string): void;
   popBreadcrumb(i: number): void;
   startCrawl(kind: CrawlKind, contentRoots?: string): void;
+  stopCrawl(): void;
+  resetCrawl(): void;
   refreshEnv(): void;
   saveConfig(projectPath: string, engineRoot: string): Promise<{ ok: boolean; error?: string }>;
 }
@@ -149,7 +154,10 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         else if (m.kind === 'graphError') dispatch({ type: 'graphError', path: m.path, errors: m.errors });
         else if (m.kind === 'crawlStarted') dispatch({ type: 'crawlStarted', kind: m.crawlKind, jobId: m.jobId });
         else if (m.kind === 'crawlLog') dispatch({ type: 'crawlLog', line: m.line });
-        else if (m.kind === 'crawlDone') dispatch({ type: 'crawlDone', status: m.status, exitCode: m.exitCode });
+        else if (m.kind === 'crawlDone') {
+          dispatch({ type: 'crawlDone', status: m.status, exitCode: m.exitCode });
+          if (m.status === 'success') void refreshEnv();
+        }
       },
     });
     wsRef.current = ws;
@@ -184,6 +192,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     await startCrawlRequest(kind, dispatch, contentRoots ? { contentRoots } : {});
   }, []);
 
+  const stopCrawl = useCallback(() => {
+    void cancelCrawlRequest();
+    dispatch({ type: 'crawlLog', line: '使用者已要求停止' });
+  }, []);
+
+  const resetCrawl = useCallback(() => {
+    dispatch({ type: 'crawlReset' });
+  }, []);
+
   // Write the per-machine crawl config from the Config tab, then apply the fresh
   // probe the server returns so the checklist + crawl gate update immediately.
   const saveConfig = useCallback(async (projectPath: string, engineRoot: string) => {
@@ -207,7 +224,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const open = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'open', path }); }, []);
   const enterMF = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'enterMF', mfPath: path }); }, []);
   const popBreadcrumb = useCallback((i: number) => { dispatch({ type: 'popBreadcrumb', toIndex: i }); }, []);
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, refreshEnv, saveConfig }), [state, open, enterMF, popBreadcrumb, startCrawl, refreshEnv, saveConfig]);
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

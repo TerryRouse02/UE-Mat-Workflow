@@ -1,6 +1,13 @@
 import type { MatGraph } from './types.js';
 import type { ResolvedGraph } from './mf-resolver.js';
 
+export type NodeSource = 'export' | 'workmf' | 'enginemf' | 'projectmat' | 'unresolved';
+
+export interface NodeProvenance {
+  source: NodeSource;
+  freshnessTs: string | null;
+}
+
 export interface FileEntry {
   path: string;
   type: 'Material' | 'MaterialFunction' | 'Unknown';
@@ -23,6 +30,7 @@ export interface GraphPayload {
   graph: MatGraph;
   derivedPins: ResolvedGraph['derivedPins'];
   warnings: string[];
+  nodeProvenance?: Record<string, NodeProvenance>;
 }
 
 export type ClientMessage =

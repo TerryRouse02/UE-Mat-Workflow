@@ -8,7 +8,9 @@ import { materialStructureWarnings } from './schema.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
 import { loadWorkMfIndex } from './workmf-index.js';
 import { probeEnv } from './crawl-env.js';
+import { loadFreshness, recordFreshness } from './crawl-freshness.js';
 import { createCrawlRunner, type CrawlEvent, PROJECTMAT_STAGING_REL } from './crawl-runner.js';
+import type { CrawlFreshness } from './crawl-types.js';
 import type { ServerMessage, ClientMessage, FileEntry } from './ws-protocol.js';
 import { isInside, toPosixPath, slugifyGraphName, writeGraph } from './graph-write.js';
 export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
@@ -269,6 +271,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         if (kind === 'projectmat' && e.type === 'done' && e.status === 'success') {
           void importStagedProjectMaterials(e.jobId);
         }
+        // Record freshness timestamp after any successful crawl.
+        if (e.type === 'done' && e.status === 'success') {
+          void recordFreshness(opts.repoRoot, kind as keyof CrawlFreshness, new Date().toISOString());
+        }
       }, contentRoots ? { contentRoots } : undefined);
       sendJson(res, 200, { jobId });
     } catch (e) {
@@ -285,7 +291,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
     if (req.method === 'GET' && urlPath === '/api/env') {
-      try { sendJson(res, 200, await probeEnv(opts.repoRoot)); }
+      try {
+        const [env, freshness] = await Promise.all([probeEnv(opts.repoRoot), loadFreshness(opts.repoRoot)]);
+        sendJson(res, 200, { ...env, freshness });
+      }
       catch (e) { console.error('env probe error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
@@ -307,6 +316,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'POST' && urlPath === '/api/crawl') {
       try { await handleCrawl(req, res); }
       catch (e) { console.error('crawl handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/crawl/cancel') {
+      if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin cancel requests are refused' }); return; }
+      const ok = runner.cancel();
+      sendJson(res, ok ? 200 : 409, ok ? { cancelled: true } : { error: 'no crawl running' });
       return;
     }
     if (!opts.webDist) { res.writeHead(404); res.end(); return; }
@@ -401,12 +416,24 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     const { index: engineMfIndex, warnings: engineWarnings } = await loadWorkMfIndex(engineMfIndexPath);
     // MaterialFunction paths are relative to the material file's own directory
     // (project-folder convention), not the graphs root.
-    const resolved = await resolveMaterialFunctions(loaded.graph, dirname(abs), new Set(), { workMfIndex, engineMfIndex });
+    const freshness = await loadFreshness(opts.repoRoot);
+    const resolved = await resolveMaterialFunctions(loaded.graph, dirname(abs), new Set(), { workMfIndex, engineMfIndex, freshnessMap: freshness });
+
+    // Second pass: tag non-MFC nodes that are not already in nodeProvenance as 'export'.
+    // These are the export-authored node types (MaterialOutput, FunctionInput, etc.)
+    // that come from the exported graph data rather than any crawl index.
+    for (const n of resolved.graph.nodes) {
+      if (n.type !== 'MaterialFunctionCall' && !(n.id in resolved.nodeProvenance)) {
+        resolved.nodeProvenance[n.id] = { source: 'export', freshnessTs: freshness.export ?? null };
+      }
+    }
+
     return {
       kind: 'graph', path: relPath,
       payload: {
         graph: resolved.graph, derivedPins: resolved.derivedPins,
         warnings: [...materialStructureWarnings(loaded.graph), ...indexWarnings, ...engineWarnings, ...resolved.warnings],
+        nodeProvenance: resolved.nodeProvenance,
       },
     };
   }

@@ -2,6 +2,8 @@ import { resolve, dirname } from 'node:path';
 import type { MatGraph } from './types.js';
 import { loadGraph } from './graph-loader.js';
 import { deriveWorkMfPins, type WorkMfIndex } from './workmf-index.js';
+import type { CrawlFreshness } from './crawl-types.js';
+import type { NodeSource, NodeProvenance } from './ws-protocol.js';
 
 export interface DerivedPins {
   inputs: { name: string; type: string }[];
@@ -12,6 +14,7 @@ export interface ResolvedGraph {
   graph: MatGraph;
   derivedPins: Record<string, DerivedPins>;
   warnings: string[];
+  nodeProvenance: Record<string, NodeProvenance>;
 }
 
 export interface ResolveOptions {
@@ -23,6 +26,9 @@ export interface ResolveOptions {
   // covering /Engine/... built-in Material Functions. Same shape as the work index;
   // stable shipped data, so it lives in the repo (unlike the gitignored work index).
   engineMfIndex?: WorkMfIndex | null;
+  // Freshness timestamps keyed by crawl kind — passed through so provenance records
+  // can include when the source data was last refreshed.
+  freshnessMap?: CrawlFreshness;
 }
 
 export async function resolveMaterialFunctions(
@@ -33,6 +39,7 @@ export async function resolveMaterialFunctions(
 ): Promise<ResolvedGraph> {
   const derivedPins: Record<string, DerivedPins> = {};
   const warnings: string[] = [];
+  const nodeProvenance: Record<string, NodeProvenance> = {};
 
   for (const node of graph.nodes) {
     if (node.type !== 'MaterialFunctionCall') continue;
@@ -40,6 +47,7 @@ export async function resolveMaterialFunctions(
     if (!relPath) {
       warnings.push(`MFC "${node.id}": params.MaterialFunction missing`);
       derivedPins[node.id] = { inputs: [], outputs: [] };
+      nodeProvenance[node.id] = { source: 'unresolved', freshnessTs: null };
       continue;
     }
 
@@ -54,6 +62,9 @@ export async function resolveMaterialFunctions(
       const pins = deriveWorkMfPins(index, relPath);
       if (pins) {
         derivedPins[node.id] = pins;
+        const source: NodeSource = fromEngine ? 'enginemf' : 'workmf';
+        const freshnessKey: keyof CrawlFreshness = fromEngine ? 'enginemf' : 'workmf';
+        nodeProvenance[node.id] = { source, freshnessTs: opts.freshnessMap?.[freshnessKey] ?? null };
       } else {
         warnings.push(
           fromEngine
@@ -61,6 +72,7 @@ export async function resolveMaterialFunctions(
             : `MFC "${node.id}": work MF not in index: ${relPath} (run WorkMF discover)`,
         );
         derivedPins[node.id] = { inputs: [], outputs: [] };
+        nodeProvenance[node.id] = { source: 'unresolved', freshnessTs: null };
       }
       continue;
     }
@@ -69,17 +81,20 @@ export async function resolveMaterialFunctions(
     if (visited.has(absPath)) {
       warnings.push(`circular reference detected at MFC "${node.id}" → ${relPath}`);
       derivedPins[node.id] = { inputs: [], outputs: [] };
+      nodeProvenance[node.id] = { source: 'unresolved', freshnessTs: null };
       continue;
     }
     const loaded = await loadGraph(absPath);
     if (!loaded.graph) {
       warnings.push(`MFC "${node.id}": MaterialFunction not found: ${relPath}`);
       derivedPins[node.id] = { inputs: [], outputs: [] };
+      nodeProvenance[node.id] = { source: 'unresolved', freshnessTs: null };
       continue;
     }
     if (loaded.graph.type !== 'MaterialFunction') {
       warnings.push(`MFC "${node.id}": expected MaterialFunction, got ${loaded.graph.type}`);
       derivedPins[node.id] = { inputs: [], outputs: [] };
+      nodeProvenance[node.id] = { source: 'unresolved', freshnessTs: null };
       continue;
     }
     const nextVisited = new Set(visited);
@@ -91,6 +106,9 @@ export async function resolveMaterialFunctions(
     // a rare cross-file id clash — strictly better than dropping them.
     for (const [id, pins] of Object.entries(subResolved.derivedPins)) {
       if (!(id in derivedPins)) derivedPins[id] = pins;
+    }
+    for (const [id, prov] of Object.entries(subResolved.nodeProvenance)) {
+      if (!(id in nodeProvenance)) nodeProvenance[id] = prov;
     }
 
     derivedPins[node.id] = {
@@ -107,9 +125,15 @@ export async function resolveMaterialFunctions(
           type: typeMapForInput(n.params?.OutputType as string | undefined),
         })),
     };
+    // Sibling .matgraph.json MFs are tagged as 'projectmat' source (they come from
+    // the project materials crawl). The freshnessTs comes from the projectmat key.
+    nodeProvenance[node.id] = {
+      source: 'projectmat',
+      freshnessTs: opts.freshnessMap?.projectmat ?? null,
+    };
   }
 
-  return { graph, derivedPins, warnings };
+  return { graph, derivedPins, warnings, nodeProvenance };
 }
 
 function typeMapForInput(uiType?: string): string {

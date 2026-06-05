@@ -211,3 +211,67 @@ describe('resolveMaterialFunctions — work-project MF asset paths', () => {
     });
   });
 });
+
+describe('resolveMaterialFunctions — node provenance', () => {
+  const engineMfIndex: WorkMfIndex = {
+    schemaVersion: '1.0', kind: 'workmf-index', ueVersion: '5.7',
+    functions: {
+      '/Engine/Functions/EngFunc.EngFunc': {
+        assetPath: '/Engine/Functions/EngFunc.EngFunc', displayName: 'EngFunc',
+        inputs: [{ name: 'In', type: 'Float3', index: 0 }],
+        outputs: [{ name: 'Out', type: 'Float3', index: 0 }],
+      },
+    },
+  };
+
+  const workMfIndex: WorkMfIndex = {
+    schemaVersion: '1.0', kind: 'workmf-index', ueVersion: '5.7',
+    functions: {
+      '/Game/Functions/MF_Work.MF_Work': {
+        assetPath: '/Game/Functions/MF_Work.MF_Work', displayName: 'MF_Work',
+        inputs: [{ name: 'In', type: 'Float3', index: 0 }],
+        outputs: [{ name: 'Result', type: 'Float3', index: 0 }],
+      },
+    },
+  };
+
+  const mat = (mfPath: string): MatGraph => ({
+    schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'main',
+    nodes: [{ id: 'mfc', type: 'MaterialFunctionCall', params: { MaterialFunction: mfPath } }],
+    connections: [],
+  });
+
+  it('tags an enginemf-resolved MFC as source="enginemf" with freshnessTs from freshnessMap', async () => {
+    const freshnessMap = { enginemf: '2026-06-05T00:00:00.000Z' };
+    const resolved = await resolveMaterialFunctions(
+      mat('/Engine/Functions/EngFunc.EngFunc'), '/irrelevant', new Set(),
+      { engineMfIndex, freshnessMap },
+    );
+    expect(resolved.nodeProvenance['mfc']).toEqual({ source: 'enginemf', freshnessTs: '2026-06-05T00:00:00.000Z' });
+  });
+
+  it('tags a workmf-resolved MFC as source="workmf" with freshnessTs from freshnessMap', async () => {
+    const freshnessMap = { workmf: '2026-06-05T01:00:00.000Z' };
+    const resolved = await resolveMaterialFunctions(
+      mat('/Game/Functions/MF_Work.MF_Work'), '/irrelevant', new Set(),
+      { workMfIndex, freshnessMap },
+    );
+    expect(resolved.nodeProvenance['mfc']).toEqual({ source: 'workmf', freshnessTs: '2026-06-05T01:00:00.000Z' });
+  });
+
+  it('tags an unresolved MFC as source="unresolved" with freshnessTs=null', async () => {
+    const resolved = await resolveMaterialFunctions(
+      mat('/Game/Functions/MF_Missing.MF_Missing'), '/irrelevant', new Set(),
+      { workMfIndex, freshnessMap: {} },
+    );
+    expect(resolved.nodeProvenance['mfc']).toEqual({ source: 'unresolved', freshnessTs: null });
+  });
+
+  it('freshnessTs is null when key is not in freshnessMap', async () => {
+    const resolved = await resolveMaterialFunctions(
+      mat('/Engine/Functions/EngFunc.EngFunc'), '/irrelevant', new Set(),
+      { engineMfIndex, freshnessMap: {} },
+    );
+    expect(resolved.nodeProvenance['mfc'].freshnessTs).toBeNull();
+  });
+});
