@@ -193,13 +193,6 @@ function Body() {
               </div>
             </div>
           )}
-          {payload && !supported && (
-            <div className="canvas-banner" role="alert">
-              ⚠ UE version <b>{payload.graph.ueVersion}</b> isn't supported — no node DB ships for it.
-              Rendering with the latest available DB; export is disabled.
-              Add <code>nodes-ue{payload.graph.ueVersion}.json</code> + <code>.export.json</code> to <code>agent-pack/</code> to support it.
-            </div>
-          )}
           {payload
             ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} />
             : <div className="canvas-empty">Select a graph from the left.</div>}
