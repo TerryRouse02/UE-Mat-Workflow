@@ -1,26 +1,30 @@
-.hdr { display: flex; align-items: center; justify-content: space-between; gap: 16px;
-  height: 48px; padding: 0 14px; background: var(--hed); border-bottom: 1px solid var(--bd); flex: none; }
-.hdr-left { display: flex; align-items: center; gap: 16px; min-width: 0; }
-.brand { display: flex; align-items: baseline; gap: 6px; }
-.brand-mark { color: var(--accent); }
-.brand-name { font-weight: 700; letter-spacing: .02em; }
-.brand-sub { color: var(--fg-faint); font-size: 11px; }
-.crumb { display: flex; align-items: center; gap: 4px; min-width: 0; overflow: hidden; }
-.crumb-seg { display: inline-flex; align-items: center; gap: 4px; }
-.crumb-sep { color: var(--fg-faint); margin: 0 2px; }
-.crumb-link, .crumb-cur { background: none; border: 0; color: var(--fg-dim); cursor: pointer; font: inherit; padding: 2px 4px; }
-.crumb-link:hover { color: var(--fg); }
-.crumb-cur { color: var(--fg); cursor: default; }
-.hdr-right { display: flex; align-items: center; gap: 10px; }
-.watch-pill { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; color: var(--fg-dim);
-  background: var(--bg2); border: 1px solid var(--bd); border-radius: 999px; padding: 4px 10px; }
-.watch-pill.warn { color: var(--warn); }
-.watch-pill.snap { color: var(--fg-faint); }
-.watch-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-faint); }
-.watch-dot.live { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
-.btn-export { background: var(--accent); color: #fff; border: 0; border-radius: var(--radius);
-  padding: 6px 12px; font: inherit; font-weight: 600; cursor: pointer; }
-.btn-export:disabled { opacity: .5; cursor: not-allowed; }
-.btn-import { background: var(--bg2); color: var(--fg); border: 1px solid var(--bd); border-radius: var(--radius); padding: 6px 12px; cursor: pointer; }
-.btn-import:hover:not(:disabled) { border-color: var(--accent); }
-.btn-import:disabled { color: var(--fg-faint); cursor: not-allowed; }
+/* Header — the app chrome (real toolbar). */
+.chrome { display: flex; align-items: center; gap: 12px; height: 46px; flex: 0 0 46px; padding: 0 14px; background: var(--bg-panel); border-bottom: 1px solid var(--border); }
+
+.chrome .logo { display: flex; align-items: center; gap: 9px; flex: 0 0 auto; }
+.chrome .logo .mark { width: 22px; height: 22px; border-radius: 5px; background: linear-gradient(140deg, var(--accent), var(--accent-dim)); display: grid; place-items: center; color: #04130f; font-weight: 800; font-size: 13px; }
+.chrome .logo .t { font-weight: 650; font-size: 13.5px; letter-spacing: .01em; white-space: nowrap; }
+.chrome .logo .t .sub { color: var(--text-mute); font-weight: 400; margin-left: 4px; }
+.chrome .logo .ver { font-family: var(--font-mono); font-size: 10px; color: var(--text-mute); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; white-space: nowrap; }
+.chrome .logo .ver.warn { color: var(--warn); border-color: rgba(224,166,78,.5); }
+
+.chrome .bcrumb { font-size: 12px; color: var(--text-mute); white-space: nowrap; display: flex; align-items: center; overflow: hidden; }
+.chrome .bcrumb .seg { display: inline-flex; align-items: center; }
+.chrome .bcrumb button { background: none; border: 0; font: inherit; font-size: 12px; color: var(--text-mute); cursor: pointer; padding: 0; }
+.chrome .bcrumb button:hover { color: var(--text-dim); }
+.chrome .bcrumb .cur { color: var(--text-dim); font-weight: 600; cursor: default; }
+.chrome .bcrumb .sep { color: var(--text-mute); margin: 0 5px; }
+
+.chrome .spacer { flex: 1; }
+
+.chrome .searchbtn { display: flex; align-items: center; gap: 8px; min-width: 220px; max-width: 320px; padding: 6px 10px; background: var(--bg-panel-2); border: 1px solid var(--border); border-radius: 7px; color: var(--text-mute); cursor: text; font-size: 12px; font-family: inherit; }
+.chrome .searchbtn:hover { border-color: var(--border-strong); }
+.chrome .searchbtn .stext { flex: 1; text-align: left; }
+.chrome .searchbtn kbd { font-family: var(--font-mono); font-size: 10px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; color: var(--text-dim); }
+
+.chrome .conn { display: flex; align-items: center; gap: 7px; font-size: 11.5px; color: var(--text-dim); padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg-panel-2); white-space: nowrap; flex: 0 0 auto; }
+.chrome .conn .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-mute); }
+.chrome .conn.live .dot { background: var(--ok); box-shadow: 0 0 0 3px rgba(78,196,110,.16); }
+.chrome .conn.reconnecting .dot { background: var(--warn); box-shadow: 0 0 0 3px rgba(224,166,78,.16); animation: pulse 1.3s ease-in-out infinite; }
+.chrome .conn.snapshot .dot { background: var(--text-mute); }
+@keyframes pulse { 50% { opacity: .4; } }

@@ -15,19 +15,20 @@ export interface HeaderProps {
   pushToast: (t: Omit<ToastItem, 'id'>) => void;
 }
 
-function WatchPill() {
+// Live / reconnecting / snapshot, with a freshness read-out when live.
+function ConnChip() {
   const { state } = useStore();
   const [, force] = useState(0);
   useEffect(() => { const id = setInterval(() => force(n => n + 1), 1000); return () => clearInterval(id); }, []);
-  if (state.connection === 'snapshot') return <span className="watch-pill snap"><span className="watch-dot" /> snapshot</span>;
-  if (state.connection === 'reconnecting') return <span className="watch-pill warn"><span className="watch-dot" /> reconnecting…</span>;
+  if (state.connection === 'snapshot') return <span className="conn snapshot"><span className="dot" /> 快照</span>;
+  if (state.connection === 'reconnecting') return <span className="conn reconnecting"><span className="dot" /> 連線中…</span>;
   const ago = state.lastUpdate ? formatSyncAgo(Date.now() - state.lastUpdate) : '';
-  return <span className="watch-pill"><span className="watch-dot live" /> watching · synced {ago}</span>;
+  return <span className="conn live"><span className="dot" /> Live · 已同步 {ago}</span>;
 }
 
 export function Header({ graph, derivedPins, positions, pushToast }: HeaderProps) {
   const { state, popBreadcrumb, open } = useStore();
-  const { exportMeta, supported } = useDb();
+  const { exportMeta, supported, version } = useDb();
   const [importOpen, setImportOpen] = useState(false);
   // Import writes to disk via the server; a static export snapshot has no server.
   const canImport = state.connection !== 'snapshot';
@@ -55,25 +56,35 @@ export function Header({ graph, derivedPins, positions, pushToast }: HeaderProps
   const niceName = (p: string) => p.replace(/^functions\//, '').replace('.matgraph.json', '');
 
   return (
-    <header className="hdr">
-      <div className="hdr-left">
-        <div className="brand"><span className="brand-mark">▦</span><span className="brand-name">UE·MAT</span><span className="brand-sub">workflow</span></div>
-        <div className="crumb">
-          {state.breadcrumb.map((p, i) => (
-            <span key={i} className="crumb-seg">
-              {i > 0 && <span className="crumb-sep">▸</span>}
-              <button className={i === state.breadcrumb.length - 1 ? 'crumb-cur' : 'crumb-link'} onClick={() => popBreadcrumb(i)}>{niceName(p)}</button>
+    <header className="chrome">
+      <div className="logo">
+        <span className="mark">M</span>
+        <span className="t">UE·MAT<span className="sub">workflow</span></span>
+        {version && <span className={`ver ${!supported ? 'warn' : ''}`} title={supported ? `Node DB: UE ${version}` : `UE ${version} — no DB shipped`}>UE {version}</span>}
+      </div>
+      <nav className="bcrumb">
+        {state.breadcrumb.map((p, i) => {
+          const last = i === state.breadcrumb.length - 1;
+          return (
+            <span key={i} className="seg">
+              {i > 0 && <span className="sep">›</span>}
+              {last
+                ? <span className="cur">{niceName(p)}</span>
+                : <button onClick={() => popBreadcrumb(i)}>{niceName(p)}</button>}
             </span>
-          ))}
-        </div>
-      </div>
-      <div className="hdr-right">
-        <WatchPill />
-        <button className="btn-export" onClick={doExport} disabled={!graph || !supported}
-          title={graph && !supported ? `UE ${state.graphs[state.breadcrumb[state.breadcrumb.length - 1]]?.graph.ueVersion ?? ''} not supported — export disabled` : undefined}>導出到 UE</button>
-        <button className="btn-import" onClick={() => setImportOpen(true)} disabled={!canImport}
-          title={canImport ? 'Paste a UE material selection to import' : 'Import needs the live viewer server'}>導入</button>
-      </div>
+          );
+        })}
+      </nav>
+      <div className="spacer" />
+      {/* Command palette is a follow-up; the affordance is shown for chrome balance. */}
+      <button className="searchbtn" title="命令面板（即將推出）" type="button">
+        <span>⌕</span><span className="stext">搜尋節點與指令</span><kbd>⌘K</kbd>
+      </button>
+      <ConnChip />
+      <button className="btn" onClick={() => setImportOpen(true)} disabled={!canImport}
+        title={canImport ? 'Paste a UE material selection to import' : 'Import needs the live viewer server'}>導入</button>
+      <button className="btn primary" onClick={doExport} disabled={!graph || !supported}
+        title={graph && !supported ? `UE ${version ?? ''} not supported — export disabled` : undefined}>導出到 UE</button>
       {importOpen && (
         <ImportModal exportMeta={exportMeta} open={open} pushToast={pushToast} onClose={() => setImportOpen(false)} />
       )}

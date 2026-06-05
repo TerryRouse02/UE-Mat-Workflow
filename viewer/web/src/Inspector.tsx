@@ -1,9 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import type { MatGraph } from './protocol';
 import { useDb } from './dbContext';
 import { pinColor, catColor } from './theme/colors';
 import { diagnoseGraph, isUnknownNodeType, type GraphIssue } from './graphDiagnostics';
 import './inspector.css';
+
+type Mode = 'node' | 'health';
 
 export interface InspectorProps {
   graph?: MatGraph;
@@ -22,15 +24,15 @@ function isCodeLike(v: unknown): v is string {
 function CodeBlock({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="insp-code">
-      <pre>{value}</pre>
-      <button className="insp-copy"
+    <div className="codeblock">
+      {value}
+      <button className="copy"
         onMouseDown={e => e.stopPropagation()}
         onClick={e => {
           e.stopPropagation();
           navigator.clipboard.writeText(value).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); });
         }}>
-        {copied ? '✓ Copied' : '⧉ Copy'}
+        {copied ? '✓' : '⧉'}
       </button>
     </div>
   );
@@ -39,42 +41,49 @@ function CodeBlock({ value }: { value: string }) {
 function PinList({ title, pins }: { title: string; pins: { name: string; type: string; required?: boolean }[] }) {
   if (!pins.length) return null;
   return (
-    <div className="insp-section">
-      <div className="insp-sub">{title}</div>
-      {pins.map(p => (
-        <div className="insp-pin" key={p.name}>
-          <span className="insp-pindot" style={{ background: pinColor(p.type) }} />
-          <span>{p.name || '(out)'}</span>
-          <span className="insp-pintype mono">{p.type}</span>
-        </div>
-      ))}
+    <div className="isec">
+      <div className="lbl">{title}</div>
+      <div className="pinlist">
+        {pins.map(p => (
+          <div className="pinrow" key={p.name}>
+            <span className="pc" style={{ background: pinColor(p.type) }} />
+            <span className="pn">{p.name || '(out)'}</span>
+            <span className="pt">{p.type}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
 
-// One rendering path for issue rows, shared by the failed-load panel and the
-// unselected health panel. A node-tied issue is a focus button; the rest are static.
-function IssueList({ title, issues, onFocusNode }: { title: string; issues: GraphIssue[]; onFocusNode?: (id: string) => void }) {
+function sevPill(s: GraphIssue['severity']): string {
+  return s === 'error' ? 'ERROR' : s === 'warning' ? 'WARN' : 'INFO';
+}
+
+function IssueRows({ issues, onFocusNode }: { issues: GraphIssue[]; onFocusNode?: (id: string) => void }) {
   return (
-    <div className="insp-section">
-      <div className="insp-sub">{title}</div>
+    <>
       {issues.map((iss, i) => (
-        <button key={i} type="button"
-          className={`insp-issue ${iss.severity}${iss.nodeId ? '' : ' static'}`}
-          disabled={!iss.nodeId}
-          title={iss.nodeId ? '點擊聚焦該節點' : undefined}
+        <button key={i} type="button" className={`issue ${iss.severity}`}
+          disabled={!iss.nodeId} title={iss.nodeId ? '點擊在畫布上定位' : undefined}
           onClick={() => iss.nodeId && onFocusNode?.(iss.nodeId)}>
-          <span className="insp-issue-ico">{iss.severity === 'error' ? '✗' : '⚠'}</span>
-          <span className="insp-issue-msg">{iss.message}</span>
-          {iss.nodeId && <span className="insp-issue-go">→</span>}
+          <span className="ibar" />
+          <span className="ibody">
+            <span className="it">{iss.message}</span>
+            {iss.nodeId && <span className="in">{iss.nodeId}</span>}
+          </span>
+          <span className="sevpill">{sevPill(iss.severity)}</span>
         </button>
       ))}
-    </div>
+    </>
   );
 }
 
 export function Inspector({ graph, selectedNodeId, derivedPins, errors, onFocusNode }: InspectorProps) {
   const { db } = useDb();
+  const [mode, setMode] = useState<Mode>('health');
+  // Selecting a node jumps to node-detail; clearing it falls back to health.
+  useEffect(() => { setMode(selectedNodeId ? 'node' : 'health'); }, [selectedNodeId]);
 
   // The graph-level health report is recomputed only when the graph / DB / resolved
   // pins actually change — not on every parent re-render (toasts, node drags, crawl ticks).
@@ -85,91 +94,111 @@ export function Inspector({ graph, selectedNodeId, derivedPins, errors, onFocusN
     const mfCount = graph.nodes.filter(n => n.type === 'MaterialFunctionCall').length;
     const errCount = issues.filter(i => i.severity === 'error').length;
     const warnCount = issues.length - errCount;
-    return { issues, unknownCount, mfCount, errCount, warnCount, level: errCount ? 'bad' : warnCount ? 'warn' : 'ok' };
+    return { issues, unknownCount, mfCount, errCount, warnCount, level: (errCount ? 'bad' : warnCount ? 'warn' : 'ok') as 'ok' | 'warn' | 'bad' };
   }, [graph, db, derivedPins]);
+
+  const head = (
+    <div className="panel-head"><span className="h">Inspector</span></div>
+  );
 
   // A file that failed validation surfaces its errors here — even if a previously
   // loaded payload is still cached (the store keeps the last-good graph on a
   // re-validation failure), so we must check errors BEFORE the health panel.
   if (errors && errors.length > 0) {
     return (
-      <aside className="inspector-wrap insp">
-        <div className="insp-eyebrow"><span className="mono">載入失敗</span></div>
-        <div className="insp-health bad">✗ 此檔無法載入（{errors.length}）</div>
-        <IssueList title="錯誤" issues={errors.map(e => ({ severity: 'error', message: e }))} />
-      </aside>
+      <div className="insp">
+        {head}
+        <div className="health-badge bad">
+          <span className="ring">✗</span>
+          <div><div className="ht">此檔無法載入</div><div className="hd">{errors.length} 個錯誤</div></div>
+        </div>
+        {errors.map((e, i) => (
+          <div key={i} className="issue error" style={{ cursor: 'default' }}>
+            <span className="ibar" />
+            <span className="ibody"><span className="it">{e}</span></span>
+            <span className="sevpill">ERROR</span>
+          </div>
+        ))}
+      </div>
     );
   }
-  if (!graph) return <aside className="inspector-wrap" />;
+  if (!graph) return <div className="insp">{head}<div className="empty">選一個圖開始檢視。</div></div>;
 
   const node = selectedNodeId ? graph.nodes.find(n => n.id === selectedNodeId) : undefined;
+  const { issues, unknownCount, mfCount, errCount, warnCount, level } = health!;
 
-  if (node) {
+  const modeBar = (
+    <div className="insp-mode">
+      <button className={`tab ${mode === 'node' ? 'on' : ''}`} onClick={() => setMode('node')} disabled={!node}>節點詳情</button>
+      <button className={`tab ${mode === 'health' ? 'on' : ''}`} onClick={() => setMode('health')}>圖健康度</button>
+    </div>
+  );
+
+  // ---- Node detail ----
+  if (mode === 'node' && node) {
     // Reserved types (MaterialOutput, MaterialFunctionCall, FunctionInput/Output)
-    // live in db.reservedTypes, not db.nodes — they are first-class, handled types,
-    // NOT unknown expressions.
+    // live in db.reservedTypes, not db.nodes — they are first-class, handled types.
     const reserved = new Set(db.reservedTypes ?? []);
     const def = db.nodes[node.type];
     const unknown = isUnknownNodeType(node.type, db, reserved);
     const params = Object.entries(node.params ?? {});
+    const livePins = derivedPins?.[node.id];
+    const inputPins = (def?.inputs ?? livePins?.inputs ?? []);
+    const outputPins = (def?.outputs ?? livePins?.outputs ?? []);
     return (
-      <aside className="inspector-wrap insp">
-        <div className="insp-eyebrow">
-          <span className="insp-catdot" style={{ background: catColor(def?.category) }} />
-          <span className="mono">{def?.category ?? 'Unknown'}</span>
-        </div>
-        <div className="insp-title">{node.type}</div>
-        {unknown && (
-          <div className="insp-callout">
-            <b>Not in node DB</b>
-            <p>The viewer renders it, but Export can't map its class — it'll be flagged, not blocked.</p>
+      <div className="insp">
+        {head}{modeBar}
+        <div className="isec">
+          <div className="node-title">
+            <span className="swatch" style={{ background: catColor(def?.category) }} />
+            <div>
+              <div className="nt">{node.type}</div>
+              <div className="ntsub">{def?.category ?? 'Unknown'}</div>
+            </div>
           </div>
+        </div>
+        {unknown && (
+          <div className="insp-callout"><b>不在節點 DB 中</b><p>viewer 仍會渲染它，但導出時無法對應其 class —— 會被標記、不會被阻擋。</p></div>
         )}
-        {(() => {
-          const livePins = derivedPins?.[node.id];
-          const inputPins = (def?.inputs ?? livePins?.inputs ?? []);
-          const outputPins = (def?.outputs ?? livePins?.outputs ?? []);
-          return <>
-            <PinList title="Inputs" pins={inputPins} />
-            <PinList title="Outputs" pins={outputPins} />
-          </>;
-        })()}
+        <PinList title="Inputs" pins={inputPins} />
+        <PinList title="Outputs" pins={outputPins} />
         {params.length > 0 && (
-          <div className="insp-section">
-            <div className="insp-sub">Parameters</div>
+          <div className="isec">
+            <div className="lbl">Parameters</div>
             {params.map(([k, v]) => (
-              <div className="insp-param" key={k}>
-                <div className="insp-plabel">{k}</div>
-                {isCodeLike(v) ? <CodeBlock value={v} /> : <code className="mono">{JSON.stringify(v)}</code>}
+              <div className="iparam" key={k}>
+                <div className="pk">{k}</div>
+                {isCodeLike(v) ? <CodeBlock value={v} /> : <code className="inline">{JSON.stringify(v)}</code>}
               </div>
             ))}
           </div>
         )}
-      </aside>
+      </div>
     );
   }
 
-  // Unselected: a graph-level debug / health report for the open file.
-  const { issues, unknownCount, mfCount, errCount, warnCount, level } = health!;
+  // ---- Graph health (default / nothing selected) ----
+  const ringIco = level === 'bad' ? '✗' : level === 'warn' ? '!' : '✓';
+  const ht = level === 'bad' ? '有錯誤' : level === 'warn' ? '需要注意' : '沒發現問題';
   return (
-    <aside className="inspector-wrap insp">
-      <div className="insp-eyebrow"><span className="mono">{graph.type === 'MaterialFunction' ? 'MaterialFunction' : 'Material'}</span></div>
-      <div className="insp-title">{graph.name}</div>
-      <div className="insp-subtitle">{graph.nodes.length} nodes · {graph.connections.length} links</div>
-
-      <div className={`insp-health ${level}`}>
-        {errCount ? `✗ ${errCount} 個問題${warnCount ? ` · ${warnCount} 警告` : ''}`
-          : warnCount ? `⚠ ${warnCount} 個警告`
-          : '✓ 沒發現問題'}
+    <div className="insp">
+      {head}{modeBar}
+      <div className={`health-badge ${level}`}>
+        <span className="ring">{ringIco}</span>
+        <div>
+          <div className="ht">{ht}</div>
+          <div className="hd">{errCount} 個錯誤 · {warnCount} 個警告 · 已掃描 {graph.nodes.length} 個節點</div>
+        </div>
       </div>
-
-      {issues.length > 0 && <IssueList title="問題 / 缺什麼" issues={issues} onFocusNode={onFocusNode} />}
-
-      <div className="insp-section">
-        <div className="insp-sub">Export readiness</div>
-        <div className="ready-row ok">✓ {graph.nodes.length - unknownCount} of {graph.nodes.length} nodes mapped</div>
-        {mfCount > 0 && <div className="ready-row">ƒ {mfCount} MaterialFunction link{mfCount > 1 ? 's' : ''}</div>}
+      {issues.length > 0 && <div className="issue-hint">點擊任一項可在畫布上定位該節點。</div>}
+      {issues.length > 0
+        ? <IssueRows issues={issues} onFocusNode={onFocusNode} />
+        : <div className="empty">這張圖沒有發現結構問題。</div>}
+      <div className="isec">
+        <div className="lbl">Export readiness</div>
+        <div className="ready-row ok">✓ {graph.nodes.length - unknownCount} / {graph.nodes.length} 個節點可對應</div>
+        {mfCount > 0 && <div className="ready-row warn">ƒ {mfCount} 個 MaterialFunction 連結</div>}
       </div>
-    </aside>
+    </div>
   );
 }

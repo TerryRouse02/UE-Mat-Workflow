@@ -1,38 +1,61 @@
-.insp { padding: 14px; font-size: 12px; }
-.insp-eyebrow { display: flex; align-items: center; gap: 6px; color: var(--fg-faint); font-size: 11px; }
-.insp-catdot { width: 8px; height: 8px; border-radius: 50%; }
-.insp-title { font-size: 15px; font-weight: 600; margin-top: 4px; word-break: break-word; }
-.insp-subtitle { color: var(--fg-faint); margin-top: 2px; }
-.insp-callout { background: rgba(224,179,77,.12); border: 1px solid var(--warn); border-radius: var(--radius); padding: 8px 10px; margin: 10px 0; color: var(--warn); }
-.insp-callout p { margin: 4px 0 0; color: var(--fg-dim); font-size: 11px; }
-.insp-section { margin-top: 14px; }
-.insp-sub { text-transform: uppercase; letter-spacing: .06em; font-size: 10px; color: var(--fg-faint); margin-bottom: 6px; }
-.insp-pin { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
-.insp-pindot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.insp-pintype { margin-left: auto; color: var(--fg-faint); }
-.insp-param { margin: 6px 0; }
-.insp-plabel { color: var(--fg-dim); margin-bottom: 2px; }
-.insp-code { position: relative; margin-top: 4px; }
-.insp-code pre { background: var(--bg0); color: var(--warn); padding: 6px 40px 6px 8px; border-radius: 5px; font-size: 11px; margin: 0; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; }
-.insp-copy { position: absolute; top: 4px; right: 4px; background: var(--bg2); color: var(--fg-dim); border: 1px solid var(--bd); border-radius: 3px; padding: 2px 6px; font-size: 9px; cursor: pointer; }
-.insp-copy:hover { color: var(--fg); }
-.insp-param code { color: var(--warn); word-break: break-all; overflow-wrap: anywhere; }
-.ready-row { display: flex; gap: 6px; padding: 3px 0; }
-.ready-row.warn { color: var(--warn); }
-.ready-row.ok { color: var(--ok); }
+/* Inspector — node detail + graph-health, two modes behind a toggle. */
+.insp { overflow: auto; flex: 1; min-height: 0; }
+.insp-mode { display: flex; gap: 4px; padding: 8px 10px; border-bottom: 1px solid var(--hairline); }
+.insp-mode .tab { flex: 1; text-align: center; padding: 5px; border-radius: 6px; font-size: 11px; color: var(--text-dim); cursor: pointer; border: 1px solid transparent; background: transparent; font: inherit; }
+.insp-mode .tab.on { background: var(--bg-elev); color: var(--text); border-color: var(--border); }
+.insp-mode .tab:disabled { opacity: .4; cursor: not-allowed; }
 
-/* Unselected-state debug / health panel */
-.insp-health { margin-top: 12px; padding: 6px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; }
-.insp-health.ok { background: rgba(126,201,111,.12); color: var(--ok); }
-.insp-health.warn { background: rgba(224,179,77,.12); color: var(--warn); }
-.insp-health.bad { background: rgba(224,114,138,.12); color: var(--err); }
-.insp-issue { display: flex; align-items: flex-start; gap: 7px; width: 100%; box-sizing: border-box; text-align: left;
-  background: var(--bg2); border: 1px solid var(--bd); border-radius: 5px; padding: 6px 8px; margin-bottom: 5px;
-  color: var(--fg-dim); font: inherit; font-size: 11px; line-height: 1.45; cursor: pointer; }
-.insp-issue:hover:not(.static):not(:disabled) { border-color: var(--accent); color: var(--fg); }
-.insp-issue.static, .insp-issue:disabled { cursor: default; }
-.insp-issue.error .insp-issue-ico { color: var(--err); }
-.insp-issue.warning .insp-issue-ico { color: var(--warn); }
-.insp-issue-ico { flex: none; }
-.insp-issue-msg { flex: 1; word-break: break-word; }
-.insp-issue-go { flex: none; color: var(--fg-faint); }
+.isec { padding: 12px 14px; border-bottom: 1px solid var(--hairline); }
+.isec .lbl { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-mute); margin-bottom: 8px; }
+
+.node-title { display: flex; align-items: center; gap: 9px; }
+.node-title .swatch { width: 11px; height: 24px; border-radius: 3px; flex: 0 0 11px; }
+.node-title .nt { font-size: 15px; font-weight: 650; word-break: break-word; }
+.node-title .ntsub { font-family: var(--font-mono); font-size: 10.5px; color: var(--text-mute); }
+
+.insp-callout { background: rgba(224,166,78,.1); border: 1px solid rgba(224,166,78,.3); border-radius: 7px; padding: 9px 11px; margin: 12px 14px; color: #f0cf94; font-size: 11.5px; }
+.insp-callout b { color: var(--text); }
+.insp-callout p { margin: 4px 0 0; color: var(--text-dim); }
+
+.pinlist { display: flex; flex-direction: column; gap: 5px; }
+.pinrow { display: flex; align-items: center; gap: 9px; padding: 5px 8px; background: var(--bg-panel-2); border: 1px solid var(--border); border-radius: 6px; }
+.pinrow .pc { width: 10px; height: 10px; border-radius: 50%; flex: 0 0 10px; }
+.pinrow .pn { font-size: 12px; flex: 1; min-width: 0; word-break: break-word; }
+.pinrow .pt { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); padding: 1px 6px; border: 1px solid var(--border); border-radius: 10px; white-space: nowrap; }
+
+.iparam { margin-bottom: 10px; }
+.iparam .pk { font-size: 11.5px; color: var(--text-dim); margin-bottom: 4px; }
+.codeblock { position: relative; font-family: var(--font-mono); font-size: 11px; background: var(--bg-canvas); border: 1px solid var(--border); border-radius: 6px; padding: 9px 11px; color: var(--accent); white-space: pre-wrap; word-break: break-all; line-height: 1.5; }
+.codeblock .copy { position: absolute; top: 5px; right: 5px; background: var(--bg-elev); color: var(--text-dim); border: 1px solid var(--border); border-radius: 4px; padding: 2px 7px; font-size: 9px; cursor: pointer; font-family: var(--font-sans); }
+.codeblock .copy:hover { color: var(--text); }
+.iparam code.inline { font-family: var(--font-mono); font-size: 11px; color: var(--text); word-break: break-all; }
+
+/* readiness rows */
+.ready-row { display: flex; gap: 7px; padding: 4px 0; font-size: 12px; }
+.ready-row.ok { color: var(--ok); } .ready-row.warn { color: var(--warn); }
+
+/* graph-health */
+.health-badge { display: flex; align-items: center; gap: 12px; padding: 14px; border-radius: 9px; margin: 12px 14px; }
+.health-badge.ok { background: rgba(78,196,110,.1); border: 1px solid rgba(78,196,110,.3); }
+.health-badge.warn { background: rgba(224,166,78,.1); border: 1px solid rgba(224,166,78,.3); }
+.health-badge.bad { background: rgba(224,89,78,.1); border: 1px solid rgba(224,89,78,.3); }
+.health-badge .ring { width: 42px; height: 42px; flex: 0 0 42px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; font-size: 17px; }
+.health-badge.ok .ring { background: rgba(78,196,110,.16); color: var(--ok); }
+.health-badge.warn .ring { background: rgba(224,166,78,.16); color: var(--warn); }
+.health-badge.bad .ring { background: rgba(224,89,78,.16); color: var(--error); }
+.health-badge .ht { font-size: 14px; font-weight: 650; }
+.health-badge .hd { font-size: 11.5px; color: var(--text-dim); margin-top: 2px; }
+
+.issue-hint { padding: 4px 14px 8px; font-size: 10.5px; color: var(--text-mute); }
+.issue { display: flex; gap: 10px; width: 100%; box-sizing: border-box; text-align: left; padding: 10px 14px; cursor: pointer; border-bottom: 1px solid var(--hairline); background: transparent; border-left: 0; border-right: 0; border-top: 0; font: inherit; color: var(--text); }
+.issue:hover:not(:disabled) { background: var(--bg-elev); }
+.issue:disabled { cursor: default; }
+.issue .ibar { width: 3px; flex: 0 0 3px; border-radius: 2px; align-self: stretch; }
+.issue.error .ibar { background: var(--error); } .issue.warning .ibar { background: var(--warn); } .issue.info .ibar { background: var(--info); }
+.issue .ibody { flex: 1; min-width: 0; }
+.issue .it { font-size: 12.5px; font-weight: 600; word-break: break-word; }
+.issue .in { font-family: var(--font-mono); font-size: 9.5px; color: var(--text-mute); margin-top: 4px; }
+.issue .sevpill { font-family: var(--font-mono); font-size: 9px; text-transform: uppercase; padding: 1px 6px; border-radius: 4px; height: fit-content; flex: 0 0 auto; }
+.issue.error .sevpill { color: var(--error); background: rgba(224,89,78,.14); }
+.issue.warning .sevpill { color: var(--warn); background: rgba(224,166,78,.14); }
+.issue.info .sevpill { color: var(--info); background: rgba(78,160,214,.14); }

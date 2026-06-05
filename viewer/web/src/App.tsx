@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, type CSSProperties } from 'react';
 import { StoreProvider, useStore } from './store';
 import { Header } from './Header';
 import { Sidebar } from './Sidebar';
@@ -7,6 +7,28 @@ import { Inspector } from './Inspector';
 import { ToastStack, type ToastItem } from './Toast';
 import { DbProvider, useDb } from './dbContext';
 import { shouldConfirmOpen } from './largeGraphGate';
+import { pinColor } from './theme/colors';
+
+// Canvas type legend — the edge/pin colours, mirrored from theme/colors.ts so the
+// graph's wire colours have a key. Kept short (representative types, not exhaustive).
+const LEGEND: { label: string; type: string }[] = [
+  { label: 'Float', type: 'float' },
+  { label: 'Vec2', type: 'float2' },
+  { label: 'Vec3', type: 'float3' },
+  { label: 'Vec4', type: 'float4' },
+  { label: 'Texture', type: 'texture' },
+  { label: 'Bool', type: 'bool' },
+  { label: 'Attr', type: 'materialattributes' },
+];
+function CanvasLegend() {
+  return (
+    <div className="legend">
+      {LEGEND.map(l => (
+        <span className="lg" key={l.type}><i style={{ background: pinColor(l.type) }} />{l.label}</span>
+      ))}
+    </div>
+  );
+}
 
 function Body() {
   const { state, open, enterMF } = useStore();
@@ -71,40 +93,45 @@ function Body() {
 
   const errs = current ? (state.errors[current] ?? []) : [];
   const warns = payload?.warnings ?? [];
+  // While a crawl streams its log, widen the left panel so the runlog is readable.
+  const bodyStyle = state.crawl.status === 'running' ? ({ '--left': '344px' } as CSSProperties) : undefined;
 
   return (
     <div className="app">
       <Header graph={payload?.graph} derivedPins={payload?.derivedPins} positions={positions} pushToast={pushToast} />
-      <div className="body">
-        <aside className="sidebar-wrap"><Sidebar /></aside>
+      {payload && !supported && (
+        <div className="banner warn" role="alert">
+          <span className="ico">⚠</span>
+          <span>
+            UE version <b>{version}</b> isn't supported — no node DB ships for it.
+            Rendering with the latest available DB ({db?.ueVersion}); export is disabled.
+            Add <code>nodes-ue{version}.json</code> + <code>.export.json</code> to <code>agent-pack/</code> to support it.
+          </span>
+        </div>
+      )}
+      <div className="body" style={bodyStyle}>
+        <aside className="panel left"><Sidebar /></aside>
         <main className="canvas-wrap">
-          {payload && (
-            <div className="canvas-topbar">
-              <div className="ct-left"><span className="ct-title">{payload.graph.name}</span></div>
-              <div className="ct-right">
+          {payload ? (
+            <>
+              <div className="canvas-info">
+                <b>{payload.graph.nodes.length}</b> nodes · <b>{payload.graph.connections.length}</b> links
                 {(errs.length + warns.length) > 0 && (
-                  <span className="ct-warn" title={[...errs, ...warns].join('\n')}>
-                    ! {errs.length} error{errs.length !== 1 ? 's' : ''} · {warns.length} warning{warns.length !== 1 ? 's' : ''}
+                  <span title={[...errs, ...warns].join('\n')} style={{ color: 'var(--warn)' }}>
+                    {' '}· {errs.length + warns.length} issue{errs.length + warns.length !== 1 ? 's' : ''}
                   </span>
                 )}
-                <span className={`ct-ver mono ${!supported ? 'warn' : ''}`}
-                  title={supported ? `Node DB: UE ${payload.graph.ueVersion}` : `UE ${payload.graph.ueVersion} — no DB shipped`}>UE {payload.graph.ueVersion}</span>
-                <span className="ct-count mono">{payload.graph.nodes.length} nodes · {payload.graph.connections.length} links</span>
               </div>
-            </div>
+              <CanvasLegend />
+              <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} />
+            </>
+          ) : (
+            <div className="canvas-empty">Select a graph from the left.</div>
           )}
-          {payload && !supported && (
-            <div className="canvas-banner" role="alert">
-              ⚠ UE version <b>{version}</b> isn't supported — no node DB ships for it.
-              Rendering with the latest available DB ({db?.ueVersion}); export is disabled.
-              Add <code>nodes-ue{version}.json</code> + <code>.export.json</code> to <code>agent-pack/</code> to support it.
-            </div>
-          )}
-          {payload
-            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} />
-            : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
-        <Inspector graph={payload?.graph} selectedNodeId={selectedNodeId} derivedPins={payload?.derivedPins} errors={errs} onFocusNode={focusNode} />
+        <aside className="panel right">
+          <Inspector graph={payload?.graph} selectedNodeId={selectedNodeId} derivedPins={payload?.derivedPins} errors={errs} onFocusNode={focusNode} />
+        </aside>
       </div>
       <ToastStack toasts={toasts} onClose={closeToast} />
     </div>

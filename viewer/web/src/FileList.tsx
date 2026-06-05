@@ -1,28 +1,24 @@
 import { useState } from 'react';
 import { useStore } from './store';
-import { groupFiles, type Project, type FileEntry } from './groupFiles';
+import { groupFiles, type FileEntry } from './groupFiles';
 import { shouldConfirmOpen } from './largeGraphGate';
 
-type SubTab = 'material' | 'function';
-
-function fileClass(type: FileEntry['type']): string {
-  if (type === 'Material') return 'material';
-  if (type === 'MaterialFunction') return 'mf';
-  return 'unknown';
-}
 function icon(type: FileEntry['type']): string {
   if (type === 'Material') return '◆';
   if (type === 'MaterialFunction') return 'ƒ';
   return '?';
 }
+function rowClass(type: FileEntry['type']): string {
+  if (type === 'Material') return 'material';
+  if (type === 'MaterialFunction') return 'mf';
+  return 'unknown';
+}
 function baseName(path: string): string {
   return path.split('/').pop()?.replace(/\.matgraph\.json$/, '') ?? path;
 }
-function inSubTab(type: FileEntry['type'], sub: SubTab): boolean {
-  return sub === 'function' ? type === 'MaterialFunction' : type !== 'MaterialFunction';
-}
+const isFn = (e: FileEntry) => e.type === 'MaterialFunction';
 
-function FileRow({ entry }: { entry: FileEntry }) {
+function FileRow({ entry, ro }: { entry: FileEntry; ro?: boolean }) {
   const { state, open } = useStore();
   const active = state.breadcrumb[0] === entry.path;
   const loaded = state.graphs[entry.path];
@@ -33,6 +29,7 @@ function FileRow({ entry }: { entry: FileEntry }) {
   const count = loaded ? loaded.graph.nodes.length : null;
   // Prefer the loaded node count (live); fall back to the server-reported nodeCount.
   const displayCount = count ?? entry.nodeCount ?? null;
+  const big = shouldConfirmOpen(entry.nodeCount);
   const handleClick = () => {
     if (shouldConfirmOpen(entry.nodeCount)) {
       const ok = window.confirm(
@@ -43,104 +40,95 @@ function FileRow({ entry }: { entry: FileEntry }) {
     open(entry.path);
   };
   return (
-    <button className={`tree-file ${fileClass(entry.type)} ${active ? 'active' : ''}`}
+    <button className={`frow ${rowClass(entry.type)} ${active ? 'sel' : ''} ${ro ? 'ro' : ''}`}
       onClick={handleClick} title={entry.path}>
-      <span className="tree-file-icon">{icon(entry.type)}</span>
-      <span className="tree-file-name">{baseName(entry.path)}</span>
-      {status && <span className={`st-dot st-${status}`} />}
-      {displayCount != null && <span className="tree-count">{displayCount}</span>}
+      <span className="tico">{icon(entry.type)}</span>
+      <span className="nm">{baseName(entry.path)}</span>
+      <span className="meta">
+        {big && <span className="bigmark">300+</span>}
+        {status && <span className={`sdot ${status}`} />}
+        {displayCount != null && <span className="nc">{displayCount}</span>}
+      </span>
     </button>
   );
 }
 
-function ProjectFolder({ project }: { project: Project }) {
+function Grp({ folder, files, ro }: { folder: string; files: FileEntry[]; ro?: boolean }) {
   const [open, setOpen] = useState(true);
+  if (files.length === 0) return null;
   return (
-    <div className="tree-folder">
-      <div className="tree-folder-header" onClick={() => setOpen(!open)}>
-        {open ? '▼' : '▶'} {project.folder}/
+    <div className="grp">
+      <div className={`grp-head ${open ? '' : 'collapsed'}`} onClick={() => setOpen(o => !o)}>
+        <span className="caret">▾</span>
+        <span className="gt">{folder}</span>
+        <span className="gc">{files.length}</span>
       </div>
-      {open && (
-        <div className="tree-folder-children">
-          {project.files.map(f => <FileRow key={f.path} entry={f} />)}
-        </div>
-      )}
+      {open && files.map(f => <FileRow key={f.path} entry={f} ro={ro} />)}
     </div>
   );
 }
 
-function UnorganizedSection({ entries }: { entries: FileEntry[] }) {
-  const [open, setOpen] = useState(false);
-  if (entries.length === 0) return null;
-  return (
-    <div className="tree-folder">
-      <div className="tree-folder-header" onClick={() => setOpen(!open)}>
-        {open ? '▼' : '▶'} Unorganized ({entries.length})
-      </div>
-      {open && (
-        <div className="tree-folder-children">
-          {entries.map(e => <FileRow key={e.path} entry={e} />)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function CrawledSection({ projects }: { projects: Project[] }) {
-  const [open, setOpen] = useState(true);
-  if (projects.length === 0) return null;
-  return (
-    <div className="tree-section-crawled">
-      <div className="tree-section-header" onClick={() => setOpen(!open)}>
-        <span className="tree-section-toggle">{open ? '▼' : '▶'}</span>
-        <span className="tree-section-title">專案母材質（爬取）</span>
-        <span className="tree-badge-crawled">爬取</span>
-      </div>
-      {open && (
-        <div className="tree-section-body">
-          {projects.map(p => <ProjectFolder key={p.folder} project={p} />)}
-        </div>
-      )}
-    </div>
-  );
-}
-
-export function FileList() {
+export function FileList({ onGoConfig }: { onGoConfig?: () => void }) {
   const { state } = useStore();
   const [query, setQuery] = useState('');
-  const [sub, setSub] = useState<SubTab>('material');
   const q = query.trim().toLowerCase();
   const { projects, unorganized, crawledProjects } = groupFiles(state.files);
 
-  const matchFile = (e: FileEntry) =>
-    inSubTab(e.type, sub) &&
-    (!q || baseName(e.path).toLowerCase().includes(q) || e.path.toLowerCase().includes(q));
+  const match = (e: FileEntry) =>
+    !q || baseName(e.path).toLowerCase().includes(q) || e.path.toLowerCase().includes(q);
 
-  const visibleProjects = projects
-    .map(p => ({ ...p, files: p.files.filter(matchFile) }))
+  // Agent materials grouped by project; agent functions pulled into one flat section.
+  const matProjects = projects
+    .map(p => ({ folder: p.folder, files: p.files.filter(f => !isFn(f) && match(f)) }))
     .filter(p => p.files.length > 0);
-  const visibleCrawled = crawledProjects
-    .map(p => ({ ...p, files: p.files.filter(matchFile) }))
+  const unorgMaterials = unorganized.filter(f => !isFn(f) && match(f));
+  const functions = [...projects.flatMap(p => p.files), ...unorganized].filter(f => isFn(f) && match(f))
+    .sort((a, b) => baseName(a.path).localeCompare(baseName(b.path)));
+  const crawled = crawledProjects
+    .map(p => ({ folder: p.folder, files: p.files.filter(match) }))
     .filter(p => p.files.length > 0);
-  const visibleUnorg = unorganized.filter(matchFile);
+
   const nothing = state.files.length === 0;
+  const noMatch = !nothing && matProjects.length === 0 && unorgMaterials.length === 0 && functions.length === 0 && crawled.length === 0;
 
   return (
-    <div className="sb-files">
-      <div className="sb-search">
-        <span className="sb-search-ico">⌕</span>
-        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Search materials, functions…" />
-        {query && <button className="sb-search-clr" onClick={() => setQuery('')}>×</button>}
+    <div className="files">
+      <div className="files-search">
+        <span>⌕</span>
+        <input value={query} onChange={e => setQuery(e.target.value)} placeholder="搜尋材質、函式…" spellCheck={false} />
+        {query && <span className="clr" onClick={() => setQuery('')}>×</span>}
       </div>
-      <div className="sb-subtabs">
-        <button className={`sb-subtab ${sub === 'material' ? 'on' : ''}`} onClick={() => setSub('material')}>Materials</button>
-        <button className={`sb-subtab ${sub === 'function' ? 'on' : ''}`} onClick={() => setSub('function')}>Functions</button>
-      </div>
-      {visibleProjects.map(p => <ProjectFolder key={p.folder} project={p} />)}
-      <UnorganizedSection entries={visibleUnorg} />
-      <CrawledSection projects={visibleCrawled} />
-      {nothing && <div className="sb-empty">No graphs yet. AI writes to graphs/&lt;project&gt;/&lt;name&gt;.matgraph.json</div>}
-      {!nothing && visibleProjects.length === 0 && visibleUnorg.length === 0 && visibleCrawled.length === 0 && <div className="sb-empty">No matches.</div>}
+
+      <div className="sec-label">代理產出 · Agent-authored</div>
+      {matProjects.map(p => <Grp key={p.folder} folder={p.folder} files={p.files} />)}
+      {unorgMaterials.length > 0 && <Grp folder="（未分類）" files={unorgMaterials} />}
+      {matProjects.length === 0 && unorgMaterials.length === 0 && !nothing && (
+        <div className="sb-empty">此分類沒有符合的材質。</div>
+      )}
+
+      <div className="sec-label">專案母材質（爬取）<span className="badge">爬取 · 唯讀</span></div>
+      {crawled.length > 0 ? (
+        <div className="sec-crawled">
+          {crawled.map(p => <Grp key={p.folder} folder={p.folder} files={p.files} ro />)}
+        </div>
+      ) : (
+        <div className="empty-crawl">
+          <div className="eci">◆</div>
+          <div className="ect">尚未爬取專案母材質</div>
+          <div className="ecd">這個區段是「重爬專案母材質」的輸出。執行一次爬取後，你 /Game 專案裡的母材質就會以唯讀鏡像出現在這裡。</div>
+          <button className="btn sm primary" onClick={onGoConfig}>前往爬取</button>
+        </div>
+      )}
+
+      {functions.length > 0 && (
+        <>
+          <div className="sec-label">Material Functions</div>
+          {functions.map(f => <FileRow key={f.path} entry={f} />)}
+        </>
+      )}
+
+      {nothing && <div className="sb-empty">尚無圖檔。AI 會寫入 graphs/&lt;project&gt;/&lt;name&gt;.matgraph.json</div>}
+      {noMatch && <div className="sb-empty">沒有符合「{query}」的結果。</div>}
     </div>
   );
 }
