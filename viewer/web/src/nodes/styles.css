@@ -1,44 +1,39 @@
-/* ---- Node anatomy (custom React Flow node bodies) ---- */
-.gnode { background: var(--node-bg); border: 1px solid var(--node-border); border-radius: var(--node-radius);
-  min-width: 168px; max-width: 360px; color: var(--text); font-size: 11.5px; overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0,0,0,.35); }
-.gnode-head { display: flex; align-items: center; gap: 7px; padding: 6px 9px; background: var(--node-head); border-bottom: 1px solid var(--hairline); }
-.gnode-catdot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+/* ---- Node anatomy ---- */
+.gnode { background: var(--bg2); border: 1px solid var(--bd); border-radius: var(--radius);
+  min-width: 180px; max-width: 380px; color: var(--fg); font-size: 12px; overflow: hidden; }
+.gnode-head { display: flex; align-items: center; gap: 8px; padding: 7px 10px; background: var(--bg1); border-bottom: 1px solid var(--bd); }
+.gnode-catdot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .gnode-titles { min-width: 0; flex: 1; }
-.gnode-title { font-weight: 600; font-size: 11px; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.gnode-sub { font-size: 9.5px; color: var(--text-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-mono); }
+.gnode-title { font-weight: 600; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gnode-sub { font-size: 10px; color: var(--fg-faint); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .gnode-badge { width: 16px; height: 16px; line-height: 16px; text-align: center; border-radius: 4px; font-size: 11px; flex: none; }
-.gnode-badge.warn { background: rgba(224,166,78,.18); color: var(--warn); }
-.gnode-badge.mf { background: var(--accent-ghost); color: var(--accent); }
-.gnode-body { display: flex; gap: 16px; padding: 6px 0; min-height: 22px; }
-.gnode-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.gnode-in { padding-left: 11px; }
-.gnode-out { padding-right: 11px; align-items: flex-end; }
-.gpin { position: relative; display: flex; align-items: center; gap: 6px; height: 17px; white-space: nowrap; }
+.gnode-badge.warn { background: rgba(224,179,77,.18); color: var(--warn); }
+.gnode-badge.mf { background: rgba(160,107,255,.18); color: var(--accent); }
+.gnode-body { display: flex; gap: 16px; padding: 8px 0; min-height: 24px; }
+.gnode-col { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.gnode-in { padding-left: 12px; }
+.gnode-out { padding-right: 12px; align-items: flex-end; }
+.gpin { position: relative; display: flex; align-items: center; gap: 6px; height: 18px; white-space: nowrap; }
 .gpin-r { flex-direction: row; justify-content: flex-end; }
 .gpin-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.gpin-name { color: var(--text-dim); font-size: 10.5px; }
-.gnode.gnode-warn, .gnode-warn { border-color: var(--warn); }
+.gpin-name { color: var(--fg-dim); }
+.gnode-warn { border-color: var(--warn); }
 .gnode-reserved .gnode-head { background: #20283a; }
-.gnode.selected, .react-flow__node.selected .gnode { border-color: var(--node-sel); box-shadow: 0 0 0 1.5px var(--node-sel), 0 4px 16px rgba(0,0,0,.4); }
 
 /* ---- Edges (per-edge color set inline in Graph.tsx) ---- */
-.react-flow__edge-path { stroke: var(--text-mute); stroke-width: 2; transition: stroke-width .1s ease; }
+.react-flow__edge-path { stroke: var(--fg-faint); stroke-width: 2; transition: stroke-width 0.1s ease; }
 .react-flow__edge:hover .react-flow__edge-path,
 .react-flow__edge.selected .react-flow__edge-path { stroke-width: 3 !important; }
 .react-flow__edge-interaction { stroke-width: 20; }
 
 /* ---- Handles ---- */
-.react-flow__handle { width: 11px !important; height: 11px !important; background: var(--text-mute) !important; border: 2px solid var(--bg-canvas) !important; border-radius: 50% !important; }
-.react-flow__handle.react-flow__handle-left { left: -6px !important; }
-.react-flow__handle.react-flow__handle-right { right: -6px !important; }
-.react-flow__handle.handle-highlighted { background: var(--accent) !important; border-color: var(--accent) !important; box-shadow: 0 0 7px var(--accent); }
+.react-flow__handle { width: 12px !important; height: 12px !important; background: #9aa !important; border: 2px solid var(--bg0) !important; border-radius: 50% !important; }
+.react-flow__handle.react-flow__handle-left { left: -7px !important; }
+.react-flow__handle.react-flow__handle-right { right: -7px !important; }
+.react-flow__handle.handle-highlighted { background: var(--warn) !important; border-color: var(--warn) !important; box-shadow: 0 0 6px var(--warn); }
 
 /* ---- MiniMap + Controls ---- */
-.react-flow__minimap { background: var(--bg-panel) !important; border: 1px solid var(--border); border-radius: var(--panel-radius); overflow: hidden; }
-.react-flow__minimap-mask { fill: rgba(12,14,18,.6); }
-.react-flow__controls { background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--panel-radius); overflow: hidden; box-shadow: none; }
-.react-flow__controls-button { background: var(--bg-panel); color: var(--text-dim); border-bottom: 1px solid var(--border); fill: currentColor; }
-.react-flow__controls-button:hover { background: var(--bg-elev); color: var(--text); }
-.react-flow__attribution { background: transparent; }
-.react-flow__attribution a { color: var(--text-mute); }
+.react-flow__minimap { background: var(--bg1) !important; border: 1px solid var(--bd); border-radius: var(--radius); }
+.react-flow__controls { background: var(--bg2); border: 1px solid var(--bd); border-radius: var(--radius); overflow: hidden; }
+.react-flow__controls button { background: var(--bg2); color: var(--fg-dim); border-bottom: 1px solid var(--bd); fill: currentColor; }
+.react-flow__controls button:hover { background: var(--bg1); color: var(--fg); }

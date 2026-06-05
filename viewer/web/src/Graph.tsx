@@ -347,11 +347,11 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
         setHandleHighlight(edge.target, edge.targetHandle, false);
       }}
       fitView
-      style={{ background: 'var(--bg-canvas)' }}
+      style={{ background: 'var(--bg0)' }}
     >
-      <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#262b34" />
+      <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#2a2f37" />
       <Controls />
-      <MiniMap pannable zoomable nodeColor="#2c323d" nodeStrokeColor="#373e4b" maskColor="rgba(12,14,18,0.62)" />
+      <MiniMap pannable zoomable maskColor="rgba(0,0,0,0.6)" />
     </ReactFlow>
   );
 }

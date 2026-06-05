@@ -88,25 +88,27 @@ body {
 .spin { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
 .empty { padding: 40px 20px; text-align: center; color: var(--text-mute); font-size: 12px; }
 
-/* ========================= Canvas ========================= */
-.canvas-wrap { position: relative; background: var(--bg-canvas); overflow: hidden; min-height: 0; display: flex; flex-direction: column; }
-.canvas-wrap .react-flow { flex: 1 1 auto; min-height: 0; background: var(--bg-canvas); }
-.canvas-empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-mute); font-size: 13px; }
-
-/* canvas overlays */
-.canvas-info { position: absolute; left: 12px; top: 12px; z-index: 5; display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 10.5px; color: var(--text-mute); background: var(--bg-panel); border: 1px solid var(--border); border-radius: 6px; padding: 4px 9px; }
-.canvas-info b { color: var(--text-dim); font-weight: 600; }
-.legend { position: absolute; right: 12px; top: 12px; z-index: 5; display: flex; gap: 10px; flex-wrap: wrap; max-width: 320px; justify-content: flex-end; background: var(--bg-panel); border: 1px solid var(--border); border-radius: 7px; padding: 6px 9px; }
-.legend .lg { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text-dim); }
-.legend .lg i { width: 9px; height: 9px; border-radius: 50%; }
-
-/* big-graph confirm overlay */
-.canvas-msg { position: absolute; inset: 0; display: grid; place-items: center; padding: 40px; z-index: 6; background: var(--bg-canvas); }
-.canvas-msg .card { max-width: 440px; text-align: center; }
-.canvas-msg .big-ico { width: 54px; height: 54px; margin: 0 auto 16px; border-radius: 13px; display: grid; place-items: center; background: rgba(224,166,78,.12); color: var(--warn); font-size: 24px; }
-.canvas-msg h2 { font-size: 17px; margin: 0 0 8px; }
-.canvas-msg p { color: var(--text-dim); margin: 0 0 8px; font-size: 12.5px; }
-.canvas-msg .stat { display: flex; gap: 18px; justify-content: center; margin: 18px 0 22px; }
-.canvas-msg .stat .v { font-family: var(--font-mono); font-size: 20px; font-weight: 700; }
-.canvas-msg .stat .l { font-size: 10px; text-transform: uppercase; letter-spacing: .07em; color: var(--text-mute); }
-.canvas-msg .actions { display: flex; gap: 10px; justify-content: center; }
+/* ========================= Canvas (original render) =========================
+   The node graph keeps the ORIGINAL viewer palette so nodes / wires / comment
+   boxes render exactly as before the chrome+sidebar+inspector redesign. We scope
+   the original tokens onto .canvas-wrap; React Flow and the custom node/edge/
+   comment styles (nodes/styles.css) live inside it and inherit these. */
+.canvas-wrap {
+  position: relative; min-width: 0; display: flex; flex-direction: column; background: var(--bg0);
+  --bg0:#15171a; --bg1:#1b1e22; --bg2:#23272d; --bd:#31373f; --hed:#181b1f;
+  --accent:#a06bff; --fg:#e6e8eb; --fg-dim:#9aa3ad; --fg-faint:#6b7480;
+  --radius:7px; --warn:#e0b34d; --err:#e0728a; --ok:#7ec96f;
+}
+.canvas-wrap .react-flow { flex: 1 1 auto; min-height: 0; background: var(--bg0); }
+.canvas-empty { color: var(--fg-faint); padding: 20px; }
+.canvas-topbar { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 12px; background: var(--bg1); border-bottom: 1px solid var(--bd); flex: none; }
+.canvas-banner { flex: none; padding: 8px 12px; font-size: 12px; line-height: 1.5; color: var(--warn); background: var(--bg2); border-bottom: 1px solid var(--bd); border-left: 3px solid var(--warn); }
+.canvas-banner b { color: var(--fg); }
+.canvas-banner code { font-size: 11px; background: var(--bg1); padding: 1px 4px; border-radius: 3px; color: var(--fg-dim); }
+.ct-left { min-width: 0; }
+.ct-title { font-weight: 600; }
+.ct-right { display: flex; align-items: center; gap: 12px; }
+.ct-warn { color: var(--warn); font-size: 11px; cursor: default; }
+.ct-count { color: var(--fg-faint); font-size: 11px; }
+.ct-ver { color: var(--fg-dim); font-size: 11px; padding: 1px 6px; border: 1px solid var(--bd); border-radius: 4px; }
+.ct-ver.warn { color: var(--warn); border-color: var(--warn); }
