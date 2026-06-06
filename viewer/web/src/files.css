@@ -22,6 +22,30 @@
   font-size: 12px;
 }
 
+/* Type filter (全部 / 材質 / 函式) — mirrors the Nodes-tab segment switcher */
+.ftypes {
+  display: flex;
+  gap: 4px;
+  margin: 0 6px 6px;
+}
+.ftypes .ftype {
+  flex: 1;
+  padding: 5px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.ftypes .ftype:hover { color: var(--text); }
+.ftypes .ftype.on {
+  background: var(--bg-elev);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
 /* Group (collapsible project folder) — mockup line 539-544 */
 .grp { margin: 2px 0 10px; }
 .grp-head {

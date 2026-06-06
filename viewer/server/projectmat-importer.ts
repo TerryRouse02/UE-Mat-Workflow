@@ -6,6 +6,7 @@ import { slugifyGraphName, writeGraph } from './graph-write.js';
 
 export interface ProjectMatResult {
   imported: string[];   // material base-names written under graphs/_project/
+  skipped: string[];    // MaterialFunction dumps skipped — projectmat is base-materials only
   warnings: string[];
 }
 
@@ -26,13 +27,14 @@ export async function importProjectMaterials(opts: {
 }): Promise<ProjectMatResult> {
   const { stagingDir, graphsRoot, exportMeta } = opts;
   const imported: string[] = [];
+  const skipped: string[] = [];
   const warnings: string[] = [];
 
   let entries: string[];
   try {
     entries = (await readdir(stagingDir)).filter(f => extname(f).toLowerCase() === '.t3d');
   } catch {
-    return { imported, warnings: [`project-materials staging dir not found: ${stagingDir}`] };
+    return { imported, skipped, warnings: [`project-materials staging dir not found: ${stagingDir}`] };
   }
 
   for (const file of entries) {
@@ -41,14 +43,22 @@ export async function importProjectMaterials(opts: {
     try {
       const text = await readFile(full, 'utf-8');
       const { graph, warnings: w } = parseUET3D(text, exportMeta, { name });
-      await writeGraph(graphsRoot, join(PROJECT_DIR, name), name, graph);
-      imported.push(name);
-      for (const msg of w) warnings.push(`${name}: ${msg}`);
+      // projectmat collects base materials only. A MaterialFunction that lands in
+      // the scan (parseUET3D detects it via FunctionInput/Output nodes) belongs to
+      // the WorkMF index / Nodes tab, not the "工作" files section — skip it so it
+      // never pollutes graphs/_project/.
+      if (graph.type !== 'Material') {
+        skipped.push(name);
+      } else {
+        await writeGraph(graphsRoot, join(PROJECT_DIR, name), name, graph);
+        imported.push(name);
+        for (const msg of w) warnings.push(`${name}: ${msg}`);
+      }
       await rm(full).catch(() => { /* best-effort cleanup */ });
     } catch (e) {
       warnings.push(`${name}: ${(e as Error).message}`);
     }
   }
 
-  return { imported, warnings };
+  return { imported, skipped, warnings };
 }

@@ -237,8 +237,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         await readFile(resolve(opts.repoRoot, 'agent-pack', 'nodes-ue5.7.export.json'), 'utf-8'),
       ) as ExportMeta;
       const stagingDir = resolve(opts.repoRoot, PROJECTMAT_STAGING_REL);
-      const { imported, warnings } = await importProjectMaterials({ stagingDir, graphsRoot, exportMeta });
+      const { imported, skipped, warnings } = await importProjectMaterials({ stagingDir, graphsRoot, exportMeta });
       log(`project materials: imported ${imported.length}${imported.length ? ` (${imported.join(', ')})` : ''}`);
+      if (skipped.length) log(`  skipped ${skipped.length} material function(s): ${skipped.join(', ')}`);
       for (const w of warnings) log(`  warning: ${w}`);
     } catch (e) {
       log(`project-materials import failed: ${(e as Error).message}`);

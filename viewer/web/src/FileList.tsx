@@ -110,37 +110,41 @@ export interface FileListProps {
   onLargeGraph?(file: FileEntry): void;
 }
 
+type TypeFilter = 'all' | 'material' | 'function';
+
+const TYPE_SEGMENTS: { key: TypeFilter; label: string }[] = [
+  { key: 'all', label: '全部' },
+  { key: 'material', label: '材質' },
+  { key: 'function', label: '函式' },
+];
+
 export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
   const { state } = useStore();
   const [query, setQuery] = useState('');
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const q = query.trim().toLowerCase();
   const { projects, unorganized, crawledProjects } = groupFiles(state.files);
 
-  const matchFile = (e: FileEntry) =>
+  const matchQuery = (e: FileEntry) =>
     !q || baseName(e.path).toLowerCase().includes(q) || e.path.toLowerCase().includes(q);
+  const matchType = (e: FileEntry) =>
+    typeFilter === 'all' ? true
+      : typeFilter === 'material' ? e.type === 'Material'
+        : e.type === 'MaterialFunction';
+  const matchFile = (e: FileEntry) => matchQuery(e) && matchType(e);
 
-  // --- Agent-authored section (Materials + unorganized) ---
+  // --- 專案 (agent-authored: project folders + unorganized) ---
   const visibleProjects = projects
     .map(p => ({ ...p, files: p.files.filter(matchFile) }))
     .filter(p => p.files.length > 0);
   const visibleUnorg = unorganized.filter(matchFile);
+  const projectShown =
+    visibleProjects.reduce((a, p) => a + p.files.length, 0) + visibleUnorg.length;
 
-  // Total agent-authored count (all types, pre-filter for badge)
-  const agentTotal = projects.reduce((a, p) => a + p.files.length, 0) + unorganized.length;
-
-  // --- Crawled section ---
+  // --- 工作 (crawled base materials, materials-only) ---
   const visibleCrawled = crawledProjects
     .map(p => ({ ...p, files: p.files.filter(matchFile) }))
     .filter(p => p.files.length > 0);
-
-  // --- Material Functions (from agent projects, flat list) ---
-  const allAgentFiles = [
-    ...projects.flatMap(p => p.files),
-    ...unorganized,
-  ];
-  const visibleFunctions = allAgentFiles.filter(
-    e => e.type === 'MaterialFunction' && matchFile(e),
-  );
 
   return (
     <div className="files">
@@ -153,10 +157,23 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
         />
       </div>
 
-      {/* Section 1 — Agent-authored */}
+      {/* Type filter — 全部 / 材質 / 函式 */}
+      <div className="ftypes">
+        {TYPE_SEGMENTS.map(s => (
+          <button
+            key={s.key}
+            className={'ftype' + (typeFilter === s.key ? ' on' : '')}
+            onClick={() => setTypeFilter(s.key)}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 專案 · Project — what the agent authors for this project */}
       <div className="sec-label">
-        代理產出 · Agent-authored
-        <span className="badge">{agentTotal}</span>
+        專案 · Project
+        <span className="badge">{projectShown}</span>
       </div>
       {visibleProjects.map(p => (
         <Group key={p.folder} title={p.folder} count={p.files.length}>
@@ -174,11 +191,11 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
         </Group>
       )}
 
-      {/* Section 2 — Crawled project materials */}
+      {/* 工作 · Work — base materials crawled from the UE project (read-only) */}
       <div className="sec-crawled" style={{ marginTop: 6, paddingTop: 4 }}>
         <div className="sec-label" style={{ color: 'var(--accent)' }}>
           <Icon name="eye" size={13} />
-          專案母材質（爬取）
+          工作 · Work
           <span className="badge" style={{ borderColor: 'var(--accent-dim)', color: 'var(--accent)' }}>
             爬取 · 唯讀
           </span>
@@ -190,8 +207,8 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
             </div>
             <div className="ect">尚未爬取專案母材質</div>
             <div className="ecd">
-              這個區段是「重爬專案母材質」的輸出。執行一次爬取後，你 /Game
-              專案裡的母材質就會以唯讀鏡像出現在這裡。
+              這個區段是「爬取專案母材質」的輸出。設定「母材質 Content Route」後執行一次爬取，
+              該目錄下的母材質就會以唯讀鏡像出現在這裡。
             </div>
             <button
               className="btn sm primary"
@@ -211,15 +228,6 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
           ))
         )}
       </div>
-
-      {/* Section 3 — Material Functions flat list */}
-      <div className="sec-label" style={{ marginTop: 8 }}>
-        Material Functions
-        <span className="badge">{visibleFunctions.length}</span>
-      </div>
-      {visibleFunctions.map(f => (
-        <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} />
-      ))}
     </div>
   );
 }
