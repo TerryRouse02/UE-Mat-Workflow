@@ -16,12 +16,15 @@ export interface SidebarProps {
   onGotoConfig(): void;
   /** Triggered when a large-graph file is clicked (passed to FileList) */
   onLargeGraph(file: FileEntry): void;
-  /** MF content root — passed to ConfigPanel */
+  /** MF content root (workmf crawl + export) — passed to ConfigPanel */
   mfRoot: string;
   setMfRoot(v: string): void;
+  /** Base-material content root (projectmat crawl) — passed to ConfigPanel */
+  matRoot: string;
+  setMatRoot(v: string): void;
 }
 
-export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMfRoot }: SidebarProps) {
+export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMfRoot, matRoot, setMatRoot }: SidebarProps) {
   const { state } = useStore();
   const crawlStatus = state.crawl.status;
   const configCue: 'run' | 'err' | null =
@@ -65,7 +68,7 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
         )}
         {tab === 'nodes' && <NodeLibrary />}
         {tab === 'config' && (
-          <ConfigPanel mfRoot={mfRoot} setMfRoot={setMfRoot} />
+          <ConfigPanel mfRoot={mfRoot} setMfRoot={setMfRoot} matRoot={matRoot} setMatRoot={setMatRoot} />
         )}
       </div>
     </div>

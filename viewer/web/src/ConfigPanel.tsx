@@ -58,8 +58,8 @@ const CRAWL_KIND_META: Record<CrawlKind, CrawlMeta> = {
   projectmat: {
     label: '爬取專案母材質',
     en: 'Crawl Project Parent Materials',
-    desc: '蒐集專案內的母材質（可被子材質繼承），填入 Files 分頁的「專案母材質（爬取）」區。',
-    refresh: 'Files 分頁 · 專案母材質',
+    desc: '蒐集「母材質 Content Route」下的母材質（可被子材質繼承），填入 Files 分頁的「工作」區。',
+    refresh: 'Files 分頁 · 工作',
   },
   export: {
     label: '重爬節點導出',
@@ -291,11 +291,13 @@ interface CrawlOpsSectionProps {
   env: import('../../server/crawl-types').EnvStatus | null;
   mfRoot: string;
   setMfRoot: (v: string) => void;
+  matRoot: string;
+  setMatRoot: (v: string) => void;
   justRan: CrawlKind | null;
   onStart: (k: CrawlKind) => void;
 }
 
-function CrawlOpsSection({ env, mfRoot, setMfRoot, justRan, onStart }: CrawlOpsSectionProps) {
+function CrawlOpsSection({ env, mfRoot, setMfRoot, matRoot, setMatRoot, justRan, onStart }: CrawlOpsSectionProps) {
   const [advOpen, setAdvOpen] = useState(false);
   const dis = !env?.ready;
   const freshness = env?.freshness;
@@ -308,8 +310,11 @@ function CrawlOpsSection({ env, mfRoot, setMfRoot, justRan, onStart }: CrawlOpsS
         <span className="secd">{dis ? '環境就緒後啟用' : '一次僅能執行一項'}</span>
       </div>
 
+      <div className="tier-label">主要 · 專案（常用）<span className="ln" /></div>
+
+      {/* MF scope — drives 爬取專案 MF, and the T3D export reads the same root. */}
       <div className="field">
-        <label>MF content root <span style={{ color: 'var(--text-mute)' }}>— 限定專案爬取範圍</span></label>
+        <label>MF Content Route <span style={{ color: 'var(--text-mute)' }}>— 爬取專案 MF · 也供導出</span></label>
         <div className="inp">
           <span className="pfx">root</span>
           <input
@@ -320,9 +325,21 @@ function CrawlOpsSection({ env, mfRoot, setMfRoot, justRan, onStart }: CrawlOpsS
           />
         </div>
       </div>
-
-      <div className="tier-label">主要 · 專案（常用）<span className="ln" /></div>
       <CrawlButton k="workmf" freshness={freshness} justRan={justRan} disabled={dis} onStart={onStart} />
+
+      {/* Base-material scope — drives 爬取專案母材質 (a separate folder from MF). */}
+      <div className="field" style={{ marginTop: 12 }}>
+        <label>母材質 Content Route <span style={{ color: 'var(--text-mute)' }}>— 爬取專案母材質</span></label>
+        <div className="inp">
+          <span className="pfx">root</span>
+          <input
+            value={matRoot}
+            onChange={e => setMatRoot(e.target.value)}
+            spellCheck={false}
+            placeholder="/Game"
+          />
+        </div>
+      </div>
       <CrawlButton k="projectmat" freshness={freshness} justRan={justRan} disabled={dis} onStart={onStart} />
 
       <div
@@ -455,7 +472,7 @@ function RunPanel({ crawl, startRef, mfRoot: _mfRoot, onStop, onReset, onRetry }
           </div>
           {kindKey === 'projectmat' && (
             <div className="fix-text" style={{ color: 'var(--text-dim)' }}>
-              → 已填入 Files 分頁的「專案母材質（爬取）」。
+              → 已填入 Files 分頁的「工作」區（僅母材質，MF 已略過）。
             </div>
           )}
         </div>
@@ -511,14 +528,24 @@ function RunPanel({ crawl, startRef, mfRoot: _mfRoot, onStop, onReset, onRetry }
 // ─── ConfigPanel (public export) ────────────────────────────────────────────
 
 export interface ConfigPanelProps {
-  /** MF root passed from App (via Sidebar). USE THE PROPS, do not use localStorage here. */
+  /** MF content root (爬取專案 MF + 導出) — from App via Sidebar. Use the props, not localStorage. */
   mfRoot: string;
   setMfRoot: (v: string) => void;
+  /** Base-material content root (爬取專案母材質) — from App via Sidebar. */
+  matRoot: string;
+  setMatRoot: (v: string) => void;
 }
 
-export function ConfigPanel({ mfRoot, setMfRoot }: ConfigPanelProps) {
+export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPanelProps) {
   const { state, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig } = useStore();
   const { env, crawl, connection } = state;
+
+  // Each crawl scope reads its own content root; the advanced/maintenance crawls
+  // (export/enginemf) take no root.
+  const rootFor = (k: CrawlKind): string | undefined =>
+    k === 'workmf' ? (mfRoot.trim() || '/Game')
+      : k === 'projectmat' ? (matRoot.trim() || '/Game')
+        : undefined;
 
   // Track the most-recently-completed crawl kind for FreshBadge "justRan" indicator.
   const [justRan, setJustRan] = useState<CrawlKind | null>(null);
@@ -537,14 +564,12 @@ export function ConfigPanel({ mfRoot, setMfRoot }: ConfigPanelProps) {
   }, [crawl.status]);
 
   const onStart = (k: CrawlKind) => {
-    void startCrawl(k, (k === 'workmf' || k === 'projectmat') ? (mfRoot.trim() || '/Game') : undefined);
+    void startCrawl(k, rootFor(k));
   };
 
   const onRetry = () => {
-    void startCrawl(
-      crawl.kind as CrawlKind,
-      (crawl.kind === 'workmf' || crawl.kind === 'projectmat') ? (mfRoot.trim() || '/Game') : undefined,
-    );
+    const k = crawl.kind as CrawlKind;
+    void startCrawl(k, rootFor(k));
   };
 
   // ── snapshot branch ──────────────────────────────────────────────────────
@@ -621,6 +646,8 @@ export function ConfigPanel({ mfRoot, setMfRoot }: ConfigPanelProps) {
         env={env}
         mfRoot={mfRoot}
         setMfRoot={setMfRoot}
+        matRoot={matRoot}
+        setMatRoot={setMatRoot}
         justRan={justRan}
         onStart={onStart}
       />

@@ -32,12 +32,23 @@ function Body() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [confirmFile, setConfirmFile] = useState<FileEntry | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  // Two independent crawl scopes (separate UE content roots):
+  //  • mfRoot  — "爬取專案 MF" (workmf) AND read by T3D export (mfContentRoot).
+  //  • matRoot — "爬取專案母材質" (projectmat). Kept apart so crawling base
+  //    materials never pulls in the MF folder, and vice-versa.
   const [mfRoot, setMfRootState] = useState<string>(
     () => (localStorage.getItem('ue-mf-root') || localStorage.getItem('ue-workmf-root') || '/Game').trim() || '/Game'
   );
   const setMfRoot = (v: string) => {
     localStorage.setItem('ue-mf-root', v);
     setMfRootState(v);
+  };
+  const [matRoot, setMatRootState] = useState<string>(
+    () => (localStorage.getItem('ue-mat-root') || '/Game').trim() || '/Game'
+  );
+  const setMatRoot = (v: string) => {
+    localStorage.setItem('ue-mat-root', v);
+    setMatRootState(v);
   };
 
   // Banner dismiss state — reset when engineMismatch reappears
@@ -117,13 +128,13 @@ function Body() {
   const handleCmd = useCallback((id: string) => {
     switch (id) {
       case 'config':    setTab('config'); break;
-      case 'crawlMat':  void startCrawl('projectmat', mfRoot); break;
+      case 'crawlMat':  void startCrawl('projectmat', matRoot.trim() || '/Game'); break;
       case 't3dIn':     setImportOpen(true); break;
       case 't3dOut':    void doExport(); break;
       case 'snapshot':  pushToast({ variant: 'info', title: '快照匯出需 CLI', message: '請使用 ue-mat-viewer export <name>' }); break;
       default: break;
     }
-  }, [setTab, startCrawl, mfRoot, doExport, pushToast]);
+  }, [setTab, startCrawl, matRoot, doExport, pushToast]);
 
   // ─── Keyboard shortcuts ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -173,6 +184,8 @@ function Body() {
             onLargeGraph={setConfirmFile}
             mfRoot={mfRoot}
             setMfRoot={setMfRoot}
+            matRoot={matRoot}
+            setMatRoot={setMatRoot}
           />
         </div>
         <main className="canvas-wrap">
@@ -204,7 +217,11 @@ function Body() {
           errors={errs}
           onFocusNode={focusNode}
           nodeProvenance={payload?.nodeProvenance}
-          onRecrawlNode={(src) => void startCrawl(srcToKind(src), mfRoot)}
+          onRecrawlNode={(src) => {
+            const k = srcToKind(src);
+            const root = k === 'workmf' ? mfRoot : k === 'projectmat' ? matRoot : undefined;
+            void startCrawl(k, root);
+          }}
         />
       </div>
 
