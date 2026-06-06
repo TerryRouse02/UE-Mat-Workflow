@@ -2851,7 +2851,64 @@ static bool SaveGraphAsT3D(UEdGraph* Graph, const FString& OutPath, FString& Out
 
 static bool IsProjectMaterialFunction(UMaterialFunctionInterface* Function)
 {
-    return Function != nullptr && Function->GetPathName().StartsWith(TEXT("/Game/"));
+    if (Function == nullptr)
+    {
+        return false;
+    }
+
+    const FString FunctionPath = Function->GetPathName();
+    return FunctionPath.StartsWith(TEXT("/")) && !FunctionPath.StartsWith(TEXT("/Engine/"));
+}
+
+static void ExportProjectMaterialFunctionRecursive(
+    UMaterialFunction* Function,
+    const FString& StagingDir,
+    TSet<FString>& ExportedFunctions,
+    int32& FunctionCount,
+    int32& FailureCount)
+{
+    if (Function == nullptr)
+    {
+        return;
+    }
+
+    const FString FunctionPath = Function->GetPathName();
+    if (ExportedFunctions.Contains(FunctionPath))
+    {
+        return;
+    }
+    ExportedFunctions.Add(FunctionPath);
+
+    PrepareFunctionGraph(Function);
+    const FString FunctionOutPath = FPaths::Combine(StagingDir, MakeProjectMatT3DFileName(Function->GetFName()));
+    FString FunctionError;
+    if (SaveGraphAsT3D(Function->MaterialGraph, FunctionOutPath, FunctionError))
+    {
+        ++FunctionCount;
+        UE_LOG(LogTemp, Display, TEXT("Wrote project material function T3D: %s"), *FunctionOutPath);
+    }
+    else
+    {
+        ++FailureCount;
+        UE_LOG(LogTemp, Warning, TEXT("ProjectMat: %s"), *FunctionError);
+    }
+
+    for (UMaterialExpression* Expression : Function->GetExpressions())
+    {
+        UMaterialExpressionMaterialFunctionCall* FunctionCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression);
+        if (FunctionCall == nullptr || !IsProjectMaterialFunction(FunctionCall->MaterialFunction))
+        {
+            continue;
+        }
+
+        UMaterialFunction* NestedFunction = Cast<UMaterialFunction>(FunctionCall->MaterialFunction);
+        if (NestedFunction == nullptr)
+        {
+            continue;
+        }
+
+        ExportProjectMaterialFunctionRecursive(NestedFunction, StagingDir, ExportedFunctions, FunctionCount, FailureCount);
+    }
 }
 
 static bool WriteProjectMaterials(const FString& StagingDir, const FString& ContentRootsCsv, FString& OutError)
@@ -2931,26 +2988,7 @@ static bool WriteProjectMaterials(const FString& StagingDir, const FString& Cont
                 continue;
             }
 
-            const FString FunctionPath = Function->GetPathName();
-            if (ExportedFunctions.Contains(FunctionPath))
-            {
-                continue;
-            }
-            ExportedFunctions.Add(FunctionPath);
-
-            PrepareFunctionGraph(Function);
-            const FString FunctionOutPath = FPaths::Combine(StagingDir, MakeProjectMatT3DFileName(Function->GetFName()));
-            FString FunctionError;
-            if (SaveGraphAsT3D(Function->MaterialGraph, FunctionOutPath, FunctionError))
-            {
-                ++FunctionCount;
-                UE_LOG(LogTemp, Display, TEXT("Wrote project material function T3D: %s"), *FunctionOutPath);
-            }
-            else
-            {
-                ++FailureCount;
-                UE_LOG(LogTemp, Warning, TEXT("ProjectMat: %s"), *FunctionError);
-            }
+            ExportProjectMaterialFunctionRecursive(Function, StagingDir, ExportedFunctions, FunctionCount, FailureCount);
         }
     }
 

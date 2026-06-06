@@ -7,7 +7,7 @@ import { createCrawlRunner, defaultCommandFor, type CrawlEvent, type CommandFor 
 // off-Windows. The real powershell command path is verified separately on Windows.
 const NODE = process.execPath;
 
-function runToDone(runner: ReturnType<typeof createCrawlRunner>, kind: 'export' | 'enginemf'): Promise<CrawlEvent[]> {
+function runToDone(runner: ReturnType<typeof createCrawlRunner>, kind: 'export' | 'enginemf' | 'workmf' | 'projectmat'): Promise<CrawlEvent[]> {
   return new Promise((res) => {
     const events: CrawlEvent[] = [];
     runner.start(kind, (e) => { events.push(e); if (e.type === 'done') res(events); });
@@ -34,6 +34,24 @@ describe('createCrawlRunner', () => {
     const d = done(await runToDone(runner, 'export'));
     expect(d.status).toBe('error');
     expect(d.exitCode).toBe(3);
+  });
+
+  it('reports an empty WorkMF crawl as an error even when the command exits 0', async () => {
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', "process.stdout.write('Wrote work-MF index: out (0 function(s), 0 load failure(s))\\n')"] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+    const events = await runToDone(runner, 'workmf');
+    const d = done(events);
+    expect(d.status).toBe('error');
+    expect(logs(events)).toContain('crawl found no project Material Functions; check the Content Route.');
+  });
+
+  it('reports an empty project-material crawl as an error even when the command exits 0', async () => {
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', "process.stdout.write('Project materials staged: staging (0 material(s), 0 function(s), 0 failure(s))\\n')"] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+    const events = await runToDone(runner, 'projectmat');
+    const d = done(events);
+    expect(d.status).toBe('error');
+    expect(logs(events)).toContain('crawl found no project materials; check the Content Route.');
   });
 
   it('strips carriage returns from progress-style output', async () => {

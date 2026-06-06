@@ -354,6 +354,7 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
       const customName = /PinName="([^"]*)"/.exec(l)?.[1] ?? 'Output';
       const outs = nodeMeta?.outputs ? Object.keys(nodeMeta.outputs) : [];
       let outName = outs.includes(customName) ? customName : (outs[0] ?? customName);
+      if (type === 'NamedRerouteDeclaration' && customName === 'Output') outName = 'Result';
       // Dynamic-pin nodes expose no static outputs; map UE's generic single-output name.
       if (!outs.length && customName === 'Output') {
         if (type === 'SetMaterialAttributes') outName = 'MaterialAttributes';

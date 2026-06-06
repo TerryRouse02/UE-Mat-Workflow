@@ -52,14 +52,14 @@ const CRAWL_KIND_META: Record<CrawlKind, CrawlMeta> = {
   workmf: {
     label: '爬取專案 MF',
     en: 'Crawl Project Material Functions',
-    desc: '掃描指定 content root 下所有專案 MaterialFunction，建立簽名索引供 AI 呼叫。',
-    refresh: '節點庫 · Project MF 分頁',
+    desc: '掃描指定 Content Route 下所有專案 MaterialFunction，只刷新簽名索引，供節點庫 / AI / 導出解析；不寫入 Files 的工作區。',
+    refresh: 'Project MF 簽名索引',
   },
   projectmat: {
     label: '爬取專案母材質',
     en: 'Crawl Project Parent Materials',
-    desc: '蒐集「母材質 Content Route」下的母材質（可被子材質繼承），填入 Files 分頁的「工作」區。',
-    refresh: 'Files 分頁 · 工作',
+    desc: '匯入「母材質 Content Route」下的母材質到 Files 的「工作」區；也會帶入這些母材質引用到的專案 MF，方便點進函式圖。',
+    refresh: 'Files 分頁 · 工作（母材質 + 引用 MF）',
   },
   export: {
     label: '重爬節點導出',
@@ -471,7 +471,7 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
           </div>
           {kindKey === 'projectmat' && (
             <div className="fix-text" style={{ color: 'var(--text-dim)' }}>
-              → 已填入 Files 分頁的「工作」區（僅母材質，MF 已略過）。
+              → 已填入 Files 分頁的「工作」區（母材質，以及其引用到的專案 MF）。
             </div>
           )}
         </div>

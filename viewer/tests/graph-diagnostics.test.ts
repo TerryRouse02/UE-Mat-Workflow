@@ -49,9 +49,9 @@ describe('diagnoseGraph', () => {
     expect(out.some(i => i.severity === 'error' && /FunctionOutput/.test(i.message))).toBe(true);
   });
 
-  it('flags a MaterialFunction with no FunctionInput as a warning', () => {
+  it('allows a parameter-only MaterialFunction with no FunctionInput', () => {
     const out = diagnoseGraph(mat([{ id: 'o', type: 'FunctionOutput' }], [], 'MaterialFunction'), db);
-    expect(out.some(i => i.severity === 'warning' && /FunctionInput/.test(i.message))).toBe(true);
+    expect(out.some(i => /FunctionInput/.test(i.message))).toBe(false);
   });
 
   it('returns no issues for a healthy MaterialFunction', () => {

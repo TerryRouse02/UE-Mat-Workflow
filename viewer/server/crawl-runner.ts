@@ -81,6 +81,18 @@ const realSpawn: SpawnImpl = (spec, cwd) => spawn(spec.command, spec.args, { cwd
 // A single emitted log line cannot exceed this; a runaway no-newline stream is
 // truncated rather than growing the buffer without bound.
 const LINE_BUF_CAP = 1_000_000;
+const LOG_TAIL_CAP = 500;
+
+function emptyCrawlMessage(kind: CrawlKind, lines: string[]): string | null {
+  const text = lines.join('\n');
+  if (kind === 'workmf' && /\b0 function\(s\)/i.test(text)) {
+    return 'crawl found no project Material Functions; check the Content Route.';
+  }
+  if (kind === 'projectmat' && /Project materials staged:.*\(0 material\(s\),\s*0 function\(s\),\s*0 failure\(s\)\)/i.test(text)) {
+    return 'crawl found no project materials; check the Content Route.';
+  }
+  return null;
+}
 
 // Buffer chunked stdout/stderr into whole lines; flush() emits any trailing
 // partial line when the process ends. All carriage returns are stripped — UE and
@@ -139,7 +151,12 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
     currentChild = child;
     emit({ type: 'started', jobId, kind });
 
-    const splitter = lineSplitter((line) => emit({ type: 'log', jobId, line }));
+    const logTail: string[] = [];
+    const splitter = lineSplitter((line) => {
+      logTail.push(line);
+      if (logTail.length > LOG_TAIL_CAP) logTail.shift();
+      emit({ type: 'log', jobId, line });
+    });
     child.stdout?.on('data', (c: Buffer) => splitter.push(c));
     child.stderr?.on('data', (c: Buffer) => splitter.push(c));
 
@@ -152,7 +169,14 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
       clearTimeout(timer);
       currentChild = null;
       splitter.flush();
-      const ok = exitCode === 0;
+      let ok = exitCode === 0;
+      if (ok) {
+        const emptyMsg = emptyCrawlMessage(kind, logTail);
+        if (emptyMsg) {
+          ok = false;
+          emit({ type: 'log', jobId, line: emptyMsg });
+        }
+      }
       status = { status: ok ? 'success' : 'error', jobId, kind, exitCode };
       emit({ type: 'done', jobId, status: ok ? 'success' : 'error', exitCode });
     };

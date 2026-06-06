@@ -20,6 +20,13 @@ describe('diagnoseCrawl', () => {
     expect(d!.fix).toMatch(/Config/);
   });
 
+  it('maps a zero-result crawl to a content route fix', () => {
+    const d = diagnoseCrawl(['Project materials staged: staging (0 material(s), 0 function(s), 0 failure(s))']);
+    expect(d).not.toBeNull();
+    expect(d!.who).toBe('you');
+    expect(d!.fix).toMatch(/Content Route/);
+  });
+
   it('returns null for an unrecognised failure', () => {
     expect(diagnoseCrawl(['some unfamiliar error text'])).toBeNull();
   });

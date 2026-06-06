@@ -207,8 +207,8 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
             </div>
             <div className="ect">尚未爬取</div>
             <div className="ecd">
-              這個區段是「爬取專案 MF / 母材質」的輸出。設定對應的 Content Route 後執行一次爬取，
-              該目錄下的母材質與 MF 就會以唯讀鏡像出現在這裡（母材質、函式分開列出）。
+              這個區段是「爬取專案母材質」的輸出。母材質爬取會同時帶入其引用到的專案 MF；
+              「爬取專案 MF」只刷新簽名索引，不會直接填入這裡。
             </div>
             <button
               className="btn sm primary"

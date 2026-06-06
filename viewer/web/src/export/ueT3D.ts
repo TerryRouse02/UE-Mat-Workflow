@@ -233,6 +233,9 @@ function nodeOutputPins(node: NodeJson, meta: NodeExportMeta, derivedPins: Recor
   if (node.type === 'MakeMaterialAttributes') {
     return [{ name: 'MaterialAttributes', display: 'Output' }];
   }
+  if (node.type === 'NamedRerouteDeclaration') {
+    return [{ name: 'Result', display: 'Output' }];
+  }
   return Object.entries(meta.outputs)
     .sort(([, a], [, b]) => a.index - b.index)
     .map(([name]) => ({ name, display: name }));

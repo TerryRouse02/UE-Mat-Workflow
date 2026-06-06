@@ -183,6 +183,82 @@ describe('resolveMaterialFunctions — work-project MF asset paths', () => {
     expect(resolved.warnings.some(w => /not in index/i.test(w))).toBe(true);
   });
 
+  it('falls back to a crawled project-material sibling MF when a /Game asset path is not in the WorkMF index', async () => {
+    const root = makeRepo();
+    mkdirSync(resolve(root, '_project', 'MM_Water'), { recursive: true });
+    mkdirSync(resolve(root, '_project', 'MF_RippleS'), { recursive: true });
+    write(resolve(root, '_project', 'MF_RippleS', 'MF_RippleS.matgraph.json'), {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'MaterialFunction', name: 'MF_RippleS',
+      nodes: [
+        { id: 'in', type: 'FunctionInput', params: { InputName: 'UV', InputType: 'VectorFloat2' } },
+        { id: 'out', type: 'FunctionOutput', params: { OutputName: 'Result', OutputType: 'VectorFloat3' } },
+      ],
+      connections: [],
+    });
+    write(resolve(root, '_project', 'MM_Water', 'MM_Water.matgraph.json'), {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'MM_Water',
+      nodes: [
+        {
+          id: 'mfc',
+          type: 'MaterialFunctionCall',
+          params: { MaterialFunction: '/Game/G1/MaterialLibrary/Material/Scene/M_Water/Function/MF_RippleS.MF_RippleS' },
+        },
+      ],
+      connections: [],
+    });
+    const r = await loadGraph(resolve(root, '_project', 'MM_Water', 'MM_Water.matgraph.json'));
+    const resolved = await resolveMaterialFunctions(r.graph!, resolve(root, '_project', 'MM_Water'), new Set(), { workMfIndex: index });
+    expect(resolved.derivedPins['mfc']).toEqual({
+      inputs: [{ name: 'UV', type: 'Float2' }],
+      outputs: [{ name: 'Result', type: 'Float3' }],
+    });
+    expect(resolved.nodeProvenance['mfc'].source).toBe('projectmat');
+    expect(resolved.warnings).toEqual([]);
+  });
+
+  it('falls back to a crawled project-material sibling MF from a bare UE object ref', async () => {
+    const root = makeRepo();
+    mkdirSync(resolve(root, '_project', 'MM_Water'), { recursive: true });
+    mkdirSync(resolve(root, '_project', 'MF_RippleS'), { recursive: true });
+    write(resolve(root, '_project', 'MF_RippleS', 'MF_RippleS.matgraph.json'), {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'MaterialFunction', name: 'MF_RippleS',
+      nodes: [
+        { id: 'out', type: 'FunctionOutput', params: { OutputName: 'Result', OutputType: 'VectorFloat3' } },
+      ],
+      connections: [],
+    });
+    const resolved = await resolveMaterialFunctions(
+      mat('MF_RippleS.MF_RippleS'),
+      resolve(root, '_project', 'MM_Water'),
+      new Set(),
+      { workMfIndex: index },
+    );
+    expect(resolved.derivedPins['mfc']).toEqual({
+      inputs: [],
+      outputs: [{ name: 'Result', type: 'Float3' }],
+    });
+    expect(resolved.warnings).toEqual([]);
+  });
+
+  it('uses Result for a crawled sibling FunctionOutput with no OutputName', async () => {
+    const root = makeRepo();
+    mkdirSync(resolve(root, '_project', 'M'), { recursive: true });
+    mkdirSync(resolve(root, '_project', 'MF_Unnamed'), { recursive: true });
+    write(resolve(root, '_project', 'MF_Unnamed', 'MF_Unnamed.matgraph.json'), {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'MaterialFunction', name: 'MF_Unnamed',
+      nodes: [{ id: 'out', type: 'FunctionOutput' }],
+      connections: [],
+    });
+    const resolved = await resolveMaterialFunctions(
+      mat('/DatasmithContent/F/MF_Unnamed.MF_Unnamed'),
+      resolve(root, '_project', 'M'),
+      new Set(),
+      { workMfIndex: index },
+    );
+    expect(resolved.derivedPins['mfc'].outputs).toEqual([{ name: 'Result', type: 'Float3' }]);
+    expect(resolved.warnings).toEqual([]);
+  });
+
   it('keeps pins for a work-MF MaterialFunctionCall nested inside a referenced MF', async () => {
     const root = makeRepo();
     write(resolve(root, 'functions/inner.matgraph.json'), {

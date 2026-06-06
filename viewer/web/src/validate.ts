@@ -38,6 +38,11 @@ function pinSetsFor(type: string, db: NodeDB): PinSets | null {
     case 'MaterialFunctionCall':
       // Pins are derived from the referenced MF - cannot validate statically.
       return { inputs: new Set(), outputs: new Set(), skip: true };
+    case 'NamedRerouteDeclaration':
+      // Real UE clipboard T3D exposes an output pin on the declaration. Imported
+      // expression-input wires canonicalize it to Result; root LinkedTo pins may
+      // still carry UE's displayed Output name.
+      return { inputs: new Set(['Input']), outputs: new Set(['Result', 'Output']), skip: false };
   }
 
   const def = db.nodes[type];
