@@ -141,10 +141,10 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
   const projectShown =
     visibleProjects.reduce((a, p) => a + p.files.length, 0) + visibleUnorg.length;
 
-  // --- 工作 (crawled base materials, materials-only) ---
-  const visibleCrawled = crawledProjects
-    .map(p => ({ ...p, files: p.files.filter(matchFile) }))
-    .filter(p => p.files.length > 0);
+  // --- 工作 (crawled from the UE project) — kept separate by type: 母材質 vs 函式 ---
+  const allCrawled = crawledProjects.flatMap(p => p.files);
+  const crawledMats = allCrawled.filter(e => e.type === 'Material' && matchFile(e));
+  const crawledFns = allCrawled.filter(e => e.type === 'MaterialFunction' && matchFile(e));
 
   return (
     <div className="files">
@@ -205,10 +205,10 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
             <div className="eci">
               <Icon name="eye" size={17} />
             </div>
-            <div className="ect">尚未爬取專案母材質</div>
+            <div className="ect">尚未爬取</div>
             <div className="ecd">
-              這個區段是「爬取專案母材質」的輸出。設定「母材質 Content Route」後執行一次爬取，
-              該目錄下的母材質就會以唯讀鏡像出現在這裡。
+              這個區段是「爬取專案 MF / 母材質」的輸出。設定對應的 Content Route 後執行一次爬取，
+              該目錄下的母材質與 MF 就會以唯讀鏡像出現在這裡（母材質、函式分開列出）。
             </div>
             <button
               className="btn sm primary"
@@ -219,13 +219,22 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
             </button>
           </div>
         ) : (
-          visibleCrawled.map(p => (
-            <Group key={p.folder} title={p.folder} count={p.files.length}>
-              {p.files.map(f => (
-                <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} />
-              ))}
-            </Group>
-          ))
+          <>
+            {crawledMats.length > 0 && (
+              <Group title="母材質 Materials" count={crawledMats.length}>
+                {crawledMats.map(f => (
+                  <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} />
+                ))}
+              </Group>
+            )}
+            {crawledFns.length > 0 && (
+              <Group title="函式 Functions" count={crawledFns.length}>
+                {crawledFns.map(f => (
+                  <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} />
+                ))}
+              </Group>
+            )}
+          </>
         )}
       </div>
     </div>

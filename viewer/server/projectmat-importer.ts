@@ -5,8 +5,7 @@ import type { ExportMeta } from '../web/src/export/export-meta-types.js';
 import { slugifyGraphName, writeGraph } from './graph-write.js';
 
 export interface ProjectMatResult {
-  imported: string[];   // material base-names written under graphs/_project/
-  skipped: string[];    // MaterialFunction dumps skipped — projectmat is base-materials only
+  imported: string[];   // graph base-names written under graphs/_project/ (Material or MaterialFunction)
   warnings: string[];
 }
 
@@ -27,14 +26,13 @@ export async function importProjectMaterials(opts: {
 }): Promise<ProjectMatResult> {
   const { stagingDir, graphsRoot, exportMeta } = opts;
   const imported: string[] = [];
-  const skipped: string[] = [];
   const warnings: string[] = [];
 
   let entries: string[];
   try {
     entries = (await readdir(stagingDir)).filter(f => extname(f).toLowerCase() === '.t3d');
   } catch {
-    return { imported, skipped, warnings: [`project-materials staging dir not found: ${stagingDir}`] };
+    return { imported, warnings: [`project-materials staging dir not found: ${stagingDir}`] };
   }
 
   for (const file of entries) {
@@ -42,23 +40,18 @@ export async function importProjectMaterials(opts: {
     const name = slugifyGraphName(basename(file, extname(file)));
     try {
       const text = await readFile(full, 'utf-8');
+      // parseUET3D tags the graph as Material or MaterialFunction (via its
+      // FunctionInput/Output nodes); both are kept and the Files panel separates
+      // them into the 工作 區's 母材質 / 函式 groups by that type.
       const { graph, warnings: w } = parseUET3D(text, exportMeta, { name });
-      // projectmat collects base materials only. A MaterialFunction that lands in
-      // the scan (parseUET3D detects it via FunctionInput/Output nodes) belongs to
-      // the WorkMF index / Nodes tab, not the "工作" files section — skip it so it
-      // never pollutes graphs/_project/.
-      if (graph.type !== 'Material') {
-        skipped.push(name);
-      } else {
-        await writeGraph(graphsRoot, join(PROJECT_DIR, name), name, graph);
-        imported.push(name);
-        for (const msg of w) warnings.push(`${name}: ${msg}`);
-      }
+      await writeGraph(graphsRoot, join(PROJECT_DIR, name), name, graph);
+      imported.push(name);
+      for (const msg of w) warnings.push(`${name}: ${msg}`);
       await rm(full).catch(() => { /* best-effort cleanup */ });
     } catch (e) {
       warnings.push(`${name}: ${(e as Error).message}`);
     }
   }
 
-  return { imported, skipped, warnings };
+  return { imported, warnings };
 }

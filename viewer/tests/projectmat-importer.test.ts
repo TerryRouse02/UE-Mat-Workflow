@@ -32,13 +32,14 @@ describe('importProjectMaterials', () => {
     expect(await readdir(stagingDir)).toEqual([]);
   });
 
-  it('skips MaterialFunction dumps — projectmat is base-materials only', async () => {
+  it('imports MaterialFunction dumps too, tagged as MaterialFunction (kept separate in the UI)', async () => {
     const root = await mkdtemp(join(tmpdir(), 'projmat-'));
     const graphsRoot = join(root, 'graphs');
     const stagingDir = join(root, 'staging');
     await mkdir(stagingDir, { recursive: true });
-    // A real Material dump alongside a MaterialFunction dump (the MF fixture
-    // carries FunctionInput/Output nodes, so parseUET3D classifies it as a MF).
+    // A Material dump alongside a MaterialFunction dump (the MF fixture carries
+    // FunctionInput/Output nodes, so parseUET3D classifies it as a MF). Both are
+    // imported; the Files panel splits them by type into 工作's 母材質 / 函式 groups.
     await writeFile(
       join(stagingDir, 'M_Test.t3d'),
       readFileSync(resolve(__dirname, 'fixtures/ue-make-material-attributes.t3d'), 'utf-8'),
@@ -53,13 +54,16 @@ describe('importProjectMaterials', () => {
     const result = await importProjectMaterials({ stagingDir, graphsRoot, exportMeta });
 
     expect(result.imported).toContain('M_Test');
-    expect(result.imported).not.toContain('MF_Helper');
-    expect(result.skipped).toContain('MF_Helper');
-    // the skipped MF must NOT be written under _project/
-    await expect(
-      readFile(join(graphsRoot, '_project', 'MF_Helper', 'MF_Helper.matgraph.json'), 'utf-8'),
-    ).rejects.toThrow();
-    // every staged file is consumed regardless of skip/import
+    expect(result.imported).toContain('MF_Helper');
+    const mat = JSON.parse(
+      await readFile(join(graphsRoot, '_project', 'M_Test', 'M_Test.matgraph.json'), 'utf-8'),
+    );
+    const fn = JSON.parse(
+      await readFile(join(graphsRoot, '_project', 'MF_Helper', 'MF_Helper.matgraph.json'), 'utf-8'),
+    );
+    expect(mat.type).toBe('Material');
+    expect(fn.type).toBe('MaterialFunction');
+    // every staged file is consumed
     expect(await readdir(stagingDir)).toEqual([]);
   });
 
