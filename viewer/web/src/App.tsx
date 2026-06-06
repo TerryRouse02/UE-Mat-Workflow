@@ -155,9 +155,11 @@ function Body() {
   const errs = current ? (state.errors[current] ?? []) : [];
   const warns = payload?.warnings ?? [];
 
-  // Body grid left-panel width
-  const leftW = tab === 'config' && state.crawl.status === 'running' ? 520
-    : tab === 'config' ? 332
+  // Body grid left-panel width. Config is widest — it carries two content-root
+  // inputs, the env checklist, and the crawl buttons; wider still while a crawl
+  // runs so the live log has room.
+  const leftW = tab === 'config' && state.crawl.status === 'running' ? 560
+    : tab === 'config' ? 384
     : 290;
 
   return (

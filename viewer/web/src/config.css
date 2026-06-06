@@ -117,7 +117,7 @@
 .runlog {
   font-family:var(--font-mono); font-size:11px;
   background:var(--bg-canvas); border:1px solid var(--border); border-radius:8px;
-  padding:10px 12px; flex:1; min-height:120px; overflow:auto; line-height:1.7;
+  padding:10px 12px; flex:1; min-height:0; overflow:auto; line-height:1.7;
 }
 .runlog .ll { display:flex; gap:10px; }
 .runlog .lt { color:var(--text-mute); flex:0 0 50px; text-align:right; }

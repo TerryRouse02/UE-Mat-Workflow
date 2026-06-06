@@ -1,7 +1,10 @@
 /* ===================== Files panel ===================== */
 /* CSS ported from docs/design-ref/mockup-with-css.html lines 535-560, 879-883 */
 
-.files { overflow: auto; padding: 6px; flex: 1; }
+/* min-height:0 is REQUIRED: a flex:1 child defaults to min-height:auto (= its
+   content height), so without this it never shrinks and never scrolls — the
+   content just overflows the sidebar and gets clipped. */
+.files { overflow: auto; padding: 6px; flex: 1; min-height: 0; }
 
 .files-search {
   margin: 4px 6px 8px;

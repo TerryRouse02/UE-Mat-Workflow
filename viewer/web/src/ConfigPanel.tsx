@@ -392,13 +392,12 @@ function RunLog({ lines }: { lines: Array<{ t: number; lvl: string; msg: string 
 interface RunPanelProps {
   crawl: { status: string; kind: string | null; logs: string[]; exitCode: number | null };
   startRef: number;
-  mfRoot: string;
   onStop: () => void;
   onReset: () => void;
   onRetry: () => void;
 }
 
-function RunPanel({ crawl, startRef, mfRoot: _mfRoot, onStop, onReset, onRetry }: RunPanelProps) {
+function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) {
   const [elapsed, setElapsed] = useState(0);
   useEffect(() => {
     if (crawl.status !== 'running') return;
@@ -624,7 +623,6 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
         <RunPanel
           crawl={crawl}
           startRef={crawlStartRef.current}
-          mfRoot={mfRoot}
           onStop={stopCrawl}
           onReset={resetCrawl}
           onRetry={onRetry}
