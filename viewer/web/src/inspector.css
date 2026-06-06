@@ -5,9 +5,11 @@
    are scoped under .panel.right to avoid collisions with other areas.
    ================================================================== */
 
-/* Scrollable body (mockup line 629) */
+/* Scrollable body (mockup line 629) — only ever scroll vertically; a stray
+   1px-wide child must not add a horizontal scrollbar along the panel bottom. */
 .panel.right .insp {
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
   flex: 1;
   min-height: 0;
 }
