@@ -1,6 +1,8 @@
 /* Sidebar shell only. The tab bar lives in chrome.css (.lstabs/.lstab);
    each panel body owns its own padding + scrolling — see files.css (.files),
-   nodes.css (.ntab), config.css (.cfg). All the old .sb-*/.tree-*/.lib-*/.cfg-*
-   rules moved to those per-area files during the productization re-skin. */
+   nodes.css (.ntab), config.css (.cfg). The old sb- / tree- / lib- / cfg-
+   prefixed rules moved to those per-area files during the productization re-skin.
+   (Do NOT put a CSS glob with a star-then-slash in this comment — that sequence
+   closes the comment early and silently eats the .sidebar rule below.) */
 .sidebar { display: flex; flex-direction: column; height: 100%; background: var(--bg-panel); color: var(--text); }
 .sidebar-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
