@@ -2741,6 +2741,38 @@
 				"ClearCoatRoughness":
 				{
 					"property": "ClearCoatRoughness"
+				},
+				"CustomizedUVs_0":
+				{
+					"property": "CustomizedUVs(0)"
+				},
+				"CustomizedUVs_1":
+				{
+					"property": "CustomizedUVs(1)"
+				},
+				"CustomizedUVs_2":
+				{
+					"property": "CustomizedUVs(2)"
+				},
+				"CustomizedUVs_3":
+				{
+					"property": "CustomizedUVs(3)"
+				},
+				"CustomizedUVs_4":
+				{
+					"property": "CustomizedUVs(4)"
+				},
+				"CustomizedUVs_5":
+				{
+					"property": "CustomizedUVs(5)"
+				},
+				"CustomizedUVs_6":
+				{
+					"property": "CustomizedUVs(6)"
+				},
+				"CustomizedUVs_7":
+				{
+					"property": "CustomizedUVs(7)"
 				}
 			},
 			"outputs":
@@ -4157,6 +4189,10 @@
 				"SM5":
 				{
 					"property": "Inputs(3)"
+				},
+				"SM6":
+				{
+					"property": "Inputs(4)"
 				}
 			},
 			"outputs":
@@ -4372,6 +4408,14 @@
 				"High":
 				{
 					"property": "Inputs(1)"
+				},
+				"Medium":
+				{
+					"property": "Inputs(2)"
+				},
+				"Epic":
+				{
+					"property": "Inputs(3)"
 				}
 			},
 			"outputs":
