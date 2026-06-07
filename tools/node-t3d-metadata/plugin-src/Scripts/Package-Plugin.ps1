@@ -34,7 +34,11 @@ if ([string]::IsNullOrWhiteSpace($PackageDir)) {
 }
 
 $EngineRoot = (Resolve-Path -LiteralPath $EngineRoot).Path
-$RunUAT = Join-Path $EngineRoot "Engine\Build\BatchFiles\RunUAT.bat"
+if ($IsMacOS -eq $true) {
+    $RunUAT = Join-Path $EngineRoot "Engine/Build/BatchFiles/RunUAT.sh"
+} else {
+    $RunUAT = Join-Path $EngineRoot "Engine\Build\BatchFiles\RunUAT.bat"
+}
 $PluginFile = Join-Path $PluginRoot "UEMatExportMetadata.uplugin"
 $LogRoot = Join-Path $WorkflowRoot "Logs\UE"
 $PackageLog = Join-Path $LogRoot "UEMatExportMetadata_Package.log"
@@ -57,7 +61,8 @@ if ($lockingProcesses) {
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PackageDir) | Out-Null
 
-& $RunUAT BuildPlugin "-Plugin=$PluginFile" "-Package=$PackageDir" -TargetPlatforms=Win64 2>&1 |
+$TargetPlatform = if ($IsMacOS -eq $true) { "Mac" } else { "Win64" }
+& $RunUAT BuildPlugin "-Plugin=$PluginFile" "-Package=$PackageDir" "-TargetPlatforms=$TargetPlatform" 2>&1 |
     Tee-Object -FilePath $PackageLog
 if ($LASTEXITCODE -ne 0) {
     throw "BuildPlugin failed with exit code $LASTEXITCODE. Log: $PackageLog"

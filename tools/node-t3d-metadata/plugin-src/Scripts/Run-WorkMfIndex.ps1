@@ -72,7 +72,11 @@ if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
 $ProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path
 $EngineRoot = (Resolve-Path -LiteralPath $EngineRoot).Path
 $ProjectDir = Split-Path -Parent $ProjectPath
-$EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+if ($IsMacOS -eq $true) {
+    $EditorCmd = Join-Path $EngineRoot "Engine/Binaries/Mac/UnrealEditor-Cmd"
+} else {
+    $EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+}
 # Local, gitignored output - the user's own project MF signatures, never committed.
 $Out = Join-Path $WorkflowRoot "agent-pack\workmf-index.json"
 if ([string]::IsNullOrWhiteSpace($PackageDir)) {

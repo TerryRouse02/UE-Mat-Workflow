@@ -94,7 +94,11 @@ if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
 $ProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path
 $EngineRoot = (Resolve-Path -LiteralPath $EngineRoot).Path
 $ProjectDir = Split-Path -Parent $ProjectPath
-$EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+if ($IsMacOS -eq $true) {
+    $EditorCmd = Join-Path $EngineRoot "Engine/Binaries/Mac/UnrealEditor-Cmd"
+} else {
+    $EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+}
 # Committed output - official engine MFs are stable shipped data shared by all users.
 if ([string]::IsNullOrWhiteSpace($Out)) {
     $Out = Join-Path $WorkflowRoot "agent-pack\enginemf-index-ue5.7.json"
@@ -103,7 +107,11 @@ if ([string]::IsNullOrWhiteSpace($PackageDir)) {
     $PackageDir = Join-Path $BundleRoot "compiled\UEMatExportMetadata"
 }
 $PackagedPlugin = Join-Path $PackageDir "UEMatExportMetadata.uplugin"
-$PackagedDll = Join-Path $PackageDir "Binaries\Win64\UnrealEditor-UEMatExportMetadata.dll"
+if ($IsMacOS -eq $true) {
+    $PackagedDll = Join-Path $PackageDir "Binaries/Mac/UnrealEditor-UEMatExportMetadata.dylib"
+} else {
+    $PackagedDll = Join-Path $PackageDir "Binaries\Win64\UnrealEditor-UEMatExportMetadata.dll"
+}
 $ProjectPlugin = Join-Path $ProjectDir "Plugins\UEMatExportMetadata\UEMatExportMetadata.uplugin"
 $LogRoot = Join-Path $WorkflowRoot "Logs\UE"
 $CommandletLog = Join-Path $LogRoot "UEMatExportMetadata_EngineMF.log"
