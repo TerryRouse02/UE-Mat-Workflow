@@ -71,12 +71,22 @@ describe('createCrawlRunner', () => {
     expect(logs(events).some((l) => /spawn error/.test(l))).toBe(true);
   });
 
-  it('maps each crawl kind to its PowerShell entrypoint', () => {
-    const cmd = (k: 'export' | 'enginemf' | 'workmf') => defaultCommandFor('/repo', k);
+  it('maps each crawl kind to its PowerShell entrypoint (Windows)', () => {
+    const cmd = (k: 'export' | 'enginemf' | 'workmf') => defaultCommandFor('/repo', k, undefined, 'win32');
     expect(cmd('export').command).toBe('powershell');
     expect(cmd('export').args.join(' ')).toMatch(/Invoke-NodeT3DMetadataMaintenance\.ps1.*-SkipViewerTests/);
     expect(cmd('enginemf').args.join(' ')).toMatch(/Run-EngineMfIndex\.ps1/);
     expect(cmd('workmf').args.join(' ')).toMatch(/Run-WorkMfIndex\.ps1/);
+  });
+
+  it('runs the same .ps1 entrypoints under pwsh on macOS (no -ExecutionPolicy)', () => {
+    const cmd = defaultCommandFor('/repo', 'workmf', undefined, 'darwin');
+    expect(cmd.command).toBe('pwsh');
+    expect(cmd.args).toEqual(expect.arrayContaining(['-NoProfile', '-File']));
+    expect(cmd.args).not.toContain('-ExecutionPolicy');
+    expect(cmd.args.join(' ')).toMatch(/Run-WorkMfIndex\.ps1/);
+    // contentRoots still threads through on darwin
+    expect(defaultCommandFor('/repo', 'workmf', { contentRoots: '/Game/M' }, 'darwin').args).toContain('-ContentRoots');
   });
 
   it('maps the projectmat crawl to Run-ProjectMaterials.ps1 with a staging dir', () => {

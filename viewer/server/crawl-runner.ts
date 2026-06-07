@@ -38,7 +38,7 @@ export interface CrawlStartOpts {
 }
 
 export type SpawnImpl = (spec: SpawnSpec, cwd: string) => ChildProcess;
-export type CommandFor = (repoRoot: string, kind: CrawlKind, opts?: CrawlStartOpts) => SpawnSpec;
+export type CommandFor = (repoRoot: string, kind: CrawlKind, opts?: CrawlStartOpts, platform?: NodeJS.Platform) => SpawnSpec;
 
 // The actual PowerShell invocation per crawl kind, kept in ONE place so the
 // Windows side can confirm/adjust the exact args without touching the runner.
@@ -47,12 +47,13 @@ export type CommandFor = (repoRoot: string, kind: CrawlKind, opts?: CrawlStartOp
 // cleaned by the server after import). Shared with http-server's post-crawl hook.
 export const PROJECTMAT_STAGING_REL = 'tools/node-t3d-metadata/projectmat-staging';
 
-export const defaultCommandFor: CommandFor = (repoRoot, kind, opts) => {
+export const defaultCommandFor: CommandFor = (repoRoot, kind, opts, platform = process.platform) => {
   const tool = resolve(repoRoot, 'tools', 'node-t3d-metadata');
-  const ps = (file: string, extra: string[]): SpawnSpec => ({
-    command: 'powershell',
-    args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolve(tool, file), ...extra],
-  });
+  // macOS runs the same .ps1 runners under PowerShell Core (pwsh). pwsh on macOS
+  // has no -ExecutionPolicy switch, so it is omitted there; Windows keeps it.
+  const ps = (file: string, extra: string[]): SpawnSpec => platform === 'darwin'
+    ? { command: 'pwsh', args: ['-NoProfile', '-File', resolve(tool, file), ...extra] }
+    : { command: 'powershell', args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolve(tool, file), ...extra] };
   switch (kind) {
     case 'export':
       // Packages the plugin, regenerates nodes-ue5.7.export.json, audits. Skip the
