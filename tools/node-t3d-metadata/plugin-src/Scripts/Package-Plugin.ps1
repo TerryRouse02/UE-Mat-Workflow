@@ -61,28 +61,50 @@ if ($lockingProcesses) {
 New-Item -ItemType Directory -Force -Path $LogRoot | Out-Null
 New-Item -ItemType Directory -Force -Path (Split-Path -Parent $PackageDir) | Out-Null
 
-$TargetPlatform = if ($IsMacOS -eq $true) { "Mac" } else { "Win64" }
-& $RunUAT BuildPlugin "-Plugin=$PluginFile" "-Package=$PackageDir" "-TargetPlatforms=$TargetPlatform" 2>&1 |
-    Tee-Object -FilePath $PackageLog
-if ($LASTEXITCODE -ne 0) {
-    throw "BuildPlugin failed with exit code $LASTEXITCODE. Log: $PackageLog"
-}
-
-$IntermediateDir = Join-Path $PackageDir "Intermediate"
-if (Test-Path $IntermediateDir) {
-    Remove-Item -LiteralPath $IntermediateDir -Recurse -Force
-}
-
-$PackagedPluginFile = Join-Path $PackageDir "UEMatExportMetadata.uplugin"
-if (Test-Path $PackagedPluginFile) {
-    $Descriptor = Get-Content -Raw -LiteralPath $PackagedPluginFile | ConvertFrom-Json
-    if ($Descriptor.PSObject.Properties.Name -contains "EngineVersion") {
-        $Descriptor.PSObject.Properties.Remove("EngineVersion")
-        $Json = $Descriptor | ConvertTo-Json -Depth 16
-        $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
-        [System.IO.File]::WriteAllText($PackagedPluginFile, $Json, $Utf8NoBom)
+if ($IsMacOS -eq $true) {
+    # macOS: "RunUAT BuildPlugin -Package=<dir>" is a CLEAN package -- it wipes
+    # everything in <dir> not rebuilt for the requested platform. Pointed at the
+    # committed compiled/ dir with -TargetPlatforms=Mac it would delete the
+    # committed Binaries/Win64 and rewrite the committed .uplugin. So build to a
+    # temp dir and copy only the Mac binaries into PackageDir, leaving the
+    # committed Win64 binaries and .uplugin untouched.
+    $TempPackage = Join-Path ([System.IO.Path]::GetTempPath()) "uemat-pkg-mac"
+    if (Test-Path $TempPackage) { Remove-Item -LiteralPath $TempPackage -Recurse -Force }
+    & $RunUAT BuildPlugin "-Plugin=$PluginFile" "-Package=$TempPackage" "-TargetPlatforms=Mac" 2>&1 |
+        Tee-Object -FilePath $PackageLog
+    if ($LASTEXITCODE -ne 0) {
+        throw "BuildPlugin failed with exit code $LASTEXITCODE. Log: $PackageLog"
     }
-}
+    $MacBinDst = Join-Path $PackageDir "Binaries/Mac"
+    New-Item -ItemType Directory -Force -Path $MacBinDst | Out-Null
+    Copy-Item -Path (Join-Path $TempPackage "Binaries/Mac/*") -Destination $MacBinDst -Recurse -Force
+    Remove-Item -LiteralPath $TempPackage -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "Built macOS plugin binary into $MacBinDst"
+    Write-Host "Committed Binaries/Win64 and .uplugin left intact."
+    Write-Host "Package log: $PackageLog"
+} else {
+    & $RunUAT BuildPlugin "-Plugin=$PluginFile" "-Package=$PackageDir" "-TargetPlatforms=Win64" 2>&1 |
+        Tee-Object -FilePath $PackageLog
+    if ($LASTEXITCODE -ne 0) {
+        throw "BuildPlugin failed with exit code $LASTEXITCODE. Log: $PackageLog"
+    }
 
-Write-Host "Packaged plugin to $PackageDir"
-Write-Host "Package log: $PackageLog"
+    $IntermediateDir = Join-Path $PackageDir "Intermediate"
+    if (Test-Path $IntermediateDir) {
+        Remove-Item -LiteralPath $IntermediateDir -Recurse -Force
+    }
+
+    $PackagedPluginFile = Join-Path $PackageDir "UEMatExportMetadata.uplugin"
+    if (Test-Path $PackagedPluginFile) {
+        $Descriptor = Get-Content -Raw -LiteralPath $PackagedPluginFile | ConvertFrom-Json
+        if ($Descriptor.PSObject.Properties.Name -contains "EngineVersion") {
+            $Descriptor.PSObject.Properties.Remove("EngineVersion")
+            $Json = $Descriptor | ConvertTo-Json -Depth 16
+            $Utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+            [System.IO.File]::WriteAllText($PackagedPluginFile, $Json, $Utf8NoBom)
+        }
+    }
+
+    Write-Host "Packaged plugin to $PackageDir"
+    Write-Host "Package log: $PackageLog"
+}
