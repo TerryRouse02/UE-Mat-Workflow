@@ -34,10 +34,16 @@ export function CommandPalette({ onClose, onJump, onCmd, nodes, db, connection, 
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
+
+  // Keep the keyboard-selected row visible when arrowing past the fold.
+  useEffect(() => {
+    listRef.current?.querySelector('.cmdk-item.on')?.scrollIntoView({ block: 'nearest' });
+  }, [sel]);
 
   // Build node items: jump target is n.id; use current category palette for the dot
   const nodeItems: NodeItem[] = (nodes ?? []).map(n => ({
@@ -61,7 +67,6 @@ export function CommandPalette({ onClose, onJump, onCmd, nodes, db, connection, 
       disabled: connection === 'snapshot',
     },
     { t: 'a', id: 't3dOut',   label: '匯出選取到剪貼簿（T3D）',          icon: 'download' },
-    { t: 'a', id: 'snapshot', label: '匯出離線 HTML 快照',              icon: 'layers' },
   ];
 
   const lq = q.toLowerCase();
@@ -120,7 +125,7 @@ export function CommandPalette({ onClose, onJump, onCmd, nodes, db, connection, 
           />
           <kbd style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-mute)' }}>ESC</kbd>
         </div>
-        <div className="cmdk-list">
+        <div className="cmdk-list" ref={listRef}>
           {filteredCmds.length > 0 && (
             <div className="cmdk-group">指令 Commands</div>
           )}

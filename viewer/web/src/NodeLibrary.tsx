@@ -113,6 +113,19 @@ function NodeTypeRow({
   open: boolean;
   onToggle: () => void;
 }) {
+  // The viewer is read-only (it can't inject into UE), but the one thing that IS
+  // useful from here is grabbing the exact identifier to author with: the node
+  // type name for a DB node, or the asset path for a Material Function.
+  const [copied, setCopied] = useState(false);
+  const copyText = item.isMF ? item.id : item.name;
+  const copyLabel = item.isMF ? '複製資產路徑' : '複製型別名稱';
+  const onCopy = () => {
+    void navigator.clipboard.writeText(copyText).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    });
+  };
+
   // Dot colour: MF uses error/text-mute/accent; node type uses category colour.
   const dot: string = item.isMF
     ? item.missing
@@ -148,13 +161,14 @@ function NodeTypeRow({
           )}
           <SigCol title="輸入 Inputs" pins={item.ins} />
           <SigCol title="輸出 Outputs" pins={item.outs} />
-          {/* 插入到畫布 is disabled — viewer is read-only */}
+          {/* Viewer is read-only; offer the useful read-only action instead of a
+              dead "insert to canvas" button — copy the authoring identifier. */}
           <button
             className="btn sm"
-            disabled
             style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
+            onClick={onCopy}
           >
-            <Icon name="plus" size={12} /> 插入到畫布
+            <Icon name={copied ? 'check' : 'clip'} size={12} /> {copied ? '已複製' : copyLabel}
           </button>
         </div>
       )}

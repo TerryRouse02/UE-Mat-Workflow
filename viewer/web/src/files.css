@@ -4,7 +4,7 @@
 /* min-height:0 is REQUIRED: a flex:1 child defaults to min-height:auto (= its
    content height), so without this it never shrinks and never scrolls — the
    content just overflows the sidebar and gets clipped. */
-.files { overflow: auto; padding: 6px; flex: 1; min-height: 0; }
+.files { overflow: auto; scrollbar-gutter: stable; padding: 6px; flex: 1; min-height: 0; }
 
 .files-search {
   margin: 4px 6px 8px;
@@ -59,8 +59,11 @@
   cursor: pointer;
   color: var(--text-dim);
 }
-.grp-head .caret { transition: transform .12s; color: var(--text-mute); }
-.grp-head.collapsed .caret { transform: rotate(-90deg); }
+/* Disclosure caret: open → points down (▼), collapsed → points right (▶).
+   The base icon points right, so rotate it 90° when open and leave it at 0
+   when collapsed (matches the Config-panel .advrow convention). */
+.grp-head .caret { transition: transform .12s; color: var(--text-mute); transform: rotate(90deg); }
+.grp-head.collapsed .caret { transform: rotate(0deg); }
 .grp-head .gt {
   font-size: 11px;
   font-weight: 700;

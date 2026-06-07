@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import type { MatGraph, NodeSource } from './protocol';
 import { useDb } from './dbContext';
 import { pinColor, catColor } from './theme/colors';
@@ -100,13 +100,14 @@ function isCodeLike(v: unknown): v is string {
 // ─── NodeInspector ───────────────────────────────────────────────────────────
 
 function NodeInspector({
-  graph, node, derivedPins, nodeProvenance, onRecrawlNode,
+  graph, node, derivedPins, nodeProvenance, onRecrawlNode, issues,
 }: {
   graph: MatGraph;
   node: { id: string; type: string; params?: Record<string, unknown> };
   derivedPins?: Record<string, { inputs: { name: string; type: string }[]; outputs: { name: string; type: string }[] }>;
   nodeProvenance?: Record<string, { source: NodeSource; freshnessTs: string | null }>;
   onRecrawlNode?: (source: string) => void;
+  issues: GraphIssue[];
 }) {
   const { db } = useDb();
   const reserved = new Set(db.reservedTypes ?? []);
@@ -122,6 +123,9 @@ function NodeInspector({
 
   // Provenance metadata
   const meta = nodeProvenance?.[node.id];
+
+  // This node's own health, filtered from the once-per-open graph scan.
+  const nodeIssues = issues.filter(i => i.nodeId === node.id);
 
   return (
     <div className="insp">
@@ -151,6 +155,35 @@ function NodeInspector({
           )}
         </div>
       </div>
+
+      {/* This node's health — refreshed (filtered) each time a node is clicked */}
+      {nodeIssues.length > 0 ? (
+        <>
+          <div className="panel right isec" style={{ paddingBottom: 4 }}>
+            <div className="lbl">此節點的問題</div>
+          </div>
+          <div>
+            {nodeIssues.map((iss, i) => {
+              const sev = iss.severity === 'error' ? 'error' : 'warn';
+              return (
+                <div key={i} className={`issue ${sev}`} style={{ cursor: 'default' }}>
+                  <span className="ibar" />
+                  <div style={{ flex: 1 }}>
+                    <div className="it">{iss.message}</div>
+                  </div>
+                  <span className={`sevpill ${sev}`}>{sev}</span>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : (
+        <div className="panel right isec">
+          <div className="lbl" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--ok)' }}>✓</span> 此節點無問題
+          </div>
+        </div>
+      )}
 
       {/* Pin lists */}
       <PinList label="輸入 pin" pins={inputPins} />
@@ -217,14 +250,12 @@ function NodeInspector({
 // ─── HealthInspector ─────────────────────────────────────────────────────────
 
 function HealthInspector({
-  graph, db, derivedPins, onFocusNode,
+  graph, issues, onFocusNode,
 }: {
   graph: MatGraph;
-  db: import('../../server/db-types').NodeDB;
-  derivedPins?: Record<string, { inputs: { name: string; type: string }[]; outputs: { name: string; type: string }[] }>;
+  issues: GraphIssue[];
   onFocusNode?: (id: string) => void;
 }) {
-  const issues = useMemo(() => diagnoseGraph(graph, db, derivedPins), [graph, db, derivedPins]);
   const errCount = issues.filter(i => i.severity === 'error').length;
   const warnCount = issues.filter(i => i.severity === 'warning').length;
 
@@ -302,14 +333,24 @@ export function Inspector({
   const { db } = useDb();
   const [inspMode, setInspMode] = useState<InspMode>('node');
 
-  // Reset mode to 'node' when a node becomes selected (null → set transition)
-  const prevSelectedRef = { current: selectedNodeId };
+  // Reset mode to 'node' when a node becomes selected (null → set transition).
+  // prevSelectedRef must be a real ref so it survives across renders — a plain
+  // object would be recreated every render and the null→id transition never fires.
+  const prevSelectedRef = useRef<string | null>(null);
   useEffect(() => {
     if (selectedNodeId && !prevSelectedRef.current) {
       setInspMode('node');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    prevSelectedRef.current = selectedNodeId;
   }, [selectedNodeId]);
+
+  // Graph health is scanned ONCE per graph open (memoized on graph + DB + resolved
+  // pins) and shared by the health tab and the per-node "this node's problems"
+  // section. Clicking a node just filters this cached result — no re-scan.
+  const issues = useMemo<GraphIssue[]>(
+    () => (graph ? diagnoseGraph(graph, db, derivedPins) : []),
+    [graph, db, derivedPins],
+  );
 
   // Errors-first branch: file failed to load
   if (errors && errors.length > 0) {
@@ -393,13 +434,13 @@ export function Inspector({
             derivedPins={derivedPins}
             nodeProvenance={nodeProvenance}
             onRecrawlNode={onRecrawlNode}
+            issues={issues}
           />
         )
         : (
           <HealthInspector
             graph={graph}
-            db={db}
-            derivedPins={derivedPins}
+            issues={issues}
             onFocusNode={onFocusNode}
           />
         )}

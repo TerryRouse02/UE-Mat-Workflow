@@ -7,6 +7,7 @@
   --text:#dde2ea; --text-dim:#99a2b1; --text-mute:#69707d;
   --accent:#2dd4bf; --accent-dim:#1d8c80; --accent-ghost:rgba(45,212,191,.13);
   --node-bg:#262b35; --node-border:#373e4b; --node-head:#2c323d; --node-sel:#2dd4bf;
+  --node-head-reserved:#20283a;
   --grid:rgba(255,255,255,.045); --scroll:#3a414e; --scroll-h:#4a5260;
   --panel-radius:7px; --chip-radius:5px; --radius:7px; --row:32px; --fs:13px;
   /* aliases: keep old names working until each area migrates */
@@ -16,13 +17,21 @@
   --err:var(--error);
 }
 * { box-sizing: border-box; }
+/* Thin, themed scrollbars — the default OS bar is heavy and out of place on the
+   dark UI. Uses the --scroll / --scroll-h palette that was already defined. */
+* { scrollbar-width: thin; scrollbar-color: var(--scroll) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: 8px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--scroll-h); border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-corner { background: transparent; }
 html, body, #root { height: 100%; }
 body { margin: 0; background: var(--bg-app); color: var(--text);
   font: var(--fs)/1.45 var(--font-sans); -webkit-font-smoothing: antialiased; overflow: hidden; }
 .app { display: flex; flex-direction: column; height: 100%; background: var(--bg-app); color: var(--text); font-family: var(--font-sans); }
 .mono { font-family: var(--font-mono); }
-.body { display: grid; grid-template-columns: var(--left,272px) 1fr var(--right,320px); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; }
-.panel { background: var(--bg-panel); min-height: 0; display: flex; flex-direction: column; }
+.body { display: grid; grid-template-columns: var(--left,272px) 1fr var(--right,320px); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; transition: grid-template-columns .2s ease; }
+.panel { background: var(--bg-panel); min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .panel.left { border-right: 1px solid var(--border); transition: width .2s ease; }
 .panel.right { border-left: 1px solid var(--border); }
 .panel-head { display: flex; align-items: center; gap: 8px; padding: 11px 13px; flex: 0 0 auto; border-bottom: 1px solid var(--hairline); }
@@ -47,6 +56,14 @@ body { margin: 0; background: var(--bg-app); color: var(--text);
 .canvas-wrap { display: flex; flex-direction: column; min-height: 0; position: relative; background: var(--bg-canvas); overflow: hidden; }
 .canvas-wrap .react-flow { flex: 1 1 auto; min-height: 0; }
 .canvas-empty { color: var(--fg-faint); padding: 20px; }
+/* Edge toggles to collapse/expand the side panels, freeing canvas space. */
+.panel-toggle { position: absolute; top: 50%; transform: translateY(-50%); z-index: 6;
+  width: 16px; height: 46px; display: grid; place-items: center; padding: 0;
+  background: var(--bg-panel-2); color: var(--text-mute); border: 1px solid var(--border); cursor: pointer; }
+.panel-toggle:hover { color: var(--text); background: var(--bg-elev); }
+.panel-toggle.left { left: 0; border-left: 0; border-radius: 0 7px 7px 0; }
+.panel-toggle.right { right: 0; border-right: 0; border-radius: 7px 0 0 7px; }
+.panel-toggle svg { transition: transform .2s ease; }
 .canvas-topbar { display: flex; align-items: center; justify-content: space-between; height: 36px; padding: 0 12px; background: var(--bg1); border-bottom: 1px solid var(--bd); flex: none; }
 .canvas-banner { flex: none; padding: 8px 12px; font-size: 12px; line-height: 1.5; color: var(--warn); background: var(--bg2); border-bottom: 1px solid var(--bd); border-left: 3px solid var(--warn); }
 .canvas-banner b { color: var(--fg); }

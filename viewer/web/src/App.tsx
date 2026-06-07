@@ -9,6 +9,7 @@ import { ToastStack, type ToastItem } from './Toast';
 import { ImportModal } from './ImportModal';
 import { BigGraphConfirm } from './BigGraphConfirm';
 import { CommandPalette } from './CommandPalette';
+import { Icon } from './Icon';
 import { DbProvider, useDb } from './dbContext';
 import { shouldConfirmOpen } from './largeGraphGate';
 import { graphToUET3D } from './export/ueT3D';
@@ -32,6 +33,9 @@ function Body() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [confirmFile, setConfirmFile] = useState<FileEntry | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  // Collapse either side panel to give the canvas more room.
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
   // Two independent crawl scopes (separate UE content roots):
   //  • mfRoot  — "爬取專案 MF" (workmf) AND read by T3D export (mfContentRoot).
   //  • matRoot — "爬取專案母材質" (projectmat). Kept apart so crawling base
@@ -131,7 +135,6 @@ function Body() {
       case 'crawlMat':  void startCrawl('projectmat', matRoot.trim() || '/Game'); break;
       case 't3dIn':     setImportOpen(true); break;
       case 't3dOut':    void doExport(); break;
-      case 'snapshot':  pushToast({ variant: 'info', title: '快照匯出需 CLI', message: '請使用 ue-mat-viewer export <name>' }); break;
       default: break;
     }
   }, [setTab, startCrawl, matRoot, doExport, pushToast]);
@@ -146,6 +149,7 @@ function Body() {
       if (e.key === 'Escape') {
         setConfirmFile(null);
         setPaletteOpen(false);
+        setImportOpen(false);
       }
     };
     window.addEventListener('keydown', h);
@@ -177,7 +181,7 @@ function Body() {
         dismissed={bannerDismissed}
         onDismiss={() => setBannerDismissed(true)}
       />
-      <div className="body" style={{ '--left': leftW + 'px' } as React.CSSProperties}>
+      <div className="body" style={{ '--left': (leftCollapsed ? 0 : leftW) + 'px', '--right': (rightCollapsed ? 0 : 320) + 'px' } as React.CSSProperties}>
         <div className="panel left">
           <Sidebar
             tab={tab}
@@ -191,6 +195,20 @@ function Body() {
           />
         </div>
         <main className="canvas-wrap">
+          <button
+            className="panel-toggle left"
+            title={leftCollapsed ? '展開側欄' : '收合側欄'}
+            onClick={() => setLeftCollapsed(c => !c)}
+          >
+            <Icon name="caret" size={13} style={{ transform: leftCollapsed ? 'none' : 'rotate(180deg)' }} />
+          </button>
+          <button
+            className="panel-toggle right"
+            title={rightCollapsed ? '展開檢視器' : '收合檢視器'}
+            onClick={() => setRightCollapsed(c => !c)}
+          >
+            <Icon name="caret" size={13} style={{ transform: rightCollapsed ? 'rotate(180deg)' : 'none' }} />
+          </button>
           {payload && (
             <div className="canvas-topbar">
               <div className="ct-left"><span className="ct-title">{payload.graph.name}</span></div>

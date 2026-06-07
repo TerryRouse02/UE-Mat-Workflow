@@ -51,7 +51,7 @@ export function Chrome({ graph, onPalette, onImport, onExport, onSettings }: Chr
             {i > 0 && <span className="sep">›</span>}
             {i < state.breadcrumb.length - 1
               ? <button className="bc-seg" onClick={() => popBreadcrumb(i)}>{niceName(p)}</button>
-              : <button className="bc-cur">{niceName(p)}</button>
+              : <span className="bc-cur">{niceName(p)}</span>
             }
           </span>
         ))}
@@ -94,7 +94,7 @@ export function Chrome({ graph, onPalette, onImport, onExport, onSettings }: Chr
             </button>
             <div className="menu-div" />
             <button className="menu-item" onClick={() => { setMoreOpen(false); onPalette(); }}>
-              <Icon name="search" size={14} /> 鍵盤快捷鍵
+              <Icon name="search" size={14} /> 指令面板 · 搜尋
               <span className="mi-hint">⌘K</span>
             </button>
           </div>

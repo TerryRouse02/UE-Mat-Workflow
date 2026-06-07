@@ -75,11 +75,13 @@ const CRAWL_KIND_META: Record<CrawlKind, CrawlMeta> = {
   },
 };
 
-// English sub-labels for the env checks
+// English sub-labels for the env checks. Kept platform-neutral: the crawl runs
+// on Windows OR macOS, so the labels must read correctly on both. The exact
+// host / binary name surfaces in the per-check detail string from crawl-env.ts.
 const EN_LABELS: Record<string, string> = {
-  platform: 'Windows platform',
+  platform: 'host platform',
   config: 'local.config.json',
-  engine: 'UnrealEditor-Cmd.exe',
+  engine: 'UE editor binary',
   project: '.uproject file',
   plugin: 'compiled plugin',
   noShadow: 'no shadow copy',
@@ -87,9 +89,9 @@ const EN_LABELS: Record<string, string> = {
 
 // Friendly zh-TW labels
 const CHECK_LABELS: Record<string, string> = {
-  platform: 'Windows 平台',
+  platform: '執行平台',
   config: '本機設定檔',
-  engine: 'UE 引擎執行檔',
+  engine: 'UE 編輯器執行檔',
   project: '.uproject 專案檔',
   plugin: '已編譯外掛',
   noShadow: '無外掛副本遮蔽',

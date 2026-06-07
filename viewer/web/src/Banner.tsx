@@ -15,9 +15,6 @@ export function Banner({ conn, engineMismatch, dismissed, onDismiss }: BannerPro
         <span>
           此圖的引擎版本與目前 DB 不符 — 部分節點型別可能顯示為 <i>Unknown</i>，pin 顏色為近似值。
         </span>
-        <button className="btn sm" style={{ marginLeft: 'auto' }} disabled title="尚無切換機制">
-          切換引擎…
-        </button>
         <button className="x" onClick={onDismiss}>
           <Icon name="x" size={14} />
         </button>

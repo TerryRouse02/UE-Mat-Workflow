@@ -19,9 +19,14 @@ function FileRow({ entry, onLargeGraph }: FileRowProps) {
   const active = state.breadcrumb[0] === entry.path;
   const loaded = state.graphs[entry.path];
   const errored = (state.errors[entry.path]?.length ?? 0) > 0;
-  const status: 'ok' | 'warn' | null = loaded
-    ? ((loaded.warnings.length || errored) ? 'warn' : 'ok')
-    : (errored ? 'warn' : null);
+  // Opened files use their live status (most current); unopened files fall back to
+  // the server's pre-scanned health so every file shows a dot from the start.
+  // error (red) = load/validate failure, warn (yellow) = warnings, ok (green) = clean.
+  const status: 'ok' | 'warn' | 'error' | null = errored
+    ? 'error'
+    : loaded
+      ? (loaded.warnings.length ? 'warn' : 'ok')
+      : (entry.health ?? null);
   const count = loaded ? loaded.graph.nodes.length : null;
   const displayCount = count ?? entry.nodeCount ?? null;
   const isCrawled = entry.origin === 'crawled';

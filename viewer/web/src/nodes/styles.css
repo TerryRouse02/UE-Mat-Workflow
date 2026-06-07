@@ -18,7 +18,7 @@
 .gpin-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
 .gpin-name { color: var(--fg-dim); }
 .gnode-warn { border-color: var(--warn); }
-.gnode-reserved .gnode-head { background: #20283a; }
+.gnode-reserved .gnode-head { background: var(--node-head-reserved); }
 
 /* ---- Edges (per-edge color set inline in Graph.tsx) ---- */
 .react-flow__edge-path { stroke: var(--fg-faint); stroke-width: 2; transition: stroke-width 0.1s ease; }

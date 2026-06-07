@@ -17,5 +17,13 @@ export function MaterialFunctionCallNode({ data }: { data: MFCData }) {
     inputs: data.inputs, outputs: data.outputs,
     params: data.params, warning: data.warning, isReserved: true, isMF: true,
   };
-  return <div onDoubleClick={data.onDoubleClick} style={{ cursor: 'pointer' }}><MaterialNode data={md} /></div>;
+  return (
+    <div
+      onDoubleClick={e => { e.stopPropagation(); data.onDoubleClick(); }}
+      style={{ cursor: 'pointer' }}
+      title="雙擊進入此函式"
+    >
+      <MaterialNode data={md} />
+    </div>
+  );
 }

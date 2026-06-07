@@ -372,8 +372,38 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }
 
+  // Per-file health for the file-list status dots: the SAME load + MF-resolve +
+  // warning set as opening the file, so an unopened file's dot matches what you'd
+  // see after opening it. The resolution context (indexes + freshness) is loaded
+  // ONCE per listFiles call and reused across every file, not re-loaded per file.
+  type ResolveCtx = {
+    workMfIndex: Awaited<ReturnType<typeof loadWorkMfIndex>>['index'];
+    indexWarnings: string[];
+    engineMfIndex: Awaited<ReturnType<typeof loadWorkMfIndex>>['index'];
+    engineWarnings: string[];
+    freshness: Awaited<ReturnType<typeof loadFreshness>>;
+  };
+  async function computeHealth(abs: string, ctx: ResolveCtx): Promise<FileEntry['health']> {
+    const loaded = await loadGraph(abs);
+    if (!loaded.graph) return 'error';
+    const resolved = await resolveMaterialFunctions(
+      loaded.graph, dirname(abs), new Set(),
+      { workMfIndex: ctx.workMfIndex, engineMfIndex: ctx.engineMfIndex, freshnessMap: ctx.freshness },
+    );
+    const warnings = [
+      ...materialStructureWarnings(loaded.graph),
+      ...ctx.indexWarnings, ...ctx.engineWarnings, ...resolved.warnings,
+    ];
+    return warnings.length ? 'warn' : 'ok';
+  }
+
   async function listFiles(): Promise<FileEntry[]> {
     const out: FileEntry[] = [];
+    // Load the resolution context once for the whole scan (mirrors buildGraphMessage).
+    const { index: workMfIndex, warnings: indexWarnings } = await loadWorkMfIndex(workMfIndexPath);
+    const { index: engineMfIndex, warnings: engineWarnings } = await loadWorkMfIndex(engineMfIndexPath);
+    const freshness = await loadFreshness(opts.repoRoot);
+    const ctx: ResolveCtx = { workMfIndex, indexWarnings, engineMfIndex, engineWarnings, freshness };
     async function walk(dir: string) {
       let entries;
       try { entries = await readdir(dir, { withFileTypes: true }); }
@@ -387,6 +417,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           const origin: FileEntry['origin'] = posixPath.startsWith(PROJECT_DIR + '/') ? 'crawled' : 'agent';
           const entry: FileEntry = { path: posixPath, type, origin };
           if (nodeCount !== undefined) entry.nodeCount = nodeCount;
+          entry.health = await computeHealth(full, ctx);
           out.push(entry);
         }
       }

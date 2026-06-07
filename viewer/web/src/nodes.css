@@ -2,7 +2,7 @@
 /* CSS ported from docs/design-ref/mockup-with-css.html lines 859-877 */
 
 /* Panel root */
-.ntab { overflow: auto; flex: 1; min-height: 0; padding: 6px; }
+.ntab { overflow: auto; scrollbar-gutter: stable; flex: 1; min-height: 0; padding: 6px; }
 
 /* Segment switcher (節點型別 / Material Function) — mockup line 860-862 */
 .nt-seg { display: flex; gap: 4px; padding: 4px 6px 8px; }
