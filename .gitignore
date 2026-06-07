@@ -53,6 +53,9 @@ tools/node-t3d-metadata/projectmat-staging/
 # Per-machine tooling config (project/engine paths)
 tools/node-t3d-metadata/local.config.json
 
+# Locally-built macOS plugin binary (D2: Mac plugin stays local; Win64 stays committed)
+tools/node-t3d-metadata/compiled/**/Binaries/Mac/
+
 # One-time tool outputs: regenerable reports, not committed. Written next to the
 # tool when you run node discovery / build-db-candidates.
 tools/node-t3d-metadata/node-discovery.json
