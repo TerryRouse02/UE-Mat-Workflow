@@ -83,6 +83,11 @@ if ([string]::IsNullOrWhiteSpace($PackageDir)) {
     $PackageDir = Join-Path $BundleRoot "compiled\UEMatExportMetadata"
 }
 $PackagedPlugin = Join-Path $PackageDir "UEMatExportMetadata.uplugin"
+if ($IsMacOS -eq $true) {
+    $PackagedDll = Join-Path $PackageDir "Binaries/Mac/UnrealEditor-UEMatExportMetadata.dylib"
+} else {
+    $PackagedDll = Join-Path $PackageDir "Binaries\Win64\UnrealEditor-UEMatExportMetadata.dll"
+}
 $ProjectPlugin = Join-Path $ProjectDir "Plugins\UEMatExportMetadata\UEMatExportMetadata.uplugin"
 $LogRoot = Join-Path $WorkflowRoot "Logs\UE"
 $CommandletLog = Join-Path $LogRoot "UEMatExportMetadata_WorkMF.log"
@@ -99,6 +104,9 @@ foreach ($required in @($ProjectPath, $EditorCmd)) {
 if (-not $UseProjectPlugin) {
     if (-not (Test-Path $PackagedPlugin)) {
         throw "Packaged plugin not found: $PackagedPlugin. Run Package-Plugin.ps1 first, or pass -UseProjectPlugin."
+    }
+    if (-not (Test-Path $PackagedDll)) {
+        throw "Packaged plugin binary not found: $PackagedDll. Run Package-Plugin.ps1 first, or pass -UseProjectPlugin."
     }
     if (Test-Path $ProjectPlugin) {
         throw "Project plugin copy exists and will shadow the packaged plugin: $ProjectPlugin. Remove that generated copy, or pass -UseProjectPlugin after building the project plugin."
