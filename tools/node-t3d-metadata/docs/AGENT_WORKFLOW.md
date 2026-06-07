@@ -13,17 +13,31 @@ Do not edit `agent-pack\nodes-ue5.7.json` unless the user explicitly asks for no
 
 ## Command
 
+The same `.ps1` runners serve both OSes (they platform-detect the editor binary via `$IsMacOS`):
+Windows uses Windows PowerShell 5.1 (`powershell`); macOS uses PowerShell Core 7 (`pwsh`,
+installed via the official PowerShell `.pkg` or `brew install --cask powershell`). Use native
+paths per OS for `-ProjectPath`/`-EngineRoot`.
+
 Run from the repo root:
 
 ```powershell
+# Windows
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
   -ProjectPath <Path\To\Project.uproject> `
   -EngineRoot <Path\To\UnrealEngine>
 ```
 
+```pwsh
+# macOS
+pwsh -File ./tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1 \
+  -ProjectPath /path/to/Project.uproject \
+  -EngineRoot /path/to/UnrealEngine
+```
+
 The entrypoint loads `compiled\UEMatExportMetadata\UEMatExportMetadata.uplugin` as an external plugin, rebuilds it when needed, writes `agent-pack\nodes-ue5.7.export.json`, audits the output, and runs the targeted viewer tests.
 
-Use `-CaptureFixtures` only when calibrating clipboard/T3D emitter behavior:
+Use `-CaptureFixtures` only when calibrating clipboard/T3D emitter behavior (on macOS, swap
+`powershell -ExecutionPolicy Bypass` for `pwsh` and use native paths):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
@@ -54,7 +68,8 @@ Then run or review the checks in `docs/VERIFICATION.md`.
 ## Node discovery mode (find what the DB is missing)
 
 Before adding nodes, find out which ones the engine has that the DB doesn't. Discovery
-enumerates every `UMaterialExpression` by reflection and diffs against the DB:
+enumerates every `UMaterialExpression` by reflection and diffs against the DB (on macOS, swap
+`powershell -ExecutionPolicy Bypass` for `pwsh` and use native paths):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-NodeDiscovery.ps1 `
@@ -75,7 +90,8 @@ metadata. Full details in `docs/NODE_DISCOVERY.md`.
 ## WorkMF mode (index the project's own Material Functions)
 
 A separate mode crawls the user's **own** project Material Functions into the local,
-gitignored `agent-pack/workmf-index.json` (it does NOT touch `nodes-ue5.7.export.json`):
+gitignored `agent-pack/workmf-index.json` (it does NOT touch `nodes-ue5.7.export.json`; on macOS,
+swap `powershell -ExecutionPolicy Bypass` for `pwsh` and use native paths):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
@@ -93,7 +109,8 @@ Built-in Material Functions (`/Engine/Functions/**`) are shipped assets, not C++
 so neither the node DB nor node-discovery covers them. Without an index, a material that calls
 one exports with every `FunctionInputs(n)` collapsed onto index 0 (broken wires on paste). The
 engine-MF crawl is the same WorkMF crawl pointed at the engine, but its output **is committed**
-(stable shipped data shared by all users):
+(stable shipped data shared by all users; on macOS, swap `powershell -ExecutionPolicy Bypass` for
+`pwsh` and use native paths):
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-EngineMfIndex.ps1 `

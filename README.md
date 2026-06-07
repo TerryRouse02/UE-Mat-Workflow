@@ -50,18 +50,19 @@ The sidebar has three tabs:
 |---|---|
 | **Files** | Your materials, grouped by project folder. Every sub-folder under `graphs/` is one project showing all its files; only files at the `graphs/` root fall under "Unorganized". |
 | **Nodes** | The full UE 5.7 node library — search by name or description, browse by category, click a node to see its inputs / outputs / params with type info and badges (verified, dynamic-pin, deprecated). Below it sit two collapsible browsers: **Official Material Functions** (the engine's `/Engine/Functions` library) and **Project Material Functions** (your own `/Game` MFs, shown live once a WorkMF crawl has indexed them). |
-| **Config** | Set the crawl's `ProjectPath` + `EngineRoot` and **Save** (writes `local.config.json` for you), read the environment checklist, and run the UE metadata crawls — all button-driven, no terminal. Windows only; see [Refresh UE metadata from the browser](#refresh-ue-metadata-from-the-browser-windows). |
+| **Config** | Set the crawl's `ProjectPath` + `EngineRoot` and **Save** (writes `local.config.json` for you), read the environment checklist, and run the UE metadata crawls — all button-driven, no terminal. Windows and macOS; see [Refresh UE metadata from the browser](#refresh-ue-metadata-from-the-browser-windows--macos). |
 
 The viewer hot-reloads when files change.
 
 ---
 
-## Refresh UE metadata from the browser (Windows)
+## Refresh UE metadata from the browser (Windows / macOS)
 
 The viewer can run the local UE crawls itself — the sidebar's **Config tab** regenerates the node
 export metadata, the engine-MF index, or your own project-MF index without touching a terminal.
-It's **local-first**: the server, `UnrealEditor-Cmd.exe`, and the browser all run on the same
-Windows machine.
+It's **local-first**: the server, `UnrealEditor-Cmd`, and the browser all run on the same
+machine. On Windows the runners use Windows PowerShell 5.1 (`powershell`); on macOS they use
+PowerShell Core 7 (`pwsh`, installed via the official PowerShell `.pkg` or `brew install --cask powershell`).
 
 In the Config tab you type your `ProjectPath` + `EngineRoot` and click **Save** (it writes
 `tools/node-t3d-metadata/local.config.json` for you — no JSON editing), watch the environment

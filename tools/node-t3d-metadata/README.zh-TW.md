@@ -13,7 +13,7 @@
 - `plugin-src/Scripts/Run-NodeDiscovery.ps1`：列舉引擎運算式並與 DB 做差異比對。
 - `plugin-src/Scripts/Run-WorkMfIndex.ps1`：索引「專案自己的」Material Function（WorkMF）。
 - `plugin-src/Scripts/Run-EngineMfIndex.ps1`：把官方 `/Engine/Functions` 的 Material Function 索引成一份**已提交**的索引。
-- `compiled/UEMatExportMetadata/`：已編譯的 Win64 外掛套件，毋需把外掛加進專案即可使用。
+- `compiled/UEMatExportMetadata/`：已編譯的 Win64 外掛套件（**已提交**），毋需把外掛加進專案即可使用。在 macOS 上則以 `Package-Plugin.ps1` 在本機建置，產生的 `Binaries/Mac/*.dylib` 已 gitignore、不會提交。
 - `host/NodeDiscoveryHost.uproject`：內附的精簡 UE 宿主專案，供節點探索使用（不需要遊戲專案；會停用脆弱的預設引擎外掛）。
 - `docs/AGENT_WORKFLOW.md`：面向 agent 的工作流程，用於更新 `agent-pack\nodes-ue5.7.export.json`。
 - `docs/NODE_DISCOVERY.md`：找出 DB 缺少哪些引擎運算式（節點探索）。
@@ -24,12 +24,20 @@
 
 ## 一般流程
 
+同一套 `.ps1` runner 在 **Windows 與 macOS** 上都能跑。Windows 用內建的 Windows PowerShell 5.1（指令叫 `powershell`）；macOS 用 PowerShell Core 7（指令叫 `pwsh`，透過官方 PowerShell `.pkg` 或 `brew install --cask powershell` 安裝）。runner 會以 `$IsMacOS` 自動偵測平台並選對 UE 編輯器執行檔（Windows：`Engine\Binaries\Win64\UnrealEditor-Cmd.exe`；macOS：`Engine/Binaries/Mac/UnrealEditor-Cmd`）。下面以 Windows 為例；macOS 把 `powershell -ExecutionPolicy Bypass -File` 換成 `pwsh -File`、並改用原生路徑（如 `/path/to/Project.uproject`、`/path/to/UnrealEngine`）即可。
+
 從工作流程 repo 根目錄執行：
 
 ```powershell
+# Windows
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
   -ProjectPath <Path\To\Project.uproject> `
   -EngineRoot <Path\To\UnrealEngine>
+
+# macOS
+pwsh -File ./tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1 \
+  -ProjectPath /path/to/Project.uproject \
+  -EngineRoot /path/to/UnrealEngine
 ```
 
 只有在已編譯外掛**遺失、被強制重建，或比 `plugin-src/` 還舊**時，進入點才會重建它；接著重新產生 `agent-pack\nodes-ue5.7.export.json`、稽核元資料，並執行針對性的 viewer 測試。
@@ -83,13 +91,13 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Sc
 ## 從 web viewer 觸發爬取（免終端機）
 
 上面三種爬取也可以**直接在 viewer 的 Config 分頁**完成（側欄第三個分頁，在 Files、Nodes 旁邊）——
-免終端機、免手改 JSON。它是**本機優先（local-first）**：viewer server、`UnrealEditor-Cmd.exe`、
-瀏覽器全部跑在**同一台 Windows 機器**上（server 綁 `127.0.0.1`，而且只有同源、同機的網頁才能
+免終端機、免手改 JSON。它是**本機優先（local-first）**：viewer server、`UnrealEditor-Cmd`、
+瀏覽器全部跑在**同一台機器**上（Windows 或 macOS；server 綁 `127.0.0.1`，而且只有同源、同機的網頁才能
 設定或啟動爬取）。
 
 ### 1. 啟動 viewer
 
-在裝有 UE 的 Windows 機器、從 repo 根目錄：
+在裝有 UE 的機器（Windows 或 macOS）、從 repo 根目錄：
 
 ```bash
 pnpm build && pnpm start     # 提供 http://localhost:5790（會自動嘗試 5790-5799）
@@ -101,7 +109,8 @@ pnpm build && pnpm start     # 提供 http://localhost:5790（會自動嘗試 57
 ### 2. 設定專案路徑（在 Config 分頁）
 
 在 **專案路徑** 區塊填入 **`.uproject` 路徑**（`ProjectPath`）與 **UE 引擎根目錄**（`EngineRoot`），
-按 **儲存設定**。這會幫你寫好 `tools/node-t3d-metadata/local.config.json`（已 gitignore、每台機器
+按 **儲存設定**。路徑用各 OS 的原生寫法（Windows 如 `C:\\Path\\To\\Project.uproject`、`C:\\Path\\To\\UnrealEngine`；
+macOS 如 `/path/to/Project.uproject`、`/path/to/UnrealEngine`）。這會幫你寫好 `tools/node-t3d-metadata/local.config.json`（已 gitignore、每台機器
 自己一份）——就是 PowerShell 腳本讀的那個檔，所以你完全不必手改 JSON。（要手動先填、或用
 [一般流程](#一般流程)先建好也可以。）
 
@@ -111,10 +120,14 @@ pnpm build && pnpm start     # 提供 http://localhost:5790（會自動嘗試 57
 這正是 `noShadow` 檢查在防的事）。因為已編譯外掛已隨 repo 提交，所以開箱即用；只有改過 `plugin-src/`
 才需重建。
 
-> **唯一例外（外掛二進位要對得上引擎）。** committed 的二進位是針對某個 UE 5.7 build 編的。若你的引擎
+> **唯一例外（外掛二進位要對得上引擎）。** committed 的二進位是針對某個 UE 5.7 build 編的 Win64。若你的引擎
 > 是不同 build、而爬取因此**載入**外掛失敗，就對**你自己的引擎**重打包一次：
 > `Invoke-NodeT3DMetadataMaintenance.ps1 -ForcePackage`——依然是外部、依然不會拷貝進你的專案。
-> （探測只檢查 DLL 是否存在，不檢查是否吻合你的引擎，所以這會以爬取當下的載入錯誤出現，而不是紅色檢查。）
+> （探測只檢查二進位是否存在，不檢查是否吻合你的引擎，所以這會以爬取當下的載入錯誤出現，而不是紅色檢查。）
+> 在 **macOS** 上沒有提交的二進位，必須先在本機建一次：用 `Package-Plugin.ps1`（需要 Xcode，以及一份
+> `Engine/Build/BatchFiles/RunUAT.sh` 存在的 UE 編輯器），它會產生 gitignore 的 `Binaries/Mac/*.dylib`。
+> macOS 上 `Package-Plugin.ps1` 會打包到暫存目錄、只把 `Binaries/Mac` 複製進外掛資料夾，所以 macOS 的
+> （重）打包永遠不會蓋掉已提交的 Win64 二進位或 `.uplugin`。
 
 ### 3. 看環境檢查清單
 
@@ -123,11 +136,11 @@ pnpm build && pnpm start     # 提供 http://localhost:5790（會自動嘗試 57
 
 | 檢查項 | 意義 |
 |---|---|
-| platform | 跑在 Windows 上 |
+| platform | 跑在 Windows 或 macOS 上 |
 | config | `local.config.json` 有 `ProjectPath` + `EngineRoot` |
-| engine | 在 `EngineRoot` 底下找到 `UnrealEditor-Cmd.exe` |
+| engine | 在 `EngineRoot` 底下找到平台對應的 `UnrealEditor-Cmd`（Windows 為 `UnrealEditor-Cmd.exe`） |
 | project | `ProjectPath` 指向存在的 `.uproject` **檔案**（不是資料夾） |
-| plugin | 已編譯外掛 DLL 存在（隨 `compiled/` 出貨） |
+| plugin | 已編譯外掛二進位存在（Windows `compiled/` 隨 repo 出貨；macOS 為本機建的 `Binaries/Mac`） |
 | noShadow | 專案內沒有 `Plugins\UEMatExportMetadata` 副本遮蔽打包版外掛 |
 
 ### 4. 爬取

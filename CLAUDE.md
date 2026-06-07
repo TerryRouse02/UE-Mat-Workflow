@@ -15,7 +15,7 @@ break, and how to make the common changes.
   UE nodes, exports to / imports from the UE clipboard, and can refresh its UE metadata.
 - **Stack:** TypeScript monorepo (pnpm workspaces). `viewer/server` = native Node http+ws.
   `viewer/web` = Vite + React + React Flow + dagre. `tools/node-t3d-metadata` = a UE editor
-  commandlet + PowerShell (Windows-only). `agent-pack/` = the shipped data + agent rules.
+  commandlet + PowerShell (Windows `powershell` 5.1 or macOS `pwsh` 7). `agent-pack/` = the shipped data + agent rules.
 - **Build:** `pnpm build`  **Test:** `pnpm -r test` (216) + `node --test "tools/node-t3d-metadata/tests/**/*.test.js"` (17)  **Run:** `pnpm dev` (or `pnpm start`) → http://localhost:5790
 - **Before committing public data, run the parity audit:** `node tools/node-t3d-metadata/audit-export-meta.js` (must exit 0).
 
@@ -91,12 +91,15 @@ auto-tries 5790–5799). One WebSocket carries everything live.
 - `Header.tsx` — export to UE (`export/ueT3D.ts`) + import from UE (`ImportModal`).
 - `crawlRequest.ts` — POST /api/crawl + the `CrawlKind` union (web side).
 
-## tools/node-t3d-metadata (Windows-only)
+## tools/node-t3d-metadata (Windows + macOS)
 
 A UE editor commandlet (`plugin-src/`, C++) wrapped by PowerShell runners. Modes: node-metadata
-export, Engine-MF index, WorkMF index, node discovery. The `compiled/` plugin is committed and
-**mounted externally** (`-plugin=<.uplugin>`) — nothing is copied into the user's UE project.
-See `tools/node-t3d-metadata/README.md`.
+export, Engine-MF index, WorkMF index, node discovery. The same `.ps1` runners serve both OSes,
+platform-detecting the editor binary via `$IsMacOS` (Win64 `UnrealEditor-Cmd.exe` vs Mac
+`UnrealEditor-Cmd`); `crawl-runner.ts` spawns `powershell` on Windows and `pwsh` on macOS. The
+committed `compiled/` plugin is a prebuilt **Win64** binary and is **mounted externally**
+(`-plugin=<.uplugin>`) — nothing is copied into the user's UE project; on macOS you build the
+plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/node-t3d-metadata/README.md`.
 
 ## Hard invariants — do not violate
 

@@ -39,21 +39,38 @@ Pin **order matches UE** (sorted by `FunctionInput/Output` `SortPriority`), whic
 exporter's `FunctionInputs(n)` index depends on. Input `type` is exact; output `type` is a
 best-effort `Float3` (UE's `FunctionOutput` carries no declared type) — cosmetic only.
 
-## Run it (on the UE 5.7 machine)
+## Run it (on the UE 5.7 machine, Windows or macOS)
 
 > **No terminal?** The viewer's **Config tab** runs this exact crawl (the `workmf` kind) and
 > refreshes the Nodes tab live — see the tool
 > [`README.md`](../README.md#trigger-a-crawl-from-the-web-viewer-no-terminal). The CLI below is the
 > equivalent, and the only option for headless / agent runs.
 
-From the repo root, one command packages the plugin (if stale) then crawls:
+From the repo root, one command packages the plugin (if stale) then crawls. On Windows use
+Windows PowerShell 5.1 (`powershell`); on macOS use PowerShell Core 7 (`pwsh`, installed via the
+official PowerShell `.pkg` or `brew install --cask powershell`) and drop `-ExecutionPolicy`. The
+same `.ps1` runners serve both OSes (they platform-detect the editor binary).
 
 ```powershell
+# Windows
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
   -ProjectPath <Path\To\Project.uproject> `
   -EngineRoot  <Path\To\UnrealEngine> `
   -WorkMF
 ```
+
+```bash
+# macOS
+pwsh -File ./tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1 \
+  -ProjectPath /path/to/Project.uproject \
+  -EngineRoot  /path/to/UnrealEngine \
+  -WorkMF
+```
+
+On macOS the plugin has no committed binary, so the package step builds it locally with
+`Package-Plugin.ps1` (requires Xcode and a UE editor whose `Engine/Build/BatchFiles/RunUAT.sh`
+exists). It builds in a temp dir and copies only `Binaries/Mac/*.dylib` (gitignored) into the
+plugin folder, leaving the committed Win64 binaries and `.uplugin` untouched.
 
 - `-WorkMF` runs **only** the crawl — it does NOT regenerate node metadata.
 - Default content root is `/Game`. To crawl extra roots (e.g. a plugin's content), add
@@ -62,12 +79,22 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3
   unless that project is where the MFs you want indexed live. **Point `-ProjectPath` at the
   project whose Material Functions you want.**
 
-Direct (skips the package-staleness check; requires the plugin already packaged):
+Direct (skips the package-staleness check; requires the plugin already packaged — on macOS that
+means a local `Binaries/Mac` build already exists):
 
 ```powershell
+# Windows
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-WorkMfIndex.ps1 `
   -ProjectPath <Path\To\Project.uproject> `
   -EngineRoot  <Path\To\UnrealEngine> `
+  -ContentRoots "/Game"
+```
+
+```bash
+# macOS
+pwsh -File ./tools/node-t3d-metadata/plugin-src/Scripts/Run-WorkMfIndex.ps1 \
+  -ProjectPath /path/to/Project.uproject \
+  -EngineRoot  /path/to/UnrealEngine \
   -ContentRoots "/Game"
 ```
 
@@ -102,11 +129,17 @@ node -e "const{loadWorkMfIndex}=require('./viewer/dist/server/workmf-index.js');
 
 ## Hand-off prompt (paste to the UE-side agent)
 
-> In the `ue-mat-workflow` repo on this UE 5.7 machine, run the WorkMF crawl to index this
-> project's own Material Functions:
+> In the `ue-mat-workflow` repo on this UE 5.7 machine (Windows or macOS), run the WorkMF crawl
+> to index this project's own Material Functions. On Windows:
 >
 > ```powershell
 > powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 -ProjectPath <Path\To\Project.uproject> -EngineRoot <Path\To\UnrealEngine> -WorkMF
+> ```
+>
+> On macOS (PowerShell Core 7):
+>
+> ```bash
+> pwsh -File ./tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1 -ProjectPath /path/to/Project.uproject -EngineRoot /path/to/UnrealEngine -WorkMF
 > ```
 >
 > If the build fails on `UMaterialFunctionInterface::GetInputsAndOutputs` or an

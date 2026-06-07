@@ -4,10 +4,20 @@ Run these commands from the workflow repo root.
 
 ## One-Command Verification
 
+On Windows (Windows PowerShell 5.1):
+
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
   -ProjectPath <Path\To\Project.uproject> `
   -EngineRoot <Path\To\UnrealEngine>
+```
+
+On macOS (PowerShell Core 7, `pwsh`):
+
+```bash
+pwsh -File ./tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1 `
+  -ProjectPath </path/to/Project.uproject> `
+  -EngineRoot </path/to/UnrealEngine>
 ```
 
 This packages the plugin when needed, regenerates metadata, audits the JSON, and runs the targeted viewer tests.
@@ -55,8 +65,16 @@ Success - 0 error(s), 0 warning(s)
 
 If dependencies are installed:
 
+On Windows:
+
 ```powershell
 .\viewer\node_modules\.bin\vitest.cmd run viewer\tests\export-meta.test.ts viewer\tests\ueT3D.test.ts
 ```
 
-If `viewer\node_modules` is missing, install dependencies with the repo package manager first. If registry access is blocked, report dependency installation as the environment blocker rather than claiming Vitest passed.
+On macOS:
+
+```bash
+./viewer/node_modules/.bin/vitest run viewer/tests/export-meta.test.ts viewer/tests/ueT3D.test.ts
+```
+
+If `viewer/node_modules` is missing, install dependencies with the repo package manager first. If registry access is blocked, report dependency installation as the environment blocker rather than claiming Vitest passed.

@@ -50,17 +50,20 @@ Sidebar 有三個 tab：
 |---|---|
 | **Files** | 你的材質，依專案資料夾分組。`graphs/` 下每個子資料夾就是一個專案，裡面所有檔案都會顯示；只有直接放在 `graphs/` 根層的檔案會落到「Unorganized」區。 |
 | **Nodes** | UE 5.7 完整節點庫——可依名稱或描述搜尋、按分類瀏覽，點節點看 inputs / outputs / params 細節，包含型別與徽章（verified、dynamic-pin、deprecated）。下方還有兩個可摺疊瀏覽器：**Official Material Functions**（引擎的 `/Engine/Functions` 函式庫）與 **Project Material Functions**（你自己的 `/Game` MF，WorkMF 爬取索引後即時顯示）。 |
-| **Config** | 填入爬取要用的 `ProjectPath` + `EngineRoot` 按 **儲存設定**（幫你寫好 `local.config.json`）、看環境檢查清單、執行 UE 元資料爬取——全程按鈕操作、免終端機。僅限 Windows；見 [從瀏覽器刷新 UE 元資料](#從瀏覽器刷新-ue-元資料windows)。 |
+| **Config** | 填入爬取要用的 `ProjectPath` + `EngineRoot` 按 **儲存設定**（幫你寫好 `local.config.json`）、看環境檢查清單、執行 UE 元資料爬取——全程按鈕操作、免終端機。Windows 與 macOS 皆可；見 [從瀏覽器刷新 UE 元資料](#從瀏覽器刷新-ue-元資料windows--macos)。 |
 
 檔案變動時 viewer 會自動 reload。
 
 ---
 
-## 從瀏覽器刷新 UE 元資料（Windows）
+## 從瀏覽器刷新 UE 元資料（Windows / macOS）
 
 viewer 可以自己跑本機 UE 爬取——側欄的 **Config 分頁**免開終端機就能重新產生節點匯出元資料、
-引擎 MF 索引、或你自己的專案 MF 索引。它是**本機優先**：server、`UnrealEditor-Cmd.exe`、瀏覽器
-全部跑在同一台 Windows 機器上。
+引擎 MF 索引、或你自己的專案 MF 索引。它是**本機優先**：server、`UnrealEditor-Cmd`、瀏覽器
+全部跑在同一台機器上。Windows 與 macOS 皆可：Windows 用 Windows PowerShell 5.1（`powershell`），
+macOS 用 PowerShell Core 7（`pwsh`，透過官方 PowerShell `.pkg` 或 `brew install --cask powershell` 安裝）。
+兩者共用同一組 `.ps1` runner，會自動偵測平台對應的編輯器執行檔
+（Windows：`Engine\Binaries\Win64\UnrealEditor-Cmd.exe`；macOS：`Engine/Binaries/Mac/UnrealEditor-Cmd`）。
 
 在 Config 分頁填入 `ProjectPath` + `EngineRoot` 按 **儲存設定**（它會幫你寫好
 `tools/node-t3d-metadata/local.config.json`，免改 JSON），看環境檢查清單變綠，再按爬取按鈕即可。
