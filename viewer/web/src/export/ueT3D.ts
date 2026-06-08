@@ -179,7 +179,16 @@ function functionInputIndex(node: NodeJson, nodeMeta: NodeExportMeta, pinName: s
   // of silently mis-wiring to the first function input.
   const i = (derivedPins[node.id]?.inputs ?? []).findIndex(p => p.name === pinName);
   if (i < 0) {
-    warnings?.push(`MaterialFunctionCall "${node.id}": input pin "${pinName}" not found in metadata or derived pins - defaulting to FunctionInputs(0); verify the wire.`);
+    const dp = derivedPins[node.id];
+    const mfRef = typeof node.params?.MaterialFunction === 'string' ? (node.params.MaterialFunction as string) : '';
+    if (mfRef && (!dp || dp.inputs.length === 0)) {
+      // The MF reference is present but resolved to NO pins: its signature was never
+      // crawled (its content root isn't in the WorkMF / Engine MF index). The authored
+      // wire is probably fine — the fix is to crawl that MF, not to re-check the wire.
+      warnings?.push(`MaterialFunctionCall "${node.id}": MaterialFunction "${mfRef}" resolved to no pins — its signature isn't in the crawl index. Run the matching crawl for its content root (WorkMF for /Game, Engine MF for /Engine); until then pin "${pinName}" exports as FunctionInputs(0).`);
+    } else {
+      warnings?.push(`MaterialFunctionCall "${node.id}": input pin "${pinName}" not found in metadata or derived pins - defaulting to FunctionInputs(0); verify the wire.`);
+    }
     return 0;
   }
   return i;

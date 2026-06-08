@@ -59,8 +59,8 @@ describe('startServer', () => {
     });
     expect(hello.kind).toBe('hello');
     expect(hello.files).toEqual([
-      { path: 'a.matgraph.json', type: 'Unknown', origin: 'agent' },
-      { path: 'functions/b.matgraph.json', type: 'Unknown', origin: 'agent' },
+      { path: 'a.matgraph.json', type: 'Unknown', origin: 'agent', health: 'error' },
+      { path: 'functions/b.matgraph.json', type: 'Unknown', origin: 'agent', health: 'error' },
     ]);
 
     ws.close();
@@ -83,8 +83,8 @@ describe('startServer', () => {
     });
 
     expect(hello.files).toEqual([
-      { path: 'mat1/helper.matgraph.json', type: 'MaterialFunction', nodeCount: 0, origin: 'agent' },
-      { path: 'mat1/main.matgraph.json', type: 'Material', nodeCount: 0, origin: 'agent' },
+      { path: 'mat1/helper.matgraph.json', type: 'MaterialFunction', nodeCount: 0, origin: 'agent', health: 'ok' },
+      { path: 'mat1/main.matgraph.json', type: 'Material', nodeCount: 0, origin: 'agent', health: 'warn' },
     ]);
 
     ws.close();
