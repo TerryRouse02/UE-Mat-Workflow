@@ -4566,7 +4566,7 @@
       "inputs": [
         {
           "name": "Condition",
-          "type": "Float1|2|3|4",
+          "type": "Bool",
           "required": false
         },
         {
@@ -5518,7 +5518,7 @@
       "inputs": [
         {
           "name": "TextureObject",
-          "type": "Float1|2|3|4",
+          "type": "TextureExternal",
           "required": false
         }
       ],
@@ -6850,7 +6850,7 @@
         },
         {
           "name": "Single Shading Model",
-          "type": "Float1|2|3|4",
+          "type": "ShadingModel",
           "required": false
         }
       ],
@@ -7323,7 +7323,7 @@
       "inputs": [
         {
           "name": "DecalMaterial",
-          "type": "Float1|2|3|4",
+          "type": "Substrate",
           "required": false
         },
         {
@@ -7384,12 +7384,12 @@
       "inputs": [
         {
           "name": "Background",
-          "type": "Float1|2|3|4",
+          "type": "Substrate",
           "required": false
         },
         {
           "name": "Foreground",
-          "type": "Float1|2|3|4",
+          "type": "Substrate",
           "required": false
         },
         {
@@ -7412,12 +7412,12 @@
       "inputs": [
         {
           "name": "Top",
-          "type": "Float1|2|3|4",
+          "type": "Substrate",
           "required": false
         },
         {
           "name": "Bottom",
-          "type": "Float1|2|3|4",
+          "type": "Substrate",
           "required": false
         },
         {
@@ -7440,12 +7440,12 @@
       "inputs": [
         {
           "name": "A",
-          "type": "Float1|2|3|4",
+          "type": "Substrate",
           "required": false
         },
         {
           "name": "B",
-          "type": "Float1|2|3|4",
+          "type": "Substrate",
           "required": false
         }
       ],
@@ -7463,7 +7463,7 @@
       "inputs": [
         {
           "name": "A",
-          "type": "Float1|2|3|4",
+          "type": "Substrate",
           "required": false
         },
         {
@@ -7486,12 +7486,12 @@
       "inputs": [
         {
           "name": "A",
-          "type": "Float1|2|3|4",
+          "type": "Substrate",
           "required": false
         },
         {
           "name": "B",
-          "type": "Float1|2|3|4",
+          "type": "Substrate",
           "required": false
         },
         {
