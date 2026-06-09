@@ -3240,12 +3240,12 @@
       "inputs": [
         {
           "name": "Base",
-          "type": "Float1|2|3|4",
+          "type": "MaterialAttributes",
           "required": false
         },
         {
           "name": "Layer",
-          "type": "Float1|2|3|4",
+          "type": "MaterialAttributes",
           "required": false
         }
       ],
@@ -4160,7 +4160,7 @@
         },
         {
           "name": "Alpha",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -4800,7 +4800,7 @@
       "inputs": [
         {
           "name": "Coordinates",
-          "type": "Float1|2|3|4",
+          "type": "Float2",
           "required": false
         }
       ],
@@ -4970,12 +4970,12 @@
       "inputs": [
         {
           "name": "TextureObject",
-          "type": "Float1|2|3|4",
+          "type": "Texture2D",
           "required": false
         },
         {
           "name": "Coordinates",
-          "type": "Float1|2|3|4",
+          "type": "Float2",
           "required": false
         }
       ],
@@ -5619,7 +5619,7 @@
       "inputs": [
         {
           "name": "Input",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         }
       ],
@@ -5632,7 +5632,7 @@
       "inputs": [
         {
           "name": "Input",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         }
       ],
@@ -5658,12 +5658,12 @@
       "inputs": [
         {
           "name": "TransmittanceColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "SurfaceCoverage",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -5689,32 +5689,32 @@
       "inputs": [
         {
           "name": "BaseColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Roughness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Normal",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Specular",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Opacity",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Metallic",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -5752,7 +5752,7 @@
       "inputs": [
         {
           "name": "Input",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -5765,7 +5765,7 @@
       "inputs": [
         {
           "name": "Input",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         }
       ],
@@ -5811,17 +5811,17 @@
       "inputs": [
         {
           "name": "Coordinates",
-          "type": "Float1|2|3|4",
+          "type": "Float4",
           "required": false
         },
         {
           "name": "Input0",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Mask",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -5915,12 +5915,12 @@
       "inputs": [
         {
           "name": "MeanFreePath",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "ScatteringDistribution",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -5933,7 +5933,7 @@
       "inputs": [
         {
           "name": "VS",
-          "type": "Float1|2|3|4",
+          "type": "Float4",
           "required": false
         }
       ],
@@ -6557,17 +6557,17 @@
       "inputs": [
         {
           "name": "A",
-          "type": "Float1|2|3|4",
+          "type": "MaterialAttributes",
           "required": false
         },
         {
           "name": "B",
-          "type": "Float1|2|3|4",
+          "type": "MaterialAttributes",
           "required": false
         },
         {
           "name": "Alpha",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -6707,7 +6707,7 @@
       "inputs": [
         {
           "name": "Coordinates",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
@@ -6750,52 +6750,52 @@
       "inputs": [
         {
           "name": "BaseColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Metallic",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Specular",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Roughness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Anisotropy",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Emissive Color",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Normal",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Tangent",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Subsurface Color",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Unused",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
@@ -6805,32 +6805,32 @@
         },
         {
           "name": "Opacity",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Thin Translucent Transmittance Color",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Water Scattering Coefficients",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Water Absorption Coefficients",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Water Phase G",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Color Scale BehindWater",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
@@ -6840,12 +6840,12 @@
         },
         {
           "name": "Custom Tangent",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Thin Translucent Surface Coverage",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
@@ -6868,82 +6868,82 @@
       "inputs": [
         {
           "name": "Diffuse Albedo",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "F0",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "F90",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Roughness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Anisotropy",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Normal",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Tangent",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "SSS MFP",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "SSS MFP Scale",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "SSS Phase Anisotropy",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Emissive Color",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Second Roughness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Second Roughness Weight",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Fuzz Roughness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Fuzz Amount",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Fuzz Color",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
@@ -6953,7 +6953,7 @@
         },
         {
           "name": "Glint UVs (Disabled)",
-          "type": "Float1|2|3|4",
+          "type": "Float2",
           "required": false
         },
         {
@@ -6976,42 +6976,42 @@
       "inputs": [
         {
           "name": "Diffuse Albedo",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "F0",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Roughness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Clear Coat Coverage",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Clear Coat Roughness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Normal",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Emissive Color",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Bottom Normal",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         }
       ],
@@ -7029,22 +7029,22 @@
       "inputs": [
         {
           "name": "Albedo",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Extinction",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "EmissiveColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "AmbientOcclusion",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -7062,17 +7062,17 @@
       "inputs": [
         {
           "name": "EmissiveColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "TransmittanceColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Normal",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         }
       ],
@@ -7090,37 +7090,37 @@
       "inputs": [
         {
           "name": "BaseColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Scatter",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Specular",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Roughness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Backlit",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Tangent",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "EmissiveColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         }
       ],
@@ -7138,42 +7138,42 @@
       "inputs": [
         {
           "name": "DiffuseColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Roughness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "CorneaNormal",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "IrisNormal",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "IrisPlaneNormal",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "IrisMask",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "IrisDistance",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "EmissiveColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         }
       ],
@@ -7191,57 +7191,57 @@
       "inputs": [
         {
           "name": "BaseColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Metallic",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Specular",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Roughness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Normal",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "EmissiveColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "TopMaterialOpacity",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "WaterAlbedo",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "WaterExtinction",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "WaterPhaseG",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "ColorScaleBehindWater",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         }
       ],
@@ -7259,7 +7259,7 @@
       "inputs": [
         {
           "name": "Color",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         }
       ],
@@ -7277,12 +7277,12 @@
       "inputs": [
         {
           "name": "Color",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Opacity",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -7300,7 +7300,7 @@
       "inputs": [
         {
           "name": "Color",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
@@ -7328,7 +7328,7 @@
         },
         {
           "name": "Coverage",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -7346,27 +7346,27 @@
       "inputs": [
         {
           "name": "Attributes",
-          "type": "Float1|2|3|4",
+          "type": "MaterialAttributes",
           "required": false
         },
         {
           "name": "Water Scattering Coefficients (Water)",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Water Absorption Coefficients (Water)",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Water Phase G (Water)",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Color Scale BehindWater (Water)",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         }
       ],
@@ -7394,7 +7394,7 @@
         },
         {
           "name": "Mix",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -7468,7 +7468,7 @@
         },
         {
           "name": "Weight",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -7496,7 +7496,7 @@
         },
         {
           "name": "SelectValue",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -7514,12 +7514,12 @@
       "inputs": [
         {
           "name": "TransmittanceColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Thickness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -7541,17 +7541,17 @@
       "inputs": [
         {
           "name": "BaseColor",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Metallic",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Specular",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -7573,12 +7573,12 @@
       "inputs": [
         {
           "name": "BaseRoughness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "Haziness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -7600,27 +7600,27 @@
       "inputs": [
         {
           "name": "Normal",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "F0",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "F90",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
           "name": "Thickness",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         },
         {
           "name": "IOR",
-          "type": "Float1|2|3|4",
+          "type": "Float1",
           "required": false
         }
       ],
@@ -7642,7 +7642,7 @@
       "inputs": [
         {
           "name": "Input",
-          "type": "Float1|2|3|4",
+          "type": "Float4",
           "required": false
         }
       ],
@@ -7694,7 +7694,7 @@
       "inputs": [
         {
           "name": "Coordinates",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {
@@ -7726,7 +7726,7 @@
         },
         {
           "name": "Apply View MipBias",
-          "type": "Float1|2|3|4",
+          "type": "StaticBool",
           "required": false
         }
       ],
@@ -7769,7 +7769,7 @@
         },
         {
           "name": "Apply View MipBias",
-          "type": "Float1|2|3|4",
+          "type": "StaticBool",
           "required": false
         }
       ],
@@ -7812,7 +7812,7 @@
         },
         {
           "name": "Apply View MipBias",
-          "type": "Float1|2|3|4",
+          "type": "StaticBool",
           "required": false
         }
       ],
@@ -7850,7 +7850,7 @@
       "inputs": [
         {
           "name": "Coordinates",
-          "type": "Float1|2|3|4",
+          "type": "Float3",
           "required": false
         },
         {

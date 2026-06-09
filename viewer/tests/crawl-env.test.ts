@@ -83,4 +83,27 @@ describe('probeEnv', () => {
     expect(env.ready).toBe(false);
     expect(env.checks.noShadow.ok).toBe(false);
   });
+
+  it('flags a darwin host whose Mac .dylib is absent (plugin check not ok)', async () => {
+    const { root, tool, project, engine } = readyRepo();
+    // Repoint to a fresh engine/project that has the Mac editor binary but no .dylib.
+    const noDylib = resolve(root, 'noDylib');
+    touch(resolve(noDylib, 'Engine', 'Binaries', 'Mac', 'UnrealEditor-Cmd'));
+    writeFileSync(resolve(tool, 'local.config.json'), JSON.stringify({ ProjectPath: project, EngineRoot: noDylib }));
+    // Remove the Mac .dylib from the compiled/ tree so the check fails.
+    const dylib = resolve(tool, 'compiled', 'UEMatExportMetadata', 'Binaries', 'Mac', 'UnrealEditor-UEMatExportMetadata.dylib');
+    const { unlinkSync } = await import('node:fs');
+    unlinkSync(dylib);
+    const env = await probeEnv(root, { platform: 'darwin' });
+    expect(env.ready).toBe(false);
+    expect(env.checks.plugin.ok).toBe(false);
+  });
+
+  it('flags an unsupported platform (linux) as not ok on the platform check', async () => {
+    const { root } = readyRepo();
+    const env = await probeEnv(root, { platform: 'linux' });
+    expect(env.ready).toBe(false);
+    expect(env.checks.platform.ok).toBe(false);
+    expect(env.checks.platform.detail).toMatch(/linux/);
+  });
 });

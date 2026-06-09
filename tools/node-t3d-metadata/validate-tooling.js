@@ -13,6 +13,7 @@ const required = [
   'tests/cli.test.js',
   'tests/heal-export-meta.test.js',
   'tests/check-public-purity.test.js',
+  'tests/offline-gates.test.js',
   'docs/AGENT_WORKFLOW.md',
   'docs/VERIFICATION.md',
   'docs/WORKMF.md',
