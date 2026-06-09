@@ -7,7 +7,8 @@
 ## 內容
 
 - `Invoke-NodeT3DMetadataMaintenance.ps1`：一鍵元資料維護進入點。
-- `audit-export-meta.js`：可重複使用的元資料稽核指令。
+- `audit-export-meta.js`：可重複使用的元資料稽核指令（現在也會偵測陣列元素 pin 的屬性漂移）。
+- `heal-export-meta.js`：爬取後把陣列元素 pin 的標準 UE T3D 屬性（`CustomizedUVs(0)`、`Inputs(2)`…）重新套回，讓重新產生永遠不會退化它們。保留原格式且具冪等性，會在維護流程中自動執行；`--check` 只列出漂移、不寫檔。
 - `build-db-candidates.js`：把節點探索（node-discovery）報告轉成可供審查的候選 DB 條目。
 - `plugin-src/`：`UEMatExportMetadata` commandlet 的 UE 編輯器外掛原始碼。
 - `plugin-src/Scripts/Run-NodeDiscovery.ps1`：列舉引擎運算式並與 DB 做差異比對。
@@ -40,7 +41,7 @@ pwsh -File ./tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1 \
   -EngineRoot /path/to/UnrealEngine
 ```
 
-只有在已編譯外掛**遺失、被強制重建，或比 `plugin-src/` 還舊**時，進入點才會重建它；接著重新產生 `agent-pack\nodes-ue5.7.export.json`、稽核元資料，並執行針對性的 viewer 測試。
+只有在已編譯外掛**遺失、被強制重建，或比 `plugin-src/` 還舊**時，進入點才會重建它；接著重新產生 `agent-pack\nodes-ue5.7.export.json`、修復其陣列元素 pin 屬性、稽核元資料，並執行針對性的 viewer 測試。
 
 實用選項：
 

@@ -141,6 +141,15 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
 - **Live-refresh paths differ by data kind.** export/enginemf rewrite *public* agent-pack files →
   `metadataVersion` bumps → `dbContext` re-fetches. workmf rewrites the *server-only* index →
   `workMfVersion` bumps + the store re-sends `open` for the breadcrumb (re-resolve in place).
+- **Export crawl self-heals array pins.** The commandlet emits a few array-element input
+  properties — `MakeMaterialAttributes.CustomizedUVs_*`, `QualitySwitch` Medium/Epic,
+  `FeatureLevelSwitch` SM6 — as their raw pin name instead of UE's `Name(N)` T3D array syntax
+  (its override table is incomplete). The maintenance pipeline's "Heal export metadata array pins"
+  step (`heal-export-meta.js`, canonical map in `array-pin-properties.js`) re-applies them after
+  every crawl, so the web "export" crawl never regresses them; the parity audit now also fails on
+  drift (`arrayPins`). The heal is a format-preserving string-splice because the export JSON is
+  written by UE's JSON writer (tabs, brace-on-own-line, no trailing newline), which
+  `JSON.stringify` does not reproduce — never re-serialize that file wholesale.
 - **External plugin, no ABI check.** The crawl loads the committed `compiled/` plugin via
   `-plugin=`; the env probe only checks the DLL *exists*, not that it matches the user's engine
   build. A mismatch surfaces as a crawl-time load error → repackage with `-ForcePackage`.

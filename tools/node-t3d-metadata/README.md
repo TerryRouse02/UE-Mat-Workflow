@@ -7,7 +7,8 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 ## Contents
 
 - `Invoke-NodeT3DMetadataMaintenance.ps1`: one-command metadata maintenance entrypoint.
-- `audit-export-meta.js`: reusable metadata audit command.
+- `audit-export-meta.js`: reusable metadata audit command (now also flags array-element pin drift).
+- `heal-export-meta.js`: re-applies the canonical UE T3D array-element pin properties (`CustomizedUVs(0)`, `Inputs(2)`, …) after a crawl, so re-generation never regresses them. Format-preserving and idempotent; runs automatically in the maintenance flow. `--check` lists drift without writing.
 - `build-db-candidates.js`: turn a node-discovery report into reviewable candidate DB entries.
 - `plugin-src/`: UE editor plugin source for the `UEMatExportMetadata` commandlet.
 - `plugin-src/Scripts/Run-NodeDiscovery.ps1`: enumerate engine expressions and diff vs the DB.
@@ -40,7 +41,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3
   -EngineRoot <Path\To\UnrealEngine>
 ```
 
-The entrypoint rebuilds the compiled plugin only when it is missing, forced, or older than `plugin-src/`, then regenerates `agent-pack\nodes-ue5.7.export.json`, audits the metadata, and runs targeted viewer tests.
+The entrypoint rebuilds the compiled plugin only when it is missing, forced, or older than `plugin-src/`, then regenerates `agent-pack\nodes-ue5.7.export.json`, heals its array-element pin properties, audits the metadata, and runs targeted viewer tests.
 
 ### macOS: build the plugin
 

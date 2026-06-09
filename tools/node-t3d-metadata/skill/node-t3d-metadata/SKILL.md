@@ -33,7 +33,7 @@ pwsh -File ./tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1 \
   -EngineRoot /path/to/UnrealEngine
 ```
 
-The entrypoint rebuilds the plugin when needed, generates metadata, audits the output, and runs targeted viewer tests.
+The entrypoint rebuilds the plugin when needed, generates metadata, heals the array-element pin properties (`heal-export-meta.js`; canonical map in `array-pin-properties.js`), audits the output, and runs targeted viewer tests.
 
 Use `-CaptureFixtures` only when calibrating UE clipboard/T3D emitter behavior.
 

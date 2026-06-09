@@ -84,6 +84,7 @@ test('clean pair => failed:false with zero counts', () => {
   assert.equal(result.summary.unresolved, 0);
   assert.equal(result.summary.badShape, 0);
   assert.equal(result.summary.missingMaps, 0);
+  assert.equal(result.summary.arrayPins, 0);
 });
 
 test('a verified:false DB node is NOT counted as missing', () => {
@@ -180,4 +181,53 @@ test('missingMaps: a DB-declared pin with no export map entry', () => {
   assert.equal(result.summary.orphans, 0);
   assert.equal(result.summary.unresolved, 0);
   assert.equal(result.summary.badShape, 0);
+});
+
+// A well-formed QualitySwitch export node (DB parity, verified, all maps present) so
+// only the array-pin drift check can trip. Mirrors the real node's shape.
+function qualitySwitchPair(mediumProperty) {
+  return {
+    db: {
+      category: 'Utility',
+      description: 'quality switch',
+      inputs: [{ name: 'Medium', type: 'Float1|2|3|4' }],
+      outputs: [{ name: 'Result', type: 'Float1|2|3|4' }],
+      params: [],
+      verified: true,
+    },
+    exp: {
+      ueClass: '/Script/Engine.MaterialExpressionQualitySwitch',
+      inputs: { Medium: { property: mediumProperty } },
+      outputs: { Result: { index: 0 } },
+      params: {},
+      verified: true,
+    },
+  };
+}
+
+test('arrayPins: an array-element property that drifted to its raw pin name trips the audit', () => {
+  const { db, exp } = cleanPair();
+  const qs = qualitySwitchPair('Medium'); // regressed: should be Inputs(2)
+  db.nodes.QualitySwitch = qs.db;
+  exp.nodes.QualitySwitch = qs.exp;
+  const result = audit(root(db, exp));
+  assert.equal(result.summary.arrayPins, 1);
+  assert.deepEqual(result.details.arrayPins, ['QualitySwitch.inputs.Medium: Medium (expected Inputs(2))']);
+  assert.equal(result.failed, true);
+  // and nothing else tripped
+  assert.equal(result.summary.missing, 0);
+  assert.equal(result.summary.orphans, 0);
+  assert.equal(result.summary.unresolved, 0);
+  assert.equal(result.summary.badShape, 0);
+  assert.equal(result.summary.missingMaps, 0);
+});
+
+test('arrayPins: the canonical "(N)" property produces zero drift', () => {
+  const { db, exp } = cleanPair();
+  const qs = qualitySwitchPair('Inputs(2)'); // canonical
+  db.nodes.QualitySwitch = qs.db;
+  exp.nodes.QualitySwitch = qs.exp;
+  const result = audit(root(db, exp));
+  assert.equal(result.summary.arrayPins, 0);
+  assert.equal(result.failed, false);
 });

@@ -198,6 +198,16 @@ Invoke-Step "Generate metadata" {
     }
 }
 
+# Self-heal array-element pin properties the commandlet emits in raw-pin-name form
+# (e.g. CustomizedUVs_0, Medium) back to UE T3D array syntax (CustomizedUVs(0),
+# Inputs(2)). Format-preserving and idempotent; see heal-export-meta.js. Runs right
+# after generation so the audit below sees a healed file.
+Invoke-Step "Heal export metadata array pins" {
+    Invoke-External "heal-export-meta.js" {
+        node (Join-Path $BundleRoot "heal-export-meta.js") --workflow-root $WorkflowRoot
+    }
+}
+
 if ($CaptureFixtures) {
     Invoke-Step "Capture calibration fixtures" {
         Invoke-External "Capture-MakeMaterialAttributesSample.ps1" {

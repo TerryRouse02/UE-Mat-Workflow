@@ -20,7 +20,7 @@ pwsh -File ./tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1 `
   -EngineRoot </path/to/UnrealEngine>
 ```
 
-This packages the plugin when needed, regenerates metadata, audits the JSON, and runs the targeted viewer tests.
+This packages the plugin when needed, regenerates metadata, heals the array-element pin properties, audits the JSON, and runs the targeted viewer tests.
 
 ## Tooling Layout
 
@@ -42,7 +42,9 @@ UEMatExportMetadata plugin source layout is valid.
 node tools\node-t3d-metadata\audit-export-meta.js
 ```
 
-Passing output has zero `missing`, `orphans`, `unresolved`, and `badShape`. The exact node counts are intentionally not hard-coded here because they change when the node database changes.
+Passing output has zero `missing`, `orphans`, `unresolved`, `badShape`, `missingMaps`, and `arrayPins`. The exact node counts are intentionally not hard-coded here because they change when the node database changes.
+
+`arrayPins` is the count of array-element pin properties (e.g. `CustomizedUVs(0)`, `Inputs(2)`) that drifted back to their raw pin name. A fresh crawl heals these automatically (the "Heal export metadata array pins" step runs `heal-export-meta.js` before this audit); if you ever see `arrayPins > 0`, run `node tools\node-t3d-metadata\heal-export-meta.js` to repair the file, or `--check` to list the drift without writing.
 
 `verified: false` authoring nodes (e.g. ones just added by node discovery, pin names reflected but types not yet hand-checked) are **provisional**: the audit lets them lag export coverage, so they are not counted as `missing`. `verified: true` nodes must be present in the export metadata.
 
