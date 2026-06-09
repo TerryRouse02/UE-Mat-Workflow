@@ -99,8 +99,18 @@ static TMap<FString, TMap<FString, FString>> BuildInputOverrides()
     Overrides.Add(TEXT("Power"), {{TEXT("Exp"), TEXT("Exponent")}});
     Overrides.Add(TEXT("DepthFade"), {{TEXT("Opacity"), TEXT("InOpacity")}});
     Overrides.Add(TEXT("If"), {{TEXT("A > B"), TEXT("AGreaterThanB")}, {TEXT("A = B"), TEXT("AEqualsB")}, {TEXT("A < B"), TEXT("ALessThanB")}});
-    Overrides.Add(TEXT("FeatureLevelSwitch"), {{TEXT("Default"), TEXT("Default")}, {TEXT("ES2"), TEXT("Inputs(0)")}, {TEXT("ES3.1"), TEXT("Inputs(1)")}, {TEXT("SM4"), TEXT("Inputs(2)")}, {TEXT("SM5"), TEXT("Inputs(3)")}});
-    Overrides.Add(TEXT("QualitySwitch"), {{TEXT("Default"), TEXT("Default")}, {TEXT("Low"), TEXT("Inputs(0)")}, {TEXT("High"), TEXT("Inputs(1)")}});
+    Overrides.Add(TEXT("FeatureLevelSwitch"), {{TEXT("Default"), TEXT("Default")}, {TEXT("ES2"), TEXT("Inputs(0)")}, {TEXT("ES3.1"), TEXT("Inputs(1)")}, {TEXT("SM4"), TEXT("Inputs(2)")}, {TEXT("SM5"), TEXT("Inputs(3)")}, {TEXT("SM6"), TEXT("Inputs(4)")}});
+    Overrides.Add(TEXT("QualitySwitch"), {{TEXT("Default"), TEXT("Default")}, {TEXT("Low"), TEXT("Inputs(0)")}, {TEXT("High"), TEXT("Inputs(1)")}, {TEXT("Medium"), TEXT("Inputs(2)")}, {TEXT("Epic"), TEXT("Inputs(3)")}});
+    Overrides.Add(TEXT("MakeMaterialAttributes"), {
+        {TEXT("CustomizedUVs_0"), TEXT("CustomizedUVs(0)")},
+        {TEXT("CustomizedUVs_1"), TEXT("CustomizedUVs(1)")},
+        {TEXT("CustomizedUVs_2"), TEXT("CustomizedUVs(2)")},
+        {TEXT("CustomizedUVs_3"), TEXT("CustomizedUVs(3)")},
+        {TEXT("CustomizedUVs_4"), TEXT("CustomizedUVs(4)")},
+        {TEXT("CustomizedUVs_5"), TEXT("CustomizedUVs(5)")},
+        {TEXT("CustomizedUVs_6"), TEXT("CustomizedUVs(6)")},
+        {TEXT("CustomizedUVs_7"), TEXT("CustomizedUVs(7)")},
+    });
     return Overrides;
 }
 
