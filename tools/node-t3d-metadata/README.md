@@ -9,6 +9,7 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 - `Invoke-NodeT3DMetadataMaintenance.ps1`: one-command metadata maintenance entrypoint.
 - `audit-export-meta.js`: reusable metadata audit command (now also flags array-element pin drift).
 - `heal-export-meta.js`: re-applies the canonical UE T3D array-element pin properties (`CustomizedUVs(0)`, `Inputs(2)`, …) after a crawl, so re-generation never regresses them. Format-preserving and idempotent; runs automatically in the maintenance flow. `--check` lists drift without writing.
+- `check-public-purity.js`: public-artifact purity gate (run in CI). Fails if a committed agent-pack data file or `stress_*` graph leaks `/Game`/`_project` data, an engine-MF index key isn't `/Engine/`, or a server-only/per-machine/Mac-binary path is git-tracked. Run it after any crawl that regenerates a committed index.
 - `build-db-candidates.js`: turn a node-discovery report into reviewable candidate DB entries.
 - `plugin-src/`: UE editor plugin source for the `UEMatExportMetadata` commandlet.
 - `plugin-src/Scripts/Run-NodeDiscovery.ps1`: enumerate engine expressions and diff vs the DB.

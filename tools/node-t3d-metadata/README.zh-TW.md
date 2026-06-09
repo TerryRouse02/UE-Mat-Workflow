@@ -9,6 +9,7 @@
 - `Invoke-NodeT3DMetadataMaintenance.ps1`：一鍵元資料維護進入點。
 - `audit-export-meta.js`：可重複使用的元資料稽核指令（現在也會偵測陣列元素 pin 的屬性漂移）。
 - `heal-export-meta.js`：爬取後把陣列元素 pin 的標準 UE T3D 屬性（`CustomizedUVs(0)`、`Inputs(2)`…）重新套回，讓重新產生永遠不會退化它們。保留原格式且具冪等性，會在維護流程中自動執行；`--check` 只列出漂移、不寫檔。
+- `check-public-purity.js`：公開產物純淨度閘門（CI 會跑）。若 committed 的 agent-pack 資料檔或 `stress_*` graph 外洩 `/Game`/`_project`、engine-MF index 有非 `/Engine/` 的 key、或 server-only/本機/Mac 二進位路徑被 git 追蹤，就失敗。任何重新產生 committed index 的爬取後跑一次。
 - `build-db-candidates.js`：把節點探索（node-discovery）報告轉成可供審查的候選 DB 條目。
 - `plugin-src/`：`UEMatExportMetadata` commandlet 的 UE 編輯器外掛原始碼。
 - `plugin-src/Scripts/Run-NodeDiscovery.ps1`：列舉引擎運算式並與 DB 做差異比對。

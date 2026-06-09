@@ -54,6 +54,21 @@ For machine-readable output:
 node tools\node-t3d-metadata\audit-export-meta.js --json
 ```
 
+## Public-Artifact Purity
+
+```powershell
+node tools\node-t3d-metadata\check-public-purity.js
+```
+
+Passing output is `forbidden=0 engineKeys=0 trackedSensitive=0`. This enforces the
+public-artifact invariants on every push (CI runs it): the committed agent-pack data
+files and `stress_*` graphs may contain only clean public Epic/UE data — no `/Game`
+asset paths or `_project` references — every engine-MF index key must be an `/Engine/`
+object path, and the server-only / per-machine / Mac-binary paths (`workmf-index.json`,
+`local.config.json`, `graphs/_project/`, `Binaries/Mac/*.dylib`) must not be git-tracked.
+Run it after any crawl that regenerates a committed index. Uses generic patterns only,
+never a private project name.
+
 ## UE Commandlet Log
 
 Check `Logs\UE\UEMatExportMetadata_Commandlet.log` for:
