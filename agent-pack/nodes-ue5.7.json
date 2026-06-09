@@ -888,6 +888,11 @@
           "name": "Time",
           "type": "Float1",
           "required": false
+        },
+        {
+          "name": "Speed",
+          "type": "Float1|2|3|4",
+          "required": false
         }
       ],
       "outputs": [
@@ -2268,6 +2273,26 @@
         },
         {
           "name": "ClearCoatRoughness",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Anisotropy",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Tangent",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "ShadingModel",
+          "type": "ShadingModel",
+          "required": false
+        },
+        {
+          "name": "Displacement",
           "type": "Float1|2|3|4",
           "required": false
         },
