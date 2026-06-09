@@ -74,7 +74,10 @@ plugin folder, leaving the committed Win64 binaries and `.uplugin` untouched.
 
 - `-WorkMF` runs **only** the crawl — it does NOT regenerate node metadata.
 - Default content root is `/Game`. To crawl extra roots (e.g. a plugin's content), add
-  `-WorkMfContentRoots "/Game,/MyPlugin"`.
+  `-WorkMfContentRoots "/Game,/MyPlugin"`. For example, a material that references a Bridge /
+  Megascans Material Function needs `/Bridge` crawled too, or that `/Bridge/...`
+  `MaterialFunctionCall` resolves to **"work MF not in index"** — recrawl with
+  `-WorkMfContentRoots "/Game,/Bridge"` (in the Config tab, add `/Bridge` to the WorkMF roots).
 - The host `.uproject` is just the editor host; it does not need to be your "real" project
   unless that project is where the MFs you want indexed live. **Point `-ProjectPath` at the
   project whose Material Functions you want.**
