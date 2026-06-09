@@ -5,7 +5,7 @@ import type { ExportMeta } from '../web/src/export/export-meta-types.js';
 import { slugifyGraphName, writeGraph } from './graph-write.js';
 
 export interface ProjectMatResult {
-  imported: string[];   // material base-names written under graphs/_project/
+  imported: string[];   // graph base-names written under graphs/_project/ (Material or MaterialFunction)
   warnings: string[];
 }
 
@@ -40,6 +40,9 @@ export async function importProjectMaterials(opts: {
     const name = slugifyGraphName(basename(file, extname(file)));
     try {
       const text = await readFile(full, 'utf-8');
+      // parseUET3D tags the graph as Material or MaterialFunction (via its
+      // FunctionInput/Output nodes); both are kept and the Files panel separates
+      // them into the 工作 區's 母材質 / 函式 groups by that type.
       const { graph, warnings: w } = parseUET3D(text, exportMeta, { name });
       await writeGraph(graphsRoot, join(PROJECT_DIR, name), name, graph);
       imported.push(name);

@@ -1,11 +1,22 @@
 import type { MatGraph } from './types.js';
 import type { ResolvedGraph } from './mf-resolver.js';
 
+export type NodeSource = 'export' | 'workmf' | 'enginemf' | 'projectmat' | 'unresolved';
+
+export interface NodeProvenance {
+  source: NodeSource;
+  freshnessTs: string | null;
+}
+
 export interface FileEntry {
   path: string;
   type: 'Material' | 'MaterialFunction' | 'Unknown';
   nodeCount?: number;
   origin?: 'agent' | 'crawled';
+  /** Pre-scanned health so every file shows a status dot without being opened.
+   *  'error' = failed to load/validate, 'warn' = loaded with warnings, 'ok' = clean.
+   *  Computed with the same load+resolve as opening the file, so dots match. */
+  health?: 'ok' | 'warn' | 'error';
 }
 
 export type ServerMessage =
@@ -23,6 +34,7 @@ export interface GraphPayload {
   graph: MatGraph;
   derivedPins: ResolvedGraph['derivedPins'];
   warnings: string[];
+  nodeProvenance?: Record<string, NodeProvenance>;
 }
 
 export type ClientMessage =

@@ -41,8 +41,13 @@ if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
 $ProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path
 $EngineRoot = (Resolve-Path -LiteralPath $EngineRoot).Path
 $ProjectDir = Split-Path -Parent $ProjectPath
-$BuildBat = Join-Path $EngineRoot "Engine\Build\BatchFiles\Build.bat"
-$EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+if ($IsMacOS -eq $true) {
+    $BuildScript = Join-Path $EngineRoot "Engine/Build/BatchFiles/Mac/Build.sh"
+    $EditorCmd = Join-Path $EngineRoot "Engine/Binaries/Mac/UnrealEditor-Cmd"
+} else {
+    $BuildScript = Join-Path $EngineRoot "Engine\Build\BatchFiles\Build.bat"
+    $EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+}
 $NodeDb = Join-Path $WorkflowRoot "agent-pack\nodes-ue5.7.json"
 $Out = Join-Path $WorkflowRoot "agent-pack\nodes-ue5.7.export.json"
 if ([string]::IsNullOrWhiteSpace($PackageDir)) {
@@ -57,7 +62,7 @@ if ([string]::IsNullOrWhiteSpace($EditorTarget)) {
     $EditorTarget = "$([System.IO.Path]::GetFileNameWithoutExtension($ProjectPath))Editor"
 }
 
-foreach ($required in @($ProjectPath, $BuildBat, $EditorCmd, $NodeDb)) {
+foreach ($required in @($ProjectPath, $BuildScript, $EditorCmd, $NodeDb)) {
     if (-not (Test-Path $required)) {
         throw "Required path not found: $required"
     }
@@ -77,7 +82,8 @@ if ($UseProjectPlugin) {
             throw "Close UnrealEditor/LiveCodingConsole before building the project plugin. Running: $details"
         }
 
-        & $BuildBat $EditorTarget Win64 Development "-Project=$ProjectPath" -WaitMutex -NoUBA -DisableAdaptiveUnity 2>&1 |
+        $BuildPlatform = if ($IsMacOS -eq $true) { "Mac" } else { "Win64" }
+        & $BuildScript $EditorTarget $BuildPlatform Development "-Project=$ProjectPath" -WaitMutex -NoUBA -DisableAdaptiveUnity 2>&1 |
             Tee-Object -FilePath $BuildLog
         if ($LASTEXITCODE -ne 0) {
             throw "Build failed with exit code $LASTEXITCODE. Log: $BuildLog"

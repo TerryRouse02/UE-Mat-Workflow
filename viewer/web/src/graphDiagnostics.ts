@@ -41,8 +41,8 @@ export function mfPinsUnresolved(dp: DerivedPins | undefined): boolean {
 // problem would show as a "warning" in the canvas topbar but an "error" in this panel.
 // The MaterialFunction FunctionInput/FunctionOutput rules are client-only (SPEC rule 7);
 // the server does not validate MaterialFunction structure, so this panel is intentionally
-// the richer view there. (Missing FunctionOutput is a hard error — an MF with no output is
-// useless; missing FunctionInput is only a warning — a constant/generator MF is legitimate.)
+// the richer view there. Missing FunctionOutput is a hard error because an MF with no output
+// is useless; missing FunctionInput is valid for parameter-only or generator functions.
 export function diagnoseGraph(
   graph: MatGraph,
   db: NodeDB,
@@ -61,9 +61,6 @@ export function diagnoseGraph(
       }
     }
   } else {
-    if (!graph.nodes.some(n => n.type === 'FunctionInput')) {
-      issues.push({ severity: 'warning', kind: 'mf-no-input', message: 'MaterialFunction 沒有 FunctionInput 節點。' });
-    }
     if (!graph.nodes.some(n => n.type === 'FunctionOutput')) {
       issues.push({ severity: 'error', kind: 'mf-no-output', message: 'MaterialFunction 缺少 FunctionOutput 節點（至少要一個）。' });
     }

@@ -859,6 +859,35 @@ describe('parseUET3D', () => {
     resolve(__dirname, '../../agent-pack/nodes-ue5.7.export.json'), 'utf-8',
   )) as ExportMeta;
 
+  it('exports a direct NamedRerouteDeclaration output with a matching output pin', () => {
+    const graph: MatGraph = {
+      schemaVersion: '1.0',
+      ueVersion: '5.7',
+      type: 'MaterialFunction',
+      name: 'mf_reroute_direct',
+      nodes: [
+        { id: 'c', type: 'Constant', params: { R: 1 } },
+        { id: 'decl', type: 'NamedRerouteDeclaration', params: { Name: 'UV' } },
+        { id: 'out', type: 'FunctionOutput', params: { OutputName: 'UV' } },
+      ],
+      connections: [
+        { from: 'c:Value', to: 'decl:Input' },
+        { from: 'decl:Result', to: 'out:Input' },
+      ],
+    };
+
+    const { text, warnings } = graphToUET3D(
+      graph,
+      layout({ c: [-400, 0], decl: [-160, 0], out: [120, 0] }),
+      exportMeta,
+      NO_PINS,
+    );
+
+    expect(warnings).toEqual([]);
+    expect(text).toMatch(/PinName="Output",[^)]*Direction="EGPD_Output"[^)]*LinkedTo=\(MaterialGraphNode_2 /);
+    expect(text).toContain('A=(Expression=MaterialExpressionNamedRerouteDeclaration_1,OutputIndex=0)');
+  });
+
   it('returns an empty graph (no throw) for text with no objects', () => {
     const { graph, warnings } = parseUET3D('not a t3d at all', exportMeta);
     expect(graph.nodes).toEqual([]);

@@ -8,10 +8,18 @@ export interface EnvCheck {
   detail: string;
 }
 
+export interface CrawlFreshness {
+  export?: string | null;
+  enginemf?: string | null;
+  workmf?: string | null;
+  projectmat?: string | null;
+}
+
 export interface EnvStatus {
   ready: boolean;            // every check passed → the crawl button is enabled
   platform: string;
   projectPath: string | null;
   engineRoot: string | null;
   checks: Record<string, EnvCheck>;
+  freshness?: CrawlFreshness;
 }

@@ -1,0 +1,74 @@
+/* Command palette — sourced from docs/design-ref/mockup-with-css.html lines 685-695 */
+
+/* .cmdk sizing overrides the base .modal width (from modal.css) */
+.cmdk { width: min(620px, 92vw); align-self: start; margin-top: 11vh; }
+
+.cmdk-input {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.cmdk-input input {
+  all: unset;
+  flex: 1;
+  font-size: 15px;
+  color: var(--text);
+}
+
+.cmdk-list {
+  max-height: 50vh;
+  overflow: auto;
+  padding: 6px;
+}
+
+.cmdk-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 11px;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.cmdk-item.on { background: var(--accent-ghost); }
+
+.cmdk-item.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.cmdk-item .ci {
+  width: 22px;
+  color: var(--text-dim);
+  display: grid;
+  place-items: center;
+}
+
+.cmdk-item .cl { flex: 1; font-size: 13px; }
+
+.cmdk-item .ck {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-mute);
+}
+
+.cmdk-item .cnodes {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-mute);
+}
+
+.cmdk-group {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-mute);
+  padding: 8px 11px 4px;
+}
+
+/* fadeUp keyframe shared with modal.css — defining here is safe (idempotent) */
+@keyframes fadeUp { from { opacity: 0; transform: translateY(8px); } }

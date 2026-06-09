@@ -52,9 +52,22 @@ machine and commits the result. Until then, official-MF calls warn (not crash).
 of project, so it defaults to the bundled minimal host (`host/NodeDiscoveryHost.uproject`):
 
 ```powershell
+# Windows (Windows PowerShell 5.1):
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-EngineMfIndex.ps1 `
   -EngineRoot <Path\To\UnrealEngine>
 ```
+
+```bash
+# macOS (PowerShell Core 7 — install the official .pkg or `brew install --cask powershell`):
+pwsh -File ./tools/node-t3d-metadata/plugin-src/Scripts/Run-EngineMfIndex.ps1 \
+  -EngineRoot /path/to/UnrealEngine
+```
+
+The same `.ps1` runner serves both OSes — it platform-detects the editor binary
+(`Engine\Binaries\Win64\UnrealEditor-Cmd.exe` on Windows, `Engine/Binaries/Mac/UnrealEditor-Cmd`
+on macOS). The committed `compiled/` plugin is a prebuilt Win64 binary; on macOS build the
+plugin locally first with `Package-Plugin.ps1` (needs Xcode + a UE editor with
+`Engine/Build/BatchFiles/RunUAT.sh`), which emits a gitignored `Binaries/Mac/*.dylib`.
 
 Defaults: crawls `/Engine/Functions`, writes `agent-pack\enginemf-index-ue5.7.json`. Widen with
 `-ContentRoots "/Engine/Functions,/SomePlugin"` if you depend on plugin-provided MFs; override
@@ -90,7 +103,10 @@ node -e "const{loadWorkMfIndex}=require('./viewer/dist/server/workmf-index.js');
 > losslessly:
 >
 > ```powershell
+> # Windows (Windows PowerShell 5.1):
 > powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-EngineMfIndex.ps1 -EngineRoot <Path\To\UnrealEngine>
+> # macOS (PowerShell Core 7):
+> pwsh -File ./tools/node-t3d-metadata/plugin-src/Scripts/Run-EngineMfIndex.ps1 -EngineRoot /path/to/UnrealEngine
 > ```
 >
 > `-ProjectPath` is optional (defaults to the bundled minimal host). Confirm the log shows

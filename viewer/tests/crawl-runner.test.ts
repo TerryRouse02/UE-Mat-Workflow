@@ -7,7 +7,7 @@ import { createCrawlRunner, defaultCommandFor, type CrawlEvent, type CommandFor 
 // off-Windows. The real powershell command path is verified separately on Windows.
 const NODE = process.execPath;
 
-function runToDone(runner: ReturnType<typeof createCrawlRunner>, kind: 'export' | 'enginemf'): Promise<CrawlEvent[]> {
+function runToDone(runner: ReturnType<typeof createCrawlRunner>, kind: 'export' | 'enginemf' | 'workmf' | 'projectmat'): Promise<CrawlEvent[]> {
   return new Promise((res) => {
     const events: CrawlEvent[] = [];
     runner.start(kind, (e) => { events.push(e); if (e.type === 'done') res(events); });
@@ -36,6 +36,24 @@ describe('createCrawlRunner', () => {
     expect(d.exitCode).toBe(3);
   });
 
+  it('reports an empty WorkMF crawl as an error even when the command exits 0', async () => {
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', "process.stdout.write('Wrote work-MF index: out (0 function(s), 0 load failure(s))\\n')"] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+    const events = await runToDone(runner, 'workmf');
+    const d = done(events);
+    expect(d.status).toBe('error');
+    expect(logs(events)).toContain('crawl found no project Material Functions; check the Content Route.');
+  });
+
+  it('reports an empty project-material crawl as an error even when the command exits 0', async () => {
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', "process.stdout.write('Project materials staged: staging (0 material(s), 0 function(s), 0 failure(s))\\n')"] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+    const events = await runToDone(runner, 'projectmat');
+    const d = done(events);
+    expect(d.status).toBe('error');
+    expect(logs(events)).toContain('crawl found no project materials; check the Content Route.');
+  });
+
   it('strips carriage returns from progress-style output', async () => {
     // UE/PowerShell emit bare \r progress overwrites — the log must not carry them.
     const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', "process.stdout.write('A...10%\\rA...50%\\rA...100%\\n')"] });
@@ -53,12 +71,22 @@ describe('createCrawlRunner', () => {
     expect(logs(events).some((l) => /spawn error/.test(l))).toBe(true);
   });
 
-  it('maps each crawl kind to its PowerShell entrypoint', () => {
-    const cmd = (k: 'export' | 'enginemf' | 'workmf') => defaultCommandFor('/repo', k);
+  it('maps each crawl kind to its PowerShell entrypoint (Windows)', () => {
+    const cmd = (k: 'export' | 'enginemf' | 'workmf') => defaultCommandFor('/repo', k, undefined, 'win32');
     expect(cmd('export').command).toBe('powershell');
     expect(cmd('export').args.join(' ')).toMatch(/Invoke-NodeT3DMetadataMaintenance\.ps1.*-SkipViewerTests/);
     expect(cmd('enginemf').args.join(' ')).toMatch(/Run-EngineMfIndex\.ps1/);
     expect(cmd('workmf').args.join(' ')).toMatch(/Run-WorkMfIndex\.ps1/);
+  });
+
+  it('runs the same .ps1 entrypoints under pwsh on macOS (no -ExecutionPolicy)', () => {
+    const cmd = defaultCommandFor('/repo', 'workmf', undefined, 'darwin');
+    expect(cmd.command).toBe('pwsh');
+    expect(cmd.args).toEqual(expect.arrayContaining(['-NoProfile', '-File']));
+    expect(cmd.args).not.toContain('-ExecutionPolicy');
+    expect(cmd.args.join(' ')).toMatch(/Run-WorkMfIndex\.ps1/);
+    // contentRoots still threads through on darwin
+    expect(defaultCommandFor('/repo', 'workmf', { contentRoots: '/Game/M' }, 'darwin').args).toContain('-ContentRoots');
   });
 
   it('maps the projectmat crawl to Run-ProjectMaterials.ps1 with a staging dir', () => {
@@ -85,5 +113,42 @@ describe('createCrawlRunner', () => {
     expect(() => runner.start('enginemf', () => {})).toThrow(/already running/);
     await finished;
     expect(runner.current().status).toBe('success');
+  });
+
+  it('cancel() returns false when idle (no crawl running)', () => {
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', 'setTimeout(() => {}, 300)'] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+    expect(runner.cancel()).toBe(false);
+  });
+
+  it('cancel() returns true, kills the child, and emits a done error event', async () => {
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', 'setTimeout(() => {}, 5000)'] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+
+    let killCalled = false;
+    const events: CrawlEvent[] = [];
+    const donePromise = new Promise<void>((resolve) => {
+      runner.start('export', (e) => {
+        events.push(e);
+        if (e.type === 'done') resolve();
+      });
+    });
+
+    // Give the child a chance to actually start
+    await new Promise<void>((r) => setTimeout(r, 50));
+    const result = runner.cancel();
+    expect(result).toBe(true);
+
+    await donePromise;
+    const doneEvent = events.find(e => e.type === 'done') as Extract<CrawlEvent, { type: 'done' }> | undefined;
+    expect(doneEvent).toBeDefined();
+    expect(doneEvent?.status).toBe('error');
+  });
+
+  it('cancel() returns false after a crawl has already finished', async () => {
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', 'process.exit(0)'] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+    await runToDone(runner, 'export');
+    expect(runner.cancel()).toBe(false);
   });
 });

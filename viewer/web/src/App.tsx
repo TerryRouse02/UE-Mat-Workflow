@@ -1,35 +1,81 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { StoreProvider, useStore } from './store';
-import { Header } from './Header';
+import { Chrome } from './Chrome';
+import { Banner } from './Banner';
 import { Sidebar } from './Sidebar';
 import { Graph } from './Graph';
 import { Inspector } from './Inspector';
 import { ToastStack, type ToastItem } from './Toast';
+import { ImportModal } from './ImportModal';
+import { BigGraphConfirm } from './BigGraphConfirm';
+import { CommandPalette } from './CommandPalette';
+import { Icon } from './Icon';
 import { DbProvider, useDb } from './dbContext';
 import { shouldConfirmOpen } from './largeGraphGate';
+import { graphToUET3D } from './export/ueT3D';
+import type { FileEntry } from './protocol';
+
+export type AppTab = 'files' | 'nodes' | 'config';
+
+function srcToKind(src: string): 'workmf' | 'projectmat' | 'enginemf' | 'export' {
+  if (src === 'workmf') return 'workmf';
+  if (src === 'projectmat') return 'projectmat';
+  if (src === 'enginemf') return 'enginemf';
+  return 'export';
+}
 
 function Body() {
-  const { state, open, enterMF } = useStore();
-  const { db, supported, version } = useDb();
+  const { state, open, enterMF, startCrawl } = useStore();
+  const { db, exportMeta, supported } = useDb();
+
+  // ─── Lifted cross-cutting state ────────────────────────────────────────────
+  const [tab, setTab] = useState<AppTab>('files');
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [confirmFile, setConfirmFile] = useState<FileEntry | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+  // Collapse either side panel to give the canvas more room.
+  const [leftCollapsed, setLeftCollapsed] = useState(false);
+  const [rightCollapsed, setRightCollapsed] = useState(false);
+  // Two independent crawl scopes (separate UE content roots):
+  //  • mfRoot  — "爬取專案 MF" (workmf) AND read by T3D export (mfContentRoot).
+  //  • matRoot — "爬取專案母材質" (projectmat). Kept apart so crawling base
+  //    materials never pulls in the MF folder, and vice-versa.
+  const [mfRoot, setMfRootState] = useState<string>(
+    () => (localStorage.getItem('ue-mf-root') || localStorage.getItem('ue-workmf-root') || '/Game').trim() || '/Game'
+  );
+  const setMfRoot = (v: string) => {
+    localStorage.setItem('ue-mf-root', v);
+    setMfRootState(v);
+  };
+  const [matRoot, setMatRootState] = useState<string>(
+    () => (localStorage.getItem('ue-mat-root') || '/Game').trim() || '/Game'
+  );
+  const setMatRoot = (v: string) => {
+    localStorage.setItem('ue-mat-root', v);
+    setMatRootState(v);
+  };
+
+  // Banner dismiss state — reset when engineMismatch reappears
+  const [bannerDismissed, setBannerDismissed] = useState(false);
+  const engineMismatch = !!db && !supported;
+  useEffect(() => { if (engineMismatch) setBannerDismissed(false); }, [engineMismatch]);
+
+  // ─── Per-graph state ────────────────────────────────────────────────────────
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
-  // A debug-panel issue click asks the canvas to centre + highlight a node. focusReq is
-  // tagged with `path` (the graph it was issued from) so a stale request can never fire on
-  // a different graph that happens to share a node id — see the guarded `focus` prop below.
-  // The nonce is a monotonic counter (not a timestamp) so repeat clicks always re-fire and
-  // two clicks can never collide on one value. (`focusNode` is defined after `current`.)
+  // focusReq is tagged with path so a stale request never fires on a different graph.
   const [focusReq, setFocusReq] = useState<{ id: string; nonce: number; path: string } | null>(null);
 
   useEffect(() => {
     if (!state.currentPath && state.files.length > 0) {
-      // Skip startup auto-open for large graphs to avoid freezing the UI.
       if (!shouldConfirmOpen(state.files[0].nodeCount)) open(state.files[0].path);
     }
   }, [state.files, state.currentPath, open]);
 
   const current = state.breadcrumb[state.breadcrumb.length - 1];
   const payload = current ? state.graphs[current] : undefined;
+
   const focusNode = useCallback((id: string) => {
     if (current) setFocusReq(prev => ({ id, nonce: (prev?.nonce ?? 0) + 1, path: current }));
   }, [current]);
@@ -38,14 +84,10 @@ function Body() {
     setToasts(ts => [...ts, { id: Date.now() + Math.random(), ...t }]), []);
   const closeToast = (id: number) => setToasts(ts => ts.filter(t => t.id !== id));
 
-  // Reset per-graph view state on navigation. Clearing focusReq here is hygiene; the real
-  // guard against a stale focus firing on the next graph is the path check on the `focus`
-  // prop below (the child's mount effect runs BEFORE this parent effect, so this reset
-  // alone cannot prevent the cross-graph misfire — the path tag can).
+  // Reset per-graph view state on navigation.
   useEffect(() => { setSelectedNodeId(null); setFocusReq(null); }, [current]);
 
-  // Hot-reload notice: only when the SAME path's payload object changes while
-  // live (a real disk reload) — not when `current` changes from navigation.
+  // Hot-reload notice
   const prevPayloadRef = useRef(payload);
   const prevCurrentRef = useRef(current);
   useEffect(() => {
@@ -57,8 +99,7 @@ function Body() {
     prevCurrentRef.current = current;
   }, [payload, current, state.connection, pushToast]);
 
-  // Crawl completion toast. Lives here (always mounted) rather than in the Config
-  // tab so the user still gets feedback after switching tabs while a crawl runs.
+  // Crawl completion toast
   const prevCrawlRef = useRef(state.crawl.status);
   useEffect(() => {
     const s = state.crawl;
@@ -69,15 +110,105 @@ function Body() {
     prevCrawlRef.current = s.status;
   }, [state.crawl, pushToast]);
 
+  // ─── Export ─────────────────────────────────────────────────────────────────
+  const doExport = useCallback(async () => {
+    if (!payload?.graph || !payload?.derivedPins || !supported) return;
+    const { text, warnings } = graphToUET3D(payload.graph, positions, exportMeta, payload.derivedPins, { mfContentRoot: mfRoot });
+    const count = text ? (text.match(/^Begin Object Class=\/Script\/UnrealEd\.MaterialGraphNode/gm)?.length ?? 0) : 0;
+    try {
+      await navigator.clipboard.writeText(text);
+      const message = payload.graph.type === 'MaterialFunction'
+        ? `Copied ${count} nodes. Create a Material Function "${payload.graph.name}" under ${mfRoot} and paste here.`
+        : `Copied ${count} nodes — paste into UE's Material Editor.`;
+      pushToast({ variant: warnings.length ? 'warning' : 'success', title: 'Exported to UE', message, detail: warnings });
+    } catch {
+      pushToast({ variant: 'error', title: 'Clipboard blocked', message: 'Copy manually from the console.', detail: warnings });
+      // eslint-disable-next-line no-console
+      console.log(text);
+    }
+  }, [payload, supported, exportMeta, positions, mfRoot, pushToast]);
+
+  // ─── Command handler ─────────────────────────────────────────────────────────
+  const handleCmd = useCallback((id: string) => {
+    switch (id) {
+      case 'config':    setTab('config'); break;
+      case 'crawlMat':  void startCrawl('projectmat', matRoot.trim() || '/Game'); break;
+      case 't3dIn':     setImportOpen(true); break;
+      case 't3dOut':    void doExport(); break;
+      default: break;
+    }
+  }, [setTab, startCrawl, matRoot, doExport, pushToast]);
+
+  // ─── Keyboard shortcuts ──────────────────────────────────────────────────────
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen(o => !o);
+      }
+      if (e.key === 'Escape') {
+        setConfirmFile(null);
+        setPaletteOpen(false);
+        setImportOpen(false);
+      }
+    };
+    window.addEventListener('keydown', h);
+    return () => window.removeEventListener('keydown', h);
+  }, []);
+
   const errs = current ? (state.errors[current] ?? []) : [];
   const warns = payload?.warnings ?? [];
 
+  // Body grid left-panel width. Config is widest — it carries two content-root
+  // inputs, the env checklist, and the crawl buttons; wider still while a crawl
+  // runs so the live log has room.
+  const leftW = tab === 'config' && state.crawl.status === 'running' ? 560
+    : tab === 'config' ? 384
+    : 290;
+
   return (
     <div className="app">
-      <Header graph={payload?.graph} derivedPins={payload?.derivedPins} positions={positions} pushToast={pushToast} />
-      <div className="body">
-        <aside className="sidebar-wrap"><Sidebar /></aside>
+      <Chrome
+        graph={payload?.graph}
+        onPalette={() => setPaletteOpen(true)}
+        onImport={() => setImportOpen(true)}
+        onExport={doExport}
+        onSettings={() => setTab('config')}
+      />
+      <Banner
+        conn={state.connection}
+        engineMismatch={engineMismatch}
+        dismissed={bannerDismissed}
+        onDismiss={() => setBannerDismissed(true)}
+      />
+      <div className="body" style={{ '--left': (leftCollapsed ? 0 : leftW) + 'px', '--right': (rightCollapsed ? 0 : 320) + 'px' } as React.CSSProperties}>
+        <div className="panel left">
+          <Sidebar
+            tab={tab}
+            setTab={setTab}
+            onGotoConfig={() => setTab('config')}
+            onLargeGraph={setConfirmFile}
+            mfRoot={mfRoot}
+            setMfRoot={setMfRoot}
+            matRoot={matRoot}
+            setMatRoot={setMatRoot}
+          />
+        </div>
         <main className="canvas-wrap">
+          <button
+            className="panel-toggle left"
+            title={leftCollapsed ? '展開側欄' : '收合側欄'}
+            onClick={() => setLeftCollapsed(c => !c)}
+          >
+            <Icon name="caret" size={13} style={{ transform: leftCollapsed ? 'none' : 'rotate(180deg)' }} />
+          </button>
+          <button
+            className="panel-toggle right"
+            title={rightCollapsed ? '展開檢視器' : '收合檢視器'}
+            onClick={() => setRightCollapsed(c => !c)}
+          >
+            <Icon name="caret" size={13} style={{ transform: rightCollapsed ? 'rotate(180deg)' : 'none' }} />
+          </button>
           {payload && (
             <div className="canvas-topbar">
               <div className="ct-left"><span className="ct-title">{payload.graph.name}</span></div>
@@ -88,24 +219,58 @@ function Body() {
                   </span>
                 )}
                 <span className={`ct-ver mono ${!supported ? 'warn' : ''}`}
-                  title={supported ? `Node DB: UE ${payload.graph.ueVersion}` : `UE ${payload.graph.ueVersion} — no DB shipped`}>UE {payload.graph.ueVersion}</span>
+                  title={supported ? `Node DB: UE ${payload.graph.ueVersion}` : `UE ${payload.graph.ueVersion} — no DB shipped`}>
+                  UE {payload.graph.ueVersion}
+                </span>
                 <span className="ct-count mono">{payload.graph.nodes.length} nodes · {payload.graph.connections.length} links</span>
               </div>
-            </div>
-          )}
-          {payload && !supported && (
-            <div className="canvas-banner" role="alert">
-              ⚠ UE version <b>{version}</b> isn't supported — no node DB ships for it.
-              Rendering with the latest available DB ({db?.ueVersion}); export is disabled.
-              Add <code>nodes-ue{version}.json</code> + <code>.export.json</code> to <code>agent-pack/</code> to support it.
             </div>
           )}
           {payload
             ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} />
             : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
-        <Inspector graph={payload?.graph} selectedNodeId={selectedNodeId} derivedPins={payload?.derivedPins} errors={errs} onFocusNode={focusNode} />
+        <Inspector
+          graph={payload?.graph}
+          selectedNodeId={selectedNodeId}
+          derivedPins={payload?.derivedPins}
+          errors={errs}
+          onFocusNode={focusNode}
+          nodeProvenance={payload?.nodeProvenance}
+          onRecrawlNode={(src) => {
+            const k = srcToKind(src);
+            const root = k === 'workmf' ? mfRoot : k === 'projectmat' ? matRoot : undefined;
+            void startCrawl(k, root);
+          }}
+        />
       </div>
+
+      {importOpen && (
+        <ImportModal exportMeta={exportMeta} open={open} pushToast={pushToast} onClose={() => setImportOpen(false)} />
+      )}
+      {confirmFile && (
+        <BigGraphConfirm
+          file={{
+            path: confirmFile.path,
+            name: confirmFile.path.split('/').pop()?.replace(/\.matgraph\.json$/, '') ?? confirmFile.path,
+            nodeCount: confirmFile.nodeCount ?? 0,
+          }}
+          onCancel={() => setConfirmFile(null)}
+          onConfirm={() => { open(confirmFile.path); setConfirmFile(null); }}
+        />
+      )}
+      {paletteOpen && (
+        <CommandPalette
+          onClose={() => setPaletteOpen(false)}
+          onJump={focusNode}
+          onCmd={handleCmd}
+          nodes={payload?.graph.nodes ?? []}
+          db={db}
+          connection={state.connection}
+          envReady={!!state.env?.ready}
+        />
+      )}
+
       <ToastStack toasts={toasts} onClose={closeToast} />
     </div>
   );

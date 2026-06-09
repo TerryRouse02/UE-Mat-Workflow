@@ -99,8 +99,18 @@ static TMap<FString, TMap<FString, FString>> BuildInputOverrides()
     Overrides.Add(TEXT("Power"), {{TEXT("Exp"), TEXT("Exponent")}});
     Overrides.Add(TEXT("DepthFade"), {{TEXT("Opacity"), TEXT("InOpacity")}});
     Overrides.Add(TEXT("If"), {{TEXT("A > B"), TEXT("AGreaterThanB")}, {TEXT("A = B"), TEXT("AEqualsB")}, {TEXT("A < B"), TEXT("ALessThanB")}});
-    Overrides.Add(TEXT("FeatureLevelSwitch"), {{TEXT("Default"), TEXT("Default")}, {TEXT("ES2"), TEXT("Inputs(0)")}, {TEXT("ES3.1"), TEXT("Inputs(1)")}, {TEXT("SM4"), TEXT("Inputs(2)")}, {TEXT("SM5"), TEXT("Inputs(3)")}});
-    Overrides.Add(TEXT("QualitySwitch"), {{TEXT("Default"), TEXT("Default")}, {TEXT("Low"), TEXT("Inputs(0)")}, {TEXT("High"), TEXT("Inputs(1)")}});
+    Overrides.Add(TEXT("FeatureLevelSwitch"), {{TEXT("Default"), TEXT("Default")}, {TEXT("ES2"), TEXT("Inputs(0)")}, {TEXT("ES3.1"), TEXT("Inputs(1)")}, {TEXT("SM4"), TEXT("Inputs(2)")}, {TEXT("SM5"), TEXT("Inputs(3)")}, {TEXT("SM6"), TEXT("Inputs(4)")}});
+    Overrides.Add(TEXT("QualitySwitch"), {{TEXT("Default"), TEXT("Default")}, {TEXT("Low"), TEXT("Inputs(0)")}, {TEXT("High"), TEXT("Inputs(1)")}, {TEXT("Medium"), TEXT("Inputs(2)")}, {TEXT("Epic"), TEXT("Inputs(3)")}});
+    Overrides.Add(TEXT("MakeMaterialAttributes"), {
+        {TEXT("CustomizedUVs_0"), TEXT("CustomizedUVs(0)")},
+        {TEXT("CustomizedUVs_1"), TEXT("CustomizedUVs(1)")},
+        {TEXT("CustomizedUVs_2"), TEXT("CustomizedUVs(2)")},
+        {TEXT("CustomizedUVs_3"), TEXT("CustomizedUVs(3)")},
+        {TEXT("CustomizedUVs_4"), TEXT("CustomizedUVs(4)")},
+        {TEXT("CustomizedUVs_5"), TEXT("CustomizedUVs(5)")},
+        {TEXT("CustomizedUVs_6"), TEXT("CustomizedUVs(6)")},
+        {TEXT("CustomizedUVs_7"), TEXT("CustomizedUVs(7)")},
+    });
     return Overrides;
 }
 
@@ -2634,6 +2644,11 @@ static bool WriteWorkMfIndex(const FString& OutPath, const FString& ContentRoots
 
     const TArray<FString> ContentRoots = ParseContentRoots(ContentRootsCsv);
 
+    // Force-scan the requested roots so editor-only /Engine content (e.g.
+    // /Engine/ArtTools/.../MaterialFunctions) is registered. SearchAllAssets alone
+    // skips these because the Asset Registry deny-lists editor-only engine paths.
+    AssetRegistry.ScanPathsSynchronous(ContentRoots, /*bForceRescan=*/true, /*bIgnoreDenyListScanFilters=*/true);
+
     FARFilter Filter;
     Filter.ClassPaths.Add(UMaterialFunction::StaticClass()->GetClassPathName());
     Filter.bRecursiveClasses = false; // concrete UMaterialFunction only (skip instances/layers/blends)
@@ -2851,7 +2866,64 @@ static bool SaveGraphAsT3D(UEdGraph* Graph, const FString& OutPath, FString& Out
 
 static bool IsProjectMaterialFunction(UMaterialFunctionInterface* Function)
 {
-    return Function != nullptr && Function->GetPathName().StartsWith(TEXT("/Game/"));
+    if (Function == nullptr)
+    {
+        return false;
+    }
+
+    const FString FunctionPath = Function->GetPathName();
+    return FunctionPath.StartsWith(TEXT("/")) && !FunctionPath.StartsWith(TEXT("/Engine/"));
+}
+
+static void ExportProjectMaterialFunctionRecursive(
+    UMaterialFunction* Function,
+    const FString& StagingDir,
+    TSet<FString>& ExportedFunctions,
+    int32& FunctionCount,
+    int32& FailureCount)
+{
+    if (Function == nullptr)
+    {
+        return;
+    }
+
+    const FString FunctionPath = Function->GetPathName();
+    if (ExportedFunctions.Contains(FunctionPath))
+    {
+        return;
+    }
+    ExportedFunctions.Add(FunctionPath);
+
+    PrepareFunctionGraph(Function);
+    const FString FunctionOutPath = FPaths::Combine(StagingDir, MakeProjectMatT3DFileName(Function->GetFName()));
+    FString FunctionError;
+    if (SaveGraphAsT3D(Function->MaterialGraph, FunctionOutPath, FunctionError))
+    {
+        ++FunctionCount;
+        UE_LOG(LogTemp, Display, TEXT("Wrote project material function T3D: %s"), *FunctionOutPath);
+    }
+    else
+    {
+        ++FailureCount;
+        UE_LOG(LogTemp, Warning, TEXT("ProjectMat: %s"), *FunctionError);
+    }
+
+    for (UMaterialExpression* Expression : Function->GetExpressions())
+    {
+        UMaterialExpressionMaterialFunctionCall* FunctionCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression);
+        if (FunctionCall == nullptr || !IsProjectMaterialFunction(FunctionCall->MaterialFunction))
+        {
+            continue;
+        }
+
+        UMaterialFunction* NestedFunction = Cast<UMaterialFunction>(FunctionCall->MaterialFunction);
+        if (NestedFunction == nullptr)
+        {
+            continue;
+        }
+
+        ExportProjectMaterialFunctionRecursive(NestedFunction, StagingDir, ExportedFunctions, FunctionCount, FailureCount);
+    }
 }
 
 static bool WriteProjectMaterials(const FString& StagingDir, const FString& ContentRootsCsv, FString& OutError)
@@ -2931,26 +3003,7 @@ static bool WriteProjectMaterials(const FString& StagingDir, const FString& Cont
                 continue;
             }
 
-            const FString FunctionPath = Function->GetPathName();
-            if (ExportedFunctions.Contains(FunctionPath))
-            {
-                continue;
-            }
-            ExportedFunctions.Add(FunctionPath);
-
-            PrepareFunctionGraph(Function);
-            const FString FunctionOutPath = FPaths::Combine(StagingDir, MakeProjectMatT3DFileName(Function->GetFName()));
-            FString FunctionError;
-            if (SaveGraphAsT3D(Function->MaterialGraph, FunctionOutPath, FunctionError))
-            {
-                ++FunctionCount;
-                UE_LOG(LogTemp, Display, TEXT("Wrote project material function T3D: %s"), *FunctionOutPath);
-            }
-            else
-            {
-                ++FailureCount;
-                UE_LOG(LogTemp, Warning, TEXT("ProjectMat: %s"), *FunctionError);
-            }
+            ExportProjectMaterialFunctionRecursive(Function, StagingDir, ExportedFunctions, FunctionCount, FailureCount);
         }
     }
 
@@ -3131,7 +3184,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     {
         WorkMfOutPath = ToAbsolutePath(WorkMfOutPath);
         FString ContentRoots;
-        FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots);
+        FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots, false);
         FString WorkMfUeVersion;
         FParse::Value(*Params, TEXT("UeVersion="), WorkMfUeVersion);
         FString Error;
@@ -3148,7 +3201,10 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     {
         ProjectMatStagingDir = ToAbsolutePath(ProjectMatStagingDir);
         FString ContentRoots;
-        FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots);
+        // bShouldStopOnSeparator=false so a comma-separated multi-root value
+        // (e.g. /Game/A,/Game/B) is captured whole, not truncated at the comma —
+        // matching the WorkMfOut/EngineMF path above.
+        FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots, false);
         FString Error;
         if (!WriteProjectMaterials(ProjectMatStagingDir, ContentRoots, Error))
         {

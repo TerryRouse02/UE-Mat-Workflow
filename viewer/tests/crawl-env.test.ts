@@ -16,6 +16,8 @@ function readyRepo(): { root: string; tool: string; engine: string; project: str
   touch(resolve(engine, 'Engine', 'Binaries', 'Win64', 'UnrealEditor-Cmd.exe'));
   touch(project);
   touch(resolve(tool, 'compiled', 'UEMatExportMetadata', 'Binaries', 'Win64', 'UnrealEditor-UEMatExportMetadata.dll'));
+  touch(resolve(engine, 'Engine', 'Binaries', 'Mac', 'UnrealEditor-Cmd'));
+  touch(resolve(tool, 'compiled', 'UEMatExportMetadata', 'Binaries', 'Mac', 'UnrealEditor-UEMatExportMetadata.dylib'));
   mkdirSync(tool, { recursive: true });
   writeFileSync(resolve(tool, 'local.config.json'), JSON.stringify({ ProjectPath: project, EngineRoot: engine }));
   return { root, tool, engine, project };
@@ -31,15 +33,21 @@ describe('probeEnv', () => {
     expect(env.projectPath).toContain('My.uproject');
   });
 
-  it('ready=false on a non-Windows host, with only the platform check failing', async () => {
+  it('ready=true on darwin when the Mac engine binary + Mac plugin are present', async () => {
     const { root } = readyRepo();
     const env = await probeEnv(root, { platform: 'darwin' });
-    expect(env.ready).toBe(false);
-    expect(env.checks.platform.ok).toBe(false);
-    expect(env.checks.config.ok).toBe(true);
-    expect(env.checks.engine.ok).toBe(true);
-    expect(env.checks.project.ok).toBe(true);
-    expect(env.checks.plugin.ok).toBe(true);
+    expect(env.ready).toBe(true);
+    expect(env.checks.platform.ok).toBe(true);
+    expect(env.checks.platform.detail).toBe('macOS');
+  });
+
+  it('flags a darwin host whose Mac UnrealEditor-Cmd is absent (Win64-only engine)', async () => {
+    const { root, tool, project } = readyRepo();
+    const winOnly = resolve(root, 'winOnly');
+    touch(resolve(winOnly, 'Engine', 'Binaries', 'Win64', 'UnrealEditor-Cmd.exe'));
+    writeFileSync(resolve(tool, 'local.config.json'), JSON.stringify({ ProjectPath: project, EngineRoot: winOnly }));
+    const env = await probeEnv(root, { platform: 'darwin' });
+    expect(env.checks.engine.ok).toBe(false);
   });
 
   it('flags a missing local.config.json', async () => {

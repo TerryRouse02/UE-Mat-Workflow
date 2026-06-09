@@ -175,6 +175,33 @@ describe('crawl API', () => {
     await server.close();
   }, 5000);
 
+  it('POST /api/crawl/cancel refuses a cross-origin request', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const r = await request(server.port, 'POST', '/api/crawl/cancel', { headers: { origin: 'http://evil.example:1234' } });
+    expect(r.status).toBe(403);
+    await server.close();
+  }, 5000);
+
+  it('POST /api/crawl/cancel returns 409 when no crawl is running', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const origin = `http://127.0.0.1:${server.port}`;
+    const r = await request(server.port, 'POST', '/api/crawl/cancel', { headers: { origin } });
+    expect(r.status).toBe(409);
+    expect(JSON.parse(r.body).error).toMatch(/no crawl running/);
+    await server.close();
+  }, 5000);
+
+  it('GET /api/env includes freshness field', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const r = await request(server.port, 'GET', '/api/env');
+    expect(r.status).toBe(200);
+    const env = JSON.parse(r.body);
+    // freshness is always present (empty object when file missing)
+    expect(env.freshness).toBeDefined();
+    expect(typeof env.freshness).toBe('object');
+    await server.close();
+  }, 5000);
+
   it('WS: a cross-origin upgrade is closed, never served the file list', async () => {
     const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
     const ws = new WebSocket(`ws://127.0.0.1:${server.port}`, { origin: 'http://evil.example' });

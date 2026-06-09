@@ -1,0 +1,114 @@
+/* ===================== Nodes panel ===================== */
+/* CSS ported from docs/design-ref/mockup-with-css.html lines 859-877 */
+
+/* Panel root */
+.ntab { overflow: auto; scrollbar-gutter: stable; flex: 1; min-height: 0; padding: 6px; }
+
+/* Segment switcher (節點型別 / Material Function) — mockup line 860-862 */
+.nt-seg { display: flex; gap: 4px; padding: 4px 6px 8px; }
+.nt-seg button {
+  flex: 1;
+  padding: 6px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-panel-2);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+}
+.nt-seg button.on {
+  background: var(--bg-elev);
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+/* Row container — mockup line 863-871 */
+.ntrow { border-radius: 7px; margin-bottom: 3px; overflow: hidden; }
+.ntrow .nth { display: flex; align-items: center; gap: 9px; padding: 8px 9px; cursor: pointer; }
+.ntrow .nth:hover { background: var(--bg-elev); }
+.ntrow.open .nth { background: var(--bg-elev); }
+
+/* Category / MF dot — mockup line 867 */
+.ntrow .ndot2 { width: 8px; height: 8px; border-radius: 2px; flex: 0 0 8px; }
+
+/* Name + missing badge — mockup line 868-869 */
+.ntrow .nname { flex: 1; font-size: 12.5px; }
+.ntrow .nname .miss { color: var(--error); font-family: var(--font-mono); font-size: 9px; margin-left: 6px; }
+
+/* Source pill — mockup line 870 */
+.ntrow .nsrc {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  padding: 1px 6px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  color: var(--text-mute);
+}
+
+/* Used count — mockup line 871 */
+.ntrow .nused { font-family: var(--font-mono); font-size: 10px; color: var(--text-mute); }
+
+/* Expanded detail — mockup line 872-873 */
+.ntdetail { padding: 4px 11px 12px; }
+.ntdetail .sig {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-mute);
+  margin: 6px 0 9px;
+  word-break: break-all;
+}
+
+/* Signature rows — mockup line 874-876 */
+.sigrow { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 11.5px; }
+.sigrow .sc { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 9px; }
+.sigrow .sl { flex: 1; }
+.sigrow .st {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-dim);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
+
+/* Signature column sub-header — mockup line 877 */
+.sigcol .sub {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-mute);
+  margin: 8px 0 3px;
+}
+
+/* Static note below segment switcher */
+.ntab .note {
+  padding: 0 10px 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-mute);
+}
+
+/* Empty state */
+.ntab .empty {
+  padding: 12px 8px;
+  font-size: 11.5px;
+  color: var(--text-mute);
+  text-align: center;
+}
+
+/* Provisional toggle */
+.ntab .prov-toggle {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  color: var(--text-dim);
+  padding: 4px 10px 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.ntab .prov-toggle input { cursor: pointer; }
+.ntab .prov-dot { color: #d6b25a; font-size: 8px; vertical-align: middle; }

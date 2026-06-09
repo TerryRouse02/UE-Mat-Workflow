@@ -48,7 +48,7 @@
     { "id": "stepNode",  "type": "Step" },
     { "id": "smoothNode","type": "SmoothStep" },
 
-    { "id": "mask",      "type": "ComponentMask", "params": { "R": true, "G": true, "B": false, "A": false } },
+    { "id": "mask",      "type": "ComponentMask", "params": { "R": true, "G": false, "B": false, "A": false } },
     { "id": "append",    "type": "AppendVector" },
     { "id": "normalize", "type": "Normalize" },
     { "id": "dot",       "type": "DotProduct" },

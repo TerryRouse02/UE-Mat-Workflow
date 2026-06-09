@@ -11,6 +11,8 @@ const required = [
   'tests/audit.test.js',
   'tests/build-db-candidates.test.js',
   'tests/cli.test.js',
+  'tests/heal-export-meta.test.js',
+  'tests/check-public-purity.test.js',
   'docs/AGENT_WORKFLOW.md',
   'docs/VERIFICATION.md',
   'docs/WORKMF.md',
@@ -18,6 +20,9 @@ const required = [
   'skill/node-t3d-metadata/SKILL.md',
   'Invoke-NodeT3DMetadataMaintenance.ps1',
   'audit-export-meta.js',
+  'heal-export-meta.js',
+  'array-pin-properties.js',
+  'check-public-purity.js',
   'plugin-src/UEMatExportMetadata.uplugin',
   'plugin-src/Source/UEMatExportMetadata/UEMatExportMetadata.Build.cs',
   'plugin-src/Source/UEMatExportMetadata/Private/UEMatExportMetadataCommandlet.cpp',
@@ -45,6 +50,7 @@ const scriptChecks = [
   ['Invoke-NodeT3DMetadataMaintenance.ps1', 'ProjectPath'],
   ['Invoke-NodeT3DMetadataMaintenance.ps1', 'EngineRoot'],
   ['Invoke-NodeT3DMetadataMaintenance.ps1', 'audit-export-meta.js'],
+  ['Invoke-NodeT3DMetadataMaintenance.ps1', 'heal-export-meta.js'],
   ['plugin-src/Scripts/Package-Plugin.ps1', 'EngineRoot'],
   ['plugin-src/Scripts/Run-UEMatExportMetadata.ps1', 'ProjectPath'],
   ['plugin-src/Scripts/Run-WorkMfIndex.ps1', 'WorkMfOut'],
@@ -59,6 +65,7 @@ const scriptChecks = [
   ['skill/node-t3d-metadata/SKILL.md', 'agent-pack\\nodes-ue5.7.export.json'],
   ['docs/AGENT_WORKFLOW.md', 'agent-pack\\nodes-ue5.7.export.json'],
   ['docs/VERIFICATION.md', 'audit-export-meta.js'],
+  ['docs/VERIFICATION.md', 'heal-export-meta.js'],
 ];
 
 const badContent = [];

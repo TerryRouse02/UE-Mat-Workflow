@@ -7,7 +7,9 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 ## Contents
 
 - `Invoke-NodeT3DMetadataMaintenance.ps1`: one-command metadata maintenance entrypoint.
-- `audit-export-meta.js`: reusable metadata audit command.
+- `audit-export-meta.js`: reusable metadata audit command (now also flags array-element pin drift).
+- `heal-export-meta.js`: re-applies the canonical UE T3D array-element pin properties (`CustomizedUVs(0)`, `Inputs(2)`, …) after a crawl, so re-generation never regresses them. Format-preserving and idempotent; runs automatically in the maintenance flow. `--check` lists drift without writing.
+- `check-public-purity.js`: public-artifact purity gate (run in CI). Fails if a committed agent-pack data file or `stress_*` graph leaks `/Game`/`_project` data, an engine-MF index key isn't `/Engine/`, or a server-only/per-machine/Mac-binary path is git-tracked. Run it after any crawl that regenerates a committed index.
 - `build-db-candidates.js`: turn a node-discovery report into reviewable candidate DB entries.
 - `plugin-src/`: UE editor plugin source for the `UEMatExportMetadata` commandlet.
 - `plugin-src/Scripts/Run-NodeDiscovery.ps1`: enumerate engine expressions and diff vs the DB.
@@ -22,9 +24,13 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 - `docs/VERIFICATION.md`: required audit and test commands.
 - `skill/node-t3d-metadata/SKILL.md`: portable skill instructions for Codex, Claude, or other agents.
 
-> These orchestration scripts require **Windows + PowerShell** (they invoke
-> `UnrealEditor-Cmd.exe` / `RunUAT.bat` and use Windows path separators). They do not run on
-> macOS or Linux.
+> These orchestration scripts run on **Windows and macOS**. Windows uses Windows PowerShell 5.1
+> (invoked as `powershell`); macOS uses PowerShell Core 7 (invoked as `pwsh`; install via the
+> official PowerShell `.pkg` or `brew install --cask powershell`). The same `.ps1` runners serve
+> both OSes, platform-detecting the UE editor binary (Windows
+> `Engine\Binaries\Win64\UnrealEditor-Cmd.exe`, macOS `Engine/Binaries/Mac/UnrealEditor-Cmd`).
+> On macOS, build the plugin locally first (see [macOS plugin](#macos-build-the-plugin) below);
+> the committed `compiled/` package is a prebuilt Win64 binary. They do not run on Linux.
 
 ## Normal Flow
 
@@ -36,16 +42,32 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3
   -EngineRoot <Path\To\UnrealEngine>
 ```
 
-The entrypoint rebuilds the compiled plugin only when it is missing, forced, or older than `plugin-src/`, then regenerates `agent-pack\nodes-ue5.7.export.json`, audits the metadata, and runs targeted viewer tests.
+The entrypoint rebuilds the compiled plugin only when it is missing, forced, or older than `plugin-src/`, then regenerates `agent-pack\nodes-ue5.7.export.json`, heals its array-element pin properties, audits the metadata, and runs targeted viewer tests.
+
+### macOS: build the plugin
+
+The committed `compiled/` package is a prebuilt **Win64** binary. On macOS, build the plugin
+locally once with `Package-Plugin.ps1` (requires Xcode and a UE editor whose
+`Engine/Build/BatchFiles/RunUAT.sh` exists). It builds to a temp dir and copies only
+`Binaries/Mac` into the plugin folder, so it never clobbers the committed Win64 binaries or
+`.uplugin`. The resulting `Binaries/Mac/*.dylib` is gitignored and never committed:
+
+```pwsh
+pwsh -File ./tools/node-t3d-metadata/plugin-src/Scripts/Package-Plugin.ps1 `
+  -EngineRoot /path/to/UnrealEngine
+```
 
 ### Per-machine config (skip retyping paths)
 
-`-ProjectPath` and `-EngineRoot` are long, machine-specific Windows paths. Instead of passing
+`-ProjectPath` and `-EngineRoot` are long, machine-specific native paths. Instead of passing
 them every run, record them once in a local config file:
 
 1. Copy `tools\node-t3d-metadata\local.config.example.json` to
    `tools\node-t3d-metadata\local.config.json`.
-2. Fill in `ProjectPath` and `EngineRoot` (and optionally `WorkMfContentRoots`).
+2. Fill in `ProjectPath` and `EngineRoot` (and optionally `WorkMfContentRoots`). Use native
+   paths for your OS — Windows e.g. `C:\\Path\\To\\Project.uproject` /
+   `C:\\Path\\To\\UnrealEngine`, macOS e.g. `/path/to/Project.uproject` /
+   `/path/to/UnrealEngine`.
 
 `local.config.json` is gitignored (per-machine; never committed). With it in place you can run
 the entrypoint with no path args:
@@ -115,12 +137,13 @@ The same commandlet/plugin powers two more modes (each with a one-command runner
 
 All three crawls above can also be run from the **viewer's Config tab** (the third sidebar tab,
 next to Files and Nodes) — no terminal, no hand-edited JSON. It is **local-first**: the viewer
-server, `UnrealEditor-Cmd.exe`, and the browser all run on the **same Windows machine** (the server
-binds `127.0.0.1`, and only a same-origin page on that machine can configure or start a crawl).
+server, the UE editor (`UnrealEditor-Cmd`), and the browser all run on the **same machine**
+(Windows or macOS; the server binds `127.0.0.1`, and only a same-origin page on that machine can
+configure or start a crawl).
 
 ### 1. Start the viewer
 
-On the Windows machine with UE installed, from the repo root:
+On the Windows or macOS machine with UE installed, from the repo root:
 
 ```bash
 pnpm build && pnpm start     # serves http://localhost:5790 (auto-tries 5790-5799)
@@ -156,11 +179,11 @@ what's still missing instead of guessing. All must be green before the crawl but
 
 | Check | Means |
 |---|---|
-| platform | running on Windows |
+| platform | running on Windows or macOS |
 | config | `local.config.json` has `ProjectPath` + `EngineRoot` |
-| engine | `UnrealEditor-Cmd.exe` found under `EngineRoot` |
+| engine | the UE editor binary found under `EngineRoot` (Win64 `UnrealEditor-Cmd.exe` / Mac `UnrealEditor-Cmd`) |
 | project | `ProjectPath` points to an existing `.uproject` **file** (not the folder) |
-| plugin | the compiled plugin DLL is present (shipped in `compiled/`) |
+| plugin | the compiled plugin binary is present (Win64 shipped in `compiled/`; on macOS, built locally) |
 | noShadow | no project-local `Plugins\UEMatExportMetadata` copy shadows the packaged plugin |
 
 ### 4. Crawl

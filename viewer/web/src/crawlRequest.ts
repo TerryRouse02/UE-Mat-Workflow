@@ -11,6 +11,15 @@ type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Respo
 // contentRoots is honoured for kind 'workmf' and 'projectmat' (ignored otherwise).
 export interface StartCrawlOpts { contentRoots?: string }
 
+export async function cancelCrawlRequest(fetchImpl: FetchLike = fetch): Promise<boolean> {
+  try {
+    const r = await fetchImpl('/api/crawl/cancel', { method: 'POST', headers: { 'content-type': 'application/json' } });
+    return r.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function startCrawlRequest(kind: CrawlKind, dispatch: (action: CrawlAction) => void, opts: StartCrawlOpts = {}, fetchImpl: FetchLike = fetch): Promise<void> {
   dispatch({ type: 'crawlStarted', kind, jobId: '' });
   try {

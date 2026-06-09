@@ -1,38 +1,307 @@
-.insp { padding: 14px; font-size: 12px; }
-.insp-eyebrow { display: flex; align-items: center; gap: 6px; color: var(--fg-faint); font-size: 11px; }
-.insp-catdot { width: 8px; height: 8px; border-radius: 50%; }
-.insp-title { font-size: 15px; font-weight: 600; margin-top: 4px; word-break: break-word; }
-.insp-subtitle { color: var(--fg-faint); margin-top: 2px; }
-.insp-callout { background: rgba(224,179,77,.12); border: 1px solid var(--warn); border-radius: var(--radius); padding: 8px 10px; margin: 10px 0; color: var(--warn); }
-.insp-callout p { margin: 4px 0 0; color: var(--fg-dim); font-size: 11px; }
-.insp-section { margin-top: 14px; }
-.insp-sub { text-transform: uppercase; letter-spacing: .06em; font-size: 10px; color: var(--fg-faint); margin-bottom: 6px; }
-.insp-pin { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
-.insp-pindot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
-.insp-pintype { margin-left: auto; color: var(--fg-faint); }
-.insp-param { margin: 6px 0; }
-.insp-plabel { color: var(--fg-dim); margin-bottom: 2px; }
-.insp-code { position: relative; margin-top: 4px; }
-.insp-code pre { background: var(--bg0); color: var(--warn); padding: 6px 40px 6px 8px; border-radius: 5px; font-size: 11px; margin: 0; white-space: pre-wrap; word-break: break-word; max-height: 200px; overflow: auto; font-family: ui-monospace, Menlo, Monaco, Consolas, monospace; }
-.insp-copy { position: absolute; top: 4px; right: 4px; background: var(--bg2); color: var(--fg-dim); border: 1px solid var(--bd); border-radius: 3px; padding: 2px 6px; font-size: 9px; cursor: pointer; }
-.insp-copy:hover { color: var(--fg); }
-.insp-param code { color: var(--warn); word-break: break-all; overflow-wrap: anywhere; }
-.ready-row { display: flex; gap: 6px; padding: 3px 0; }
-.ready-row.warn { color: var(--warn); }
-.ready-row.ok { color: var(--ok); }
+/* ===================== Inspector — right panel =====================
+   CSS sourced from docs/design-ref/mockup-with-css.html lines 628–674.
+   Generic names (.isec, .lbl, .node-title, .kv, .pinlist, .pinrow,
+   .codeblock, .fresh, .metagrid, .health-badge, .issue, .sevpill)
+   are scoped under .panel.right to avoid collisions with other areas.
+   ================================================================== */
 
-/* Unselected-state debug / health panel */
-.insp-health { margin-top: 12px; padding: 6px 9px; border-radius: 5px; font-size: 11px; font-weight: 600; }
-.insp-health.ok { background: rgba(126,201,111,.12); color: var(--ok); }
-.insp-health.warn { background: rgba(224,179,77,.12); color: var(--warn); }
-.insp-health.bad { background: rgba(224,114,138,.12); color: var(--err); }
-.insp-issue { display: flex; align-items: flex-start; gap: 7px; width: 100%; box-sizing: border-box; text-align: left;
-  background: var(--bg2); border: 1px solid var(--bd); border-radius: 5px; padding: 6px 8px; margin-bottom: 5px;
-  color: var(--fg-dim); font: inherit; font-size: 11px; line-height: 1.45; cursor: pointer; }
-.insp-issue:hover:not(.static):not(:disabled) { border-color: var(--accent); color: var(--fg); }
-.insp-issue.static, .insp-issue:disabled { cursor: default; }
-.insp-issue.error .insp-issue-ico { color: var(--err); }
-.insp-issue.warning .insp-issue-ico { color: var(--warn); }
-.insp-issue-ico { flex: none; }
-.insp-issue-msg { flex: 1; word-break: break-word; }
-.insp-issue-go { flex: none; color: var(--fg-faint); }
+/* Scrollable body (mockup line 629) — only ever scroll vertically; a stray
+   1px-wide child must not add a horizontal scrollbar along the panel bottom. */
+.panel.right .insp {
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+  flex: 1;
+  min-height: 0;
+}
+
+/* Mode tabs (mockup lines 630–632) */
+.insp-mode {
+  display: flex;
+  gap: 4px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--hairline);
+  flex: 0 0 auto;
+}
+.insp-mode .tab {
+  flex: 1;
+  text-align: center;
+  padding: 5px;
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+  cursor: pointer;
+  border: 1px solid transparent;
+  user-select: none;
+}
+.insp-mode .tab.on {
+  background: var(--bg-elev);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+/* Section dividers (mockup line 634) */
+.panel.right .isec {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--hairline);
+}
+
+/* Section labels (mockup line 635) */
+.panel.right .lbl {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-mute);
+  margin-bottom: 8px;
+  white-space: nowrap;
+}
+
+/* Node title block (mockup lines 636–639) */
+.panel.right .node-title {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.panel.right .node-title .swatch {
+  width: 11px;
+  height: 24px;
+  border-radius: 3px;
+  flex: 0 0 11px;
+}
+.panel.right .node-title .nt {
+  font-size: 15px;
+  font-weight: 650;
+}
+.panel.right .node-title .ntsub {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-mute);
+}
+
+/* Key-value rows (mockup lines 640–641) */
+.panel.right .kv {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 3px 14px;
+  padding: 4px 0;
+  font-size: 12px;
+  align-items: baseline;
+}
+.panel.right .kv .k {
+  color: var(--text-dim);
+}
+.panel.right .kv .v {
+  font-family: var(--font-mono);
+  color: var(--text);
+  text-align: right;
+  word-break: break-word;
+}
+
+/* Pin list (mockup lines 643–647) */
+.panel.right .pinlist {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.panel.right .pinrow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 8px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.panel.right .pinrow .pc {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex: 0 0 10px;
+}
+.panel.right .pinrow .pn {
+  font-size: 12px;
+  flex: 1;
+}
+.panel.right .pinrow .pt {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--text-dim);
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+/* Code block (mockup line 649) */
+.panel.right .codeblock {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 9px 11px;
+  color: var(--accent);
+  white-space: pre-wrap;
+  word-break: break-all;
+  line-height: 1.5;
+}
+
+/* Copy button inside code block area */
+.panel.right .insp-copy {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  background: var(--bg-elev);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 2px 6px;
+  font-size: 9px;
+  cursor: pointer;
+}
+.panel.right .insp-copy:hover {
+  color: var(--text);
+}
+
+/* Freshness chips (mockup lines 652–655) */
+.panel.right .fresh {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 11px;
+  font-family: var(--font-mono);
+}
+.panel.right .fresh.fresh-fresh {
+  color: var(--ok);
+  background: rgba(78, 196, 110, .12);
+}
+.panel.right .fresh.fresh-stale {
+  color: var(--warn);
+  background: rgba(224, 166, 78, .13);
+}
+.panel.right .fresh.fresh-missing {
+  color: var(--error);
+  background: rgba(224, 89, 78, .13);
+}
+
+/* Metadata grid (mockup lines 656–657) */
+.panel.right .metagrid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 12px;
+  font-size: 11.5px;
+  align-items: center;
+}
+.panel.right .metagrid .mk {
+  color: var(--text-mute);
+}
+.panel.right .metagrid .mv {
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  text-align: right;
+}
+
+/* Health badge (mockup lines 660–663) */
+.panel.right .health-badge {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 9px;
+  margin: 12px 14px;
+}
+.panel.right .health-badge.warn {
+  background: rgba(224, 166, 78, .1);
+  border: 1px solid rgba(224, 166, 78, .3);
+}
+.panel.right .health-badge.error {
+  background: rgba(224, 89, 78, .1);
+  border: 1px solid rgba(224, 89, 78, .3);
+}
+.panel.right .health-badge.ok {
+  background: rgba(78, 196, 110, .08);
+  border: 1px solid rgba(78, 196, 110, .25);
+}
+.panel.right .health-badge .ring {
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 18px;
+}
+.panel.right .health-badge .ht {
+  font-size: 14px;
+  font-weight: 650;
+}
+.panel.right .health-badge .hd {
+  font-size: 11.5px;
+  color: var(--text-dim);
+}
+
+/* Issue rows (mockup lines 664–670) */
+.panel.right .issue {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--hairline);
+}
+.panel.right .issue:hover {
+  background: var(--bg-elev);
+}
+.panel.right .issue .ibar {
+  width: 3px;
+  flex: 0 0 3px;
+  border-radius: 2px;
+}
+.panel.right .issue.error .ibar {
+  background: var(--error);
+}
+.panel.right .issue.warn .ibar {
+  background: var(--warn);
+}
+.panel.right .issue.info .ibar {
+  background: var(--info);
+}
+.panel.right .issue .it {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.panel.right .issue .id {
+  font-size: 11px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+.panel.right .issue .in {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  color: var(--text-mute);
+  margin-top: 4px;
+}
+
+/* Severity pills (mockup lines 671–672) */
+.panel.right .sevpill {
+  font-family: var(--font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 4px;
+  height: fit-content;
+  align-self: flex-start;
+}
+.panel.right .sevpill.error {
+  color: var(--error);
+  background: rgba(224, 89, 78, .14);
+}
+.panel.right .sevpill.warn {
+  color: var(--warn);
+  background: rgba(224, 166, 78, .14);
+}
+.panel.right .sevpill.info {
+  color: var(--info);
+  background: rgba(78, 160, 214, .14);
+}

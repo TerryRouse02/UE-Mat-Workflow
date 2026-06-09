@@ -117,12 +117,21 @@ $EngineRoot = (Resolve-Path -LiteralPath $EngineRoot).Path
 $WorkflowRoot = (Resolve-Path -LiteralPath $WorkflowRoot).Path
 $ProjectDir = Split-Path -Parent $ProjectPath
 
-$RunUAT = Join-Path $EngineRoot "Engine\Build\BatchFiles\RunUAT.bat"
-$EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+if ($IsMacOS -eq $true) {
+    $RunUAT = Join-Path $EngineRoot "Engine/Build/BatchFiles/RunUAT.sh"
+    $EditorCmd = Join-Path $EngineRoot "Engine/Binaries/Mac/UnrealEditor-Cmd"
+} else {
+    $RunUAT = Join-Path $EngineRoot "Engine\Build\BatchFiles\RunUAT.bat"
+    $EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
+}
 $NodeDb = Join-Path $WorkflowRoot "agent-pack\nodes-ue5.7.json"
 $ExportMeta = Join-Path $WorkflowRoot "agent-pack\nodes-ue5.7.export.json"
 $PackagedPlugin = Join-Path $PackageDir "UEMatExportMetadata.uplugin"
-$PackagedDll = Join-Path $PackageDir "Binaries\Win64\UnrealEditor-UEMatExportMetadata.dll"
+if ($IsMacOS -eq $true) {
+    $PackagedDll = Join-Path $PackageDir "Binaries/Mac/UnrealEditor-UEMatExportMetadata.dylib"
+} else {
+    $PackagedDll = Join-Path $PackageDir "Binaries\Win64\UnrealEditor-UEMatExportMetadata.dll"
+}
 $ProjectPlugin = Join-Path $ProjectDir "Plugins\UEMatExportMetadata\UEMatExportMetadata.uplugin"
 
 Invoke-Step "Preflight" {
@@ -186,6 +195,16 @@ Invoke-Step "Generate metadata" {
             -WorkflowRoot $WorkflowRoot `
             -PackageDir $PackageDir `
             -Strict
+    }
+}
+
+# Self-heal array-element pin properties the commandlet emits in raw-pin-name form
+# (e.g. CustomizedUVs_0, Medium) back to UE T3D array syntax (CustomizedUVs(0),
+# Inputs(2)). Format-preserving and idempotent; see heal-export-meta.js. Runs right
+# after generation so the audit below sees a healed file.
+Invoke-Step "Heal export metadata array pins" {
+    Invoke-External "heal-export-meta.js" {
+        node (Join-Path $BundleRoot "heal-export-meta.js") --workflow-root $WorkflowRoot
     }
 }
 

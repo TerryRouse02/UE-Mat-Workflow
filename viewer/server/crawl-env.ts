@@ -21,6 +21,8 @@ export interface ProbeOpts {
 
 export async function probeEnv(repoRoot: string, opts: ProbeOpts = {}): Promise<EnvStatus> {
   const platform = opts.platform ?? process.platform;
+  const onMac = platform === 'darwin';
+  const editorName = onMac ? 'UnrealEditor-Cmd' : 'UnrealEditor-Cmd.exe';
   const tool = resolve(repoRoot, 'tools', 'node-t3d-metadata');
   const configPath = resolve(tool, 'local.config.json');
 
@@ -42,7 +44,11 @@ export async function probeEnv(repoRoot: string, opts: ProbeOpts = {}): Promise<
     }
   }
 
-  const editorCmd = engineRoot ? resolve(engineRoot, 'Engine', 'Binaries', 'Win64', 'UnrealEditor-Cmd.exe') : null;
+  const editorCmd = engineRoot
+    ? (onMac
+        ? resolve(engineRoot, 'Engine', 'Binaries', 'Mac', 'UnrealEditor-Cmd')
+        : resolve(engineRoot, 'Engine', 'Binaries', 'Win64', 'UnrealEditor-Cmd.exe'))
+    : null;
   const engineOk = Boolean(editorCmd) && await exists(editorCmd as string);
   const projectHasUproject = Boolean(projectPath) && (projectPath as string).endsWith('.uproject');
   const projectOk = projectHasUproject && await exists(projectPath as string);
@@ -53,7 +59,9 @@ export async function probeEnv(repoRoot: string, opts: ProbeOpts = {}): Promise<
       : !projectHasUproject
         ? 'ProjectPath must point to the .uproject file, not the project folder'
         : `.uproject not found (${projectPath})`;
-  const dll = resolve(tool, 'compiled', 'UEMatExportMetadata', 'Binaries', 'Win64', 'UnrealEditor-UEMatExportMetadata.dll');
+  const dll = onMac
+    ? resolve(tool, 'compiled', 'UEMatExportMetadata', 'Binaries', 'Mac', 'UnrealEditor-UEMatExportMetadata.dylib')
+    : resolve(tool, 'compiled', 'UEMatExportMetadata', 'Binaries', 'Win64', 'UnrealEditor-UEMatExportMetadata.dll');
   const dllOk = await exists(dll);
   // The tooling refuses to run when a project-local plugin copy would shadow the
   // packaged one (Invoke-NodeT3DMetadataMaintenance.ps1 preflight). Catch it here
@@ -62,14 +70,14 @@ export async function probeEnv(repoRoot: string, opts: ProbeOpts = {}): Promise<
     ? join(dirname(projectPath), 'Plugins', 'UEMatExportMetadata', 'UEMatExportMetadata.uplugin')
     : null;
   const shadowPresent = Boolean(shadow) && await exists(shadow as string);
-  const platformOk = platform === 'win32';
+  const platformOk = platform === 'win32' || platform === 'darwin';
 
   const checks: Record<string, EnvCheck> = {
-    platform: { ok: platformOk, detail: platformOk ? 'Windows' : `the crawl runs UnrealEditor-Cmd.exe — needs Windows (host is ${platform})` },
+    platform: { ok: platformOk, detail: platformOk ? (onMac ? 'macOS' : 'Windows') : `the crawl runs ${editorName} — needs Windows or macOS (host is ${platform})` },
     config: { ok: configOk, detail: configDetail },
-    engine: { ok: engineOk, detail: engineOk ? 'UnrealEditor-Cmd.exe found' : `UnrealEditor-Cmd.exe not found${engineRoot ? ` under ${engineRoot}` : ' (EngineRoot unset)'}` },
+    engine: { ok: engineOk, detail: engineOk ? `${editorName} found` : `${editorName} not found${engineRoot ? ` under ${engineRoot}` : ' (EngineRoot unset)'}` },
     project: { ok: projectOk, detail: projectDetail },
-    plugin: { ok: dllOk, detail: dllOk ? 'compiled plugin present' : 'compiled plugin DLL missing — build it once on Windows' },
+    plugin: { ok: dllOk, detail: dllOk ? 'compiled plugin present' : `compiled plugin missing — build it once (${onMac ? 'Mac .dylib' : 'Windows .dll'})` },
     noShadow: { ok: !shadowPresent, detail: shadowPresent ? `remove the project-local plugin copy that shadows the packaged one (${shadow})` : 'no shadowing project-plugin copy' },
   };
   const ready = Object.values(checks).every((c) => c.ok);

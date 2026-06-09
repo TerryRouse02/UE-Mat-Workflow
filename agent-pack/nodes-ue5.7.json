@@ -2270,6 +2270,46 @@
           "name": "ClearCoatRoughness",
           "type": "Float1|2|3|4",
           "required": false
+        },
+        {
+          "name": "CustomizedUVs_0",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "CustomizedUVs_1",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "CustomizedUVs_2",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "CustomizedUVs_3",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "CustomizedUVs_4",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "CustomizedUVs_5",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "CustomizedUVs_6",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "CustomizedUVs_7",
+          "type": "Float1|2|3|4",
+          "required": false
         }
       ],
       "outputs": [
@@ -3540,6 +3580,11 @@
           "name": "SM5",
           "type": "Float1|2|3|4",
           "required": false
+        },
+        {
+          "name": "SM6",
+          "type": "Float1|2|3|4",
+          "required": false
         }
       ],
       "outputs": [
@@ -3729,6 +3774,16 @@
         },
         {
           "name": "High",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Medium",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Epic",
           "type": "Float1|2|3|4",
           "required": false
         }

@@ -1,6 +1,7 @@
 import { useMemo, useEffect, useState } from 'react';
 import ReactFlow, { type Node, type Edge, Background, Controls, MiniMap, useNodesState, useReactFlow, useNodesInitialized, ReactFlowProvider, BackgroundVariant } from 'reactflow';
 import 'reactflow/dist/style.css';
+import './graph.css';
 import { MaterialNode } from './nodes/MaterialNode';
 import { MaterialOutputNode } from './nodes/MaterialOutputNode';
 import { FunctionInputNode, FunctionOutputNode } from './nodes/FunctionIONode';
@@ -347,7 +348,6 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
         setHandleHighlight(edge.target, edge.targetHandle, false);
       }}
       fitView
-      style={{ background: 'var(--bg0)' }}
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#2a2f37" />
       <Controls />

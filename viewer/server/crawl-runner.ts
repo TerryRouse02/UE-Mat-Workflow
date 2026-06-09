@@ -38,7 +38,7 @@ export interface CrawlStartOpts {
 }
 
 export type SpawnImpl = (spec: SpawnSpec, cwd: string) => ChildProcess;
-export type CommandFor = (repoRoot: string, kind: CrawlKind, opts?: CrawlStartOpts) => SpawnSpec;
+export type CommandFor = (repoRoot: string, kind: CrawlKind, opts?: CrawlStartOpts, platform?: NodeJS.Platform) => SpawnSpec;
 
 // The actual PowerShell invocation per crawl kind, kept in ONE place so the
 // Windows side can confirm/adjust the exact args without touching the runner.
@@ -47,12 +47,13 @@ export type CommandFor = (repoRoot: string, kind: CrawlKind, opts?: CrawlStartOp
 // cleaned by the server after import). Shared with http-server's post-crawl hook.
 export const PROJECTMAT_STAGING_REL = 'tools/node-t3d-metadata/projectmat-staging';
 
-export const defaultCommandFor: CommandFor = (repoRoot, kind, opts) => {
+export const defaultCommandFor: CommandFor = (repoRoot, kind, opts, platform = process.platform) => {
   const tool = resolve(repoRoot, 'tools', 'node-t3d-metadata');
-  const ps = (file: string, extra: string[]): SpawnSpec => ({
-    command: 'powershell',
-    args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolve(tool, file), ...extra],
-  });
+  // macOS runs the same .ps1 runners under PowerShell Core (pwsh). pwsh on macOS
+  // has no -ExecutionPolicy switch, so it is omitted there; Windows keeps it.
+  const ps = (file: string, extra: string[]): SpawnSpec => platform === 'darwin'
+    ? { command: 'pwsh', args: ['-NoProfile', '-File', resolve(tool, file), ...extra] }
+    : { command: 'powershell', args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', resolve(tool, file), ...extra] };
   switch (kind) {
     case 'export':
       // Packages the plugin, regenerates nodes-ue5.7.export.json, audits. Skip the
@@ -81,6 +82,18 @@ const realSpawn: SpawnImpl = (spec, cwd) => spawn(spec.command, spec.args, { cwd
 // A single emitted log line cannot exceed this; a runaway no-newline stream is
 // truncated rather than growing the buffer without bound.
 const LINE_BUF_CAP = 1_000_000;
+const LOG_TAIL_CAP = 500;
+
+function emptyCrawlMessage(kind: CrawlKind, lines: string[]): string | null {
+  const text = lines.join('\n');
+  if (kind === 'workmf' && /\b0 function\(s\)/i.test(text)) {
+    return 'crawl found no project Material Functions; check the Content Route.';
+  }
+  if (kind === 'projectmat' && /Project materials staged:.*\(0 material\(s\),\s*0 function\(s\),\s*0 failure\(s\)\)/i.test(text)) {
+    return 'crawl found no project materials; check the Content Route.';
+  }
+  return null;
+}
 
 // Buffer chunked stdout/stderr into whole lines; flush() emits any trailing
 // partial line when the process ends. All carriage returns are stripped — UE and
@@ -118,6 +131,7 @@ export interface RunnerOpts {
 export interface CrawlRunner {
   start(kind: CrawlKind, emit: (e: CrawlEvent) => void, opts?: CrawlStartOpts): string;
   current(): CrawlStatus;
+  cancel(): boolean;
 }
 
 export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): CrawlRunner {
@@ -127,6 +141,7 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
 
   let status: CrawlStatus = { status: 'idle' };
   let counter = 0;
+  let currentChild: ChildProcess | null = null;
 
   function start(kind: CrawlKind, emit: (e: CrawlEvent) => void, startOpts?: CrawlStartOpts): string {
     if (status.status === 'running') throw new Error('a crawl is already running');
@@ -134,9 +149,15 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
     status = { status: 'running', jobId, kind };
 
     const child = spawnImpl(commandFor(repoRoot, kind, startOpts), repoRoot);
+    currentChild = child;
     emit({ type: 'started', jobId, kind });
 
-    const splitter = lineSplitter((line) => emit({ type: 'log', jobId, line }));
+    const logTail: string[] = [];
+    const splitter = lineSplitter((line) => {
+      logTail.push(line);
+      if (logTail.length > LOG_TAIL_CAP) logTail.shift();
+      emit({ type: 'log', jobId, line });
+    });
     child.stdout?.on('data', (c: Buffer) => splitter.push(c));
     child.stderr?.on('data', (c: Buffer) => splitter.push(c));
 
@@ -147,8 +168,16 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
       if (finished) return;      // 'error' then 'close' must not double-emit
       finished = true;
       clearTimeout(timer);
+      currentChild = null;
       splitter.flush();
-      const ok = exitCode === 0;
+      let ok = exitCode === 0;
+      if (ok) {
+        const emptyMsg = emptyCrawlMessage(kind, logTail);
+        if (emptyMsg) {
+          ok = false;
+          emit({ type: 'log', jobId, line: emptyMsg });
+        }
+      }
       status = { status: ok ? 'success' : 'error', jobId, kind, exitCode };
       emit({ type: 'done', jobId, status: ok ? 'success' : 'error', exitCode });
     };
@@ -158,5 +187,11 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
     return jobId;
   }
 
-  return { start, current: () => status };
+  function cancel(): boolean {
+    if (status.status !== 'running' || !currentChild) return false;
+    try { currentChild.kill(); } catch { /* already gone */ }
+    return true;
+  }
+
+  return { start, current: () => status, cancel };
 }

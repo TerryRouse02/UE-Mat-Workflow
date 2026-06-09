@@ -14,6 +14,12 @@ interface Rule extends CrawlDiagnosis { test: RegExp; }
 
 const RULES: Rule[] = [
   {
+    test: /crawl found no project Material Functions|0 function\(s\)|Project materials staged:.*\(0 material\(s\),\s*0 function\(s\)/i,
+    cause: '這次爬取正常啟動了 UE，但指定的 Content Route 底下沒有找到可爬取的材質或 Material Function。',
+    fix: '回 Config 分頁，把對應的 Content Route 改成 UE Content Browser 裡的實際路徑，例如 /Game/G1/MaterialLibrary/Function 或 /Game/G1/MaterialLibrary/Material，然後重爬。',
+    who: 'you',
+  },
+  {
     test: /could not be loaded|missing or incompatible modules|incompatible module|failed to load because/i,
     cause: '外掛二進位與你的引擎 build 不相容，UE 載入外掛失敗。',
     fix: '在終端機跑 Invoke-NodeT3DMetadataMaintenance.ps1 -ForcePackage，對你的引擎重新打包外掛（仍是外部、不會放進專案）。',

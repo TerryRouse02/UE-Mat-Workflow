@@ -41,6 +41,12 @@ jobs:
       - name: Audit export metadata
         run: node tools/node-t3d-metadata/audit-export-meta.js
 
+      - name: Check public-artifact purity
+        # Committed agent-pack data + stress_* graphs must hold only clean public
+        # Epic/UE data (no /Game or _project leak; engine-MF index all /Engine), and
+        # server-only / per-machine / Mac-binary paths must not be git-tracked.
+        run: node tools/node-t3d-metadata/check-public-purity.js
+
       - name: Validate tooling layout
         run: node tools/node-t3d-metadata/validate-tooling.js
 

@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { agentPackPath } = require('./version');
+const { findArrayPinDrift } = require('./array-pin-properties');
 
 function parseArgs(argv) {
   const args = {
@@ -114,13 +115,21 @@ function audit(workflowRoot) {
     }
   }
 
+  // Array-element pin properties (e.g. CustomizedUVs(0), Inputs(2)) that a fresh
+  // crawl regresses to their raw pin name. The parity checks above only compare pin
+  // NAMES, so this is the only check that catches a property-VALUE regression.
+  const arrayPins = findArrayPinDrift(exp).map(
+    (d) => `${d.node}.inputs.${d.pin}: ${d.actual} (expected ${d.expected})`,
+  );
+
   const failed = missing.length > 0
     || orphans.length > 0
     || unresolved.length > 0
     || reservedMissing.length > 0
     || reservedUnexpected.length > 0
     || badShape.length > 0
-    || missingMaps.length > 0;
+    || missingMaps.length > 0
+    || arrayPins.length > 0;
 
   return {
     failed,
@@ -135,6 +144,7 @@ function audit(workflowRoot) {
       unresolved: unresolved.length,
       badShape: badShape.length,
       missingMaps: missingMaps.length,
+      arrayPins: arrayPins.length,
     },
     details: {
       missing,
@@ -145,6 +155,7 @@ function audit(workflowRoot) {
       reservedUnexpected,
       badShape,
       missingMaps,
+      arrayPins,
     },
   };
 }
@@ -165,7 +176,7 @@ if (require.main === module) {
       console.log(JSON.stringify(result, null, 2));
     } else {
       const s = result.summary;
-      console.log(`db=${s.db} export=${s.export} reserved=${s.reserved} missing=${s.missing} orphans=${s.orphans} verified=${s.verified} dynamic=${s.dynamic} unresolved=${s.unresolved} badShape=${s.badShape} missingMaps=${s.missingMaps}`);
+      console.log(`db=${s.db} export=${s.export} reserved=${s.reserved} missing=${s.missing} orphans=${s.orphans} verified=${s.verified} dynamic=${s.dynamic} unresolved=${s.unresolved} badShape=${s.badShape} missingMaps=${s.missingMaps} arrayPins=${s.arrayPins}`);
       if (result.failed) {
         printList('Missing export metadata', result.details.missing);
         printList('Orphan export metadata', result.details.orphans);
@@ -174,6 +185,7 @@ if (require.main === module) {
         printList('Unexpected reserved metadata', result.details.reservedUnexpected);
         printList('Bad metadata shape', result.details.badShape);
         printList('Missing declared pin/param maps', result.details.missingMaps);
+        printList('Array-pin property drift (run heal-export-meta.js)', result.details.arrayPins);
       }
     }
     process.exit(result.failed ? 1 : 0);

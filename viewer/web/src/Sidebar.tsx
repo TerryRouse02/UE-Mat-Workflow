@@ -1,31 +1,75 @@
-import { useState } from 'react';
+import { useStore } from './store';
+import { Icon } from './Icon';
 import { FileList } from './FileList';
 import { NodeLibrary } from './NodeLibrary';
 import { ConfigPanel } from './ConfigPanel';
+import type { FileEntry } from './protocol';
 import './sidebar.css';
+import './chrome.css';
 
-type Tab = 'files' | 'nodes' | 'config';
+export type SidebarTab = 'files' | 'nodes' | 'config';
 
-export function Sidebar() {
-  const [tab, setTab] = useState<Tab>('files');
+export interface SidebarProps {
+  tab: SidebarTab;
+  setTab(t: SidebarTab): void;
+  /** Navigates to the config tab (passed to FileList for "前往爬取" button) */
+  onGotoConfig(): void;
+  /** Triggered when a large-graph file is clicked (passed to FileList) */
+  onLargeGraph(file: FileEntry): void;
+  /** MF content root (workmf crawl + export) — passed to ConfigPanel */
+  mfRoot: string;
+  setMfRoot(v: string): void;
+  /** Base-material content root (projectmat crawl) — passed to ConfigPanel */
+  matRoot: string;
+  setMatRoot(v: string): void;
+}
+
+export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMfRoot, matRoot, setMatRoot }: SidebarProps) {
+  const { state } = useStore();
+  const crawlStatus = state.crawl.status;
+  const configCue: 'run' | 'err' | null =
+    crawlStatus === 'running' ? 'run' : crawlStatus === 'error' ? 'err' : null;
+
   return (
     <div className="sidebar">
-      <div className="sidebar-tabs">
-        <button
-          className={`sidebar-tab ${tab === 'files' ? 'active' : ''}`}
+      <div className="lstabs">
+        <div
+          className={'lstab' + (tab === 'files' ? ' on' : '')}
+          role="button"
+          tabIndex={0}
           onClick={() => setTab('files')}
-        >Files</button>
-        <button
-          className={`sidebar-tab ${tab === 'nodes' ? 'active' : ''}`}
+          onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setTab('files')}
+        >
+          <Icon name="material" size={14} /> Files
+        </div>
+        <div
+          className={'lstab' + (tab === 'nodes' ? ' on' : '')}
+          role="button"
+          tabIndex={0}
           onClick={() => setTab('nodes')}
-        >Nodes</button>
-        <button
-          className={`sidebar-tab ${tab === 'config' ? 'active' : ''}`}
+          onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setTab('nodes')}
+        >
+          <Icon name="hash" size={14} /> 節點
+        </div>
+        <div
+          className={'lstab' + (tab === 'config' ? ' on' : '')}
+          role="button"
+          tabIndex={0}
           onClick={() => setTab('config')}
-        >Config</button>
+          onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setTab('config')}
+        >
+          <Icon name="settings" size={14} /> Config
+          {configCue && <span className={'tdot ' + configCue} />}
+        </div>
       </div>
       <div className="sidebar-panel">
-        {tab === 'files' ? <FileList /> : tab === 'nodes' ? <NodeLibrary /> : <ConfigPanel />}
+        {tab === 'files' && (
+          <FileList onGotoConfig={onGotoConfig} onLargeGraph={onLargeGraph} />
+        )}
+        {tab === 'nodes' && <NodeLibrary />}
+        {tab === 'config' && (
+          <ConfigPanel mfRoot={mfRoot} setMfRoot={setMfRoot} matRoot={matRoot} setMatRoot={setMatRoot} />
+        )}
       </div>
     </div>
   );

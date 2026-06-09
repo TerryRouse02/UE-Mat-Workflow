@@ -17,8 +17,15 @@ against the DB, and writes a report of what's missing.
 ## Run it (on the UE 5.7 machine)
 
 ```powershell
+# Windows (Windows PowerShell 5.1)
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-NodeDiscovery.ps1 `
   -EngineRoot <Path\To\UnrealEngine>
+```
+
+```shell
+# macOS (PowerShell Core 7 — install via the PowerShell .pkg or `brew install --cask powershell`)
+pwsh -File ./tools/node-t3d-metadata/plugin-src/Scripts/Run-NodeDiscovery.ps1 \
+  -EngineRoot /path/to/UnrealEngine
 ```
 
 `-ProjectPath` is **optional** for discovery: it only enumerates engine C++
@@ -74,7 +81,11 @@ Wrote node discovery report: ...\node-discovery.json (N engine expressions, K in
    `inputs`, `outputs`. Set **`verified: false`** until cross-checked.
 3. Regenerate export metadata so the new nodes get exact class paths / pin mappings:
    ```powershell
+   # Windows
    powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
+     -ProjectPath <...> -EngineRoot <...>
+   # macOS
+   pwsh -File ./tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1 `
      -ProjectPath <...> -EngineRoot <...>
    ```
 4. `node tools\node-t3d-metadata\audit-export-meta.js` then the viewer tests — both must pass.

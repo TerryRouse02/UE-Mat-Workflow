@@ -1,6 +1,6 @@
-# Project Materials crawl — UE commandlet hand-off (Codex / Windows)
+# Project Materials crawl — UE commandlet hand-off (Codex / Windows + macOS)
 
-> **Audience:** the UE-side worker (Codex) on the Windows + UE 5.7 machine. The viewer (server/web) side is implemented separately (see `docs/superpowers/plans/2026-06-04-project-materials-crawl.md`) and is **already wired** to call your script and post-process its output. This doc defines exactly what your side must produce.
+> **Audience:** the UE-side worker (Codex) on the UE 5.7 machine (Windows or macOS). The viewer (server/web) side is implemented separately (see `docs/superpowers/plans/2026-06-04-project-materials-crawl.md`) and is **already wired** to call your script and post-process its output. This doc defines exactly what your side must produce.
 
 ## What this feature does
 
@@ -17,8 +17,8 @@ So: **if your T3D matches what the UE Material Editor's Ctrl+C produces, the res
    - `FARFilter` with `ClassPaths.Add(UMaterial::StaticClass()->GetClassPathName())`, `PackagePaths` = the content root(s) passed in (default `/Game`), `bRecursivePaths=true`. **Only `UMaterial`** — NOT `UMaterialInstance`/`UMaterialInstanceConstant` (instances are param overrides with no node graph; out of scope).
    - Trigger flag: `-ProjectMatStaging=<dir>` (mirror how `-WorkMfOut` / `-ContentRoots` are parsed in `Main()`).
    - For each material: build its `UMaterialGraph` (e.g. `UMaterial::MaterialGraph` or `UMaterialGraph::RebuildGraph`) and export the nodes to T3D text using the SAME path the editor's copy uses — `FEdGraphUtilities::ExportNodesToText` (or `UEdGraph` export), selecting all nodes **including the root/result node** so the final material-attribute connections survive. Write the resulting text to the staging file.
-2. `plugin-src/Scripts/Run-ProjectMaterials.ps1` — a runner mirroring `Run-WorkMfIndex.ps1`: resolves `EngineRoot`/`ProjectPath`/plugin, computes the staging dir, invokes `UnrealEditor-Cmd.exe` with the commandlet + `-ProjectMatStaging=<dir>` + content roots, streams stdout. **Pure ASCII only** (Windows PS 5.1 mangles non-ASCII — no em-dash/ellipsis).
-3. Keep it Windows-only and gated by the same env checklist as the other crawls.
+2. `plugin-src/Scripts/Run-ProjectMaterials.ps1` — a runner mirroring `Run-WorkMfIndex.ps1`: resolves `EngineRoot`/`ProjectPath`/plugin, computes the staging dir, platform-detects the editor binary via `$IsMacOS` (Windows `Engine\Binaries\Win64\UnrealEditor-Cmd.exe`, macOS `Engine/Binaries/Mac/UnrealEditor-Cmd`), invokes it with the commandlet + `-ProjectMatStaging=<dir>` + content roots, streams stdout. **Pure ASCII only** (Windows PS 5.1 mangles non-ASCII — no em-dash/ellipsis). The same `.ps1` runs under Windows `powershell` 5.1 and macOS `pwsh` 7.
+3. Gate it by the same env checklist as the other crawls (runs on both Windows and macOS).
 
 ## Staging contract (the interface the viewer depends on)
 
@@ -35,7 +35,7 @@ So: **if your T3D matches what the UE Material Editor's Ctrl+C produces, the res
 
 ## How it plugs in (for your awareness)
 
-- The viewer's `defaultCommandFor(repo, 'projectmat', ...)` (in `viewer/server/crawl-runner.ts`) spawns `Run-ProjectMaterials.ps1` with the staging dir + content roots.
+- The viewer's `defaultCommandFor(repo, 'projectmat', ...)` (in `viewer/server/crawl-runner.ts`) spawns `Run-ProjectMaterials.ps1` (via `powershell` on Windows, `pwsh` on macOS) with the staging dir + content roots.
 - On exit 0 the server calls `importProjectMaterials({ stagingDir, graphsRoot, exportMeta })` → `parseUET3D` per file → writes `graphs/_project/<name>/<name>.matgraph.json` → deletes the staging file → refreshes the file list.
 - `exportMeta` = `agent-pack/nodes-ue5.7.export.json` (the same metadata the node-export crawl produces). If a material uses a UE class missing from that metadata, the converter emits a warning (doesn't crash) — surfacing missing-node coverage, same as clipboard import.
 

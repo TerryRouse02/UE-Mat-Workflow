@@ -6,6 +6,13 @@ import { MATERIAL_ATTRIBUTE_GUIDS } from '../material-attribute-guids.js';
 
 export interface UEImportResult { graph: MatGraph; warnings: string[]; }
 
+// UE sometimes labels the material root's opacity attribute pin "OpacityOverride" — a
+// non-standard display name that is the standard Opacity attribute (it never co-occurs with
+// a separate "Opacity" pin). Normalize known root-pin aliases to the canonical attribute name
+// at import time so the stored graph (and the AI's reference data) uses the real pin name and
+// round-trips through export instead of being dropped as an unknown attribute.
+const ROOT_PIN_ALIASES: Record<string, string> = { OpacityOverride: 'Opacity' };
+
 // ueClass -> our node type. Reserved entries win on a shared class so the family of built-in
 // MaterialFunctionCall wrappers all import as the generic reserved MaterialFunctionCall.
 function buildReverseTypeMap(meta: ExportMeta): Map<string, string> {
@@ -354,6 +361,7 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
       const customName = /PinName="([^"]*)"/.exec(l)?.[1] ?? 'Output';
       const outs = nodeMeta?.outputs ? Object.keys(nodeMeta.outputs) : [];
       let outName = outs.includes(customName) ? customName : (outs[0] ?? customName);
+      if (type === 'NamedRerouteDeclaration' && customName === 'Output') outName = 'Result';
       // Dynamic-pin nodes expose no static outputs; map UE's generic single-output name.
       if (!outs.length && customName === 'Output') {
         if (type === 'SetMaterialAttributes') outName = 'MaterialAttributes';
@@ -516,7 +524,10 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
     if (nodeMeta?.functionRefProperty) {
       // MaterialFunctionCall / built-in wrapper: asset path + FunctionInputs(n) by pin order.
       const ref = fill.get(nodeMeta.functionRefProperty);
-      if (ref && !nodeMeta.functionAsset) node.params.MaterialFunction = assetPathFromRef(ref);
+      // UE serializes an unassigned MaterialFunction as `None`; treat that (and empty) as
+      // absent so the graph reports the clean "params.MaterialFunction missing" diagnosis
+      // rather than storing a literal "None" asset path.
+      if (ref && !/^none$/i.test(ref.trim()) && !nodeMeta.functionAsset) node.params.MaterialFunction = assetPathFromRef(ref);
       for (let n = 0; ; n++) {
         const v = fill.get(`FunctionInputs(${n})`);
         if (v == null) break;
@@ -564,7 +575,8 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
     usedIds.add(outId);
     let wired = 0;
     for (const r of rootInputs) {
-      const attr = r.pinName.replace(/\s+/g, '');
+      const canonical = r.pinName.replace(/\s+/g, '');
+      const attr = ROOT_PIN_ALIASES[canonical] ?? canonical;
       for (const pid of r.linkedPinIds) {
         const src = outPinIdToSource.get(pid.toUpperCase());
         if (!src) {

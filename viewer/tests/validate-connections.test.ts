@@ -157,4 +157,22 @@ describe('validateConnectionPins', () => {
     // The reported pin name (in quotes) is the full "Base:Color", not the truncated "Base".
     expect(issues[0].problem).toMatch(/input pin "Base:Color"/);
   });
+
+  it('allows NamedRerouteDeclaration Result as the imported declaration output', () => {
+    const graph = {
+      schemaVersion: '1.0',
+      ueVersion: '5.7',
+      type: 'MaterialFunction',
+      name: 'mf',
+      nodes: [
+        { id: 'decl', type: 'NamedRerouteDeclaration' },
+        { id: 'out', type: 'FunctionOutput' },
+      ],
+      connections: [
+        { from: 'decl:Result', to: 'out:Input' },
+      ],
+    } as never;
+
+    expect(validateConnectionPins(graph, DB)).toEqual([]);
+  });
 });

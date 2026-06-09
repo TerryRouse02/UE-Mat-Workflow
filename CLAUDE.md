@@ -15,7 +15,7 @@ break, and how to make the common changes.
   UE nodes, exports to / imports from the UE clipboard, and can refresh its UE metadata.
 - **Stack:** TypeScript monorepo (pnpm workspaces). `viewer/server` = native Node http+ws.
   `viewer/web` = Vite + React + React Flow + dagre. `tools/node-t3d-metadata` = a UE editor
-  commandlet + PowerShell (Windows-only). `agent-pack/` = the shipped data + agent rules.
+  commandlet + PowerShell (Windows `powershell` 5.1 or macOS `pwsh` 7). `agent-pack/` = the shipped data + agent rules.
 - **Build:** `pnpm build`  **Test:** `pnpm -r test` (216) + `node --test "tools/node-t3d-metadata/tests/**/*.test.js"` (17)  **Run:** `pnpm dev` (or `pnpm start`) → http://localhost:5790
 - **Before committing public data, run the parity audit:** `node tools/node-t3d-metadata/audit-export-meta.js` (must exit 0).
 
@@ -91,12 +91,15 @@ auto-tries 5790–5799). One WebSocket carries everything live.
 - `Header.tsx` — export to UE (`export/ueT3D.ts`) + import from UE (`ImportModal`).
 - `crawlRequest.ts` — POST /api/crawl + the `CrawlKind` union (web side).
 
-## tools/node-t3d-metadata (Windows-only)
+## tools/node-t3d-metadata (Windows + macOS)
 
 A UE editor commandlet (`plugin-src/`, C++) wrapped by PowerShell runners. Modes: node-metadata
-export, Engine-MF index, WorkMF index, node discovery. The `compiled/` plugin is committed and
-**mounted externally** (`-plugin=<.uplugin>`) — nothing is copied into the user's UE project.
-See `tools/node-t3d-metadata/README.md`.
+export, Engine-MF index, WorkMF index, node discovery. The same `.ps1` runners serve both OSes,
+platform-detecting the editor binary via `$IsMacOS` (Win64 `UnrealEditor-Cmd.exe` vs Mac
+`UnrealEditor-Cmd`); `crawl-runner.ts` spawns `powershell` on Windows and `pwsh` on macOS. The
+committed `compiled/` plugin is a prebuilt **Win64** binary and is **mounted externally**
+(`-plugin=<.uplugin>`) — nothing is copied into the user's UE project; on macOS you build the
+plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/node-t3d-metadata/README.md`.
 
 ## Hard invariants — do not violate
 
@@ -138,6 +141,15 @@ See `tools/node-t3d-metadata/README.md`.
 - **Live-refresh paths differ by data kind.** export/enginemf rewrite *public* agent-pack files →
   `metadataVersion` bumps → `dbContext` re-fetches. workmf rewrites the *server-only* index →
   `workMfVersion` bumps + the store re-sends `open` for the breadcrumb (re-resolve in place).
+- **Export crawl self-heals array pins.** The commandlet emits a few array-element input
+  properties — `MakeMaterialAttributes.CustomizedUVs_*`, `QualitySwitch` Medium/Epic,
+  `FeatureLevelSwitch` SM6 — as their raw pin name instead of UE's `Name(N)` T3D array syntax
+  (its override table is incomplete). The maintenance pipeline's "Heal export metadata array pins"
+  step (`heal-export-meta.js`, canonical map in `array-pin-properties.js`) re-applies them after
+  every crawl, so the web "export" crawl never regresses them; the parity audit now also fails on
+  drift (`arrayPins`). The heal is a format-preserving string-splice because the export JSON is
+  written by UE's JSON writer (tabs, brace-on-own-line, no trailing newline), which
+  `JSON.stringify` does not reproduce — never re-serialize that file wholesale.
 - **External plugin, no ABI check.** The crawl loads the committed `compiled/` plugin via
   `-plugin=`; the env probe only checks the DLL *exists*, not that it matches the user's engine
   build. A mismatch surfaces as a crawl-time load error → repackage with `-ForcePackage`.

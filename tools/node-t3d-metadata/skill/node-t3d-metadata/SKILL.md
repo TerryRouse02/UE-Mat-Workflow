@@ -16,15 +16,24 @@ This is a portable agent workflow. It does not require Codex-specific features. 
 
 ## Workflow
 
-From the repo root, run the generic maintenance entrypoint:
+From the repo root, run the generic maintenance entrypoint. The same `.ps1` serves both
+OSes (it platform-detects the editor binary via `$IsMacOS`):
 
 ```powershell
+# Windows (Windows PowerShell 5.1)
 powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3DMetadataMaintenance.ps1 `
   -ProjectPath <Path\To\Project.uproject> `
   -EngineRoot <Path\To\UnrealEngine>
 ```
 
-The entrypoint rebuilds the plugin when needed, generates metadata, audits the output, and runs targeted viewer tests.
+```bash
+# macOS (PowerShell Core 7; install via the official .pkg or `brew install --cask powershell`)
+pwsh -File ./tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1 \
+  -ProjectPath /path/to/Project.uproject \
+  -EngineRoot /path/to/UnrealEngine
+```
+
+The entrypoint rebuilds the plugin when needed, generates metadata, heals the array-element pin properties (`heal-export-meta.js`; canonical map in `array-pin-properties.js`), audits the output, and runs targeted viewer tests.
 
 Use `-CaptureFixtures` only when calibrating UE clipboard/T3D emitter behavior.
 
