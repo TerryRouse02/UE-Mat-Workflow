@@ -7,11 +7,715 @@
 		"ueVersion": "5.7",
 		"engineVersion": "5.7.4-51494982+++UE5+Release-5.7",
 		"generatedBy": "UEMatExportMetadata",
-		"generatedAt": "2026-06-06T15:09:44.565Z",
-		"contentRoots": "/Engine/Functions"
+		"generatedAt": "2026-06-09T13:51:45.681Z",
+		"contentRoots": "/Engine/Functions,/Engine/ArtTools"
 	},
 	"functions":
 	{
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/Boundingsphere_DebugCircles.Boundingsphere_DebugCircles":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/Boundingsphere_DebugCircles.Boundingsphere_DebugCircles",
+			"displayName": "Boundingsphere_DebugCircles",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "UVW",
+					"type": "Float3",
+					"index": 0
+				}
+			],
+			"outputs": [
+				{
+					"name": "Result",
+					"type": "Float3",
+					"index": 0
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/BoundingSphere_LightTransform.BoundingSphere_LightTransform":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/BoundingSphere_LightTransform.BoundingSphere_LightTransform",
+			"displayName": "BoundingSphere_LightTransform",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "World Position",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "Scale XY",
+					"type": "Float2",
+					"index": 1
+				},
+				{
+					"name": "Scale Z",
+					"type": "Float1",
+					"index": 2
+				},
+				{
+					"name": "Clamp",
+					"type": "StaticBool",
+					"index": 3
+				},
+				{
+					"name": "Transform to Local space",
+					"type": "StaticBool",
+					"index": 4
+				},
+				{
+					"name": "Custom Light Vector",
+					"type": "StaticBool",
+					"index": 5
+				},
+				{
+					"name": "Light Vector",
+					"type": "Float3",
+					"index": 6
+				}
+			],
+			"outputs": [
+				{
+					"name": "UVW",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "U",
+					"type": "Float3",
+					"index": 1
+				},
+				{
+					"name": "V",
+					"type": "Float3",
+					"index": 2
+				},
+				{
+					"name": "W",
+					"type": "Float3",
+					"index": 3
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/CheckerPattern.CheckerPattern":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/CheckerPattern.CheckerPattern",
+			"displayName": "CheckerPattern",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "UVs",
+					"type": "Float2",
+					"index": 0
+				},
+				{
+					"name": "Tiling",
+					"type": "Float2",
+					"index": 1
+				}
+			],
+			"outputs": [
+				{
+					"name": "Result",
+					"type": "Float3",
+					"index": 0
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/CustomBoundingBox_0-1_UVW.CustomBoundingBox_0-1_UVW":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/CustomBoundingBox_0-1_UVW.CustomBoundingBox_0-1_UVW",
+			"displayName": "CustomBoundingBox_0-1_UVW",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "World Position",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "Min",
+					"type": "Float3",
+					"index": 1
+				},
+				{
+					"name": "Size",
+					"type": "Float3",
+					"index": 2
+				},
+				{
+					"name": "Clamp",
+					"type": "StaticBool",
+					"index": 3
+				}
+			],
+			"outputs": [
+				{
+					"name": "UVW",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "U",
+					"type": "Float3",
+					"index": 1
+				},
+				{
+					"name": "V",
+					"type": "Float3",
+					"index": 2
+				},
+				{
+					"name": "W",
+					"type": "Float3",
+					"index": 3
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/DiffMotionVectors.DiffMotionVectors":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/DiffMotionVectors.DiffMotionVectors",
+			"displayName": "DiffMotionVectors",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "Original Frame UVs",
+					"type": "Float2",
+					"index": 0
+				},
+				{
+					"name": "Offset Frame UVs",
+					"type": "Float2",
+					"index": 1
+				}
+			],
+			"outputs": [
+				{
+					"name": "Result",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "P1",
+					"type": "Float3",
+					"index": 1
+				},
+				{
+					"name": "P2",
+					"type": "Float3",
+					"index": 2
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/Flipbook_LocalBounds.Flipbook_LocalBounds":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/Flipbook_LocalBounds.Flipbook_LocalBounds",
+			"displayName": "Flipbook_LocalBounds",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "World Position",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "Frame Size",
+					"type": "Float3",
+					"index": 1
+				},
+				{
+					"name": "Blueprint Offset",
+					"type": "Float3",
+					"index": 2
+				},
+				{
+					"name": "Clamp",
+					"type": "StaticBool",
+					"index": 3
+				},
+				{
+					"name": "Transform Position",
+					"type": "StaticBool",
+					"index": 4
+				},
+				{
+					"name": "Projection Vector",
+					"type": "Float3",
+					"index": 5
+				}
+			],
+			"outputs": [
+				{
+					"name": "UVW",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "U",
+					"type": "Float3",
+					"index": 1
+				},
+				{
+					"name": "V",
+					"type": "Float3",
+					"index": 2
+				},
+				{
+					"name": "W",
+					"type": "Float3",
+					"index": 3
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/FlipbookWind.FlipbookWind":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/FlipbookWind.FlipbookWind",
+			"displayName": "FlipbookWind",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "WindIntensity",
+					"type": "Float1",
+					"index": 0
+				},
+				{
+					"name": "WindWeight",
+					"type": "Float1",
+					"index": 1
+				},
+				{
+					"name": "Time",
+					"type": "Float1",
+					"index": 2
+				},
+				{
+					"name": "WorldPosition",
+					"type": "Float3",
+					"index": 3
+				},
+				{
+					"name": "Wave Size Small",
+					"type": "Float1",
+					"index": 4
+				},
+				{
+					"name": "Wave Size Large 800",
+					"type": "Float1",
+					"index": 5
+				},
+				{
+					"name": "Frame Size",
+					"type": "Float3",
+					"index": 6
+				},
+				{
+					"name": "AdditionalWPO",
+					"type": "Float3",
+					"index": 7
+				}
+			],
+			"outputs": [
+				{
+					"name": "Result",
+					"type": "Float3",
+					"index": 0
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/FoliageZRotation.FoliageZRotation":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/FoliageZRotation.FoliageZRotation",
+			"displayName": "FoliageZRotation",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [],
+			"outputs": [
+				{
+					"name": "Z Rotation (0-1)",
+					"type": "Float3",
+					"index": 0
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/Imposter_MotionVectors.Imposter_MotionVectors":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/Imposter_MotionVectors.Imposter_MotionVectors",
+			"displayName": "Imposter_MotionVectors",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "FramesX",
+					"type": "Float1",
+					"index": 0
+				},
+				{
+					"name": "FramesY",
+					"type": "Float1",
+					"index": 1
+				},
+				{
+					"name": "Fixed Z",
+					"type": "StaticBool",
+					"index": 2
+				},
+				{
+					"name": "SpriteWidth",
+					"type": "Float1",
+					"index": 3
+				},
+				{
+					"name": "Position",
+					"type": "Float3",
+					"index": 4
+				},
+				{
+					"name": "SpriteHeight",
+					"type": "Float1",
+					"index": 5
+				},
+				{
+					"name": "Rotation",
+					"type": "Float1",
+					"index": 6
+				},
+				{
+					"name": "Rotation For Normals",
+					"type": "Float1",
+					"index": 7
+				},
+				{
+					"name": "Motion Vector Intensity",
+					"type": "Float1",
+					"index": 8
+				},
+				{
+					"name": "Normals",
+					"type": "Float3",
+					"index": 9
+				},
+				{
+					"name": "Base Texture",
+					"type": "Texture2D",
+					"index": 10
+				},
+				{
+					"name": "Motion Vector Texture",
+					"type": "Texture2D",
+					"index": 11
+				}
+			],
+			"outputs": [
+				{
+					"name": "Result",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "Alpha",
+					"type": "Float3",
+					"index": 1
+				},
+				{
+					"name": "BlendPhase xy",
+					"type": "Float3",
+					"index": 2
+				},
+				{
+					"name": "TransformedNormals",
+					"type": "Float3",
+					"index": 3
+				},
+				{
+					"name": "WorldPositionOffset",
+					"type": "Float3",
+					"index": 4
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/ImposterUVs.ImposterUVs":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/ImposterUVs.ImposterUVs",
+			"displayName": "ImposterUVs",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "FramesX",
+					"type": "Float1",
+					"index": 0
+				},
+				{
+					"name": "FramesY",
+					"type": "Float1",
+					"index": 1
+				},
+				{
+					"name": "Fixed Z",
+					"type": "StaticBool",
+					"index": 2
+				},
+				{
+					"name": "SpriteWidth",
+					"type": "Float1",
+					"index": 3
+				},
+				{
+					"name": "Position",
+					"type": "Float3",
+					"index": 4
+				},
+				{
+					"name": "SpriteHeight",
+					"type": "Float1",
+					"index": 5
+				},
+				{
+					"name": "Rotation",
+					"type": "Float1",
+					"index": 6
+				},
+				{
+					"name": "Rotation For Normals",
+					"type": "Float1",
+					"index": 7
+				},
+				{
+					"name": "Normals",
+					"type": "Float3",
+					"index": 8
+				}
+			],
+			"outputs": [
+				{
+					"name": "UVs",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "BlendPhase xy",
+					"type": "Float3",
+					"index": 1
+				},
+				{
+					"name": "TransformedNormals",
+					"type": "Float3",
+					"index": 2
+				},
+				{
+					"name": "WorldPositionOffset",
+					"type": "Float3",
+					"index": 3
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/MarkRedOutside0-1Range.MarkRedOutside0-1Range":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/MarkRedOutside0-1Range.MarkRedOutside0-1Range",
+			"displayName": "MarkRedOutside0-1Range",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "UVW",
+					"type": "Float3",
+					"index": 0
+				}
+			],
+			"outputs": [
+				{
+					"name": "Result",
+					"type": "Float3",
+					"index": 0
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/OrthoFOV.OrthoFOV":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/OrthoFOV.OrthoFOV",
+			"displayName": "OrthoFOV",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "Additional WPO",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "Forward Axis",
+					"type": "Float3",
+					"index": 1
+				},
+				{
+					"name": "FOV Amount",
+					"type": "Float1",
+					"index": 2
+				}
+			],
+			"outputs": [
+				{
+					"name": "WorldPositionOffset",
+					"type": "Float3",
+					"index": 0
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/TransformImposterNormals.TransformImposterNormals":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/TransformImposterNormals.TransformImposterNormals",
+			"displayName": "TransformImposterNormals",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "Normal",
+					"type": "Float3",
+					"index": 0
+				}
+			],
+			"outputs": [
+				{
+					"name": "Result",
+					"type": "Float3",
+					"index": 0
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/UnwrapUVsForRender.UnwrapUVsForRender":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/UnwrapUVsForRender.UnwrapUVsForRender",
+			"displayName": "UnwrapUVsForRender",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "UVs",
+					"type": "Float2",
+					"index": 0
+				},
+				{
+					"name": "Frontface or Backface",
+					"type": "Float1",
+					"index": 1
+				}
+			],
+			"outputs": [
+				{
+					"name": "Mask",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "WorldPositionOffset",
+					"type": "Float3",
+					"index": 1
+				}
+			],
+			"missing": false
+		},
+		"/Engine/ArtTools/RenderToTexture/MaterialFunctions/VolumeShadowMap.VolumeShadowMap":
+		{
+			"assetPath": "/Engine/ArtTools/RenderToTexture/MaterialFunctions/VolumeShadowMap.VolumeShadowMap",
+			"displayName": "VolumeShadowMap",
+			"category": "/Engine/ArtTools/RenderToTexture/MaterialFunctions",
+			"inputs": [
+				{
+					"name": "WorldPosition",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "Range",
+					"type": "Float1",
+					"index": 1
+				},
+				{
+					"name": "Transform Position",
+					"type": "StaticBool",
+					"index": 2
+				},
+				{
+					"name": "Projection Vector",
+					"type": "Float3",
+					"index": 3
+				},
+				{
+					"name": "Use Custom UVs",
+					"type": "StaticBool",
+					"index": 4
+				},
+				{
+					"name": "Custom UV,  XY",
+					"type": "Float2",
+					"index": 5
+				},
+				{
+					"name": "Custom UV,  Z",
+					"type": "Float1",
+					"index": 6
+				},
+				{
+					"name": "Shadow Volume Texture",
+					"type": "Texture2D",
+					"index": 7
+				},
+				{
+					"name": "Self Shadow Offset",
+					"type": "Float1",
+					"index": 8
+				},
+				{
+					"name": "Transmission Mip Bias",
+					"type": "Float1",
+					"index": 9
+				},
+				{
+					"name": "Opacity",
+					"type": "Float1",
+					"index": 10
+				},
+				{
+					"name": "Shadow Accumulation Distance",
+					"type": "Float1",
+					"index": 11
+				},
+				{
+					"name": "Blur using offset RGB texture",
+					"type": "StaticBool",
+					"index": 12
+				}
+			],
+			"outputs": [
+				{
+					"name": "Internal Transmission Mask",
+					"type": "Float3",
+					"index": 0
+				},
+				{
+					"name": "Shadow",
+					"type": "Float3",
+					"index": 1
+				},
+				{
+					"name": "XY",
+					"type": "Float3",
+					"index": 2
+				},
+				{
+					"name": "Z",
+					"type": "Float3",
+					"index": 3
+				}
+			],
+			"missing": false
+		},
 		"/Engine/Functions/DistanceFields/Combiners/DistanceField_Intersection.DistanceField_Intersection":
 		{
 			"assetPath": "/Engine/Functions/DistanceFields/Combiners/DistanceField_Intersection.DistanceField_Intersection",

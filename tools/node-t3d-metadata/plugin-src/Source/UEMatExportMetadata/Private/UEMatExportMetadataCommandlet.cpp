@@ -2644,6 +2644,11 @@ static bool WriteWorkMfIndex(const FString& OutPath, const FString& ContentRoots
 
     const TArray<FString> ContentRoots = ParseContentRoots(ContentRootsCsv);
 
+    // Force-scan the requested roots so editor-only /Engine content (e.g.
+    // /Engine/ArtTools/.../MaterialFunctions) is registered. SearchAllAssets alone
+    // skips these because the Asset Registry deny-lists editor-only engine paths.
+    AssetRegistry.ScanPathsSynchronous(ContentRoots, /*bForceRescan=*/true, /*bIgnoreDenyListScanFilters=*/true);
+
     FARFilter Filter;
     Filter.ClassPaths.Add(UMaterialFunction::StaticClass()->GetClassPathName());
     Filter.bRecursiveClasses = false; // concrete UMaterialFunction only (skip instances/layers/blends)
@@ -3179,7 +3184,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     {
         WorkMfOutPath = ToAbsolutePath(WorkMfOutPath);
         FString ContentRoots;
-        FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots);
+        FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots, false);
         FString WorkMfUeVersion;
         FParse::Value(*Params, TEXT("UeVersion="), WorkMfUeVersion);
         FString Error;
