@@ -3201,7 +3201,10 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     {
         ProjectMatStagingDir = ToAbsolutePath(ProjectMatStagingDir);
         FString ContentRoots;
-        FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots);
+        // bShouldStopOnSeparator=false so a comma-separated multi-root value
+        // (e.g. /Game/A,/Game/B) is captured whole, not truncated at the comma —
+        // matching the WorkMfOut/EngineMF path above.
+        FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots, false);
         FString Error;
         if (!WriteProjectMaterials(ProjectMatStagingDir, ContentRoots, Error))
         {
