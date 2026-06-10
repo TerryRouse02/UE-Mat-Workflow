@@ -286,10 +286,19 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
   // survive the round-trip instead of being silently dropped.
   const outPinIdToSource = new Map<string, { nodeId: string; outName: string }>();
   const rootInputs: { pinName: string; linkedPinIds: string[] }[] = [];
+  // Knot (reroute) graph-node pins: output pin id -> the pin id(s) its input links to. The root's
+  // wires reference their source by pin id, a path that never consults the expr-name rerouteSource
+  // map; this lets a root output routed *through* a reroute resolve back to the real expression.
+  const knotOutToInPins = new Map<string, string[]>();
+  // Whether the dump carried a MaterialGraphNode_Root at all. A full material dump (projectmat
+  // crawl, or a Select-All clipboard copy) always includes it; a partial paste omits it. Used to
+  // tell "whole material, just nothing wired to output" from "output wires weren't copied".
+  let rootNodeSeen = false;
 
   // ---- Pass 1: parse nodes & params ----
   for (const top of tops) {
     if (top.className === '/Script/UnrealEd.MaterialGraphNode_Root') {
+      rootNodeSeen = true;
       for (const l of splitBody(top.bodyLines).scalars) {
         if (!l.startsWith('CustomProperties Pin')) continue;
         const linked = parseLinkedToPinIds(l);
@@ -323,6 +332,13 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
         const inp = inputRaw ? parseInputStruct(inputRaw) : { expr: undefined, outputIndex: 0 };
         rerouteSource.set(rerouteName, { expr: inp.expr, outputIndex: inp.outputIndex });
       }
+      // Index the knot's own graph pins so a pin-id wire through it (e.g. root -> knot -> expr)
+      // can be followed. A knot has exactly one input and one output pin.
+      const knotPins = knot.scalars.filter(l => l.startsWith('CustomProperties Pin'));
+      const outPinLine = knotPins.find(l => /Direction="EGPD_Output"/.test(l));
+      const inPinLine = knotPins.find(l => !/Direction="EGPD_Output"/.test(l));
+      const outPinId = outPinLine ? /PinId=([0-9A-Fa-f]+)/.exec(outPinLine)?.[1] : undefined;
+      if (outPinId && inPinLine) knotOutToInPins.set(outPinId.toUpperCase(), parseLinkedToPinIds(inPinLine));
       continue;
     }
     if (top.className !== '/Script/UnrealEd.MaterialGraphNode') continue;
@@ -563,31 +579,48 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
     }
   }
 
+  // Resolve a pin id referenced by a root LinkedTo back to a real expression output, following
+  // any reroute (knot) chain. Knot output pins aren't expression sources, so a final wire routed
+  // through a reroute would otherwise dead-end. The seen-set breaks any reroute cycle.
+  const resolveRootPin = (pid: string, seen: Set<string>): { nodeId: string; outName: string } | undefined => {
+    const key = pid.toUpperCase();
+    const direct = outPinIdToSource.get(key);
+    if (direct) return direct;
+    if (seen.has(key)) return undefined;
+    seen.add(key);
+    for (const up of knotOutToInPins.get(key) ?? []) {
+      const r = resolveRootPin(up, seen);
+      if (r) return r;
+    }
+    return undefined;
+  };
+
   // ---- Material output (收口): resolve the root's wired pins into a MaterialOutput node ----
   // Pin display names carry spaces ("Base Color"); strip them to the canonical pin name
   // ("BaseColor"). "Material Attributes" -> "MaterialAttributes" is the Use-Material-Attributes
-  // root pin. Only emitted when the root actually had a wire, so a function/partial paste is
-  // unaffected.
+  // root pin. A full dump always carries the root node, so its mere presence means "this is the
+  // whole material" — emit exactly one MaterialOutput even if nothing is wired to it. A partial
+  // clipboard paste omits the root entirely (rootNodeSeen=false) and is handled by the warning
+  // below. MaterialFunctions funnel into FunctionOutput, never a root, so they're excluded.
+  const isFunction = importNodes.some(n => n.type === 'FunctionInput' || n.type === 'FunctionOutput');
   let outputNode: NodeJson | undefined;
-  if (rootInputs.length) {
+  if (rootNodeSeen && !isFunction) {
     let outId = 'OUT';
     while (usedIds.has(outId)) outId = `${outId}_`;
     usedIds.add(outId);
-    let wired = 0;
     for (const r of rootInputs) {
       const canonical = r.pinName.replace(/\s+/g, '');
       const attr = ROOT_PIN_ALIASES[canonical] ?? canonical;
       for (const pid of r.linkedPinIds) {
-        const src = outPinIdToSource.get(pid.toUpperCase());
+        const src = resolveRootPin(pid, new Set());
         if (!src) {
           warnings.push(`MaterialOutput pin "${r.pinName}": source pin ${pid} not found - wire dropped.`);
           continue;
         }
         connections.push({ from: `${src.nodeId}:${src.outName}`, to: `${outId}:${attr}` });
-        wired++;
       }
     }
-    if (wired > 0) outputNode = { id: outId, type: 'MaterialOutput' };
+    outputNode = { id: outId, type: 'MaterialOutput' };
   }
 
   // ---- Comments: recover `contains` geometrically from node positions ----
@@ -600,8 +633,7 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
       .map(n => n.id),
   }));
 
-  const graphType: MatGraph['type'] =
-    importNodes.some(n => n.type === 'FunctionInput' || n.type === 'FunctionOutput') ? 'MaterialFunction' : 'Material';
+  const graphType: MatGraph['type'] = isFunction ? 'MaterialFunction' : 'Material';
 
   // The root node carries the material's final output connections, but a UE clipboard
   // copy only includes it when the whole material was selected. If we recovered nodes
