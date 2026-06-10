@@ -5,7 +5,6 @@ import { pinColor, catColor } from './theme/colors';
 import { diagnoseGraph, isUnknownNodeType, type GraphIssue } from './graphDiagnostics';
 import { Icon } from './Icon';
 import './inspector.css';
-import { fmtTimeIso as fmtTime, relTimeHours as relTime } from './timeUtils';
 
 export interface InspectorProps {
   graph?: MatGraph;
@@ -23,7 +22,23 @@ export interface InspectorProps {
 
 type InspMode = 'node' | 'health';
 
-// Time helpers are imported from timeUtils.ts (fmtTimeIso → fmtTime, relTimeHours → relTime).
+// ─── Time helpers ────────────────────────────────────────────────────────────
+
+function fmtTime(iso: string | null | undefined): string {
+  if (!iso) return '—';
+  return iso.replace('T', ' ').slice(0, 16);
+}
+
+function relTime(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso).getTime();
+  const now = Date.now();
+  const h = Math.round((now - d) / 36e5);
+  if (h < 1) return '剛剛';
+  if (h < 24) return h + ' 小時前';
+  const days = Math.round(h / 24);
+  return days + ' 天前';
+}
 
 // ─── Source label map ─────────────────────────────────────────────────────────
 

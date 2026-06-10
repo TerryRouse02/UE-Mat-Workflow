@@ -4,7 +4,6 @@ import { Icon } from './Icon';
 import { mapCatColor } from './nodeLibraryConstants';
 import type { NodeJson } from './protocol';
 import type { NodeDB } from '../../server/db-types';
-import { matchesCmd, matchesNode } from './uiHelpers';
 
 export interface CommandPaletteProps {
   onClose(): void;
@@ -70,8 +69,11 @@ export function CommandPalette({ onClose, onJump, onCmd, nodes, db, connection, 
     { t: 'a', id: 't3dOut',   label: '匯出選取到剪貼簿（T3D）',          icon: 'download' },
   ];
 
-  const filteredCmds = cmds.filter(c => matchesCmd(c, q));
-  const filteredNodes = nodeItems.filter(n => matchesNode({ title: n.node.title, id: n.node.id }, q));
+  const lq = q.toLowerCase();
+  const filteredCmds = cmds.filter(c => c.label.toLowerCase().includes(lq));
+  const filteredNodes = nodeItems.filter(n =>
+    n.node.title.toLowerCase().includes(lq) || n.node.id.toLowerCase().includes(lq)
+  );
 
   const flat: FlatItem[] = [
     ...filteredCmds,

@@ -1,10 +1,5 @@
 # Commandlet root-cause fixes (UE C++ — hand-off for Codex on the UE host)
 
-> **Status: APPLIED in source (`plugin-src/` + `compiled/Source`). The committed Win64
-> binary in `compiled/UEMatExportMetadata/Binaries/Win64/` may still need a rebuild to
-> carry these fixes — run `Invoke-NodeT3DMetadataMaintenance.ps1 -ForcePackage` on a
-> machine with a matching UE 5.7 build to produce and commit an updated binary.**
-
 Two known issues live in the UE editor commandlet C++. Both currently have a
 host-side workaround (or a documented limitation), but the proper fix is in the
 commandlet and requires compiling the plugin against the user's UE 5.7 build —

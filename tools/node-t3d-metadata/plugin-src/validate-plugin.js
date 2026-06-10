@@ -15,10 +15,6 @@ const requiredFiles = [
   'Scripts/Capture-MakeMaterialAttributesSample.ps1',
   'Scripts/Capture-TextureSampleSources.ps1',
   'Scripts/Package-Plugin.ps1',
-  'Scripts/Run-EngineMfIndex.ps1',
-  'Scripts/Run-NodeDiscovery.ps1',
-  'Scripts/Run-ProjectMaterials.ps1',
-  'Scripts/Capture-OfficialStressFixture.ps1',
 ];
 
 const missing = requiredFiles.filter((file) => !fs.existsSync(path.join(root, file)));

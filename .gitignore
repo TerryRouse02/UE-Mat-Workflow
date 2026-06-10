@@ -61,11 +61,8 @@ tools/node-t3d-metadata/compiled/**/Binaries/Mac/
 tools/node-t3d-metadata/node-discovery.json
 tools/node-t3d-metadata/db-candidates.json
 
-# UE editor-host scratch generated while running commandlets. Keep ONLY the committed
-# minimal host .uproject; drop everything UE regenerates under it (Config, Saved,
-# Intermediate, DerivedDataCache, Binaries, ...).
+# UE editor-host scratch generated while running commandlets. Keep the committed
+# minimal host .uproject (tools/node-t3d-metadata/host/), drop everything UE regenerates.
 **/Saved/
 **/Intermediate/
 **/DerivedDataCache/
-tools/node-t3d-metadata/host/*
-!tools/node-t3d-metadata/host/NodeDiscoveryHost.uproject

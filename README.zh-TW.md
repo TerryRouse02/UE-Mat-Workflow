@@ -197,6 +197,8 @@ DB 依版本切分：編輯你目標版本的那一份（例如 `agent-pack/node
 | `agent-pack/nodes-ue<version>.export.json` | 「匯出到 UE」用的每版本 UE 元數據（class 路徑、pin/param/output 對應）。 |
 | `agent-pack/examples/` | 參考用 `.matgraph.json` 檔案。 |
 | `tools/node-t3d-metadata/` | UE 編輯器 commandlet，從實際 UE 安裝自動擷取並驗證匯出元數據（每個版本各跑一次） — 用法見其 `README.md` / `docs/AGENT_WORKFLOW.md`。 |
+| `docs/superpowers/specs/` | 功能 spec（設計決策）。 |
+| `docs/superpowers/plans/` | 實作計劃（歷史記錄）。 |
 
 ---
 

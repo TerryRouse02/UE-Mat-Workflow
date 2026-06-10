@@ -214,24 +214,6 @@ describe('crawl API', () => {
     await server.close();
   }, 5000);
 
-  it('WS: a listFiles client message produces a fileList broadcast with the current file list', async () => {
-    const root = fixtureRepo();
-    mkdirSync(resolve(root, 'graphs', 'myproj'), { recursive: true });
-    writeFileSync(resolve(root, 'graphs', 'myproj', 'mat.matgraph.json'),
-      JSON.stringify({ schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'mat', nodes: [], connections: [] }));
-    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}`);
-    // Wait for the hello, then send listFiles, then wait for the fileList response.
-    await waitFor(ws, (m) => m.kind === 'hello');
-    ws.send(JSON.stringify({ kind: 'listFiles' }));
-    const msg = await waitFor(ws, (m) => m.kind === 'fileList') as { kind: string; files: Array<{ path: string }> };
-    expect(msg.kind).toBe('fileList');
-    expect(Array.isArray((msg as { files?: unknown[] }).files)).toBe(true);
-    expect((msg as { files: Array<{ path: string }> }).files.some((f) => f.path === 'myproj/mat.matgraph.json')).toBe(true);
-    ws.close();
-    await server.close();
-  }, 5000);
-
   it('WS: a client connecting after a finished crawl gets the crawl state replayed', async () => {
     const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
     const origin = `http://127.0.0.1:${server.port}`;

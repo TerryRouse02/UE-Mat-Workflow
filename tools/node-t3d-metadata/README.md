@@ -21,7 +21,6 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 - `docs/NODE_DISCOVERY.md`: find which engine expressions the DB is missing (node discovery).
 - `docs/WORKMF.md`: WorkMF mode — index the project's own Material Functions into `agent-pack\workmf-index.json` (local, gitignored).
 - `docs/ENGINE_MF.md`: index the official `/Engine/Functions` Material Functions (committed).
-- `docs/PROJECT_MATERIALS.md`: ProjectMat mode — export `/Game` UMaterials as T3D dumps so the viewer can open them.
 - `docs/VERIFICATION.md`: required audit and test commands.
 - `skill/node-t3d-metadata/SKILL.md`: portable skill instructions for Codex, Claude, or other agents.
 
@@ -121,7 +120,7 @@ Logs are written under this repo's `Logs\UE`; the host UE project is not modifie
 
 ## Other modes
 
-The same commandlet/plugin powers additional modes (each with a one-command runner):
+The same commandlet/plugin powers two more modes (each with a one-command runner):
 
 - **Node discovery** — enumerate every `UMaterialExpression` the engine compiles in and diff
   it against the authoring DB, so you get a report of exactly which nodes are missing. Run
@@ -133,12 +132,6 @@ The same commandlet/plugin powers additional modes (each with a one-command runn
   materials that call built-in MFs (CustomRotator, BumpOffset_Advanced, …) round-trip with
   correct pins. Run `plugin-src\Scripts\Run-EngineMfIndex.ps1`; details in `docs\ENGINE_MF.md`.
   Its output **is** committed (stable shipped data shared by all users).
-- **ProjectMat** — export every `/Game` `UMaterial` as a UE T3D clipboard dump into a local
-  staging directory (`tools/node-t3d-metadata/projectmat-staging/`, gitignored). The viewer
-  server picks up the dumps after the crawl, converts them with the same T3D→matgraph pipeline
-  used by clipboard import, and writes them to `graphs/_project/` (also gitignored). Run
-  `plugin-src\Scripts\Run-ProjectMaterials.ps1`; details in `docs\PROJECT_MATERIALS.md`.
-  Optional `-ContentRoots` narrows/widens which `/Game` subfolders are crawled (default `/Game`).
 
 ## Trigger a crawl from the web viewer (no terminal)
 
@@ -204,7 +197,6 @@ in-panel and the viewer refreshes live when each finishes. Only one runs at a ti
 | 重爬節點匯出 | export | `agent-pack\nodes-ue5.7.export.json` | `Invoke-NodeT3DMetadataMaintenance.ps1 -SkipViewerTests` |
 | 重爬引擎 MF | enginemf | `agent-pack\enginemf-index-ue5.7.json` | `plugin-src\Scripts\Run-EngineMfIndex.ps1` |
 | 重爬專案 MF | workmf | `agent-pack\workmf-index.json` (local, gitignored) | `plugin-src\Scripts\Run-WorkMfIndex.ps1 -ContentRoots <root>` |
-| 重爬專案母材質 | projectmat | `graphs\_project\<Name>\<Name>.matgraph.json` (local, gitignored) | `plugin-src\Scripts\Run-ProjectMaterials.ps1 -ContentRoots <root>` |
 
 The crawl reads its scope from the single **MF content root** field in the Config tab
 (default `/Game`) — **one folder**, the same value Export uses to resolve local Material

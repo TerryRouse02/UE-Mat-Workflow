@@ -13,13 +13,10 @@ const required = [
   'tests/cli.test.js',
   'tests/heal-export-meta.test.js',
   'tests/check-public-purity.test.js',
-  'tests/offline-gates.test.js',
   'docs/AGENT_WORKFLOW.md',
   'docs/VERIFICATION.md',
   'docs/WORKMF.md',
   'docs/ENGINE_MF.md',
-  'docs/NODE_DISCOVERY.md',
-  'docs/PROJECT_MATERIALS.md',
   'skill/node-t3d-metadata/SKILL.md',
   'Invoke-NodeT3DMetadataMaintenance.ps1',
   'audit-export-meta.js',
@@ -79,53 +76,10 @@ for (const [file, token] of scriptChecks) {
   if (!text.includes(token)) badContent.push(`${file} missing ${token}`);
 }
 
-// Recursively list files with a given extension, skipping build/dep scratch.
-function listFiles(dir, ext) {
-  const out = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name === 'node_modules' || entry.name === 'Intermediate' || entry.name === 'Binaries') continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...listFiles(full, ext));
-    else if (entry.name.endsWith(ext)) out.push(full);
-  }
-  return out;
-}
-
-// Invariant 4: .ps1 runners must stay pure ASCII. Windows PowerShell 5.1 mis-reads
-// non-BOM UTF-8 (em dash, ellipsis, smart quotes) and string parsing breaks. Flag
-// the first byte > 0x7F in any bundled .ps1.
-const nonAscii = [];
-for (const ps1 of listFiles(bundleRoot, '.ps1')) {
-  const buf = fs.readFileSync(ps1);
-  for (let i = 0; i < buf.length; i += 1) {
-    if (buf[i] > 0x7f) {
-      nonAscii.push(`${path.relative(bundleRoot, ps1)}: non-ASCII byte 0x${buf[i].toString(16)} at offset ${i}`);
-      break;
-    }
-  }
-}
-
-// The commandlet C++ is kept in two byte-identical copies: the source of truth under
-// plugin-src/Source and the bundled copy under compiled/.../Source (shipped so the
-// package carries its own source). An edit to one but not the other is a bug.
-const cppDrift = [];
-const srcRoot = path.join(bundleRoot, 'plugin-src', 'Source');
-const compiledSrcRoot = path.join(bundleRoot, 'compiled', 'UEMatExportMetadata', 'Source');
-if (fs.existsSync(srcRoot) && fs.existsSync(compiledSrcRoot)) {
-  for (const f of listFiles(srcRoot, '.cpp')) {
-    const rel = path.relative(srcRoot, f);
-    const counterpart = path.join(compiledSrcRoot, rel);
-    if (!fs.existsSync(counterpart)) cppDrift.push(`compiled copy missing: Source/${rel}`);
-    else if (!fs.readFileSync(f).equals(fs.readFileSync(counterpart))) cppDrift.push(`plugin-src vs compiled drift: Source/${rel}`);
-  }
-}
-
-if (missing.length || leftovers.length || badContent.length || nonAscii.length || cppDrift.length) {
+if (missing.length || leftovers.length || badContent.length) {
   if (missing.length) console.error(`Missing organized tooling files:\n${missing.map((f) => `- ${f}`).join('\n')}`);
   if (leftovers.length) console.error(`Old tool locations still exist:\n${leftovers.map((f) => `- ${f}`).join('\n')}`);
   if (badContent.length) console.error(`Content checks failed:\n${badContent.map((f) => `- ${f}`).join('\n')}`);
-  if (nonAscii.length) console.error(`.ps1 files with non-ASCII bytes (invariant 4):\n${nonAscii.map((f) => `- ${f}`).join('\n')}`);
-  if (cppDrift.length) console.error(`Commandlet C++ copy drift (plugin-src vs compiled):\n${cppDrift.map((f) => `- ${f}`).join('\n')}`);
   process.exit(1);
 }
 

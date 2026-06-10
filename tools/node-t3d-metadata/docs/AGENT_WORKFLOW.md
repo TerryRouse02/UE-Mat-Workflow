@@ -120,24 +120,3 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Sc
 `-ProjectPath` is optional (defaults to the bundled minimal host). Output:
 `agent-pack/enginemf-index-ue5.7.json` — review the diff and commit it. Full details and the
 hand-off prompt are in `docs/ENGINE_MF.md`.
-
-## ProjectMat mode (open the project's own UMaterials in the viewer)
-
-Exports each `/Game` `UMaterial` as a UE T3D clipboard dump into a local staging directory
-(`tools/node-t3d-metadata/projectmat-staging/`, gitignored). The viewer server converts each
-dump with the same T3D→matgraph pipeline used by clipboard import and writes the results to
-`graphs/_project/` (also gitignored). This is a **local, non-committed** operation — the staged
-T3D files and the resulting matgraph files are per-machine only.
-
-The crawl kind is `projectmat` in `crawl-runner.ts` `defaultCommandFor`. The runner is
-`plugin-src/Scripts/Run-ProjectMaterials.ps1` (on macOS, swap `powershell -ExecutionPolicy Bypass`
-for `pwsh` and use native paths):
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\plugin-src\Scripts\Run-ProjectMaterials.ps1 `
-  -ProjectPath <Path\To\Project.uproject> `
-  -EngineRoot  <Path\To\UnrealEngine>
-```
-
-Optional `-ContentRoots <csv>` narrows/widens which `/Game` subfolders are crawled (default
-`/Game`). Full details and the staging contract are in `docs/PROJECT_MATERIALS.md`.

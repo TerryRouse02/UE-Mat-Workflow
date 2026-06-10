@@ -4,8 +4,45 @@ import type { CrawlKind } from './crawlRequest';
 import { diagnoseCrawl } from './crawlDiagnosis';
 import { Icon } from './Icon';
 import './config.css';
-import { fmtTimeCompact as fmtTime, relTimeMinutes as relTime } from './timeUtils';
-import { parseLogLine } from './uiHelpers';
+
+// ─── Helpers ────────────────────────────────────────────────────────────────
+
+/** Format an ISO timestamp as "MM-DD HH:MM" (compact, no year). */
+function fmtTime(iso: string): string {
+  try {
+    const d = new Date(iso);
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mn = String(d.getMinutes()).padStart(2, '0');
+    return `${mm}-${dd} ${hh}:${mn}`;
+  } catch {
+    return '—';
+  }
+}
+
+/** Return a human-readable relative time string ("3 分鐘前", "2 小時前", etc.). */
+function relTime(iso: string): string {
+  try {
+    const delta = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (delta < 60) return '剛剛';
+    if (delta < 3600) return `${Math.floor(delta / 60)} 分鐘前`;
+    if (delta < 86400) return `${Math.floor(delta / 3600)} 小時前`;
+    return `${Math.floor(delta / 86400)} 天前`;
+  } catch {
+    return '—';
+  }
+}
+
+/** Heuristically classify a log line. */
+function parseLogLine(line: string, i: number): { t: number; lvl: string; msg: string } {
+  const lower = line.toLowerCase();
+  let lvl = 'info';
+  if (/error|fail|fatal|exception/i.test(lower)) lvl = 'error';
+  else if (/warn/i.test(lower)) lvl = 'warn';
+  else if (/loginit|logasset/i.test(lower)) lvl = 'dim';
+  return { t: i * 0.1, lvl, msg: line };
+}
 
 // ─── CRAWL_KIND_META ────────────────────────────────────────────────────────
 

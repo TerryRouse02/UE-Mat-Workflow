@@ -5,11 +5,6 @@ const PIN: Record<string, string> = {
   float4: '#b48cf0', vec4: '#b48cf0',
   texture: '#5b9bf0', bool: '#e0728a',
   materialattributes: '#e8ebef', attrs: '#e8ebef',
-  // WS7-A additions (lookup is case-insensitive via .toLowerCase())
-  // bool already covered above; textureexternal, shadingmodel, substrate are new
-  textureexternal: '#7ab3f5',
-  shadingmodel: '#a8bfc0',
-  substrate: '#c4a87a',
 };
 const PIN_DEFAULT = '#8a93a0';
 

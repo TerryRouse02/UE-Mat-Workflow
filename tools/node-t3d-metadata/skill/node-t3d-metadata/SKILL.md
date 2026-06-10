@@ -37,7 +37,7 @@ The entrypoint rebuilds the plugin when needed, generates metadata, heals the ar
 
 Use `-CaptureFixtures` only when calibrating UE clipboard/T3D emitter behavior.
 
-The same plugin has four more modes (separate runners):
+The same plugin has three more modes (separate runners):
 
 - **Node discovery** — `plugin-src\Scripts\Run-NodeDiscovery.ps1` enumerates every engine
   `UMaterialExpression` and diffs it against the DB, reporting what's missing. Nodes added
@@ -50,11 +50,6 @@ The same plugin has four more modes (separate runners):
   official `/Engine/Functions` library and writes the **committed**
   `agent-pack\enginemf-index-ue5.7.json`, so materials that call built-in MFs round-trip with
   correct pins. See `docs\ENGINE_MF.md`.
-- **ProjectMat** — `plugin-src\Scripts\Run-ProjectMaterials.ps1` exports each `/Game`
-  `UMaterial` as a UE T3D clipboard dump into a local staging directory (gitignored). The
-  viewer server converts those dumps into `graphs\_project\` matgraph files (also gitignored)
-  using the same T3D→matgraph pipeline as clipboard import. Optional `-ContentRoots <csv>`
-  narrows/widens the scan (default `/Game`). See `docs\PROJECT_MATERIALS.md`.
 
 Verify:
 

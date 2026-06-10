@@ -1,7 +1,6 @@
 import { useEffect } from 'react';
 import './toast.css';
 import { Icon } from './Icon';
-import { variantClass } from './uiHelpers';
 
 export interface ToastItem {
   id: number;
@@ -13,7 +12,13 @@ export interface ToastItem {
 
 // Map variant to .toast modifier class and icon.
 // success → ok; error/warning → err; info/loading → neutral (accent border, no extra class)
-// Logic lives in uiHelpers.ts → variantClass.
+type ToastClass = 'ok' | 'err' | '';
+
+function variantClass(v: ToastItem['variant']): ToastClass {
+  if (v === 'success') return 'ok';
+  if (v === 'error' || v === 'warning') return 'err';
+  return '';
+}
 
 function ToastItemComponent({ t, onClose }: { t: ToastItem; onClose: (id: number) => void }) {
   useEffect(() => {

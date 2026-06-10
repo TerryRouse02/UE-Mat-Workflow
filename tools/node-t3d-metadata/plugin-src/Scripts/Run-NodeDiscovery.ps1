@@ -99,11 +99,7 @@ if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
 $ProjectPath = (Resolve-Path -LiteralPath $ProjectPath).Path
 $EngineRoot = (Resolve-Path -LiteralPath $EngineRoot).Path
 $ProjectDir = Split-Path -Parent $ProjectPath
-if ($IsMacOS -eq $true) {
-    $EditorCmd = Join-Path $EngineRoot "Engine/Binaries/Mac/UnrealEditor-Cmd"
-} else {
-    $EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
-}
+$EditorCmd = Join-Path $EngineRoot "Engine\Binaries\Win64\UnrealEditor-Cmd.exe"
 if ([string]::IsNullOrWhiteSpace($Out)) {
     $Out = Join-Path $WorkflowRoot "tools\node-t3d-metadata\node-discovery.json"
 }
@@ -114,11 +110,7 @@ if ([string]::IsNullOrWhiteSpace($PackageDir)) {
     $PackageDir = Join-Path $BundleRoot "compiled\UEMatExportMetadata"
 }
 $PackagedPlugin = Join-Path $PackageDir "UEMatExportMetadata.uplugin"
-if ($IsMacOS -eq $true) {
-    $PackagedDll = Join-Path $PackageDir "Binaries/Mac/UnrealEditor-UEMatExportMetadata.dylib"
-} else {
-    $PackagedDll = Join-Path $PackageDir "Binaries\Win64\UnrealEditor-UEMatExportMetadata.dll"
-}
+$PackagedDll = Join-Path $PackageDir "Binaries\Win64\UnrealEditor-UEMatExportMetadata.dll"
 $ProjectPlugin = Join-Path $ProjectDir "Plugins\UEMatExportMetadata\UEMatExportMetadata.uplugin"
 $LogRoot = Join-Path $WorkflowRoot "Logs\UE"
 $CommandletLog = Join-Path $LogRoot "UEMatExportMetadata_NodeDiscovery.log"

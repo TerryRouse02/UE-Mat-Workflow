@@ -16,7 +16,6 @@ export function mapPinTypeColor(type: string): string {
   if (lc.includes('|')) return pinColor('float4');
 
   // Direct mappings
-  if (lc === 'textureexternal') return pinColor('textureexternal');
   if (lc === 'texture2d' || lc === 'textureorobject' || lc.startsWith('texture'))
     return pinColor('texture');
   if (lc === 'materialattributes' || lc === 'materialattribute')

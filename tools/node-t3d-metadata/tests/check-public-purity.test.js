@@ -70,14 +70,6 @@ test('findTrackedSensitive flags server-only, per-machine, project, and Mac-bina
   assert.ok(hits.some((h) => /\.dylib/.test(h)));
 });
 
-test('findTrackedSensitive flags the server-only workmf export and freshness files', () => {
-  const tracked = ['agent-pack/workmf-index.export.json', 'agent-pack/crawl-freshness.json'];
-  const hits = findTrackedSensitive(tracked);
-  assert.equal(hits.length, 2);
-  assert.ok(hits.some((h) => h.includes('workmf-index.export.json')));
-  assert.ok(hits.some((h) => h.includes('crawl-freshness.json')));
-});
-
 test('findTrackedSensitive passes a clean tracked list', () => {
   const tracked = ['README.md', 'agent-pack/nodes-ue5.7.json', 'tools/node-t3d-metadata/audit-export-meta.js'];
   assert.deepEqual(findTrackedSensitive(tracked), []);
