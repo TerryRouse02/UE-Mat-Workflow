@@ -5,7 +5,7 @@
   "type": "module",
   "bin": { "ue-mat-viewer": "./bin/ue-mat-viewer" },
   "scripts": {
-    "test": "vitest run",
+    "test": "vitest run && vitest run --config vitest.react.config.ts",
     "build": "tsc -p tsconfig.json && pnpm --filter web build",
     "start": "node dist/server/index.js"
   },

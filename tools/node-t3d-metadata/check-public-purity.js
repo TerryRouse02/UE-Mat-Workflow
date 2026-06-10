@@ -44,6 +44,8 @@ function findNonEngineKeys(indexObj) {
 // Sensitive paths that must never be git-tracked (server-only / per-machine / local).
 const SENSITIVE_EXACT = [
   'agent-pack/workmf-index.json',
+  'agent-pack/workmf-index.export.json',
+  'agent-pack/crawl-freshness.json',
   'tools/node-t3d-metadata/local.config.json',
 ];
 function findTrackedSensitive(trackedFiles) {

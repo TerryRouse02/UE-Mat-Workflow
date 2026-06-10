@@ -106,6 +106,27 @@ describe('createCrawlRunner', () => {
     expect(defaultCommandFor('/repo', 'export', { contentRoots: '/Game' }).args).not.toContain('-ContentRoots');
   });
 
+  it('maps export, enginemf, and projectmat to pwsh on macOS (no -ExecutionPolicy)', () => {
+    const exportCmd = defaultCommandFor('/repo', 'export', undefined, 'darwin');
+    expect(exportCmd.command).toBe('pwsh');
+    expect(exportCmd.args).toEqual(expect.arrayContaining(['-NoProfile', '-File']));
+    expect(exportCmd.args).not.toContain('-ExecutionPolicy');
+    expect(exportCmd.args.join(' ')).toMatch(/Invoke-NodeT3DMetadataMaintenance\.ps1/);
+
+    const enginemfCmd = defaultCommandFor('/repo', 'enginemf', undefined, 'darwin');
+    expect(enginemfCmd.command).toBe('pwsh');
+    expect(enginemfCmd.args).toEqual(expect.arrayContaining(['-NoProfile', '-File']));
+    expect(enginemfCmd.args).not.toContain('-ExecutionPolicy');
+    expect(enginemfCmd.args.join(' ')).toMatch(/Run-EngineMfIndex\.ps1/);
+
+    const projectmatCmd = defaultCommandFor('/repo', 'projectmat', undefined, 'darwin');
+    expect(projectmatCmd.command).toBe('pwsh');
+    expect(projectmatCmd.args).toEqual(expect.arrayContaining(['-NoProfile', '-File']));
+    expect(projectmatCmd.args).not.toContain('-ExecutionPolicy');
+    expect(projectmatCmd.args.join(' ')).toMatch(/Run-ProjectMaterials\.ps1/);
+    expect(projectmatCmd.args).toContain('-StagingDir');
+  });
+
   it('rejects a second crawl while one is running (single-job lock)', async () => {
     const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', 'setTimeout(() => {}, 300)'] });
     const runner = createCrawlRunner(tmpdir(), { commandFor });
