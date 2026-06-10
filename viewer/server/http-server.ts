@@ -283,6 +283,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }
 
+  // Track all open HTTP sockets so we can destroy them during forced shutdown.
+  // Without this, http.close() only stops accepting new connections but waits
+  // for existing keep-alive connections to drain — which can take up to 300 s on
+  // some Node versions, hanging every test that calls server.close().
+  const openSockets = new Set<import('node:net').Socket>();
   const http: Server = createServer(async (req, res) => {
     const urlPath = (req.url || '/').split('?')[0];
     if (req.method === 'POST' && urlPath === '/api/import') {
@@ -540,6 +545,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }, { debounceMs: 300 });
 
+  // Track every new TCP socket so force-close can destroy keep-alive connections.
+  http.on('connection', (sock) => {
+    openSockets.add(sock);
+    sock.once('close', () => openSockets.delete(sock));
+  });
+
   // Local-first: bind loopback only. The crawl endpoint spawns UnrealEditor-Cmd.exe,
   // so the server must not be reachable from other machines on the network.
   await new Promise<void>((res) => http.listen(opts.port, '127.0.0.1', res));
@@ -550,7 +561,17 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     port: actualPort,
     async close() {
       await watcher.close();
+      // Cancel any running crawl child process so it does not outlive the server.
+      runner.cancel();
+      // Terminate all WebSocket clients immediately (ws.terminate() sends no
+      // close frame and does not wait for the peer to ack — wss.close() blocks
+      // until every client disconnects, so ungraceful teardown is necessary here).
+      for (const ws of wss.clients) ws.terminate();
       await new Promise<void>((res) => wss.close(() => res()));
+      // Destroy all tracked HTTP sockets. keep-alive connections are never closed
+      // by http.close() on its own — they block the callback for up to 300 s.
+      for (const sock of openSockets) sock.destroy();
+      openSockets.clear();
       await new Promise<void>((res) => http.close(() => res()));
     },
   };
