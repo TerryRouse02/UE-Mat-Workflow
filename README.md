@@ -200,8 +200,6 @@ report of exactly which nodes are absent — see `tools/node-t3d-metadata/docs/N
 | `agent-pack/nodes-ue<version>.export.json` | Per-version UE metadata for "Export to UE" (class paths, pin/param/output mappings). |
 | `agent-pack/examples/` | Reference `.matgraph.json` files. |
 | `tools/node-t3d-metadata/` | UE editor commandlet that auto-extracts & verifies the export metadata from a live UE install (run per version) — see its `README.md` / `docs/AGENT_WORKFLOW.md`. |
-| `docs/superpowers/specs/` | Feature specs (design decisions). |
-| `docs/superpowers/plans/` | Implementation plans (history). |
 
 ---
 

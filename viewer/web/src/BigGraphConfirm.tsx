@@ -1,5 +1,6 @@
 import './modal.css';
 import { Icon } from './Icon';
+import { estimateLinks } from './uiHelpers';
 
 export interface BigGraphConfirmProps {
   file: { path: string; name: string; nodeCount: number };
@@ -8,7 +9,7 @@ export interface BigGraphConfirmProps {
 }
 
 export function BigGraphConfirm({ file, onCancel, onConfirm }: BigGraphConfirmProps) {
-  const estLinks = Math.round(file.nodeCount * 1.6);
+  const estLinks = estimateLinks(file.nodeCount);
 
   return (
     <div className="scrim" onMouseDown={onCancel}>
