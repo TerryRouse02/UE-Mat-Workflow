@@ -44,10 +44,12 @@ The node **DB is the source of truth**: the AI may only use node types/pins that
 ```
 agent-pack/                 SHIPPED product data + agent rules (public, must stay clean)
   nodes-ue5.7.json          authoring DB — node types/pins/params (296 expressions)
+  nodes-ue5.7.index.json    generated minimal index (~12K tokens); safe to read whole; CI-gated
   nodes-ue5.7.export.json   per-node UE metadata for clipboard export (class paths, GUIDs)
+  query.js                  zero-dep lookup CLI: node/mf/search queries against the DB and MF indexes
   enginemf-index-ue5.7.json official /Engine Material Function signatures (committed)
   workmf-index.json         the USER's own /Game MF signatures — GITIGNORED, never shipped
-  SPEC.md / CLAUDE.md / AGENTS.md / GEMINI.md / .cursorrules   authoring rules per AI tool
+  SPEC.md / SPEC-DETAILS.md / CLAUDE.md / AGENTS.md / GEMINI.md / .cursorrules   authoring rules
   examples/                 reference .matgraph.json project folders
 graphs/                     AI output (gitignored except the stress_* regression fixtures)
 viewer/
@@ -120,7 +122,9 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
 ## Common changes (recipes)
 
 - **Add/fix a node in the DB:** edit `agent-pack/nodes-ue5.7.json` (`nodes.<Name>`: inputs/outputs/
-  params/category/description). `verified: true` only after hand-checking against UE. Run `pnpm test`.
+  params/category/description). `verified: true` only after hand-checking against UE. Then run
+  `node tools/node-t3d-metadata/gen-node-index.js` to regenerate the index (CI's parity audit fails
+  on index drift). Run `pnpm test`.
 - **Support a new UE version:** it's a *data drop* — generate `nodes-ue<v>.json` + `.export.json`
   via the commandlet and place them in `agent-pack/`. The web auto-discovers versions at build time.
 - **Add a crawl kind:** update **all four** — the `switch` in `crawl-runner.ts` `defaultCommandFor`,
