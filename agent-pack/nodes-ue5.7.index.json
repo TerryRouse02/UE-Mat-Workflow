@@ -1,0 +1,1491 @@
+{
+  "ueVersion": "5.7",
+  "generatedFrom": "nodes-ue5.7.json",
+  "nodes": {
+    "Custom": {
+      "category": "Custom",
+      "desc": "Inline HLSL escape hatch.",
+      "verified": true,
+      "dynamicPins": true
+    },
+    "Multiply": {
+      "category": "Math",
+      "desc": "Multiplies two values component-wise.",
+      "verified": true
+    },
+    "Add": {
+      "category": "Math",
+      "desc": "Adds two values.",
+      "verified": true
+    },
+    "OneMinus": {
+      "category": "Math",
+      "desc": "Returns 1 - input.",
+      "verified": true
+    },
+    "Lerp": {
+      "category": "Math",
+      "desc": "Linear interpolation: lerp(A, B, Alpha).",
+      "verified": true
+    },
+    "Saturate": {
+      "category": "Math",
+      "desc": "Clamps input to [0,1].",
+      "verified": true
+    },
+    "TextureSampleParameter2D": {
+      "category": "Texture",
+      "desc": "Samples a 2D texture exposed as a Material Parameter.",
+      "verified": true
+    },
+    "TextureCoordinate": {
+      "category": "Coordinates",
+      "desc": "Outputs the UV coordinates of the surface.",
+      "verified": true
+    },
+    "Constant3Vector": {
+      "category": "Constants",
+      "desc": "A constant RGB vector.",
+      "verified": true
+    },
+    "ScalarParameter": {
+      "category": "Parameters",
+      "desc": "A scalar value exposed as a Material Parameter.",
+      "verified": true
+    },
+    "BlendAngleCorrectedNormals": {
+      "category": "Vector",
+      "desc": "Blends two tangent-space normals while preserving angle.",
+      "verified": true
+    },
+    "Constant": {
+      "category": "Constants",
+      "desc": "Outputs a single constant float value.",
+      "verified": true
+    },
+    "Constant2Vector": {
+      "category": "Constants",
+      "desc": "Outputs a two-channel constant vector.",
+      "verified": true
+    },
+    "Constant4Vector": {
+      "category": "Constants",
+      "desc": "Outputs a four-channel RGBA constant vector.",
+      "verified": true
+    },
+    "DistanceCullFade": {
+      "category": "Constants",
+      "desc": "Outputs a scalar fade value for primitives affected by cull distance.",
+      "verified": true
+    },
+    "ParticleColor": {
+      "category": "Constants",
+      "desc": "Outputs the current particle color data.",
+      "verified": true
+    },
+    "ParticleDirection": {
+      "category": "Constants",
+      "desc": "Outputs the current particle direction vector.",
+      "verified": true
+    },
+    "ParticleMotionBlurFade": {
+      "category": "Constants",
+      "desc": "Outputs the particle motion blur fade amount.",
+      "verified": true
+    },
+    "ParticleRadius": {
+      "category": "Constants",
+      "desc": "Outputs the radius of the current particle.",
+      "verified": true
+    },
+    "ParticleRelativeTime": {
+      "category": "Constants",
+      "desc": "Outputs the relative lifetime of the current particle.",
+      "verified": true
+    },
+    "ParticleSize": {
+      "category": "Constants",
+      "desc": "Outputs the particle size as a two-channel vector.",
+      "verified": true
+    },
+    "ParticleSpeed": {
+      "category": "Constants",
+      "desc": "Outputs the speed of the current particle.",
+      "verified": true
+    },
+    "PerInstanceFadeAmount": {
+      "category": "Constants",
+      "desc": "Outputs the per-instance fade amount for instanced meshes.",
+      "verified": true
+    },
+    "PerInstanceRandom": {
+      "category": "Constants",
+      "desc": "Outputs a random value stable per instanced mesh instance.",
+      "verified": true
+    },
+    "Time": {
+      "category": "Constants",
+      "desc": "Outputs elapsed time for time-dependent material animation.",
+      "verified": true
+    },
+    "TwoSidedSign": {
+      "category": "Constants",
+      "desc": "Outputs 1 for front-facing surfaces and -1 for back-facing surfaces.",
+      "verified": true
+    },
+    "VertexColor": {
+      "category": "Constants",
+      "desc": "Outputs mesh vertex color channels.",
+      "verified": true
+    },
+    "ViewProperty": {
+      "category": "Constants",
+      "desc": "Outputs a selected view-dependent property.",
+      "verified": true
+    },
+    "PrecomputedAOMask": {
+      "category": "Constants",
+      "desc": "Outputs the Lightmass precomputed ambient occlusion mask.",
+      "verified": true
+    },
+    "ActorPositionWS": {
+      "category": "Coordinates",
+      "desc": "Outputs the actor position in world space.",
+      "verified": true
+    },
+    "CameraPositionWS": {
+      "category": "Coordinates",
+      "desc": "Outputs the camera position in world space.",
+      "verified": true
+    },
+    "LightmapUVs": {
+      "category": "Coordinates",
+      "desc": "Outputs lightmap UV coordinates.",
+      "verified": true
+    },
+    "ObjectOrientation": {
+      "category": "Coordinates",
+      "desc": "Outputs the object orientation in world space.",
+      "verified": true
+    },
+    "ObjectPositionWS": {
+      "category": "Coordinates",
+      "desc": "Outputs the object bounds center in world space.",
+      "verified": true
+    },
+    "ObjectRadius": {
+      "category": "Coordinates",
+      "desc": "Outputs the object radius.",
+      "verified": true
+    },
+    "Panner": {
+      "category": "Coordinates",
+      "desc": "Pans UV coordinates over time.",
+      "verified": true
+    },
+    "ParticlePositionWS": {
+      "category": "Coordinates",
+      "desc": "Outputs particle position in world space.",
+      "verified": true
+    },
+    "PixelNormalWS": {
+      "category": "Coordinates",
+      "desc": "Outputs the pixel normal in world space.",
+      "verified": true
+    },
+    "Rotator": {
+      "category": "Coordinates",
+      "desc": "Rotates UV coordinates around a configurable center.",
+      "verified": true
+    },
+    "SceneTexelSize": {
+      "category": "Coordinates",
+      "desc": "Outputs the scene texel size.",
+      "verified": true
+    },
+    "ScreenPosition": {
+      "category": "Coordinates",
+      "desc": "Outputs screen-space position for the current pixel.",
+      "verified": true
+    },
+    "VertexNormalWS": {
+      "category": "Coordinates",
+      "desc": "Outputs vertex normals in world space.",
+      "verified": true
+    },
+    "VertexTangentWS": {
+      "category": "Coordinates",
+      "desc": "Outputs vertex tangents in world space.",
+      "verified": true
+    },
+    "ViewSize": {
+      "category": "Coordinates",
+      "desc": "Outputs the viewport size in pixels.",
+      "verified": true
+    },
+    "WorldPosition": {
+      "category": "Coordinates",
+      "desc": "Outputs the current pixel position in world space.",
+      "verified": true
+    },
+    "AtmosphericFogColor": {
+      "category": "Atmosphere",
+      "desc": "Outputs atmospheric fog color for the current pixel.",
+      "verified": true,
+      "deprecated": true
+    },
+    "Desaturation": {
+      "category": "Color",
+      "desc": "Desaturates an input color by a configurable fraction.",
+      "verified": true
+    },
+    "DepthFade": {
+      "category": "Depth",
+      "desc": "Fades opacity near intersections using scene depth.",
+      "verified": true
+    },
+    "PixelDepth": {
+      "category": "Depth",
+      "desc": "Outputs the depth of the current pixel.",
+      "verified": true
+    },
+    "SceneDepth": {
+      "category": "Depth",
+      "desc": "Samples scene depth at the provided UV coordinates.",
+      "verified": true
+    },
+    "Abs": {
+      "category": "Math",
+      "desc": "Returns the absolute value of the input.",
+      "verified": true
+    },
+    "AppendVector": {
+      "category": "Math",
+      "desc": "Appends channels from A and B into a wider vector.",
+      "verified": true
+    },
+    "Arccosine": {
+      "category": "Math",
+      "desc": "Returns the inverse cosine of the input.",
+      "verified": true
+    },
+    "ArccosineFast": {
+      "category": "Math",
+      "desc": "Returns a faster approximate inverse cosine of the input.",
+      "verified": true
+    },
+    "Arcsine": {
+      "category": "Math",
+      "desc": "Returns the inverse sine of the input.",
+      "verified": true
+    },
+    "ArcsineFast": {
+      "category": "Math",
+      "desc": "Returns a faster approximate inverse sine of the input.",
+      "verified": true
+    },
+    "Arctangent": {
+      "category": "Math",
+      "desc": "Returns the inverse tangent of the input.",
+      "verified": true
+    },
+    "ArctangentFast": {
+      "category": "Math",
+      "desc": "Returns a faster approximate inverse tangent of the input.",
+      "verified": true
+    },
+    "Arctangent2": {
+      "category": "Math",
+      "desc": "Returns the inverse tangent of X/Y using signs to determine the quadrant.",
+      "verified": true
+    },
+    "Arctangent2Fast": {
+      "category": "Math",
+      "desc": "Returns a faster approximate Arctangent2 result.",
+      "verified": true
+    },
+    "Ceil": {
+      "category": "Math",
+      "desc": "Rounds the input up to the next whole number.",
+      "verified": true
+    },
+    "Clamp": {
+      "category": "Math",
+      "desc": "Constrains input values to a minimum and maximum range.",
+      "verified": true
+    },
+    "ComponentMask": {
+      "category": "Math",
+      "desc": "Masks selected RGBA channels from the input.",
+      "verified": true
+    },
+    "Cosine": {
+      "category": "Math",
+      "desc": "Outputs a repeating cosine wave over the input range.",
+      "verified": true
+    },
+    "CrossProduct": {
+      "category": "Math",
+      "desc": "Returns the cross product of two three-channel vectors.",
+      "verified": true
+    },
+    "Divide": {
+      "category": "Math",
+      "desc": "Divides A by B component-wise.",
+      "verified": true
+    },
+    "DotProduct": {
+      "category": "Math",
+      "desc": "Returns the dot product of two vectors.",
+      "verified": true
+    },
+    "Floor": {
+      "category": "Math",
+      "desc": "Rounds the input down to the previous whole number.",
+      "verified": true
+    },
+    "Fmod": {
+      "category": "Math",
+      "desc": "Returns the floating-point remainder of A divided by B.",
+      "verified": true
+    },
+    "Frac": {
+      "category": "Math",
+      "desc": "Returns the fractional part of the input.",
+      "verified": true
+    },
+    "If": {
+      "category": "Math",
+      "desc": "Compares A and B and selects the matching branch input.",
+      "verified": true
+    },
+    "Logarithm10": {
+      "category": "Math",
+      "desc": "Returns the base-10 logarithm of the input.",
+      "verified": true
+    },
+    "Logarithm2": {
+      "category": "Math",
+      "desc": "Returns the base-2 logarithm of the input.",
+      "verified": true
+    },
+    "Max": {
+      "category": "Math",
+      "desc": "Returns the higher of A and B component-wise.",
+      "verified": true
+    },
+    "Min": {
+      "category": "Math",
+      "desc": "Returns the lower of A and B component-wise.",
+      "verified": true
+    },
+    "Normalize": {
+      "category": "Math",
+      "desc": "Normalizes the input vector.",
+      "verified": true
+    },
+    "Power": {
+      "category": "Math",
+      "desc": "Raises Base to the power of Exp.",
+      "verified": true
+    },
+    "Round": {
+      "category": "Math",
+      "desc": "Rounds the input to the nearest whole number.",
+      "verified": true
+    },
+    "Step": {
+      "category": "Math",
+      "desc": "Returns 0 or 1 depending on whether X is above the reference value Y.",
+      "verified": true
+    },
+    "SmoothStep": {
+      "category": "Math",
+      "desc": "Smoothly interpolates between 0 and 1 using Min, Max, and Value.",
+      "verified": true
+    },
+    "Sign": {
+      "category": "Math",
+      "desc": "Returns -1, 0, or 1 according to the sign of the input.",
+      "verified": true
+    },
+    "Sine": {
+      "category": "Math",
+      "desc": "Outputs a repeating sine wave over the input range.",
+      "verified": true
+    },
+    "SquareRoot": {
+      "category": "Math",
+      "desc": "Outputs the square root of the input.",
+      "verified": true
+    },
+    "Subtract": {
+      "category": "Math",
+      "desc": "Subtracts B from A component-wise.",
+      "verified": true
+    },
+    "Tangent": {
+      "category": "Math",
+      "desc": "Outputs the tangent of the input.",
+      "verified": true
+    },
+    "Truncate": {
+      "category": "Math",
+      "desc": "Discards the fractional part of the input.",
+      "verified": true
+    },
+    "StaticBool": {
+      "category": "Material Function",
+      "desc": "Provides a compile-time boolean value for material function logic.",
+      "verified": true
+    },
+    "StaticSwitch": {
+      "category": "Material Function",
+      "desc": "Selects between A and B according to a static boolean value.",
+      "verified": true
+    },
+    "TextureObject": {
+      "category": "Material Function",
+      "desc": "Outputs a texture object for use by material functions or texture samples.",
+      "verified": true
+    },
+    "MakeMaterialAttributes": {
+      "category": "Material Attributes",
+      "desc": "Bundles standard material attributes into a single MaterialAttributes output.",
+      "verified": true
+    },
+    "SetMaterialAttributes": {
+      "category": "Material Attributes",
+      "desc": "Sets selected material attributes on an incoming MaterialAttributes value.",
+      "verified": false,
+      "dynamicPins": true
+    },
+    "BreakMaterialAttributes": {
+      "category": "Material Attributes",
+      "desc": "Breaks a MaterialAttributes input into standard attribute outputs.",
+      "verified": true
+    },
+    "GetMaterialAttributes": {
+      "category": "Material Attributes",
+      "desc": "Extracts selected outputs from a MaterialAttributes input.",
+      "verified": false,
+      "dynamicPins": true
+    },
+    "BlendMaterialAttributes": {
+      "category": "Material Attributes",
+      "desc": "Blends two MaterialAttributes inputs according to Alpha.",
+      "verified": true
+    },
+    "CollectionParameter": {
+      "category": "Parameters",
+      "desc": "References a scalar or vector value from a Material Parameter Collection.",
+      "verified": true
+    },
+    "DynamicParameter": {
+      "category": "Parameters",
+      "desc": "Outputs up to four per-particle dynamic parameter values.",
+      "verified": true
+    },
+    "FontSampleParameter": {
+      "category": "Parameters",
+      "desc": "Samples a font texture exposed as a parameter.",
+      "verified": true
+    },
+    "StaticSwitchParameter": {
+      "category": "Parameters",
+      "desc": "Static parameter that selects A or B at compile time.",
+      "verified": true
+    },
+    "StaticBoolParameter": {
+      "category": "Parameters",
+      "desc": "Static bool parameter for material functions and compile-time decisions.",
+      "verified": true
+    },
+    "StaticComponentMaskParameter": {
+      "category": "Parameters",
+      "desc": "Static parameterized component mask.",
+      "verified": true
+    },
+    "VectorParameter": {
+      "category": "Parameters",
+      "desc": "Four-channel vector parameter editable in material instances.",
+      "verified": true
+    },
+    "TextureObjectParameter": {
+      "category": "Parameters",
+      "desc": "Texture object parameter for material functions or texture samples.",
+      "verified": true
+    },
+    "TextureSample": {
+      "category": "Texture",
+      "desc": "Samples a texture using optional UV coordinates.",
+      "verified": true
+    },
+    "TextureSampleParameterSubUV": {
+      "category": "Parameters",
+      "desc": "Particle SubUV texture sample exposed as a parameter.",
+      "verified": true
+    },
+    "TextureSampleParameterCube": {
+      "category": "Parameters",
+      "desc": "Samples a cubemap texture exposed as a parameter.",
+      "verified": true
+    },
+    "ParticleMacroUV": {
+      "category": "Particle",
+      "desc": "Outputs macro UV coordinates for particles.",
+      "verified": true
+    },
+    "SphericalParticleOpacity": {
+      "category": "Particle",
+      "desc": "Computes particle opacity for spherical particle rendering.",
+      "verified": true
+    },
+    "ParticleSubUV": {
+      "category": "Particle",
+      "desc": "Samples a particle SubUV texture.",
+      "verified": true
+    },
+    "LandscapeLayerBlend": {
+      "category": "Landscape",
+      "desc": "Blends multiple landscape layer inputs into one result.",
+      "verified": false,
+      "dynamicPins": true
+    },
+    "LandscapeLayerCoords": {
+      "category": "Landscape",
+      "desc": "Generates UV coordinates for landscape material mapping.",
+      "verified": true
+    },
+    "LandscapeLayerSwitch": {
+      "category": "Landscape",
+      "desc": "Selects between layer-used and layer-not-used inputs for landscape optimization.",
+      "verified": true
+    },
+    "LandscapeLayerWeight": {
+      "category": "Landscape",
+      "desc": "Blends Base and Layer according to a named landscape layer weight.",
+      "verified": true
+    },
+    "LandscapeVisibilityMask": {
+      "category": "Landscape",
+      "desc": "Outputs the landscape visibility mask value.",
+      "verified": true
+    },
+    "NamedRerouteDeclaration": {
+      "category": "Utility",
+      "desc": "Declares a named reroute value.",
+      "verified": true
+    },
+    "NamedRerouteUsage": {
+      "category": "Utility",
+      "desc": "Uses a Named Reroute Declaration value elsewhere in the material graph.",
+      "verified": true
+    },
+    "AntialiasedTextureMask": {
+      "category": "Utility",
+      "desc": "Samples a texture channel as an anti-aliased threshold mask.",
+      "verified": true
+    },
+    "BumpOffset": {
+      "category": "Utility",
+      "desc": "Offsets UV coordinates using a height input for parallax mapping.",
+      "verified": true
+    },
+    "ConstantBiasScale": {
+      "category": "Utility",
+      "desc": "Adds a bias to the input and multiplies by a scale.",
+      "verified": true
+    },
+    "DDX": {
+      "category": "Utility",
+      "desc": "Outputs the screen-space DDX derivative of the input.",
+      "verified": true
+    },
+    "DDY": {
+      "category": "Utility",
+      "desc": "Outputs the screen-space DDY derivative of the input.",
+      "verified": true
+    },
+    "DepthOfFieldFunction": {
+      "category": "Utility",
+      "desc": "Outputs a 0-1 depth-of-field blur factor.",
+      "verified": true
+    },
+    "Distance": {
+      "category": "Utility",
+      "desc": "Computes Euclidean distance between A and B.",
+      "verified": true
+    },
+    "DistanceFieldGradient": {
+      "category": "Utility",
+      "desc": "Outputs the mesh distance field gradient direction at Position.",
+      "verified": true
+    },
+    "DistanceToNearestSurface": {
+      "category": "Utility",
+      "desc": "Outputs distance from Position to the nearest mesh distance field surface.",
+      "verified": true
+    },
+    "FeatureLevelSwitch": {
+      "category": "Utility",
+      "desc": "Selects an input based on the active rendering feature level.",
+      "verified": true
+    },
+    "Fresnel": {
+      "category": "Utility",
+      "desc": "Computes a view-angle based Fresnel falloff.",
+      "verified": true
+    },
+    "GIReplace": {
+      "category": "Utility",
+      "desc": "Chooses different inputs for default, static indirect, or dynamic indirect GI paths.",
+      "verified": true
+    },
+    "LightmassReplace": {
+      "category": "Utility",
+      "desc": "Uses one input for realtime rendering and another for Lightmass export.",
+      "verified": true
+    },
+    "Noise": {
+      "category": "Utility",
+      "desc": "Generates procedural scalar noise.",
+      "verified": true
+    },
+    "PreviousFrameSwitch": {
+      "category": "Utility",
+      "desc": "Selects current or previous-frame values for motion-vector aware materials.",
+      "verified": true
+    },
+    "QualitySwitch": {
+      "category": "Utility",
+      "desc": "Selects an input based on material quality level.",
+      "verified": true
+    },
+    "RotateAboutAxis": {
+      "category": "Utility",
+      "desc": "Outputs the delta from rotating Position around an axis and pivot.",
+      "verified": true
+    },
+    "SphereMask": {
+      "category": "Utility",
+      "desc": "Outputs a soft spherical mask from positions A and B.",
+      "verified": true
+    },
+    "VectorNoise": {
+      "category": "Utility",
+      "desc": "Generates procedural vector noise.",
+      "verified": true
+    },
+    "DeriveNormalZ": {
+      "category": "Vector Operation",
+      "desc": "Derives a Z component for a tangent-space normal from XY.",
+      "verified": true
+    },
+    "Transform": {
+      "category": "Vector Operation",
+      "desc": "Transforms a vector between material coordinate spaces.",
+      "verified": true
+    },
+    "TransformPosition": {
+      "category": "Vector Operation",
+      "desc": "Transforms a position between material coordinate spaces.",
+      "verified": true
+    },
+    "CameraVectorWS": {
+      "category": "Vector",
+      "desc": "Outputs the camera vector in world space.",
+      "verified": true
+    },
+    "LightVector": {
+      "category": "Vector",
+      "desc": "Outputs the light vector for supported light function/deferred decal contexts.",
+      "verified": true
+    },
+    "ObjectBounds": {
+      "category": "Vector",
+      "desc": "Outputs the object bounds as a three-channel vector.",
+      "verified": true
+    },
+    "ReflectionVectorWS": {
+      "category": "Vector",
+      "desc": "Outputs the reflection vector in world space.",
+      "verified": true
+    },
+    "LandscapeLayerSample": {
+      "category": "Landscape",
+      "desc": "Landscape Layer Sample (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "BindlessSwitch": {
+      "category": "Utility",
+      "desc": "Bindless Switch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "BlackBody": {
+      "category": "Utility",
+      "desc": "BlackBody (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "Blend": {
+      "category": "Utility",
+      "desc": "Blend (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "CollectionTransform": {
+      "category": "Utility",
+      "desc": "(Needs collection) Collection Transform (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ColorRamp": {
+      "category": "Utility",
+      "desc": "Color Ramp (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "DataDrivenShaderPlatformInfoSwitch": {
+      "category": "Utility",
+      "desc": "ShaderPlatformInfo Switch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "DBufferTexture": {
+      "category": "Texture",
+      "desc": "DBufferA (BaseColor) (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "DecalDerivative": {
+      "category": "Utility",
+      "desc": "Decal Derivative (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "DecalMipmapLevel": {
+      "category": "Utility",
+      "desc": "Decal Mipmap Level (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "DistanceFieldApproxAO": {
+      "category": "Utility",
+      "desc": "DistanceFieldApproxAO (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "DistanceFieldsRenderingSwitch": {
+      "category": "Utility",
+      "desc": "DistanceFieldsRenderingSwitch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "Exponential": {
+      "category": "Utility",
+      "desc": "Exp (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "Exponential2": {
+      "category": "Utility",
+      "desc": "Exp2 (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "FloatToUInt": {
+      "category": "Utility",
+      "desc": "FloatToUInt (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "UIntToFloat": {
+      "category": "Utility",
+      "desc": "UIntToFloat (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "FontSample": {
+      "category": "Utility",
+      "desc": "Font Sample (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "HairAttributes": {
+      "category": "Utility",
+      "desc": "Hair Attributes (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "HairColor": {
+      "category": "Utility",
+      "desc": "Hair Color (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "HsvToRgb": {
+      "category": "Utility",
+      "desc": "HSVToRGB (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "IfThenElse": {
+      "category": "Utility",
+      "desc": "If (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "InverseLinearInterpolate": {
+      "category": "Utility",
+      "desc": "InvLerp (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "Length": {
+      "category": "Utility",
+      "desc": "Length (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "LocalPosition": {
+      "category": "Utility",
+      "desc": "本地位置 (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "Logarithm": {
+      "category": "Utility",
+      "desc": "Log (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "MapARPassthroughCameraUV": {
+      "category": "Utility",
+      "desc": "Map AR Passthrough Camera UVs (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "MaterialAttributeLayers": {
+      "category": "Utility",
+      "desc": "Material Attribute Layers (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "MaterialProxyReplace": {
+      "category": "Utility",
+      "desc": "MaterialProxyReplace (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "MeshPaintTextureReplace": {
+      "category": "Texture",
+      "desc": "Mesh Paint Texture Replace (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "Modulo": {
+      "category": "Utility",
+      "desc": "Modulo (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "NaniteReplace": {
+      "category": "Utility",
+      "desc": "Nanite Pass Switch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "NeuralNetworkOutput": {
+      "category": "Output",
+      "desc": "Neural Output (Texture) (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "PathTracingBufferTexture": {
+      "category": "Texture",
+      "desc": "辐亮度（路径追踪） (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "PathTracingQualitySwitch": {
+      "category": "Utility",
+      "desc": "PathTracingQualitySwitchReplace (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "PathTracingRayTypeSwitch": {
+      "category": "Utility",
+      "desc": "PathTracingRayTypeSwitch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "PostVolumeUserFlagTest": {
+      "category": "Utility",
+      "desc": "TestPostVolumeUserFlag (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "PreSkinnedLocalBounds": {
+      "category": "Utility",
+      "desc": "Pre-Skinned Local Bounds (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "RayTracingQualitySwitch": {
+      "category": "Utility",
+      "desc": "RayTracingQualitySwitchReplace (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "RecordTextureStreamingInfo": {
+      "category": "Texture",
+      "desc": "Record Texture Streaming (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ReflectionCapturePassSwitch": {
+      "category": "Utility",
+      "desc": "Reflection Capture Pass Switch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "RequiredSamplersSwitch": {
+      "category": "Utility",
+      "desc": "Required Samplers Switch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "RgbToHsv": {
+      "category": "Utility",
+      "desc": "RGBToHSV (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "RuntimeVirtualTextureCustomData": {
+      "category": "Texture",
+      "desc": "RuntimeVirtualTextureCustomData (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "RuntimeVirtualTextureReplace": {
+      "category": "Texture",
+      "desc": "RuntimeVirtualTextureReplace (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "RuntimeVirtualTextureSample": {
+      "category": "Texture",
+      "desc": "Runtime Virtual Texture Sample (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SamplePhysicsVectorField": {
+      "category": "Utility",
+      "desc": "SamplePhysicsVectorField (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SamplePhysicsScalarField": {
+      "category": "Utility",
+      "desc": "SamplePhysicsScalarField (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SamplePhysicsIntegerField": {
+      "category": "Utility",
+      "desc": "SamplePhysicsIntegerField (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SceneColor": {
+      "category": "Utility",
+      "desc": "Scene Color (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SceneDepthWithoutWater": {
+      "category": "Utility",
+      "desc": "Scene Depth Without Water (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SceneTexture": {
+      "category": "Texture",
+      "desc": "SceneTexture:场景颜色 (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ShaderStageSwitch": {
+      "category": "Utility",
+      "desc": "Shader Stage Switch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ShadingModel": {
+      "category": "Utility",
+      "desc": "默认光照 (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ShadingPathSwitch": {
+      "category": "Utility",
+      "desc": "Shading Path Switch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ShadowReplace": {
+      "category": "Utility",
+      "desc": "Shadow Pass Switch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "Sobol": {
+      "category": "Utility",
+      "desc": "Sobol (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SpeedTree": {
+      "category": "Utility",
+      "desc": "SpeedTree (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SRGBColorToWorkingColorSpace": {
+      "category": "Utility",
+      "desc": "sRGBColorToWorkingColorSpace (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "Switch": {
+      "category": "Utility",
+      "desc": "Switch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "TemporalSobol": {
+      "category": "Utility",
+      "desc": "Temporal Sobol (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "TextureCollection": {
+      "category": "Texture",
+      "desc": "Texture Collection (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "TextureObjectFromCollection": {
+      "category": "Texture",
+      "desc": "Texture Object From Collection (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "TextureProperty": {
+      "category": "Texture",
+      "desc": "纹理大小 (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "TruncateLWC": {
+      "category": "Utility",
+      "desc": "TruncateLWC (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "UserSceneTexture": {
+      "category": "Texture",
+      "desc": "UserSceneTexture:None (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "VirtualTextureFeatureSwitch": {
+      "category": "Texture",
+      "desc": "VirtualTextureFeatureSwitch (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "VolumetricAdvancedMaterialInput": {
+      "category": "Utility",
+      "desc": "Volumetric Advanced Input (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "BentNormalCustomOutput": {
+      "category": "Output",
+      "desc": "BentNormal (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ClearCoatNormalCustomOutput": {
+      "category": "Output",
+      "desc": "ClearCoatBottomNormal (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "TangentOutput": {
+      "category": "Output",
+      "desc": "Tangent output (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ThinTranslucentMaterialOutput": {
+      "category": "Output",
+      "desc": "Thin Translucent Material (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "FirstPersonOutput": {
+      "category": "Output",
+      "desc": "First Person Output (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "MaterialCache": {
+      "category": "Utility",
+      "desc": "Material Cache Value (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "TemporalResponsivenessOutput": {
+      "category": "Output",
+      "desc": "Temporal Responsiveness (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "MotionVectorWorldOffsetOutput": {
+      "category": "Output",
+      "desc": "Motion Vector World Offset (Per-Pixel) (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "LandscapeGrassOutput": {
+      "category": "Landscape",
+      "desc": "Landscape Grass (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "LandscapePhysicalMaterialOutput": {
+      "category": "Landscape",
+      "desc": "Landscape Physical Material Output (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "AbsorptionMediumMaterialOutput": {
+      "category": "Output",
+      "desc": "Absorption Medium (Path Tracer Only) (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "NeuralNetworkInput": {
+      "category": "Utility",
+      "desc": "Neural Input (Texture) (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "RuntimeVirtualTextureOutput": {
+      "category": "Texture",
+      "desc": "Runtime Virtual Texture Output (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SingleLayerWaterMaterialOutput": {
+      "category": "Output",
+      "desc": "Single Layer Water Material (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubsurfaceMediumMaterialOutput": {
+      "category": "Output",
+      "desc": "Subsurface Medium (Path Tracer Only) (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "VertexInterpolator": {
+      "category": "Utility",
+      "desc": "VertexInterpolator (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "VolumetricAdvancedMaterialOutput": {
+      "category": "Output",
+      "desc": "Volumetric Advanced Output (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "VolumetricCloudEmptySpaceSkippingOutput": {
+      "category": "Output",
+      "desc": "Volumetric Cloud Empty Space Skipping Output <Experimental> (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "AtmosphericLightColor": {
+      "category": "Atmosphere",
+      "desc": "Atmosphere Sun Light Illuminance On Ground (not per pixel) (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "AtmosphericLightVector": {
+      "category": "Atmosphere",
+      "desc": "Atmosphere Sun Light Vector (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "Bounds": {
+      "category": "Utility",
+      "desc": "Bounds (Instance Local) (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "CloudSampleAttribute": {
+      "category": "Atmosphere",
+      "desc": "Cloud Sample Attributes (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "DecalColor": {
+      "category": "Utility",
+      "desc": "Decal Color (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "DecalLifetimeOpacity": {
+      "category": "Utility",
+      "desc": "Decal Lifetime Opacity (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "DeltaTime": {
+      "category": "Utility",
+      "desc": "DeltaTime (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "EyeAdaptation": {
+      "category": "Utility",
+      "desc": "EyeAdaptation (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "EyeAdaptationInverse": {
+      "category": "Utility",
+      "desc": "EyeAdaptationInverse (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "FontSignedDistance": {
+      "category": "Utility",
+      "desc": "Font Signed Distance (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "IsFirstPerson": {
+      "category": "Utility",
+      "desc": "IsFirstPerson (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "IsOrthographic": {
+      "category": "Utility",
+      "desc": "IsOrthographic (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "MeshPaintTextureCoordinateIndex": {
+      "category": "Texture",
+      "desc": "Mesh Paint Texture Coordinate Index (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "MeshPaintTextureObject": {
+      "category": "Texture",
+      "desc": "Mesh Paint Texture Object (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ObjectLocalBounds": {
+      "category": "Utility",
+      "desc": "Object Local Bounds (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ParticleRandom": {
+      "category": "Utility",
+      "desc": "Particle Random Value (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ParticleSpriteRotation": {
+      "category": "Utility",
+      "desc": "Particle Sprite Rotation (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ParticleSubUVProperties": {
+      "category": "Utility",
+      "desc": "Particle SubUV Properties (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "PerInstanceCustomData": {
+      "category": "Utility",
+      "desc": "PerInstanceCustomData[0] (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "PerInstanceCustomData3Vector": {
+      "category": "Utility",
+      "desc": "PerInstanceCustomData[0, 1, 2] (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "PreSkinnedNormal": {
+      "category": "Vector",
+      "desc": "Outputs the pre-skinned local-space normal.",
+      "verified": true
+    },
+    "PreSkinnedPosition": {
+      "category": "Vector",
+      "desc": "Outputs the pre-skinned local-space position.",
+      "verified": true
+    },
+    "SkyAtmosphereLightDirection": {
+      "category": "Atmosphere",
+      "desc": "SkyAtmosphereLightDirection[0] (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SkyAtmosphereLightIlluminance": {
+      "category": "Atmosphere",
+      "desc": "SkyAtmosphereLightIlluminance[0] (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SkyAtmosphereLightIlluminanceOnGround": {
+      "category": "Atmosphere",
+      "desc": "SkyAtmosphereLightIlluminanceOnGround[0] (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SkyAtmosphereLightDiskLuminance": {
+      "category": "Atmosphere",
+      "desc": "SkyAtmosphereLightDiskLuminance[0] (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SkyAtmosphereAerialPerspective": {
+      "category": "Atmosphere",
+      "desc": "SkyAtmosphereAerialPerspective (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SkyAtmosphereDistantLightScatteredLuminance": {
+      "category": "Atmosphere",
+      "desc": "SkyAtmosphereDistantLightScatteredLuminance (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SkyAtmosphereViewLuminance": {
+      "category": "Atmosphere",
+      "desc": "SkyAtmosphereViewLuminance (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SkyLightEnvMapSample": {
+      "category": "Utility",
+      "desc": "Sky Light Env Map Sample (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "VolumetricCloudEmptySpaceSkippingInput": {
+      "category": "Atmosphere",
+      "desc": "Volumetric Cloud Empty Space Skipping Input <Experimental> (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ScalarBlueNoise": {
+      "category": "Utility",
+      "desc": "Scalar Blue Noise (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "LegacyBlendMaterialAttributes": {
+      "category": "Utility",
+      "desc": "BlendMaterialAttributes (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "DoubleVectorParameter": {
+      "category": "Parameters",
+      "desc": "Param (0,0,0,1) (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "MaterialLayerOutput": {
+      "category": "Output",
+      "desc": "Output Material Attributes (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ConstantDouble": {
+      "category": "Utility",
+      "desc": "0 (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "LayerStack": {
+      "category": "Utility",
+      "desc": "Layer Stack (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "RuntimeVirtualTextureSampleParameter": {
+      "category": "Texture",
+      "desc": "Runtime Virtual Texture Sample Param  (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SparseVolumeTextureObject": {
+      "category": "Texture",
+      "desc": "SparseVolumeTexture Object (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SparseVolumeTextureSample": {
+      "category": "Texture",
+      "desc": "Sparse Volume Texture Sample (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "TextureCollectionParameter": {
+      "category": "Texture",
+      "desc": "Texture Collection Parameter (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateShadingModels": {
+      "category": "Substrate",
+      "desc": "Substrate Shading Models (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateSlabBSDF": {
+      "category": "Substrate",
+      "desc": "Substrate Slab BSDF - Simple (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateSimpleClearCoatBSDF": {
+      "category": "Substrate",
+      "desc": "Substrate Simple Clear Coat (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateVolumetricFogCloudBSDF": {
+      "category": "Substrate",
+      "desc": "Substrate Volumetric-Fog-Cloud BSDF (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateUnlitBSDF": {
+      "category": "Substrate",
+      "desc": "Substrate Unlit BSDF (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateHairBSDF": {
+      "category": "Substrate",
+      "desc": "Substrate Hair BSDF (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateEyeBSDF": {
+      "category": "Substrate",
+      "desc": "Substrate Eye BSDF (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateSingleLayerWaterBSDF": {
+      "category": "Substrate",
+      "desc": "Substrate Single Layer Water BSDF (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateLightFunction": {
+      "category": "Substrate",
+      "desc": "Substrate Light Function (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstratePostProcess": {
+      "category": "Substrate",
+      "desc": "Substrate Post Process (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateUI": {
+      "category": "Substrate",
+      "desc": "Substrate UI (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateConvertToDecal": {
+      "category": "Substrate",
+      "desc": "Substrate Convert To Decal (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateConvertMaterialAttributes": {
+      "category": "Substrate",
+      "desc": "Substrate Convert Material Attributes (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateHorizontalMixing": {
+      "category": "Substrate",
+      "desc": "Substrate Horizontal Blend (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateVerticalLayering": {
+      "category": "Substrate",
+      "desc": "Substrate Vertical Layer (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateAdd": {
+      "category": "Substrate",
+      "desc": "Substrate Add (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateWeight": {
+      "category": "Substrate",
+      "desc": "Substrate Coverage Weight (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateSelect": {
+      "category": "Substrate",
+      "desc": "Substrate Select (Parameter Blend) (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateTransmittanceToMFP": {
+      "category": "Substrate",
+      "desc": "Substrate Transmittance-To-MeanFreePath (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateMetalnessToDiffuseAlbedoF0": {
+      "category": "Substrate",
+      "desc": "Substrate Metalness-To-DiffuseAlbedo-F0 (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateHazinessToSecondaryRoughness": {
+      "category": "Substrate",
+      "desc": "Substrate Haziness-To-Secondary-Roughness (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SubstrateThinFilm": {
+      "category": "Substrate",
+      "desc": "Substrate Thin-Film (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "ChannelMaskParameter": {
+      "category": "Parameters",
+      "desc": "Red (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "CurveAtlasRowParameter": {
+      "category": "Parameters",
+      "desc": "CurveAtlasRowParameter (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SparseVolumeTextureSampleParameter": {
+      "category": "Texture",
+      "desc": "Sparse Volume Texture Sample Param  (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "TextureSampleParameter2DArray": {
+      "category": "Texture",
+      "desc": "Param2DArray (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "TextureSampleParameterCubeArray": {
+      "category": "Texture",
+      "desc": "ParamCubeArray (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "TextureSampleParameterVolume": {
+      "category": "Texture",
+      "desc": "ParamVolume (auto-discovered; verify pins/types).",
+      "verified": false
+    },
+    "SparseVolumeTextureObjectParameter": {
+      "category": "Texture",
+      "desc": "Param Tex Object (auto-discovered; verify pins/types).",
+      "verified": false
+    }
+  }
+}

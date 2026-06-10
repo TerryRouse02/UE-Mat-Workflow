@@ -7,7 +7,8 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 ## Contents
 
 - `Invoke-NodeT3DMetadataMaintenance.ps1`: one-command metadata maintenance entrypoint.
-- `audit-export-meta.js`: reusable metadata audit command (now also flags array-element pin drift).
+- `audit-export-meta.js`: reusable metadata audit command (also flags array-element pin drift and node index drift).
+- `gen-node-index.js`: generates `agent-pack/nodes-ue<v>.index.json` — a minimal index (name + category + one-line desc + flags) that authoring agents read instead of the full 178 KB DB. Runs automatically in the maintenance flow after heal; re-run manually with `node gen-node-index.js`. The audit fails (`indexMissing` / `indexDrift`) if the index is absent or out of sync with the DB.
 - `heal-export-meta.js`: re-applies the canonical UE T3D array-element pin properties (`CustomizedUVs(0)`, `Inputs(2)`, …) after a crawl, so re-generation never regresses them. Format-preserving and idempotent; runs automatically in the maintenance flow. `--check` lists drift without writing.
 - `check-public-purity.js`: public-artifact purity gate (run in CI). Fails if a committed agent-pack data file or `stress_*` graph leaks `/Game`/`_project` data, an engine-MF index key isn't `/Engine/`, or a server-only/per-machine/Mac-binary path is git-tracked. Run it after any crawl that regenerates a committed index.
 - `build-db-candidates.js`: turn a node-discovery report into reviewable candidate DB entries.
@@ -43,7 +44,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3
   -EngineRoot <Path\To\UnrealEngine>
 ```
 
-The entrypoint rebuilds the compiled plugin only when it is missing, forced, or older than `plugin-src/`, then regenerates `agent-pack\nodes-ue5.7.export.json`, heals its array-element pin properties, audits the metadata, and runs targeted viewer tests.
+The entrypoint rebuilds the compiled plugin only when it is missing, forced, or older than `plugin-src/`, then regenerates `agent-pack\nodes-ue5.7.export.json`, heals its array-element pin properties, regenerates `agent-pack\nodes-ue5.7.index.json`, audits the metadata, and runs targeted viewer tests.
 
 ### macOS: build the plugin
 

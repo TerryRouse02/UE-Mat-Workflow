@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { agentPackPath } = require('./version');
 const { findArrayPinDrift } = require('./array-pin-properties');
+const { deriveDesc } = require('./gen-node-index');
 
 function parseArgs(argv) {
   const args = {
@@ -43,6 +44,74 @@ function hasParamMap(meta, name) {
       && isPlainObject(paramMeta.components)
       && typeof paramMeta.components[name] === 'string'
   ));
+}
+
+function auditIndexDrift(workflowRoot, db) {
+  const indexPath = agentPackPath(workflowRoot, 'index');
+  const dbNodes = isPlainObject(db.nodes) ? db.nodes : {};
+  const dbKeys = Object.keys(dbNodes);
+
+  if (!fs.existsSync(indexPath)) {
+    return { indexMissing: 1, indexDrift: 0, driftDetails: [] };
+  }
+
+  const idx = readJson(indexPath);
+  const idxNodes = isPlainObject(idx.nodes) ? idx.nodes : {};
+  const idxKeys = Object.keys(idxNodes);
+
+  let driftCount = 0;
+  const driftDetails = [];
+
+  // Key-set parity: every DB key must be in the index and vice versa.
+  const dbKeySet = new Set(dbKeys);
+  const idxKeySet = new Set(idxKeys);
+  for (const k of dbKeys) {
+    if (!idxKeySet.has(k)) {
+      driftCount += 1;
+      driftDetails.push(`${k}: missing from index`);
+    }
+  }
+  for (const k of idxKeys) {
+    if (!dbKeySet.has(k)) {
+      driftCount += 1;
+      driftDetails.push(`${k}: extra key in index`);
+    }
+  }
+
+  // Per-node field checks for nodes present in both.
+  for (const k of dbKeys) {
+    if (!idxKeySet.has(k)) continue;
+    const node = dbNodes[k];
+    const entry = idxNodes[k];
+
+    const expectedVerified = Boolean(node.verified);
+    if (entry.verified !== expectedVerified) {
+      driftCount += 1;
+      driftDetails.push(`${k}.verified: ${entry.verified} (expected ${expectedVerified})`);
+    }
+
+    const expectedDynamic = node.dynamicPins === true;
+    const hasDynamic = entry.dynamicPins === true;
+    if (hasDynamic !== expectedDynamic) {
+      driftCount += 1;
+      driftDetails.push(`${k}.dynamicPins: ${hasDynamic} (expected ${expectedDynamic})`);
+    }
+
+    const expectedDeprecated = node.deprecated === true;
+    const hasDeprecated = entry.deprecated === true;
+    if (hasDeprecated !== expectedDeprecated) {
+      driftCount += 1;
+      driftDetails.push(`${k}.deprecated: ${hasDeprecated} (expected ${expectedDeprecated})`);
+    }
+
+    const expectedDesc = deriveDesc(node.description);
+    if (entry.desc !== expectedDesc) {
+      driftCount += 1;
+      driftDetails.push(`${k}.desc: "${entry.desc}" (expected "${expectedDesc}")`);
+    }
+  }
+
+  return { indexMissing: 0, indexDrift: driftCount, driftDetails };
 }
 
 function audit(workflowRoot) {
@@ -122,6 +191,9 @@ function audit(workflowRoot) {
     (d) => `${d.node}.inputs.${d.pin}: ${d.actual} (expected ${d.expected})`,
   );
 
+  // Index drift: verify agent-pack/nodes-ue<v>.index.json is present and in sync with the DB.
+  const indexResult = auditIndexDrift(workflowRoot, db);
+
   const failed = missing.length > 0
     || orphans.length > 0
     || unresolved.length > 0
@@ -129,7 +201,9 @@ function audit(workflowRoot) {
     || reservedUnexpected.length > 0
     || badShape.length > 0
     || missingMaps.length > 0
-    || arrayPins.length > 0;
+    || arrayPins.length > 0
+    || indexResult.indexMissing > 0
+    || indexResult.indexDrift > 0;
 
   return {
     failed,
@@ -145,6 +219,8 @@ function audit(workflowRoot) {
       badShape: badShape.length,
       missingMaps: missingMaps.length,
       arrayPins: arrayPins.length,
+      indexMissing: indexResult.indexMissing,
+      indexDrift: indexResult.indexDrift,
     },
     details: {
       missing,
@@ -156,6 +232,7 @@ function audit(workflowRoot) {
       badShape,
       missingMaps,
       arrayPins,
+      indexDrift: indexResult.driftDetails,
     },
   };
 }
@@ -176,7 +253,7 @@ if (require.main === module) {
       console.log(JSON.stringify(result, null, 2));
     } else {
       const s = result.summary;
-      console.log(`db=${s.db} export=${s.export} reserved=${s.reserved} missing=${s.missing} orphans=${s.orphans} verified=${s.verified} dynamic=${s.dynamic} unresolved=${s.unresolved} badShape=${s.badShape} missingMaps=${s.missingMaps} arrayPins=${s.arrayPins}`);
+      console.log(`db=${s.db} export=${s.export} reserved=${s.reserved} missing=${s.missing} orphans=${s.orphans} verified=${s.verified} dynamic=${s.dynamic} unresolved=${s.unresolved} badShape=${s.badShape} missingMaps=${s.missingMaps} arrayPins=${s.arrayPins} indexMissing=${s.indexMissing} indexDrift=${s.indexDrift}`);
       if (result.failed) {
         printList('Missing export metadata', result.details.missing);
         printList('Orphan export metadata', result.details.orphans);
@@ -186,6 +263,10 @@ if (require.main === module) {
         printList('Bad metadata shape', result.details.badShape);
         printList('Missing declared pin/param maps', result.details.missingMaps);
         printList('Array-pin property drift (run heal-export-meta.js)', result.details.arrayPins);
+        if (s.indexMissing > 0) {
+          console.error('Index file missing: run node tools/node-t3d-metadata/gen-node-index.js');
+        }
+        printList('Node index drift (run gen-node-index.js)', result.details.indexDrift);
       }
     }
     process.exit(result.failed ? 1 : 0);

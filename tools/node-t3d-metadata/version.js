@@ -16,6 +16,7 @@ const fileNames = {
   db: `nodes-ue${UE_VERSION}.json`,
   export: `nodes-ue${UE_VERSION}.export.json`,
   engineMf: `enginemf-index-ue${UE_VERSION}.json`,
+  index: `nodes-ue${UE_VERSION}.index.json`,
 };
 
 // Absolute path to an agent-pack data file for a given workflow root.

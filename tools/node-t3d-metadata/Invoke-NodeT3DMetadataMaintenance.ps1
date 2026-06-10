@@ -208,6 +208,12 @@ Invoke-Step "Heal export metadata array pins" {
     }
 }
 
+Invoke-Step "Regenerate node index" {
+    Invoke-External "gen-node-index.js" {
+        node (Join-Path $BundleRoot "gen-node-index.js") --workflow-root $WorkflowRoot
+    }
+}
+
 if ($CaptureFixtures) {
     Invoke-Step "Capture calibration fixtures" {
         Invoke-External "Capture-MakeMaterialAttributesSample.ps1" {

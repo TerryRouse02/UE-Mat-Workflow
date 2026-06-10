@@ -20,8 +20,10 @@ export interface VersionBundle {
   exportMeta: ExportMeta;
 }
 
-// `nodes-ue*.json` matches BOTH the authoring DBs and the *.export.json files;
-// we split them apart below by their path.
+// `nodes-ue*.json` matches the authoring DBs, the *.export.json files AND the
+// generated *.index.json minimal indexes; we split them apart below by path.
+// The index files are for authoring agents only — they carry a top-level
+// `ueVersion` too, so they MUST be skipped here or they'd masquerade as a DB.
 const modules = import.meta.glob('../../../agent-pack/nodes-ue*.json', {
   eager: true,
   import: 'default',
@@ -30,6 +32,7 @@ const modules = import.meta.glob('../../../agent-pack/nodes-ue*.json', {
 const dbs = new Map<string, NodeDB>();
 const metas = new Map<string, ExportMeta>();
 for (const [path, mod] of Object.entries(modules)) {
+  if (path.includes('.index.json')) continue;
   if (path.includes('.export.json')) {
     const m = mod as ExportMeta;
     if (m?.ueVersion) metas.set(m.ueVersion, m);
