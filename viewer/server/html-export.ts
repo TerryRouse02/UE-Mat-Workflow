@@ -6,34 +6,53 @@ import { resolveMaterialFunctions } from './mf-resolver.js';
 import { loadWorkMfIndex } from './workmf-index.js';
 import { isInside } from './http-server.js';
 
-async function main() {
-  const fullArgs = process.argv.slice(2);
-  if (fullArgs[0] !== 'export' || !fullArgs[1]) {
-    console.error('Usage: ue-mat-viewer export <name> [--out <path>]');
-    process.exit(1);
-  }
-  const name = fullArgs[1];
-  const outIdx = fullArgs.indexOf('--out');
-  const outPath = outIdx >= 0 ? fullArgs[outIdx + 1] : `./${name}.html`;
+export interface BuildSnapshotOptions {
+  /** Absolute path to the repo root (contains graphs/ and agent-pack/). */
+  repoRoot: string;
+  /** The graph name, e.g. "stress_common/stress_common" (no .matgraph.json extension). */
+  name: string;
+  /**
+   * Absolute path to web/dist. Defaults to <repoRoot>/viewer/web/dist.
+   * Pass a custom value in tests to point at a pre-built dist or a minimal stub.
+   */
+  distDir?: string;
+  /**
+   * Absolute path to the work-MF index JSON.
+   * Defaults to <repoRoot>/agent-pack/workmf-index.json.
+   * Pass a custom value in tests to inject a controlled sentinel file.
+   */
+  workMfIndexPath?: string;
+}
 
-  const repoRoot = process.cwd();
+/**
+ * Core snapshot builder — loads the graph, resolves MF pins, collects sub-graph
+ * files, inlines the web bundle, and returns the complete HTML string.
+ *
+ * This function is exported for unit testing. The CLI `main()` below wraps it
+ * to handle argv parsing and file writing.
+ *
+ * NOTE: workmf-index.json data affects `derivedPins` (pin signatures for /Game/
+ * MFC nodes) and `warnings`, but the /Game/ asset-path keys from the index are
+ * NEVER included in `files` (the collect loop skips any MF reference starting
+ * with '/').  The derivedPins values are { inputs, outputs } pin-shape objects
+ * keyed by node-id in the exported graph — they contain no asset-path strings.
+ */
+export async function buildSnapshot(opts: BuildSnapshotOptions): Promise<string> {
+  const { repoRoot, name } = opts;
+  const distDir = opts.distDir ?? resolve(repoRoot, 'viewer/web/dist');
+  const workMfIndexPath = opts.workMfIndexPath ?? resolve(repoRoot, 'agent-pack', 'workmf-index.json');
+
   const graphsRoot = resolve(repoRoot, 'graphs');
   const matgraphPath = resolve(graphsRoot, `${name}.matgraph.json`);
-  // Reject traversal escapes: <name> is argv and must stay within graphs/.
-  if (!isInside(graphsRoot, matgraphPath)) {
-    console.error(`refusing to export: ${name} escapes graphs root`);
-    process.exit(1);
-  }
 
   const loaded = await loadGraph(matgraphPath);
   if (!loaded.graph) {
-    console.error(`failed to load ${matgraphPath}:`, loaded.errors);
-    process.exit(1);
+    throw new Error(`failed to load ${matgraphPath}: ${loaded.errors.join('; ')}`);
   }
   // Resolve MF references relative to the material file's own directory
   // (project-folder convention), matching the resolver's recursive behavior.
   // Work-project MFs (UE asset paths) get their pins from the local work-MF index.
-  const { index: workMfIndex, warnings: indexWarnings } = await loadWorkMfIndex(resolve(repoRoot, 'agent-pack', 'workmf-index.json'));
+  const { index: workMfIndex, warnings: indexWarnings } = await loadWorkMfIndex(workMfIndexPath);
   const resolved = await resolveMaterialFunctions(loaded.graph, dirname(matgraphPath), new Set(), { workMfIndex });
 
   // Collect all referenced MFs recursively
@@ -56,8 +75,8 @@ async function main() {
   }
   await collect(loaded.graph, `${name}.matgraph.json`);
 
-  const webIndexHtml = await readFile(resolve(repoRoot, 'viewer/web/dist/index.html'), 'utf-8');
-  const inlined = await inlineAssets(webIndexHtml, resolve(repoRoot, 'viewer/web/dist'));
+  const webIndexHtml = await readFile(resolve(distDir, 'index.html'), 'utf-8');
+  const inlined = await inlineAssets(webIndexHtml, distDir);
 
   const dataInject = `<script>window.__UE_MAT_EXPORT__ = ${JSON.stringify({
     entry: `${name}.matgraph.json`,
@@ -65,9 +84,30 @@ async function main() {
     derivedPins: resolved.derivedPins,
     warnings: [...materialStructureWarnings(loaded.graph), ...indexWarnings, ...resolved.warnings],
   })};</script>`;
-  const final = inlined.replace('</body>', `${dataInject}</body>`);
+  return inlined.replace('</body>', `${dataInject}</body>`);
+}
 
-  await writeFile(outPath, final);
+async function main() {
+  const fullArgs = process.argv.slice(2);
+  if (fullArgs[0] !== 'export' || !fullArgs[1]) {
+    console.error('Usage: ue-mat-viewer export <name> [--out <path>]');
+    process.exit(1);
+  }
+  const name = fullArgs[1];
+  const outIdx = fullArgs.indexOf('--out');
+  const outPath = outIdx >= 0 ? fullArgs[outIdx + 1] : `./${name}.html`;
+
+  const repoRoot = process.cwd();
+  const graphsRoot = resolve(repoRoot, 'graphs');
+  const matgraphPath = resolve(graphsRoot, `${name}.matgraph.json`);
+  // Reject traversal escapes: <name> is argv and must stay within graphs/.
+  if (!isInside(graphsRoot, matgraphPath)) {
+    console.error(`refusing to export: ${name} escapes graphs root`);
+    process.exit(1);
+  }
+
+  const html = await buildSnapshot({ repoRoot, name });
+  await writeFile(outPath, html);
   console.log(`exported to ${outPath}`);
 }
 
@@ -80,7 +120,12 @@ async function inlineAssets(html: string, distDir: string): Promise<string> {
     const src = match[1].replace(/^\//, '');
     try {
       const js = await readFile(resolve(distDir, src), 'utf-8');
-      result = result.replace(match[0], `<script type="module">${js}</script>`);
+      // Use a replacer function to avoid interpreting $ metacharacters
+      // in the inlined JS bundle (e.g. $& in regex .replace() calls would
+      // re-insert the matched tag string, corrupting the output).
+      const tag = match[0];
+      const inlined = `<script type="module">${js}</script>`;
+      result = result.replace(tag, () => inlined);
     } catch { /* ignore */ }
   }
   for (const match of Array.from(html.matchAll(linkRe))) {
@@ -88,10 +133,17 @@ async function inlineAssets(html: string, distDir: string): Promise<string> {
     if (!href.endsWith('.css')) continue;
     try {
       const css = await readFile(resolve(distDir, href), 'utf-8');
-      result = result.replace(match[0], `<style>${css}</style>`);
+      const tag = match[0];
+      const inlined = `<style>${css}</style>`;
+      result = result.replace(tag, () => inlined);
     } catch { /* ignore */ }
   }
   return result;
 }
 
-main().catch((e) => { console.error(e); process.exit(1); });
+// Guard: only run when this file is executed directly as a CLI entrypoint.
+// VITEST is set to 'true' by vitest when running tests, so we skip auto-run.
+// This lets test files `import { buildSnapshot }` without triggering the CLI.
+if (!process.env.VITEST) {
+  main().catch((e) => { console.error(e); process.exit(1); });
+}
