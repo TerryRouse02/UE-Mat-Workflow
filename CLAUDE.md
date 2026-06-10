@@ -47,6 +47,8 @@ agent-pack/                 SHIPPED product data + agent rules (public, must sta
   nodes-ue5.7.index.json    generated minimal index (~12K tokens); safe to read whole; CI-gated
   nodes-ue5.7.export.json   per-node UE metadata for clipboard export (class paths, GUIDs)
   query.js                  zero-dep lookup CLI: node/mf/search queries against the DB and MF indexes
+  query-lib.js              the lookup logic behind query.js (CJS exports) — also consumed by
+                            viewer/server/agent (query-bridge.ts); the ONLY home for query logic
   enginemf-index-ue5.7.json official /Engine Material Function signatures (committed)
   workmf-index.json         the USER's own /Game MF signatures — GITIGNORED, never shipped
   SPEC.md / SPEC-DETAILS.md / CLAUDE.md / AGENTS.md / GEMINI.md / .cursorrules   authoring rules
