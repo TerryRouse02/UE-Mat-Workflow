@@ -6,10 +6,12 @@ import { loadDB, validateDB, OUTPUTLESS_NODES } from '../server/db-loader';
 const AGENT_PACK = resolve(__dirname, '../../agent-pack');
 
 // Every shipped authoring DB: agent-pack/nodes-ue<ver>.json (the .export.json
-// siblings are export metadata, not DBs). As more UE versions are added this
+// siblings are export metadata and the .index.json siblings are the generated
+// minimal indexes — neither is a DB). As more UE versions are added this
 // validates each one automatically.
 const dbFiles = readdirSync(AGENT_PACK)
-  .filter(f => f.startsWith('nodes-ue') && f.endsWith('.json') && !f.endsWith('.export.json'))
+  .filter(f => f.startsWith('nodes-ue') && f.endsWith('.json')
+    && !f.endsWith('.export.json') && !f.endsWith('.index.json'))
   .map(f => resolve(AGENT_PACK, f));
 
 describe('db-loader — all shipped version DBs', () => {

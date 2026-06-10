@@ -228,7 +228,7 @@ describe('crawl API', () => {
     expect(msg.kind).toBe('fileList');
     expect(Array.isArray((msg as { files?: unknown[] }).files)).toBe(true);
     expect((msg as { files: Array<{ path: string }> }).files.some((f) => f.path === 'myproj/mat.matgraph.json')).toBe(true);
-    ws.close();
+    ws.terminate();
     await server.close();
   }, 5000);
 
@@ -248,7 +248,7 @@ describe('crawl API', () => {
     const ws2 = new WebSocket(`ws://127.0.0.1:${server.port}`);
     const replayed = await waitFor(ws2, (m) => m.kind === 'crawlDone');
     expect(replayed.status).toBe('error');
-    ws1.close(); ws2.close();
+    ws1.terminate(); ws2.terminate();
     await server.close();
   }, 8000);
 });

@@ -7,7 +7,8 @@
 ## 內容
 
 - `Invoke-NodeT3DMetadataMaintenance.ps1`：一鍵元資料維護進入點。
-- `audit-export-meta.js`：可重複使用的元資料稽核指令（現在也會偵測陣列元素 pin 的屬性漂移）。
+- `audit-export-meta.js`：可重複使用的元資料稽核指令（同時偵測陣列元素 pin 屬性漂移與節點索引漂移）。
+- `gen-node-index.js`：產生 `agent-pack/nodes-ue<v>.index.json`——供 authoring agent 讀取的精簡索引（名稱 + 分類 + 單行描述 + 旗標），取代直接讀取 178 KB 的 DB。維護流程會在 heal 之後自動執行；手動重新產生請執行 `node gen-node-index.js`。若索引不存在或與 DB 不同步，稽核會以 `indexMissing` / `indexDrift` 失敗。
 - `heal-export-meta.js`：爬取後把陣列元素 pin 的標準 UE T3D 屬性（`CustomizedUVs(0)`、`Inputs(2)`…）重新套回，讓重新產生永遠不會退化它們。保留原格式且具冪等性，會在維護流程中自動執行；`--check` 只列出漂移、不寫檔。
 - `check-public-purity.js`：公開產物純淨度閘門（CI 會跑）。若 committed 的 agent-pack 資料檔或 `stress_*` graph 外洩 `/Game`/`_project`、engine-MF index 有非 `/Engine/` 的 key、或 server-only/本機/Mac 二進位路徑被 git 追蹤，就失敗。任何重新產生 committed index 的爬取後跑一次。
 - `build-db-candidates.js`：把節點探索（node-discovery）報告轉成可供審查的候選 DB 條目。
@@ -43,7 +44,7 @@ pwsh -File ./tools/node-t3d-metadata/Invoke-NodeT3DMetadataMaintenance.ps1 \
   -EngineRoot /path/to/UnrealEngine
 ```
 
-只有在已編譯外掛**遺失、被強制重建，或比 `plugin-src/` 還舊**時，進入點才會重建它；接著重新產生 `agent-pack\nodes-ue5.7.export.json`、修復其陣列元素 pin 屬性、稽核元資料，並執行針對性的 viewer 測試。
+只有在已編譯外掛**遺失、被強制重建，或比 `plugin-src/` 還舊**時，進入點才會重建它；接著重新產生 `agent-pack\nodes-ue5.7.export.json`、修復其陣列元素 pin 屬性、重新產生 `agent-pack\nodes-ue5.7.index.json`、稽核元資料，並執行針對性的 viewer 測試。
 
 實用選項：
 

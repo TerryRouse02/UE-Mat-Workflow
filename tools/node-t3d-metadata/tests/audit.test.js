@@ -5,6 +5,7 @@ const os = require('os');
 const path = require('path');
 
 const { audit } = require('../audit-export-meta');
+const { buildIndex } = require('../gen-node-index');
 const { fileNames } = require('../version');
 
 // --- fixture helpers -------------------------------------------------------
@@ -42,13 +43,17 @@ function dbNodeOk() {
   };
 }
 
-// Write a workflowRoot under tmpdir with the given db/export objects, return its path.
+// Write a workflowRoot under tmpdir with the given db/export objects and a
+// fresh generated index, return its path.
 function makeRoot(db, exp) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'audit-test-'));
   const packDir = path.join(root, 'agent-pack');
   fs.mkdirSync(packDir, { recursive: true });
   fs.writeFileSync(path.join(packDir, fileNames.db), JSON.stringify(db));
   fs.writeFileSync(path.join(packDir, fileNames.export), JSON.stringify(exp));
+  // Write a valid node index derived from the DB so existing tests stay green.
+  const idx = buildIndex(db, '5.7');
+  fs.writeFileSync(path.join(packDir, fileNames.index), JSON.stringify(idx, null, 2) + '\n');
   return root;
 }
 
@@ -230,4 +235,52 @@ test('arrayPins: the canonical "(N)" property produces zero drift', () => {
   const result = audit(root(db, exp));
   assert.equal(result.summary.arrayPins, 0);
   assert.equal(result.failed, false);
+});
+
+// --- index drift tests -----------------------------------------------------
+
+test('index in sync => indexMissing=0 indexDrift=0 failed:false', () => {
+  const { db, exp } = cleanPair();
+  const result = audit(root(db, exp));
+  assert.equal(result.summary.indexMissing, 0);
+  assert.equal(result.summary.indexDrift, 0);
+  assert.equal(result.failed, false);
+});
+
+test('index file missing => indexMissing=1 failed:true', () => {
+  const { db, exp } = cleanPair();
+  const r = makeRoot(db, exp);
+  created.push(r);
+  // Remove the index file so the audit sees it missing.
+  fs.unlinkSync(path.join(r, 'agent-pack', fileNames.index));
+  const result = audit(r);
+  assert.equal(result.summary.indexMissing, 1);
+  assert.equal(result.summary.indexDrift, 0);
+  assert.equal(result.failed, true);
+  // No other categories should trip.
+  assert.equal(result.summary.missing, 0);
+  assert.equal(result.summary.orphans, 0);
+  assert.equal(result.summary.unresolved, 0);
+  assert.equal(result.summary.badShape, 0);
+  assert.equal(result.summary.missingMaps, 0);
+  assert.equal(result.summary.arrayPins, 0);
+});
+
+test('tampered desc in index => indexDrift>0 failed:true', () => {
+  const { db, exp } = cleanPair();
+  const r = makeRoot(db, exp);
+  created.push(r);
+  // Tamper the desc field in the index.
+  const indexPath = path.join(r, 'agent-pack', fileNames.index);
+  const idx = JSON.parse(fs.readFileSync(indexPath, 'utf8'));
+  idx.nodes.Frac.desc = 'wrong description';
+  fs.writeFileSync(indexPath, JSON.stringify(idx, null, 2) + '\n');
+  const result = audit(r);
+  assert.ok(result.summary.indexDrift > 0, 'indexDrift should be > 0');
+  assert.equal(result.summary.indexMissing, 0);
+  assert.equal(result.failed, true);
+  assert.ok(
+    result.details.indexDrift.some((s) => s.includes('Frac.desc')),
+    'drift details should mention Frac.desc',
+  );
 });

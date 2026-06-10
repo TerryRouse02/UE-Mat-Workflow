@@ -76,13 +76,23 @@ macOS 用 PowerShell Core 7（`pwsh`，透過官方 PowerShell `.pkg` 或 `brew 
 
 `agent-pack/` 目錄裡有 spec、node DB、範例，以及給各主流 AI 工具的規則檔。把工具指向這個 repo 就能開始下 prompt。
 
+### Token 高效 DB 存取
+
+完整的 `nodes-ue*.json` 撰寫 DB 有 45K–120K tokens——太大，不能整個塞進每次 AI session。Agent 規則改用**漸進式查詢**協議：
+
+1. 讀 `agent-pack/nodes-ue<version>.index.json`（~12K tokens，可整檔讀取）選節點。Index 由 CI 自動產生並與完整 DB 比對。
+2. 只針對你要用的節點取得完整條目：`node agent-pack/query.js node 5.7 Multiply Lerp Fresnel`
+3. 查詢 Material Function pin 簽名：`node agent-pack/query.js mf "/Engine/Functions/.../Foo.Foo"`
+
+`nodes-ue*.export.json` 只供 viewer 的匯出／匯入程式碼使用，撰寫用的 agent 永遠不需要讀它。`enginemf-index-ue*.json` 只支援點查詢，透過 `query.js mf` 存取。
+
 ### Claude Code
 
 `agent-pack/CLAUDE.md` 會被自動讀取。在這個 repo 的任何對話裡：
 
 > 「幫我做一個風格化水材質，加上 normal map 扭曲和 fresnel 邊緣輝光。」
 
-Claude 會讀 `SPEC.md`、從 `nodes-ue5.7.json` 挑節點型別、把 JSON 寫到 `graphs/<project>/`。Viewer 立刻渲染。
+Claude 會讀 `SPEC.md`、查閱 `nodes-ue5.7.index.json` 選節點、透過 `query.js` 取得完整條目，並把 JSON 寫到 `graphs/<project>/`。Viewer 立刻渲染。
 
 ### Cursor
 
@@ -193,8 +203,11 @@ DB 依版本切分：編輯你目標版本的那一份（例如 `agent-pack/node
 | 路徑 | 內容 |
 |---|---|
 | `agent-pack/SPEC.md` | AI 必須遵循的 JSON schema 和撰寫規則。 |
-| `agent-pack/nodes-ue<version>.json` | 依版本切分的節點 DB（AI 的字典），例如 `nodes-ue5.7.json`。 |
-| `agent-pack/nodes-ue<version>.export.json` | 「匯出到 UE」用的每版本 UE 元數據（class 路徑、pin/param/output 對應）。 |
+| `agent-pack/SPEC-DETAILS.md` | 按需深度閱讀：完整剪貼板匯出／匯入規格、Set/Get 屬性 GUID、動態 pin 欄位說明。只在 SPEC.md 指向這裡時才讀。 |
+| `agent-pack/nodes-ue<version>.json` | 依版本切分的完整節點 DB（AI 的字典），例如 `nodes-ue5.7.json`。45K–120K tokens——禁止整檔讀取；請用 index + query.js。 |
+| `agent-pack/nodes-ue<version>.index.json` | 自動產生的精簡索引（~12K tokens，可整檔讀取）。列出每個節點的分類、一行描述與旗標。由 `tools/node-t3d-metadata/gen-node-index.js` 產生；CI 與完整 DB 比對把關。 |
+| `agent-pack/query.js` | 零依賴查詢 CLI。`node agent-pack/query.js node 5.7 Multiply Lerp` 取得完整 DB 條目；`node agent-pack/query.js mf "<path>"` 取得 MF pin 簽名；`node agent-pack/query.js search 5.7 noise` 關鍵字搜尋。 |
+| `agent-pack/nodes-ue<version>.export.json` | 「匯出到 UE」用的每版本 UE 元數據（class 路徑、pin/param/output 對應）。僅供 viewer 使用——撰寫用的 agent 永遠不讀這個。 |
 | `agent-pack/examples/` | 參考用 `.matgraph.json` 檔案。 |
 | `tools/node-t3d-metadata/` | UE 編輯器 commandlet，從實際 UE 安裝自動擷取並驗證匯出元數據（每個版本各跑一次） — 用法見其 `README.md` / `docs/AGENT_WORKFLOW.md`。 |
 
