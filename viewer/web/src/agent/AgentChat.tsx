@@ -1,26 +1,27 @@
 // web/src/agent/AgentChat.tsx — 4th Sidebar tab: conversational material agent UI.
 //
-// Scope (M3+M4): streamed narrative text + tool step lines (tool_start/tool_end) +
-// diff blocks (plain-language change list) + input box + stop/undo/reset buttons +
-// unconfigured-state guidance + empty-state example prompts.
-// NodeExplainPopover (M5) is NOT implemented here.
+// Scope (M3+M4+polish): streamed narrative text + grouped tool steps
+// (collapsible 執行過程 card) + diff blocks (collapsible 變更摘要) + cumulative
+// usage display + input box with stop/undo/reset + unconfigured-state guidance
+// + empty-state example prompts. NodeExplainPopover (M5) is NOT implemented here.
 //
 // Hidden when connection === 'snapshot' (same as ConfigPanel).
 //
-// Bubble-grouping note for diff events:
-//   A diff block is inserted as its own ChatItem (kind:'diff'). It does NOT
-//   call setNeedsNewBubble(true) — diff events come from the server AFTER a
-//   successful tool write, between tool_end and the next text run. The
-//   subsequent text event will open a new bubble only if needsNewBubble is
-//   still true from the preceding tool_start (which it is), so grouping is
-//   naturally correct without special handling.
+// Grouping rules:
+//   - Consecutive tool steps merge into ONE ToolGroup item; any text/diff/notice
+//     item in between starts a new group. Groups stay expanded while any step is
+//     still running and auto-collapse when the turn's 'done' event arrives.
+//   - Diff blocks arrive expanded; sending the NEXT user message collapses all
+//     previous diff blocks (and tool groups) so long conversations stay readable.
+//   - A diff item does NOT touch needsNewBubble — the preceding tool_start
+//     already set it, so the next text event opens a fresh assistant bubble.
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import React from 'react';
 import { useStore } from '../store';
 import { Icon } from '../Icon';
 import { streamChat } from './sse';
 import type { AgentSseEvent, ProviderStatus, AgentUndoResponse, AgentResetResponse } from './protocol';
+import './agent.css';
 
 // ─── Message model ────────────────────────────────────────────────────────────
 
@@ -32,13 +33,19 @@ interface TextBubble {
   text: string;
 }
 
-interface ToolLine {
-  kind: 'tool';
+interface ToolStep {
   name: string;
   summary: string;
   ok?: boolean;
   endSummary?: string;
   done: boolean;
+}
+
+/** Consecutive tool steps grouped into one collapsible 執行過程 card. */
+interface ToolGroup {
+  kind: 'tools';
+  steps: ToolStep[];
+  collapsed: boolean;
 }
 
 interface NoticeLine {
@@ -51,9 +58,17 @@ interface NoticeLine {
 interface DiffBlock {
   kind: 'diff';
   lines: string[];
+  collapsed: boolean;
 }
 
-type ChatItem = TextBubble | ToolLine | NoticeLine | DiffBlock;
+type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock;
+
+/** Cumulative token usage across the whole conversation. */
+interface UsageTotal {
+  input: number;
+  output: number;
+  estimated: boolean;
+}
 
 // ─── Example prompts ─────────────────────────────────────────────────────────
 
@@ -63,50 +78,79 @@ const EXAMPLE_PROMPTS = [
   '建立一個基礎 PBR 材質，有金屬感和反光',
 ];
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function fmtTokens(n: number): string {
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(Math.round(n));
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
-function ToolStepLine({ item }: { item: ToolLine }) {
-  if (!item.done) {
-    return (
-      <div className="agent-tool running">
-        <Icon name="refresh" size={12} className="spin" />
-        <span className="agent-tool-name">{item.summary}</span>
-      </div>
-    );
-  }
+function ToolGroupView({ item, onToggle }: { item: ToolGroup; onToggle: () => void }) {
+  const running = item.steps.some(s => !s.done);
+  const anyErr = item.steps.some(s => s.done && s.ok === false);
+  // Force open while any step is still running so the user sees live progress.
+  const open = running || !item.collapsed;
+  const lastStep = item.steps[item.steps.length - 1];
+
   return (
-    <div className={'agent-tool ' + (item.ok ? 'ok' : 'err')}>
-      <Icon name={item.ok ? 'check' : 'x'} size={12} />
-      <span className="agent-tool-name">
-        {item.endSummary ?? item.summary}
-      </span>
+    <div className={'agent-tools agent-item' + (open ? ' open' : '')}>
+      <button type="button" className="agent-tools-head" onClick={onToggle}>
+        <Icon name="caret" size={12} className="caret" />
+        {running ? (
+          <>
+            <Icon name="refresh" size={12} className="spin run-ico" />
+            <span>{lastStep?.summary}</span>
+          </>
+        ) : (
+          <>
+            <Icon name={anyErr ? 'warn' : 'check'} size={12} className={anyErr ? 'warn-ico' : 'ok-ico'} />
+            <span>執行過程 · {item.steps.length} 步</span>
+          </>
+        )}
+      </button>
+      {open && (
+        <div className="agent-tools-steps">
+          {item.steps.map((s, i) => (
+            <div key={i} className={'agent-tool ' + (!s.done ? 'running' : s.ok ? 'ok' : 'err')}>
+              <Icon name={!s.done ? 'refresh' : s.ok ? 'check' : 'x'} size={12} className={!s.done ? 'spin' : undefined} />
+              <span className="agent-tool-name">{s.done ? (s.endSummary ?? s.summary) : s.summary}</span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
 
 function NoticeItem({ item }: { item: NoticeLine }) {
-  const iconName = item.variant === 'error' ? 'warn' : item.variant === 'info' ? 'check' : 'hash';
+  const iconName = item.variant === 'info' ? 'check' : 'warn';
   return (
-    <div className={'agent-notice ' + item.variant}>
+    <div className={'agent-notice agent-item ' + item.variant}>
       <Icon name={iconName} size={12} />
       <span>{item.message}</span>
     </div>
   );
 }
 
-/** Compact block listing plain-language diff lines after a successful write. */
-function DiffBlockView({ item }: { item: DiffBlock }) {
+/** Collapsible block listing plain-language diff lines after a successful write. */
+function DiffBlockView({ item, onToggle }: { item: DiffBlock; onToggle: () => void }) {
+  const open = !item.collapsed;
   return (
-    <div className="agent-diff">
-      <div className="agent-diff-header">
+    <div className={'agent-diff agent-item' + (open ? ' open' : '')}>
+      <button type="button" className="agent-diff-header" onClick={onToggle}>
+        <Icon name="caret" size={11} className="caret" />
         <Icon name="hash" size={11} />
-        <span>變更摘要</span>
-      </div>
-      <ul className="agent-diff-lines">
-        {item.lines.map((line, i) => (
-          <li key={i} className="agent-diff-line">{line}</li>
-        ))}
-      </ul>
+        <span>變更摘要 · {item.lines.length} 項</span>
+      </button>
+      {open && (
+        <ul className="agent-diff-lines">
+          {item.lines.map((line, i) => (
+            <li key={i} className="agent-diff-line">{line}</li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -124,6 +168,7 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
   const [status, setStatus] = useState<ProviderStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
   const [items, setItems] = useState<ChatItem[]>([]);
+  const [usage, setUsage] = useState<UsageTotal | null>(null);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
@@ -146,12 +191,30 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
 
   useEffect(() => { void fetchStatus(); }, [fetchStatus]);
 
-  // Auto-scroll to bottom when items change.
+  // Auto-scroll to bottom when items change — but only when the user is already
+  // near the bottom, so scrolling up to re-read is never yanked away.
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-    }
+    const el = scrollRef.current;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (distance < 240) el.scrollTop = el.scrollHeight;
   }, [items]);
+
+  // Auto-resize the textarea up to its CSS max-height.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+  }, [input]);
+
+  const toggleCollapse = useCallback((index: number) => {
+    setItems(prev => prev.map((it, i) =>
+      i === index && (it.kind === 'tools' || it.kind === 'diff')
+        ? { ...it, collapsed: !it.collapsed }
+        : it,
+    ));
+  }, []);
 
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
@@ -189,8 +252,9 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
         return;
       }
       await r.json() as AgentResetResponse;
-      // Clear local conversation history on success.
+      // Clear local conversation history and usage on success.
       setItems([]);
+      setUsage(null);
     } catch {
       setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '重設請求失敗' }]);
     }
@@ -203,26 +267,140 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
     setInput('');
     setStreaming(true);
 
-    // Add user bubble.
-    setItems(prev => [...prev, { kind: 'text', role: 'user', text: userText }]);
+    // Collapse previous-turn diff blocks and tool groups, then add the user bubble.
+    setItems(prev => [
+      ...prev.map(it =>
+        it.kind === 'diff' || it.kind === 'tools' ? { ...it, collapsed: true } : it,
+      ),
+      { kind: 'text', role: 'user', text: userText },
+    ]);
 
     const ac = new AbortController();
     abortRef.current = ac;
 
-    try {
-      // needsNewBubble tracks whether the next text event should open a fresh
-      // assistant bubble (true after a tool_start resets the text run).
-      let needsNewBubble = true;
+    // Per-send mutable state captured by the event handler below.
+    // needsNewBubble: whether the next text event opens a fresh assistant bubble
+    // (true after a tool_start resets the text run).
+    let needsNewBubble = true;
+    // Paths already announced via graph_written this turn (dedup the notice).
+    const announcedWrites = new Set<string>();
 
+    const handleEvent = (event: AgentSseEvent) => {
+      switch (event.type) {
+        case 'text': {
+          if (needsNewBubble) {
+            needsNewBubble = false;
+            setItems(prev => [...prev, { kind: 'text', role: 'assistant', text: event.text }]);
+          } else {
+            setItems(prev => {
+              const last = prev[prev.length - 1];
+              if (last?.kind === 'text' && last.role === 'assistant') {
+                const updated = [...prev];
+                updated[updated.length - 1] = { ...last, text: last.text + event.text };
+                return updated;
+              }
+              // Fallback: no assistant bubble at tail — create one.
+              return [...prev, { kind: 'text', role: 'assistant', text: event.text }];
+            });
+          }
+          break;
+        }
+
+        case 'tool_start': {
+          // Mark that the next text run needs a fresh bubble.
+          needsNewBubble = true;
+          const step: ToolStep = { name: event.name, summary: event.summary, done: false };
+          setItems(prev => {
+            const last = prev[prev.length - 1];
+            if (last?.kind === 'tools') {
+              // Merge into the trailing group (consecutive tool steps).
+              const updated = [...prev];
+              updated[updated.length - 1] = { ...last, steps: [...last.steps, step] };
+              return updated;
+            }
+            return [...prev, { kind: 'tools', steps: [step], collapsed: false }];
+          });
+          break;
+        }
+
+        case 'tool_end': {
+          setItems(prev => {
+            // Find the last group containing an unfinished step with this name.
+            const copy = [...prev];
+            for (let i = copy.length - 1; i >= 0; i--) {
+              const item = copy[i];
+              if (item.kind !== 'tools') continue;
+              for (let j = item.steps.length - 1; j >= 0; j--) {
+                const s = item.steps[j];
+                if (s.name === event.name && !s.done) {
+                  const steps = [...item.steps];
+                  steps[j] = { ...s, done: true, ok: event.ok, endSummary: event.summary };
+                  copy[i] = { ...item, steps };
+                  return copy;
+                }
+              }
+            }
+            return prev;
+          });
+          break;
+        }
+
+        case 'usage': {
+          setUsage(prev => ({
+            input: (prev?.input ?? 0) + event.inputTokens,
+            output: (prev?.output ?? 0) + event.outputTokens,
+            estimated: (prev?.estimated ?? false) || event.estimated,
+          }));
+          break;
+        }
+
+        case 'limit': {
+          setItems(prev => [...prev, { kind: 'notice', variant: 'limit', message: event.message }]);
+          break;
+        }
+
+        case 'error': {
+          setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: event.message }]);
+          break;
+        }
+
+        case 'diff': {
+          // Dedicated DiffBlock item; needsNewBubble untouched (see header note).
+          setItems(prev => [...prev, { kind: 'diff', lines: event.lines, collapsed: false }]);
+          break;
+        }
+
+        case 'graph_written': {
+          // Open the written graph via the existing mechanism + announce once.
+          open(event.path);
+          if (!announcedWrites.has(event.path)) {
+            announcedWrites.add(event.path);
+            setItems(prev => [...prev, { kind: 'notice', variant: 'info', message: `已開啟圖形：${event.path}` }]);
+          }
+          break;
+        }
+
+        case 'done': {
+          // Turn finished — auto-collapse all tool groups; diffs stay open
+          // until the next user message so the result remains in view.
+          setItems(prev => prev.map(it => (it.kind === 'tools' ? { ...it, collapsed: true } : it)));
+          break;
+        }
+
+        default:
+          break;
+      }
+    };
+
+    try {
       for await (const event of streamChat(
         { text: userText, graphPath: currentPath ?? undefined },
         ac.signal,
       )) {
-        handleSseEvent(event, (updater: (prev: ChatItem[]) => ChatItem[]) => setItems(updater), () => needsNewBubble, (v) => { needsNewBubble = v; });
+        handleEvent(event);
       }
     } catch (e: unknown) {
       if ((e as Error)?.name === 'AbortError') {
-        // User stopped — add a notice.
         setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '已中斷' }]);
       } else {
         setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: (e as Error)?.message ?? '連線錯誤' }]);
@@ -232,102 +410,7 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
       setStreaming(false);
       inputRef.current?.focus();
     }
-  }, [streaming, currentPath]);
-
-  // Process incoming SSE events and update the item list.
-  //
-  // needsNewBubble / setNeedsNewBubble: a boolean flag that starts true and is
-  // set to false once an assistant bubble has been opened.  A tool_start event
-  // resets it to true so the next text event from the subsequent LLM turn opens
-  // a fresh bubble rather than appending into the pre-tool bubble.
-  function handleSseEvent(
-    event: AgentSseEvent,
-    setItemsFn: React.Dispatch<React.SetStateAction<ChatItem[]>> | ((f: (prev: ChatItem[]) => ChatItem[]) => void),
-    getNeedsNewBubble: () => boolean,
-    setNeedsNewBubble: (v: boolean) => void,
-  ) {
-    switch (event.type) {
-      case 'text': {
-        if (getNeedsNewBubble()) {
-          // Open a fresh assistant bubble for this text run.
-          setNeedsNewBubble(false);
-          setItemsFn(prev => [...prev, { kind: 'text', role: 'assistant', text: event.text }]);
-        } else {
-          // Append to the last assistant bubble (same LLM turn, streaming deltas).
-          setItemsFn(prev => {
-            const last = prev[prev.length - 1];
-            if (last?.kind === 'text' && (last as TextBubble).role === 'assistant') {
-              const updated = [...prev];
-              updated[updated.length - 1] = {
-                ...(last as TextBubble),
-                text: (last as TextBubble).text + event.text,
-              };
-              return updated;
-            }
-            // Fallback: no assistant bubble at tail — create one.
-            return [...prev, { kind: 'text', role: 'assistant', text: event.text }];
-          });
-        }
-        break;
-      }
-
-      case 'tool_start': {
-        // Mark that the next text run needs a fresh bubble.
-        setNeedsNewBubble(true);
-        setItemsFn(prev => [...prev, {
-          kind: 'tool', name: event.name, summary: event.summary, done: false,
-        }]);
-        break;
-      }
-
-      case 'tool_end': {
-        setItemsFn(prev => {
-          // Find the last tool line with this name that hasn't finished.
-          const copy = [...prev];
-          for (let i = copy.length - 1; i >= 0; i--) {
-            const item = copy[i];
-            if (item.kind === 'tool' && item.name === event.name && !item.done) {
-              copy[i] = { ...item, done: true, ok: event.ok, endSummary: event.summary };
-              return copy;
-            }
-          }
-          return prev;
-        });
-        break;
-      }
-
-      case 'limit': {
-        setItemsFn(prev => [...prev, { kind: 'notice', variant: 'limit', message: event.message }]);
-        break;
-      }
-
-      case 'error': {
-        setItemsFn(prev => [...prev, { kind: 'notice', variant: 'error', message: event.message }]);
-        break;
-      }
-
-      case 'diff': {
-        // Diff block: insert as a dedicated DiffBlock item. Does NOT touch
-        // needsNewBubble — the preceding tool_start already set it to true, so
-        // the next text event will naturally open a fresh assistant bubble.
-        setItemsFn(prev => [...prev, { kind: 'diff', lines: event.lines }]);
-        break;
-      }
-
-      case 'graph_written': {
-        // Open the written graph via existing mechanism.
-        open(event.path);
-        break;
-      }
-
-      case 'done':
-        // Nothing extra needed; streaming flag handled in handleSend finally.
-        break;
-
-      default:
-        break;
-    }
-  }
+  }, [streaming, currentPath, open]);
 
   // Hidden in snapshot mode.
   if (connection === 'snapshot') return null;
@@ -363,19 +446,51 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
     );
   }
 
+  const usageTotal = usage ? usage.input + usage.output : 0;
+  const lastIndex = items.length - 1;
+
   return (
     <div className="agent-panel">
       {/* Status bar */}
-      <div className="agent-statusbar">
-        <Icon name="check" size={11} style={{ color: 'var(--ok)' }} />
+      <div className={'agent-statusbar' + (streaming ? ' streaming' : '')}>
+        <span className="agent-status-dot" />
         <span className="agent-provider">{status.provider} · {status.model}</span>
+        <span className="grow" />
+        {usage && (
+          <span
+            className="agent-usage"
+            title={`輸入 ${fmtTokens(usage.input)} · 輸出 ${fmtTokens(usage.output)} tokens${usage.estimated ? '（估算值）' : ''}`}
+          >
+            {usage.estimated ? '約 ' : ''}{fmtTokens(usageTotal)} tokens
+          </span>
+        )}
+        {!streaming && (
+          <>
+            <button
+              className="agent-bar-btn"
+              onClick={() => void handleUndo()}
+              title="還原上一步的檔案變更"
+            >
+              <Icon name="history" size={11} /> 還原
+            </button>
+            <button
+              className="agent-bar-btn"
+              onClick={() => void handleReset()}
+              title="清空對話，開始新的會話"
+            >
+              <Icon name="plus" size={11} /> 新對話
+            </button>
+          </>
+        )}
       </div>
 
       {/* Message list */}
       <div className="agent-messages" ref={scrollRef}>
         {items.length === 0 && (
           <div className="agent-empty">
+            <Icon name="bolt" size={26} className="agent-empty-icon" />
             <div className="agent-empty-title">開始對話，生成 UE 材質</div>
+            <div className="agent-empty-sub">用白話描述想要的效果，AI 會即時生成節點圖，改錯了隨時還原</div>
             <div className="agent-empty-examples">
               {EXAMPLE_PROMPTS.map((p, i) => (
                 <button
@@ -392,20 +507,21 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
         )}
         {items.map((item, i) => {
           if (item.kind === 'text') {
+            const isStreamingBubble = streaming && i === lastIndex && item.role === 'assistant';
             return (
-              <div key={i} className={'agent-bubble ' + item.role}>
-                <div className="agent-bubble-text">{item.text}</div>
+              <div key={i} className={'agent-bubble agent-item ' + item.role + (isStreamingBubble ? ' streaming' : '')}>
+                <span className="agent-bubble-text">{item.text}</span>
               </div>
             );
           }
-          if (item.kind === 'tool') {
-            return <ToolStepLine key={i} item={item} />;
+          if (item.kind === 'tools') {
+            return <ToolGroupView key={i} item={item} onToggle={() => toggleCollapse(i)} />;
           }
           if (item.kind === 'notice') {
             return <NoticeItem key={i} item={item} />;
           }
           if (item.kind === 'diff') {
-            return <DiffBlockView key={i} item={item} />;
+            return <DiffBlockView key={i} item={item} onToggle={() => toggleCollapse(i)} />;
           }
           return null;
         })}
@@ -413,55 +529,40 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
 
       {/* Input area */}
       <div className="agent-input-wrap">
-        <textarea
-          ref={inputRef}
-          className="agent-input"
-          placeholder="描述你想要的材質效果…"
-          value={input}
-          rows={2}
-          disabled={streaming}
-          onChange={e => setInput(e.target.value)}
-          onKeyDown={e => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void handleSend(input);
-            }
-          }}
-        />
-        <div className="agent-input-actions">
+        <div className="agent-inputbox">
+          <textarea
+            ref={inputRef}
+            className="agent-input"
+            placeholder="描述你想要的材質效果…"
+            value={input}
+            rows={1}
+            onChange={e => setInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend(input);
+              }
+            }}
+          />
           {streaming ? (
-            <button className="btn sm" onClick={handleStop}>
-              <Icon name="x" size={12} /> 停止
+            <button className="agent-stop-btn" onClick={handleStop} title="停止生成" aria-label="停止">
+              <Icon name="stop" size={12} />
             </button>
           ) : (
-            <>
-              <button
-                className="btn primary sm"
-                disabled={!input.trim()}
-                onClick={() => void handleSend(input)}
-              >
-                <Icon name="check" size={12} /> 送出
-              </button>
-              <button
-                className="btn sm"
-                disabled={streaming}
-                onClick={() => void handleUndo()}
-                title="還原上一步"
-                aria-label="還原上一步"
-              >
-                <Icon name="refresh" size={12} /> 還原
-              </button>
-              <button
-                className="btn sm"
-                disabled={streaming}
-                onClick={() => void handleReset()}
-                title="新對話"
-                aria-label="新對話"
-              >
-                <Icon name="x" size={12} /> 新對話
-              </button>
-            </>
+            <button
+              className="agent-send-btn"
+              disabled={!input.trim()}
+              onClick={() => void handleSend(input)}
+              title="送出"
+              aria-label="送出"
+            >
+              <Icon name="send" size={14} />
+            </button>
           )}
+        </div>
+        <div className="agent-input-hint">
+          <span>Enter 送出 · Shift+Enter 換行</span>
+          {streaming && <span className="responding">回應中…</span>}
         </div>
       </div>
     </div>
