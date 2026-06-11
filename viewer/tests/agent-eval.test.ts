@@ -16,6 +16,7 @@ import { undoScenarios } from './eval/corpus-undo.js';
 import { memoryScenarios } from './eval/corpus-memory.js';
 import { compactScenarios } from './eval/corpus-compact.js';
 import { discoveryScenarios } from './eval/corpus-discovery.js';
+import { actionScenarios } from './eval/corpus-actions.js';
 
 const corpus: Array<[string, Scenario[]]> = [
   ['generate', generateScenarios],
@@ -25,6 +26,7 @@ const corpus: Array<[string, Scenario[]]> = [
   ['memory', memoryScenarios],
   ['compact', compactScenarios],
   ['discovery', discoveryScenarios],
+  ['actions', actionScenarios],
 ];
 
 for (const [category, scenarios] of corpus) {

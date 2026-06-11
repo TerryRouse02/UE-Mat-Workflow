@@ -17,7 +17,7 @@
   第三方 native adapter、JSON-in-text 工具降級解析。
   - 評測語料已落地（2026-06-11）：`tests/eval/`（情境 DSL＋fixtures＋runner，含
     memory／compact／discovery 類別與 sessionMemoryIncludes 期望）＋
-    `tests/agent-eval.test.ts`，21 個腳本化情境涵蓋生成／修圖／自修／undo／記憶／壓縮／探索，見 §10。
+    `tests/agent-eval.test.ts`，27 個腳本化情境涵蓋生成／修圖／自修／undo／記憶／壓縮／探索／檢視器動作，見 §10。
 - Local-first 鐵律不變：零新 npm 依賴（Node 18+ 原生 fetch）、零額外部署、
   一鍵 `pnpm dev`。
 
@@ -59,7 +59,8 @@ viewer/
 │     ├─ provider/openai.ts     # OpenAI-compatible adapter（可配 baseUrl）
 │     ├─ provider/index.ts      # pickProvider(config)
 │     ├─ loop.ts                # agent loop（閉環＋護欄）
-│     ├─ tools.ts               # 21 個 tool 定義 + dispatch（探索/記憶/壓縮/檔案管理/剪貼簿/爬取提案/公網）
+│     ├─ tools.ts               # 23 個 tool 定義 + dispatch（探索/記憶/壓縮/檔案管理/剪貼簿/爬取提案/DB 修改提案/公網/爬取 log）
+│     ├─ db-edit.ts              # 節點 DB 修改的驗證＋套用（重生索引＋audit，失敗回滾）
 │     ├─ patch.ts               # patch_graph 領域操作集（純函式）
 │     ├─ query-bridge.ts        # createRequire 載入 agent-pack/query-lib.js 的型別殼
 │     ├─ prompt.ts              # 新手人格 system prompt（runtime 讀 SPEC.md）
@@ -160,9 +161,9 @@ interface ProviderStatus {
 回明確中文錯誤建議換模型（列例：claude-opus-4-8、gpt-4o、deepseek-chat）。
 MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 
-## 4. Tool 契約（21 個）
+## 4. Tool 契約（23 個）
 
-2026-06-11 追加七個（探索＋記憶＋壓縮）；同日再追加六個（檔案管理＋剪貼簿＋爬取提案＋公網存取）：
+2026-06-11 追加七個（探索＋記憶＋壓縮）；同日再追加六個（檔案管理＋剪貼簿＋爬取提案＋公網存取）；再追加兩個（DB 修改提案＋爬取 log）：
 
 | tool | input | returns | guard |
 |---|---|---|---|
@@ -173,6 +174,8 @@ MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 | `delete_graph` | `{path}` | 刪除 matgraph（pre-image 進 checkpoint，可 undo） | guardPath；刪非本對話建立的檔前先問使用者 |
 | `export_to_clipboard` | `{path}` | 驗證後請前端以 T3D 複製到剪貼簿（loop 發 `export_request` 事件，前端重用導出路徑） | 圖必須 valid；複製發生在瀏覽器 |
 | `request_crawl` | `{kind,contentRoot?}` | 只「提案」爬取：loop 發 `crawl_proposal`，使用者按卡片確認才走既有 POST /api/crawl | kind 限 workmf/projectmat；probeEnv 不綠直接報錯；agent 永遠拿不到拉起 UE 的權限 |
+| `propose_db_edit` | `{nodeName,patch,rationale}` | 只「提案」修改公開節點 DB 的既有 entry：loop 發 `db_edit_proposal`，使用者按卡片核准才走 POST /api/agent/db-edit（套用→重生索引→audit，失敗回滾） | patch 鍵 allowlist（description/category/verified/inputs/outputs/params）；節點必須已存在；只准乾淨 Epic/公開資料 |
+| `read_crawl_log` | `{lines?}` | 最近一次「已完成」爬取的 log 尾段（kind/status/exitCode＋行） | 唯讀；上限 200 行／12K 字；由 http-server 掛 runner.lastLog() |
 | `web_search` | `{query}` | DuckDuckGo HTML 端點搜尋（零金鑰、best-effort） | 走 fetchPublic 同套 SSRF 防護 |
 | `web_fetch` | `{url}` | 抓公網頁面轉純文字（HTML 剝離、15K 字上限） | SSRF 防護：僅 http(s)、封私網/loopback/link-local、DNS 全位址檢查、redirect 逐跳重檢（web-tools.ts） |
 | `read_example` | `{name}` | 整個範例專案的 matgraph 檔 | 名稱 allowlist regex；30K 字上限 |
@@ -294,6 +297,7 @@ get_signature 再連線；MF 必查 `get_mf_signature`；改圖前先 `read_grap
 | `/api/agent/explain` | POST（JSON 回應，非串流） | hover「深入解說」一次性 LLM | `sameOrigin` |
 | `/api/agent/undo` | POST | 還原上一 turn 的 pre-image | `sameOrigin`；限 `graphs/` |
 | `/api/agent/regenerate` | POST | 回捲最後一輪（檔案＋history＋transcript）並回傳 user 文字供前端重送 | `sameOrigin`；串流中 409；turnSeq 不回退 |
+| `/api/agent/db-edit` | POST | 套用使用者核准的節點 DB 修改（驗證→寫入→重生索引→parity audit，失敗回滾） | `sameOrigin`；單飛（套用中 409） |
 | `/api/agent/reset` | POST | 清空 session | `sameOrigin` |
 | `/api/agent/status` | GET | `ProviderStatus`（永不含 apiKey） | 同 `/api/env` |
 | `/api/agent/test` | POST | 用「已儲存」設定發最小請求驗證連線；錯誤翻白話（2026-06-11） | `sameOrigin`；30s 上限 |
@@ -313,6 +317,7 @@ type AgentSseEvent =
   | { type: 'graph_written'; path: string; changedNodeIds?: string[] } // UI 自動開啟＋畫布脈衝高亮變更節點
   | { type: 'export_request'; path: string }                         // UI 以 T3D 複製該圖到剪貼簿（重用導出路徑）
   | { type: 'crawl_proposal'; kind: 'workmf' | 'projectmat'; contentRoot: string } // UI 顯示確認卡，使用者核准才呼叫 POST /api/crawl
+  | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; patch: Record<string, unknown>; rationale: string } // UI 顯示確認卡，使用者核准才呼叫 POST /api/agent/db-edit
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
   | { type: 'compacted'; message: string }                           // 壓縮通知（2026-06-11）
   | { type: 'limit'; kind: 'iters' | 'cost'; message: string }

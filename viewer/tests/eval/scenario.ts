@@ -9,6 +9,7 @@
 
 import type { StreamEvent } from '../../server/agent/provider/types.js';
 import type { RunAgentOptions } from '../../server/agent/loop.js';
+import type { ToolContext } from '../../server/agent/tools.js';
 
 // ---------------------------------------------------------------------------
 // Graph file shape (loose, for file checks)
@@ -52,6 +53,11 @@ export interface ChatExpect {
   graphWritten?: string[];
   /** Expected limit event kind. Absent → the runner asserts NO limit event. */
   limit?: 'iters' | 'cost';
+  /**
+   * SSE event types that must each appear at least once in the step's stream
+   * (viewer-action coverage: export_request, crawl_proposal, db_edit_proposal…).
+   */
+  eventTypesInclude?: string[];
   /** Substrings that must appear in session memory after the step. */
   sessionMemoryIncludes?: string[];
   /** Substrings that must appear in longterm memory after the step. */
@@ -98,6 +104,11 @@ export interface Scenario {
   seedFiles?: Record<string, unknown>;
   /** Loop overrides (tiny maxIters etc.). */
   options?: RunAgentOptions;
+  /**
+   * Extra ToolContext fields merged over the runner's defaults — injected
+   * fakes for the env probe (request_crawl), web deps, or the crawl log.
+   */
+  ctxExtras?: Partial<ToolContext>;
   steps: Step[];
 }
 

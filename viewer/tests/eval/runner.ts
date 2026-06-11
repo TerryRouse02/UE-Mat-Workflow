@@ -89,6 +89,7 @@ export async function runScenario(scenario: Scenario): Promise<void> {
         await store.snapshotFile(turnId || 'turn-0', absPath);
       },
       memory,
+      ...scenario.ctxExtras,
     };
 
     // Seed files (pre-existing user graphs).
@@ -218,6 +219,12 @@ async function runChatStep(
       .filter((e) => e.type === 'graph_written')
       .map((e) => (e as { type: 'graph_written'; path: string }).path);
     expect(paths, `${where}: graph_written paths`).toEqual(exp.graphWritten);
+  }
+  for (const wantType of exp.eventTypesInclude ?? []) {
+    expect(
+      events.some((e) => e.type === wantType),
+      `${where}: stream must contain a "${wantType}" event`,
+    ).toBe(true);
   }
 
   // --- Memory expectations (M7b/M11-1 coverage) ---

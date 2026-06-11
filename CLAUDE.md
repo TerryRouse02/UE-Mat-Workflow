@@ -76,6 +76,7 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   `POST /api/agent/explain` (one-shot LLM node explanation; JSON response; sameOrigin; concurrent-safe),
   `POST /api/agent/undo` (restore previous checkpoint turn; sameOrigin; 409 while streaming),
   `POST /api/agent/regenerate` (rewind last user turn — files+history+transcript — and return its text for a client re-send; sameOrigin; 409 while streaming),
+  `POST /api/agent/db-edit` (apply a user-approved node-DB edit: validate → write → regen index → parity audit, rollback on failure; sameOrigin; single-flight),
   `POST /api/agent/reset` (abort in-flight chat + clear session; sameOrigin);
   static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
   `listFiles`, crawl progress broadcast.
