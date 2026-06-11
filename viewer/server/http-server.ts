@@ -16,11 +16,23 @@ import { isInside, toPosixPath, slugifyGraphName, writeGraph } from './graph-wri
 export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
 import { importProjectMaterials, PROJECT_DIR } from './projectmat-importer.js';
 import type { ExportMeta } from '../web/src/export/export-meta-types.js';
+import { runAgent, createSession, type AgentLoopSession } from './agent/loop.js';
+import { createCheckpointStore } from './agent/checkpoint.js';
+import { pickProvider } from './agent/provider/index.js';
+import { discoverVersions } from './agent/query-bridge.js';
+import type { AgentSseEvent, AgentChatRequest } from './agent/agent-types.js';
+import type { LLMConfig, ProviderStatus } from './agent/provider/types.js';
 
 export interface ServerOpts {
   repoRoot: string;     // contains graphs/
   port: number;         // 0 = auto
   webDist: string;      // path to built web files (empty for test)
+  /**
+   * Optional override for the LLM provider factory — injected by tests so they
+   * can substitute a FakeProvider without monkey-patching pickProvider.
+   * Default: pickProvider from ./agent/provider/index.js
+   */
+  providerFactory?: (config: LLMConfig) => import('./agent/provider/types.js').Provider;
 }
 
 export interface RunningServer {
@@ -91,6 +103,20 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // JSON. Fixed path (no user-controlled segment), and gitignored.
   const localConfigPath = resolve(opts.repoRoot, 'tools', 'node-t3d-metadata', 'local.config.json');
   const runner = createCrawlRunner(opts.repoRoot);
+
+  // ─── Agent state ───────────────────────────────────────────────────────────
+  // Single active session (MVP). Null when no chat has been started yet.
+  let agentSession: AgentLoopSession | null = null;
+  // True while a chat is actively streaming. Guards the 409 single-flight.
+  let agentStreaming = false;
+  // AbortController for the currently-streaming chat (if any).
+  // Referenced inside handleAgentChat (set and cleared); stored here so future
+  // M4 /api/agent/reset can call it.
+  const agentAbortRef = { current: null as AbortController | null };
+  // Checkpoint store for the current session (created alongside the session).
+  let agentCheckpoint: ReturnType<typeof createCheckpointStore> | null = null;
+  // Provider factory — default pickProvider, overridable for tests.
+  const makeProvider = opts.providerFactory ?? pickProvider;
 
   const sendJson = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -177,7 +203,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   }
   async function handleConfig(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin config requests are refused' }); return; }
-    let body: { ProjectPath?: unknown; EngineRoot?: unknown; WorkMfContentRoots?: unknown };
+    let body: {
+      ProjectPath?: unknown; EngineRoot?: unknown; WorkMfContentRoots?: unknown;
+      Llm?: unknown;
+    };
     try { body = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
 
@@ -200,12 +229,77 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       const parsed = JSON.parse(await readFile(localConfigPath, 'utf-8'));
       if (parsed && typeof parsed === 'object') existing = parsed as Record<string, unknown>;
     } catch { /* absent or unparseable — start fresh */ }
-    const merged = { ...existing, ...fields };
+    const merged: Record<string, unknown> = { ...existing, ...fields };
+
+    // ── Llm extension ──────────────────────────────────────────────────────────
+    // Merge the optional Llm object into local.config.json.
+    // Rules:
+    //  - provider: must be 'anthropic' or 'openai-compatible'
+    //  - baseUrl/model: sanitized strings (cleanConfigField)
+    //  - apiKey: sanitized string; an explicit empty string clears the stored key;
+    //            an absent/undefined apiKey leaves the previously-saved key intact.
+    //            This means the Config UI can save provider/model without sending
+    //            apiKey and the saved key is preserved.
+    //  - maxTokens: coerced to a safe positive integer; dropped if invalid.
+    //  - The HTTP response shape is EnvStatus (probeEnv) — Llm fields are NEVER echoed.
+    if (body.Llm !== undefined && body.Llm !== null && typeof body.Llm === 'object') {
+      const llmIn = body.Llm as Record<string, unknown>;
+      let llmConfig: Record<string, unknown> = {};
+      try {
+        // Load any previously-saved Llm config to preserve untouched fields.
+        const prevLlm = existing.Llm;
+        if (prevLlm && typeof prevLlm === 'object') llmConfig = { ...(prevLlm as Record<string, unknown>) };
+
+        // provider — required, validated enum
+        if (llmIn.provider !== undefined) {
+          if (llmIn.provider !== 'anthropic' && llmIn.provider !== 'openai-compatible') {
+            throw new Error('Llm.provider must be "anthropic" or "openai-compatible"');
+          }
+          llmConfig.provider = llmIn.provider;
+        }
+
+        // baseUrl
+        if (llmIn.baseUrl !== undefined) {
+          const v = cleanConfigField(llmIn.baseUrl);
+          if (v !== null) llmConfig.baseUrl = v; else delete llmConfig.baseUrl;
+        }
+
+        // model
+        if (llmIn.model !== undefined) {
+          const v = cleanConfigField(llmIn.model);
+          if (v !== null) llmConfig.model = v;
+        }
+
+        // apiKey: explicit empty string clears; absent leaves existing intact.
+        if ('apiKey' in llmIn) {
+          if (llmIn.apiKey === '' || llmIn.apiKey === null) {
+            delete llmConfig.apiKey;
+          } else {
+            const v = cleanConfigField(llmIn.apiKey);
+            if (v !== null) llmConfig.apiKey = v;
+          }
+        }
+
+        // maxTokens: coerce to positive integer or drop
+        if (llmIn.maxTokens !== undefined) {
+          const n = Number(llmIn.maxTokens);
+          if (Number.isFinite(n) && n > 0) {
+            llmConfig.maxTokens = Math.min(Math.floor(n), 2_000_000);
+          } else {
+            delete llmConfig.maxTokens;
+          }
+        }
+
+        merged.Llm = llmConfig;
+      } catch (e) { sendJson(res, 400, { error: (e as Error).message }); return; }
+    }
+
     try {
       await mkdir(dirname(localConfigPath), { recursive: true });
       await writeFile(localConfigPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
     } catch (e) { sendJson(res, 500, { error: `failed to write config: ${(e as Error).message}` }); return; }
 
+    // Response is always EnvStatus — Llm fields are never echoed back.
     sendJson(res, 200, await probeEnv(opts.repoRoot));
   }
 
@@ -283,6 +377,168 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }
 
+  // ─── Agent handlers ───────────────────────────────────────────────────────
+
+  /** Read LLMConfig from local.config.json on each request (config changes apply without restart). */
+  async function readLlmConfig(): Promise<LLMConfig | null> {
+    try {
+      const raw = JSON.parse(await readFile(localConfigPath, 'utf-8')) as Record<string, unknown>;
+      const llm = raw.Llm as Partial<LLMConfig> | undefined;
+      if (!llm || typeof llm !== 'object') return null;
+      if (llm.provider !== 'anthropic' && llm.provider !== 'openai-compatible') return null;
+      if (typeof llm.model !== 'string' || !llm.model.trim()) return null;
+      return {
+        provider: llm.provider,
+        baseUrl: typeof llm.baseUrl === 'string' ? llm.baseUrl : undefined,
+        apiKey: typeof llm.apiKey === 'string' ? llm.apiKey : undefined,
+        model: llm.model.trim(),
+        maxTokens: typeof llm.maxTokens === 'number' && llm.maxTokens > 0 ? Math.floor(llm.maxTokens) : undefined,
+      };
+    } catch {
+      return null;
+    }
+  }
+
+  /** GET /api/agent/status — returns ProviderStatus (never contains apiKey). */
+  async function handleAgentStatus(res: import('node:http').ServerResponse) {
+    const config = await readLlmConfig();
+    const status: ProviderStatus = config
+      ? { configured: true, provider: config.provider, model: config.model }
+      : { configured: false };
+    sendJson(res, 200, status);
+  }
+
+  /** POST /api/agent/chat — SSE stream of AgentSseEvents. */
+  async function handleAgentChat(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+
+    // Single-flight: reject concurrent chats.
+    // IMPORTANT: set the flag here, synchronously, before any await — otherwise a
+    // second request can arrive during readBody/readLlmConfig and pass the guard (TOCTOU).
+    if (agentStreaming) {
+      sendJson(res, 409, { error: '目前已有對話進行中，請等待完成或停止後再試。' });
+      return;
+    }
+    agentStreaming = true;
+
+    let body: AgentChatRequest;
+    try { body = JSON.parse(await readBody(req)) as AgentChatRequest; }
+    catch (e) {
+      agentStreaming = false;
+      sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` });
+      return;
+    }
+
+    // Read LLM config fresh on each request.
+    const llmConfig = await readLlmConfig();
+    if (!llmConfig) {
+      agentStreaming = false;
+      // Return SSE error event with zh-TW guidance.
+      res.writeHead(200, {
+        'Content-Type': 'text/event-stream; charset=utf-8',
+        'Cache-Control': 'no-cache',
+        Connection: 'keep-alive',
+      });
+      const errEvent: AgentSseEvent = {
+        type: 'error',
+        message: '尚未設定 LLM 提供商。請前往 Config 分頁的「AI 助手」區塊填寫 Provider、Model 和 API Key。',
+      };
+      res.write(`data: ${JSON.stringify(errEvent)}\n\n`);
+      const doneEvent: AgentSseEvent = { type: 'done' };
+      res.write(`data: ${JSON.stringify(doneEvent)}\n\n`);
+      res.end();
+      return;
+    }
+
+    // Create or reuse session.
+    if (!agentSession) {
+      const versions = discoverVersions(opts.repoRoot);
+      const defaultVersion = versions.length > 0 ? versions[versions.length - 1] : '5.7';
+      const ueVersion = body.ueVersion ?? defaultVersion;
+      const sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      agentSession = createSession(sessionId, ueVersion, body.graphPath ?? undefined);
+      agentCheckpoint = createCheckpointStore(resolve(opts.repoRoot, 'viewer'), sessionId);
+    }
+
+    const session = agentSession;
+    const checkpointStore = agentCheckpoint!;
+
+    // Build provider.
+    let provider: import('./agent/provider/types.js').Provider;
+    try {
+      provider = makeProvider(llmConfig);
+    } catch (e) {
+      agentStreaming = false;
+      sendJson(res, 500, { error: `failed to build provider: ${(e as Error).message}` });
+      return;
+    }
+
+    // SSE response headers.
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream; charset=utf-8',
+      'Cache-Control': 'no-cache',
+      Connection: 'keep-alive',
+    });
+
+    const ac = new AbortController();
+    agentAbortRef.current = ac;
+
+    // Abort when client disconnects.
+    req.on('close', () => { ac.abort(); });
+
+    const graphsRoot = resolve(opts.repoRoot, 'graphs');
+    const agentPackRoot = resolve(opts.repoRoot, 'agent-pack');
+
+    // Degradation §3.4: a model that rejects tool definitions surfaces either
+    // as a thrown 4xx (catch below) or as an error StreamEvent the adapter
+    // yields without throwing — rewriting at the emit boundary covers both.
+    const TOOL_HINT = '建議使用支援工具的模型，例如 claude-opus-4-8、gpt-4o 或 deepseek-chat。';
+    const withToolHint = (msg: string): string =>
+      /4\d\d/.test(msg) && /tool/i.test(msg) && !msg.includes(TOOL_HINT)
+        ? `模型不支援工具呼叫（${msg}）。${TOOL_HINT}`
+        : msg;
+
+    const emit = (event: AgentSseEvent) => {
+      if (res.writableEnded) return;
+      const out = event.type === 'error' ? { ...event, message: withToolHint(event.message) } : event;
+      res.write(`data: ${JSON.stringify(out)}\n\n`);
+    };
+
+    const ctx = {
+      repoRoot: opts.repoRoot,
+      graphsRoot,
+      ueVersion: session.ueVersion,
+      workMfIndexPath: resolve(agentPackRoot, 'workmf-index.json'),
+      beforeWrite: async (absPath: string, turnId: string) => {
+        await checkpointStore.snapshotFile(turnId, absPath);
+      },
+    };
+
+    try {
+      await runAgent(
+        body.text,
+        session,
+        provider,
+        llmConfig.model,
+        ctx,
+        emit,
+        ac.signal,
+        { maxTokens: llmConfig.maxTokens },
+      );
+    } catch (e) {
+      const msg = (e as Error)?.message ?? 'unknown error';
+      // Tool-rejection messages get the model-switch hint via emit; everything
+      // else gets the generic prefix.
+      const toolRejected = /4\d\d/.test(msg) && /tool/i.test(msg);
+      emit({ type: 'error', message: toolRejected ? msg : `對話發生錯誤：${msg}` });
+      emit({ type: 'done' });
+    } finally {
+      agentStreaming = false;
+      agentAbortRef.current = null;
+      if (!res.writableEnded) res.end();
+    }
+  }
+
   // Track all open HTTP sockets so we can destroy them during forced shutdown.
   // Without this, http.close() only stops accepting new connections but waits
   // for existing keep-alive connections to drain — which can take up to 300 s on
@@ -327,6 +583,16 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin cancel requests are refused' }); return; }
       const ok = runner.cancel();
       sendJson(res, ok ? 200 : 409, ok ? { cancelled: true } : { error: 'no crawl running' });
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/agent/chat') {
+      try { await handleAgentChat(req, res); }
+      catch (e) { console.error('agent chat handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'GET' && urlPath === '/api/agent/status') {
+      try { await handleAgentStatus(res); }
+      catch (e) { console.error('agent status handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (!opts.webDist) { res.writeHead(404); res.end(); return; }

@@ -6,6 +6,7 @@ import { Icon } from './Icon';
 import './config.css';
 import { fmtTimeCompact as fmtTime, relTimeMinutes as relTime } from './timeUtils';
 import { parseLogLine } from './uiHelpers';
+import type { ProviderStatus } from './agent/protocol';
 
 // ─── CRAWL_KIND_META ────────────────────────────────────────────────────────
 
@@ -489,6 +490,160 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
   );
 }
 
+// ─── §4 AiSection ───────────────────────────────────────────────────────────
+
+interface AiSectionProps {
+  saveAgentConfig: (llm: {
+    provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
+  }) => Promise<{ ok: boolean; error?: string }>;
+}
+
+function AiSection({ saveAgentConfig }: AiSectionProps) {
+  const [provider, setProvider] = useState<'anthropic' | 'openai-compatible'>('anthropic');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
+  // apiKey is NEVER pre-filled from anywhere — password input only. Saving
+  // without typing leaves the previously-stored key intact (the server contract).
+  const [apiKey, setApiKey] = useState('');
+  const [maxTokens, setMaxTokens] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [status, setStatus] = useState<ProviderStatus | null>(null);
+
+  // Fetch current provider status on mount.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch('/api/agent/status', { cache: 'no-store' });
+        if (r.ok) setStatus(await r.json() as ProviderStatus);
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  const onSave = async () => {
+    setSaving(true);
+    setMsg(null);
+    const llm: { provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number } = {
+      provider,
+      model: model.trim(),
+    };
+    if (provider === 'openai-compatible' && baseUrl.trim()) llm.baseUrl = baseUrl.trim();
+    // Only send apiKey if the user typed something; empty = leave stored key intact.
+    if (apiKey) llm.apiKey = apiKey;
+    const mt = parseInt(maxTokens.trim(), 10);
+    if (!isNaN(mt) && mt > 0) llm.maxTokens = mt;
+
+    const r = await saveAgentConfig(llm);
+    setSaving(false);
+    if (r.ok) {
+      setMsg({ ok: true, text: '已儲存 AI 助手設定。' });
+      setApiKey(''); // Clear after save to avoid accidental re-submission.
+      // Refresh status after save.
+      try {
+        const s = await fetch('/api/agent/status', { cache: 'no-store' });
+        if (s.ok) setStatus(await s.json() as ProviderStatus);
+      } catch { /* ignore */ }
+    } else {
+      setMsg({ ok: false, text: r.error ?? '儲存失敗' });
+    }
+  };
+
+  return (
+    <div className="cfg-sec">
+      <div className="sech">
+        <span className="secn">4</span>
+        <span className="sect">AI 助手</span>
+        <span className="secd">對話式材質生成</span>
+      </div>
+
+      {status?.configured && (
+        <div style={{ fontSize: 11, marginBottom: 10, color: 'var(--ok)', display: 'flex', gap: 5, alignItems: 'center' }}>
+          <Icon name="check" size={11} /> 已設定：{status.provider} · {status.model}
+        </div>
+      )}
+
+      <div className="field">
+        <label>Provider</label>
+        <div className="inp">
+          <select
+            value={provider}
+            onChange={e => setProvider(e.target.value as 'anthropic' | 'openai-compatible')}
+            style={{ background: 'var(--surface)', color: 'var(--text)', border: 'none', flex: 1, fontSize: 12, padding: '0 4px' }}
+          >
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai-compatible">OpenAI-compatible (OpenAI / DeepSeek / …)</option>
+          </select>
+        </div>
+      </div>
+
+      {provider === 'openai-compatible' && (
+        <div className="field">
+          <label>Base URL <span style={{ color: 'var(--text-mute)' }}>— 例如 https://api.openai.com/v1</span></label>
+          <div className="inp">
+            <input
+              value={baseUrl}
+              onChange={e => setBaseUrl(e.target.value)}
+              spellCheck={false}
+              placeholder="https://api.openai.com/v1"
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="field">
+        <label>Model</label>
+        <div className="inp">
+          <input
+            value={model}
+            onChange={e => setModel(e.target.value)}
+            spellCheck={false}
+            placeholder={provider === 'anthropic' ? 'claude-opus-4-8' : 'gpt-4o'}
+          />
+        </div>
+      </div>
+
+      <div className="field">
+        <label>API Key <span style={{ color: 'var(--text-mute)' }}>— 不填保留現有金鑰</span></label>
+        <div className="inp">
+          <input
+            type="password"
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            autoComplete="off"
+            placeholder="sk-…（不填表示保留現有金鑰）"
+          />
+        </div>
+      </div>
+
+      <div className="field">
+        <label>Max Tokens <span style={{ color: 'var(--text-mute)' }}>— 選填，預設 8192</span></label>
+        <div className="inp">
+          <input
+            value={maxTokens}
+            onChange={e => setMaxTokens(e.target.value)}
+            placeholder="8192"
+            inputMode="numeric"
+          />
+        </div>
+      </div>
+
+      <button
+        className="btn sm"
+        style={{ marginTop: 2 }}
+        disabled={saving || !model.trim()}
+        onClick={() => void onSave()}
+      >
+        <Icon name="check" size={13} /> {saving ? '儲存中…' : '儲存 AI 設定'}
+      </button>
+      {msg && (
+        <div style={{ fontSize: 11, marginTop: 5, color: msg.ok ? 'var(--ok)' : 'var(--error)' }}>
+          {msg.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ConfigPanel (public export) ────────────────────────────────────────────
 
 export interface ConfigPanelProps {
@@ -501,7 +656,7 @@ export interface ConfigPanelProps {
 }
 
 export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPanelProps) {
-  const { state, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig } = useStore();
+  const { state, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig } = useStore();
   const { env, crawl, connection } = state;
 
   // Each crawl scope reads its own content root; the advanced/maintenance crawls
@@ -614,6 +769,7 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
         justRan={justRan}
         onStart={onStart}
       />
+      <AiSection saveAgentConfig={saveAgentConfig} />
     </div>
   );
 }

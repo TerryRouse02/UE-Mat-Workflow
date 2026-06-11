@@ -83,6 +83,12 @@ export interface RunAgentOptions {
   maxIters?: number;
   /** Override TOKEN_CEILING for this call (default: TOKEN_CEILING = 300_000). */
   tokenCeiling?: number;
+  /**
+   * maxTokens to send in each ChatRequest.
+   * Flows from LLMConfig.maxTokens via the http-server chat handler.
+   * Defaults to 8192 when absent.
+   */
+  maxTokens?: number;
 }
 
 export async function runAgent(
@@ -98,6 +104,7 @@ export async function runAgent(
 ): Promise<void> {
   const maxIters = options?.maxIters ?? MAX_ITERS;
   const tokenCeiling = options?.tokenCeiling ?? TOKEN_CEILING;
+  const maxTokens = options?.maxTokens ?? 8192;
 
   // Build system prompt (reads SPEC.md from disk at call time).
   const system = await buildSystemPrompt(ctx.repoRoot, session.ueVersion);
@@ -157,7 +164,7 @@ export async function runAgent(
       messages: session.messages,
       system,
       tools: toolDefs,
-      maxTokens: 8192,
+      maxTokens,
       signal,
     });
 

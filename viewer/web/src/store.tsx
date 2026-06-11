@@ -111,6 +111,9 @@ interface Ctx {
   resetCrawl(): void;
   refreshEnv(): void;
   saveConfig(projectPath: string, engineRoot: string): Promise<{ ok: boolean; error?: string }>;
+  saveAgentConfig(llm: {
+    provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
+  }): Promise<{ ok: boolean; error?: string }>;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -224,7 +227,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const open = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'open', path }); }, []);
   const enterMF = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'enterMF', mfPath: path }); }, []);
   const popBreadcrumb = useCallback((i: number) => { dispatch({ type: 'popBreadcrumb', toIndex: i }); }, []);
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig]);
+
+  // Save AI assistant configuration via POST /api/config with Llm field.
+  // The response shape is EnvStatus (not Llm) per the server contract.
+  const saveAgentConfig = useCallback(async (llm: {
+    provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
+  }) => {
+    try {
+      const r = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ Llm: llm }),
+      });
+      if (!r.ok) {
+        const e = (await r.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: e.error || `HTTP ${r.status}` };
+      }
+      dispatch({ type: 'setEnv', env: await r.json() });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }, []);
+
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

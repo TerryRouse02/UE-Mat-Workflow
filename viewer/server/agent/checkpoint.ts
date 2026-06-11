@@ -138,6 +138,12 @@ export function createCheckpointStore(viewerRoot: string, sessionId: string): Ch
     }
     turns.pop();
 
+    // Prune seenPathsPerTurn entries for this turn so the set doesn't grow
+    // without bound across a long-lived session.
+    for (const key of [...seenPathsPerTurn]) {
+      if (key.startsWith(`${turnId}::`)) seenPathsPerTurn.delete(key);
+    }
+
     return restored;
   }
 

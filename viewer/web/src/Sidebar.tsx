@@ -3,16 +3,17 @@ import { Icon } from './Icon';
 import { FileList } from './FileList';
 import { NodeLibrary } from './NodeLibrary';
 import { ConfigPanel } from './ConfigPanel';
+import { AgentChat } from './agent/AgentChat';
 import type { FileEntry } from './protocol';
 import './sidebar.css';
 import './chrome.css';
 
-export type SidebarTab = 'files' | 'nodes' | 'config';
+export type SidebarTab = 'files' | 'nodes' | 'config' | 'agent';
 
 export interface SidebarProps {
   tab: SidebarTab;
   setTab(t: SidebarTab): void;
-  /** Navigates to the config tab (passed to FileList for "前往爬取" button) */
+  /** Navigates to the config tab (passed to FileList for "前往爬取" button, and agent guidance) */
   onGotoConfig(): void;
   /** Triggered when a large-graph file is clicked (passed to FileList) */
   onLargeGraph(file: FileEntry): void;
@@ -29,6 +30,8 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
   const crawlStatus = state.crawl.status;
   const configCue: 'run' | 'err' | null =
     crawlStatus === 'running' ? 'run' : crawlStatus === 'error' ? 'err' : null;
+  // Agent tab is hidden in snapshot mode (same as ConfigPanel behaviour).
+  const isSnapshot = state.connection === 'snapshot';
 
   return (
     <div className="sidebar">
@@ -61,6 +64,17 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
           <Icon name="settings" size={14} /> Config
           {configCue && <span className={'tdot ' + configCue} />}
         </div>
+        {!isSnapshot && (
+          <div
+            className={'lstab' + (tab === 'agent' ? ' on' : '')}
+            role="button"
+            tabIndex={0}
+            onClick={() => setTab('agent')}
+            onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setTab('agent')}
+          >
+            <Icon name="chip" size={14} /> Agent
+          </div>
+        )}
       </div>
       <div className="sidebar-panel">
         {tab === 'files' && (
@@ -69,6 +83,9 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
         {tab === 'nodes' && <NodeLibrary />}
         {tab === 'config' && (
           <ConfigPanel mfRoot={mfRoot} setMfRoot={setMfRoot} matRoot={matRoot} setMatRoot={setMatRoot} />
+        )}
+        {tab === 'agent' && !isSnapshot && (
+          <AgentChat onGotoConfig={onGotoConfig} />
         )}
       </div>
     </div>

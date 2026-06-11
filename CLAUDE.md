@@ -69,8 +69,11 @@ Entry `index.ts` → `http-server.ts` (`startServer`). Binds **127.0.0.1** (base
 auto-tries 5790–5799). One WebSocket carries everything live.
 
 - `http-server.ts` — routes + WS. HTTP: `GET /api/env`, `GET /api/agent-pack/:file`
-  (filename allowlist), `GET /api/workmf`, `POST /api/config`, `POST /api/crawl`,
-  `POST /api/import`; static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
+  (filename allowlist), `GET /api/workmf`, `POST /api/config` (extended with optional `Llm`
+  object for AI config), `POST /api/crawl`, `POST /api/import`,
+  `POST /api/agent/chat` (SSE — agent conversation loop),
+  `GET /api/agent/status` (ProviderStatus — never contains apiKey);
+  static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
   `listFiles`, crawl progress broadcast.
 - `schema.ts` — `validateGraph` (the `.matgraph.json` contract). `graph-loader.ts` — read+parse+validate.
 - `mf-resolver.ts` — resolves `MaterialFunctionCall` pins from sibling `.matgraph.json`,

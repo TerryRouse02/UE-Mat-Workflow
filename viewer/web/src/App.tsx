@@ -15,7 +15,7 @@ import { shouldConfirmOpen } from './largeGraphGate';
 import { graphToUET3D } from './export/ueT3D';
 import type { FileEntry } from './protocol';
 
-export type AppTab = 'files' | 'nodes' | 'config';
+export type AppTab = 'files' | 'nodes' | 'config' | 'agent';
 
 function srcToKind(src: string): 'workmf' | 'projectmat' | 'enginemf' | 'export' {
   if (src === 'workmf') return 'workmf';
@@ -30,6 +30,7 @@ function Body() {
 
   // ─── Lifted cross-cutting state ────────────────────────────────────────────
   const [tab, setTab] = useState<AppTab>('files');
+  const gotoConfig = () => setTab('config');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [confirmFile, setConfirmFile] = useState<FileEntry | null>(null);
   const [importOpen, setImportOpen] = useState(false);
@@ -186,7 +187,7 @@ function Body() {
           <Sidebar
             tab={tab}
             setTab={setTab}
-            onGotoConfig={() => setTab('config')}
+            onGotoConfig={gotoConfig}
             onLargeGraph={setConfirmFile}
             mfRoot={mfRoot}
             setMfRoot={setMfRoot}
