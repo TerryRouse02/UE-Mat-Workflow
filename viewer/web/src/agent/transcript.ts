@@ -62,7 +62,18 @@ export interface CrawlProposal {
   resolved: boolean;
 }
 
-export type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem | CrawlProposal;
+/** Agent-proposed edit to the public node DB awaiting explicit approval (propose_db_edit). */
+export interface DbEditProposal {
+  kind: 'dbEditProposal';
+  nodeName: string;
+  ueVersion: string;
+  patch: Record<string, unknown>;
+  rationale: string;
+  /** Set once the user acts (or on replay — proposals never persist as actionable). */
+  resolved: boolean;
+}
+
+export type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem | CrawlProposal | DbEditProposal;
 
 /** Cumulative token usage across the whole conversation. */
 export interface UsageTotal {
@@ -90,7 +101,7 @@ export function startUserTurn(items: ChatItem[], userText: string): ChatItem[] {
   return [
     ...items.map(it => {
       if (it.kind === 'diff' || it.kind === 'tools') return { ...it, collapsed: true };
-      if (it.kind === 'crawlProposal' && !it.resolved) return { ...it, resolved: true };
+      if ((it.kind === 'crawlProposal' || it.kind === 'dbEditProposal') && !it.resolved) return { ...it, resolved: true };
       return it;
     }),
     { kind: 'text', role: 'user', text: userText },
@@ -211,6 +222,16 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
         resolved: false,
       }];
 
+    case 'db_edit_proposal':
+      return [...items, {
+        kind: 'dbEditProposal',
+        nodeName: event.nodeName,
+        ueVersion: event.ueVersion,
+        patch: event.patch,
+        rationale: event.rationale,
+        resolved: false,
+      }];
+
     case 'done':
       // Turn finished — auto-collapse tool groups; diffs stay open until the
       // next user message so the result remains in view.
@@ -238,6 +259,6 @@ export function reduceTranscript(transcript: AgentTranscriptEntry[]): { items: C
     }
   }
   // Replayed proposals are history, never actionable again.
-  items = items.map(it => (it.kind === 'crawlProposal' ? { ...it, resolved: true } : it));
+  items = items.map(it => (it.kind === 'crawlProposal' || it.kind === 'dbEditProposal' ? { ...it, resolved: true } : it));
   return { items, usage };
 }

@@ -21,6 +21,7 @@ import type {
   ProviderStatus,
   AgentUndoResponse,
   AgentRegenerateResponse,
+  AgentDbEditResponse,
   AgentSessionMeta,
   AgentSessionsListResponse,
   AgentSessionCreateResponse,
@@ -33,6 +34,7 @@ import {
   type DiffBlock,
   type ThinkingItem,
   type CrawlProposal,
+  type DbEditProposal,
   type UsageTotal,
   newTurnFlags,
   startUserTurn,
@@ -166,6 +168,68 @@ function CrawlProposalView({ item, crawl, onApprove }: {
   );
 }
 
+/** One-line zh-TW summary per patched DB field, shown on the approval card. */
+function dbPatchSummary(patch: Record<string, unknown>): string[] {
+  return Object.entries(patch).map(([k, v]) => {
+    if (k === 'description') return `描述 → ${String(v).slice(0, 120)}${String(v).length > 120 ? '…' : ''}`;
+    if (k === 'category') return `類別 → ${String(v)}`;
+    if (k === 'verified') return `verified → ${String(v)}`;
+    if (Array.isArray(v)) return `${k} → ${v.length} 項（取代整個列表）`;
+    return `${k} → ${JSON.stringify(v)}`;
+  });
+}
+
+/** Agent-proposed node-DB edit card — same approval model as CrawlProposalView:
+    the agent only PROPOSES; this button calls POST /api/agent/db-edit, which
+    applies + regenerates the index + runs the parity audit (rollback on fail). */
+function DbEditProposalView({ item, onResolve }: {
+  item: DbEditProposal;
+  onResolve: (notice: { variant: 'info' | 'error'; message: string }) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const approve = async () => {
+    setBusy(true);
+    try {
+      const r = await fetch('/api/agent/db-edit', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ueVersion: item.ueVersion, nodeName: item.nodeName, patch: item.patch }),
+        cache: 'no-store',
+      });
+      const body = (r.ok ? await r.json() : { ok: false, error: `HTTP ${r.status}` }) as AgentDbEditResponse;
+      if (body.ok) {
+        onResolve({ variant: 'info', message: `節點 DB 已更新（${item.nodeName}：${body.changedKeys.join('、')}），索引已重生並通過 parity audit。` });
+      } else {
+        onResolve({ variant: 'error', message: `節點 DB 修改失敗（已回滾）：${body.error}` });
+      }
+    } catch {
+      onResolve({ variant: 'error', message: '節點 DB 修改請求失敗' });
+    }
+  };
+  return (
+    <div className="agent-crawl-proposal agent-item">
+      <div className="agent-crawl-title">
+        <Icon name="hash" size={12} /> Agent 提議修改節點 DB：{item.nodeName}（UE {item.ueVersion}）
+      </div>
+      <ul className="agent-dbedit-lines">
+        {dbPatchSummary(item.patch).map((l, i) => <li key={i}>{l}</li>)}
+      </ul>
+      {item.rationale && <div className="agent-crawl-note">依據：{item.rationale}</div>}
+      <div className="agent-crawl-note">
+        nodes-ue{item.ueVersion}.json 是<b>公開資料檔</b>——只接受乾淨的 Epic／公開 UE 資料。
+        套用後會自動重生索引並跑 parity audit，失敗即回滾。
+      </div>
+      {item.resolved
+        ? <div className="agent-crawl-resolved">已處理</div>
+        : (
+          <button className="agent-crawl-approve" disabled={busy} onClick={() => void approve()}>
+            {busy ? '套用中…' : '套用修改'}
+          </button>
+        )}
+    </div>
+  );
+}
+
 /** Collapsible block listing plain-language diff lines after a successful write. */
 function DiffBlockView({ item, onToggle }: { item: DiffBlock; onToggle: () => void }) {
   const open = !item.collapsed;
@@ -194,7 +258,7 @@ export interface AgentChatProps {
 }
 
 export function AgentChat({ onGotoConfig }: AgentChatProps) {
-  const { state, open, highlightNodes, requestAgentExport, startCrawl } = useStore();
+  const { state, open, highlightNodes, requestAgentExport, startCrawl, bumpMetadata } = useStore();
   const { connection, currentPath, selectedNodeId } = state;
 
   const [status, setStatus] = useState<ProviderStatus | null>(null);
@@ -684,6 +748,21 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
                 item={item}
                 live={streaming && i === lastIndex}
                 onToggle={() => toggleCollapse(i)}
+              />
+            );
+          }
+          if (item.kind === 'dbEditProposal') {
+            return (
+              <DbEditProposalView
+                key={i}
+                item={item}
+                onResolve={(notice) => {
+                  setItems(prev => [
+                    ...prev.map((it, j) => (j === i && it.kind === 'dbEditProposal' ? { ...it, resolved: true } : it)),
+                    { kind: 'notice', ...notice },
+                  ]);
+                  if (notice.variant === 'info') bumpMetadata();
+                }}
               />
             );
           }

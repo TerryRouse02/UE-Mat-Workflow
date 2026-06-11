@@ -20,7 +20,8 @@ import { runAgent, createSession, VIEW_CONTEXT_PREFIX, type AgentLoopSession } f
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
-import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentRegenerateResponse, AgentTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse } from './agent/agent-types.js';
+import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentRegenerateResponse, AgentTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse, AgentDbEditRequest, AgentDbEditResponse } from './agent/agent-types.js';
+import { applyDbEdit } from './agent/db-edit.js';
 import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/session-store.js';
 import { createMemoryStore } from './agent/memory-store.js';
 import { explainNode, buildGraphContext, RESERVED_NODE_DESCRIPTIONS } from './agent/explain.js';
@@ -708,6 +709,39 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     sendJson(res, 200, { ok: true, text: userText } satisfies AgentRegenerateResponse);
   }
 
+  /**
+   * POST /api/agent/db-edit — the user-approval side of a db_edit_proposal.
+   * Validates and applies the patch to the PUBLIC nodes-ue<v>.json, regenerates
+   * the index, runs the parity audit, and rolls back on any failure. Single-
+   * flight: the regen+audit subprocesses must never overlap.
+   */
+  let dbEditRunning = false;
+  async function handleAgentDbEdit(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    if (dbEditRunning) {
+      sendJson(res, 409, { error: '另一個節點 DB 修改正在套用中，請稍候。' });
+      return;
+    }
+    dbEditRunning = true;
+    try {
+      let body: AgentDbEditRequest;
+      try { body = JSON.parse(await readBody(req)) as AgentDbEditRequest; }
+      catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+      if (typeof body.nodeName !== 'string' || typeof body.ueVersion !== 'string') {
+        sendJson(res, 400, { error: 'nodeName and ueVersion are required' });
+        return;
+      }
+      const result = await applyDbEdit(opts.repoRoot, body.ueVersion, body.nodeName, body.patch ?? {});
+      if (result.ok) {
+        sendJson(res, 200, { ok: true, changedKeys: result.changedKeys ?? [] } satisfies AgentDbEditResponse);
+      } else {
+        sendJson(res, 200, { ok: false, error: result.error ?? 'unknown error' } satisfies AgentDbEditResponse);
+      }
+    } finally {
+      dbEditRunning = false;
+    }
+  }
+
   /** POST /api/agent/reset — abort any in-flight chat and detach the current session. */
   async function handleAgentReset(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
@@ -1197,6 +1231,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'POST' && urlPath === '/api/agent/reset') {
       try { await handleAgentReset(req, res); }
       catch (e) { console.error('agent reset handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/agent/db-edit') {
+      try { await handleAgentDbEdit(req, res); }
+      catch (e) { console.error('agent db-edit handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (!opts.webDist) { res.writeHead(404); res.end(); return; }

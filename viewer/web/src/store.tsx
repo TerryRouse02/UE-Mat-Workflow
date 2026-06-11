@@ -61,6 +61,7 @@ type Action =
   | { type: 'agentHighlight'; path: string; ids: string[] }
   | { type: 'agentExportReq'; path: string }
   | { type: 'selectNode'; id: string | null }
+  | { type: 'metadataBumped' }
   | { type: 'agentAsk'; text: string; send: boolean }
   | { type: 'crawlReset' }
   | CrawlAction;
@@ -101,6 +102,9 @@ function reducer(s: State, a: Action): State {
       return { ...s, agentExportReq: { path: a.path, nonce: (s.agentExportReq?.nonce ?? 0) + 1, ts: Date.now() } };
     case 'selectNode':
       return { ...s, selectedNodeId: a.id };
+    case 'metadataBumped':
+      // A user-approved DB edit rewrote the public agent-pack files server-side.
+      return { ...s, metadataVersion: s.metadataVersion + 1 };
     case 'agentAsk':
       return { ...s, agentAsk: { text: a.text, send: a.send, nonce: (s.agentAsk?.nonce ?? 0) + 1, ts: Date.now() } };
     case 'crawlReset':
@@ -151,6 +155,8 @@ interface Ctx {
   selectNode(id: string | null): void;
   /** Hand a message to the agent chat: send=true submits it, send=false prefills the input. */
   askAgent(text: string, send: boolean): void;
+  /** Re-fetch the agent-pack data after a server-side DB edit (approved db_edit_proposal). */
+  bumpMetadata(): void;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -304,7 +310,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'agentAsk', text, send });
   }, []);
 
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent]);
+  const bumpMetadata = useCallback(() => {
+    dispatch({ type: 'metadataBumped' });
+  }, []);
+
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

@@ -18,6 +18,7 @@ export type AgentSseEvent =
   | { type: 'graph_written'; path: string; changedNodeIds?: string[] } // UI auto-opens + highlights the changed nodes
   | { type: 'export_request'; path: string }                         // UI copies this graph to the clipboard as UE T3D
   | { type: 'crawl_proposal'; kind: 'workmf' | 'projectmat'; contentRoot: string } // UI shows a confirm card; user approves via POST /api/crawl
+  | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; patch: Record<string, unknown>; rationale: string } // UI shows a confirm card; user approves via POST /api/agent/db-edit
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
   | { type: 'compacted'; message: string }                           // old turns summarized into session memory
   | { type: 'limit'; kind: 'iters' | 'cost'; message: string }
@@ -80,6 +81,21 @@ export interface AgentResetResponse {
 export type AgentRegenerateResponse =
   | { ok: true; text: string }
   | { ok: false; reason: 'nothing-to-regenerate' };
+
+/**
+ * Body for POST /api/agent/db-edit — mirrored from server/agent/agent-types.ts.
+ * The user-approval side of an agent db_edit_proposal.
+ */
+export interface AgentDbEditRequest {
+  ueVersion: string;
+  nodeName: string;
+  patch: Record<string, unknown>;
+}
+
+/** Response from POST /api/agent/db-edit — mirrored from server/agent/agent-types.ts */
+export type AgentDbEditResponse =
+  | { ok: true; changedKeys: string[] }
+  | { ok: false; error: string };
 
 /**
  * Response from POST /api/agent/test — mirrored from server/agent/agent-types.ts.

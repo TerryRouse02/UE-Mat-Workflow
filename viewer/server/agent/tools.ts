@@ -13,6 +13,7 @@ import { probeEnv } from '../crawl-env.js';
 import { applyPatch, changedNodeIds, type PatchOp } from './patch.js';
 import type { MemoryStore, MemoryScope } from './memory-store.js';
 import { fetchPublic, htmlToText, webSearch, WEB_TEXT_CAP, type WebDeps } from './web-tools.js';
+import { validateDbEditPatch, DB_EDIT_KEYS } from './db-edit.js';
 import * as QB from './query-bridge.js';
 
 // ---------------------------------------------------------------------------
@@ -452,6 +453,28 @@ export const toolDefs: ToolDef[] = [
     },
   },
   {
+    name: 'propose_db_edit',
+    description:
+      'PROPOSE a correction to the public node DB (agent-pack/nodes-ue<v>.json) for an EXISTING ' +
+      'node type — fix a wrong/missing description, category, inputs/outputs/params list, or the ' +
+      'verified flag. This does NOT write anything: the user sees a confirmation card; on approval ' +
+      'the server applies it, regenerates the index, and runs the parity audit (rolls back on ' +
+      'failure). ONLY clean public Epic/UE data may be proposed — never project-specific content. ' +
+      'After calling this, END your turn and wait for the user.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeName: { type: 'string', description: 'Exact node type name that already exists in the DB' },
+        patch: {
+          type: 'object',
+          description: `Fields to replace on the node entry. Allowed keys: ${DB_EDIT_KEYS.join(', ')}. inputs/outputs/params replace the whole list.`,
+        },
+        rationale: { type: 'string', description: 'Why this edit is correct (cite the UE doc/source you verified against)' },
+      },
+      required: ['nodeName', 'patch', 'rationale'],
+    },
+  },
+  {
     name: 'read_crawl_log',
     description:
       'Read the log tail of the most recently FINISHED metadata crawl (success or failure). ' +
@@ -535,6 +558,7 @@ async function _dispatch(
     case 'delete_graph':    return toolDeleteGraph(inp, ctx);
     case 'export_to_clipboard': return toolExportToClipboard(inp, ctx);
     case 'request_crawl':   return toolRequestCrawl(inp, ctx);
+    case 'propose_db_edit': return toolProposeDbEdit(inp, ctx);
     case 'read_crawl_log':  return toolReadCrawlLog(inp, ctx);
     case 'web_search':      return toolWebSearch(inp, ctx);
     case 'web_fetch':       return toolWebFetch(inp, ctx);
@@ -1202,6 +1226,54 @@ async function toolRequestCrawl(
       note:
         '已向使用者送出爬取確認卡（爬取會啟動 UE 編輯器、需數分鐘）。請結束本輪並等待使用者確認與完成回報，' +
         '絕不要假設爬取已執行或已完成。',
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// propose_db_edit — a PROPOSAL only (same model as request_crawl). The loop
+// emits db_edit_proposal; the user approves via a chat card that calls
+// POST /api/agent/db-edit. The agent never writes the public DB itself.
+// ---------------------------------------------------------------------------
+
+const RATIONALE_CAP = 600;
+
+async function toolProposeDbEdit(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const nodeName = inp.nodeName;
+  if (typeof nodeName !== 'string' || !nodeName.trim()) {
+    return { content: 'propose_db_edit: nodeName must be a non-empty string', isError: true };
+  }
+  const rationale = inp.rationale;
+  if (typeof rationale !== 'string' || !rationale.trim()) {
+    return { content: 'propose_db_edit: rationale is required —說明依據（UE 文件/來源）', isError: true };
+  }
+  const v = validateDbEditPatch(inp.patch);
+  if (!v.ok) {
+    return { content: `propose_db_edit: ${v.error}`, isError: true };
+  }
+  const db = loadVersionDb(ctx.repoRoot, ctx.ueVersion);
+  if (!db) {
+    return { content: `propose_db_edit: 找不到 UE ${ctx.ueVersion} 的節點 DB`, isError: true };
+  }
+  if (!(nodeName in db)) {
+    return {
+      content: `propose_db_edit: 節點「${nodeName}」不存在於 nodes-ue${ctx.ueVersion}.json — 此工具只能修正既有節點，不能新增`,
+      isError: true,
+    };
+  }
+  return {
+    content: JSON.stringify({
+      ok: true,
+      nodeName,
+      ueVersion: ctx.ueVersion,
+      patch: v.patch,
+      rationale: rationale.trim().slice(0, RATIONALE_CAP),
+      note:
+        '已向使用者送出節點 DB 修改確認卡。請結束本輪等待使用者決定；' +
+        '絕不要假設修改已套用。獲准後伺服器會自動重生索引並跑 parity audit。',
     }),
   };
 }

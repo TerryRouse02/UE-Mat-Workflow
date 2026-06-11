@@ -358,6 +358,15 @@ export async function runAgent(
             contentRoot: typeof parsed.contentRoot === 'string' ? parsed.contentRoot : '/Game',
           });
         }
+        if (call.name === 'propose_db_edit' && parsed.ok && typeof parsed.nodeName === 'string') {
+          emit({
+            type: 'db_edit_proposal',
+            nodeName: parsed.nodeName,
+            ueVersion: typeof parsed.ueVersion === 'string' ? parsed.ueVersion : session.ueVersion,
+            patch: (parsed.patch && typeof parsed.patch === 'object' ? parsed.patch : {}) as Record<string, unknown>,
+            rationale: typeof parsed.rationale === 'string' ? parsed.rationale : '',
+          });
+        }
       }
 
       toolResults.push({
@@ -697,6 +706,7 @@ function toolSummary(call: ToolUseBlock): string {
     case 'delete_graph':      return `刪除圖形：${String(inp.path ?? '')}`;
     case 'export_to_clipboard': return `複製到剪貼簿：${String(inp.path ?? '')}`;
     case 'request_crawl':     return `提議爬取：${String(inp.kind ?? '')}`;
+    case 'propose_db_edit':   return `提議修改節點 DB：${String(inp.nodeName ?? '')}`;
     case 'read_crawl_log':    return '讀取爬取 log';
     case 'web_search':        return `搜尋網路：${String(inp.query ?? '')}`;
     case 'web_fetch':         return `讀取網頁：${String(inp.url ?? '')}`;

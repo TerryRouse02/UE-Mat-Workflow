@@ -82,6 +82,10 @@ export async function buildSystemPrompt(repoRoot: string, ueVersion: string, mem
 13. **［視窗情境］區塊**：使用者訊息後面可能附帶一段「［視窗情境］」，描述使用者目前
    開啟的圖檔與選取的節點。當使用者說「這個節點」「目前的圖」時，以此為準；它是系統
    附加的環境資訊，不是使用者打的字，不需要逐字回應它。
+14. **發現節點 DB 有錯**（描述錯誤、針腳缺漏、verified 標錯）→ 先查證（UE 官方文件或
+   web_search），再用 propose_db_edit 提案修正。這也只是「提案」：使用者批准後伺服器
+   才套用並自動重生索引＋跑 audit。**只能提案乾淨的 Epic／公開 UE 資料**，絕不可把
+   使用者專案的私有內容寫進 DB。送出提案後結束本輪等待。
 ${memorySection(memory)}
 ## matgraph 撰寫規則
 以下是完整的 .matgraph.json 規格（來自 agent-pack/SPEC.md）：

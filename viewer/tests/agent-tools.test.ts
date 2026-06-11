@@ -615,6 +615,33 @@ describe('request_crawl', () => {
   });
 });
 
+describe('propose_db_edit', () => {
+  it('proposes an edit for an existing node and echoes the payload for the loop', async () => {
+    const r = await dispatchTool('propose_db_edit', {
+      nodeName: 'Multiply',
+      patch: { description: 'Multiplies two values component-wise (verified against UE 5.7 docs).' },
+      rationale: 'UE 5.7 official docs',
+    }, ctx);
+    expect(r.isError).toBeUndefined();
+    const parsed = JSON.parse(r.content);
+    expect(parsed).toMatchObject({ ok: true, nodeName: 'Multiply', ueVersion: '5.7' });
+    expect(parsed.patch.description).toContain('component-wise');
+    expect(parsed.note).toContain('結束本輪');
+  });
+
+  it('rejects unknown nodes, missing rationale, and disallowed patch keys', async () => {
+    const unknown = await dispatchTool('propose_db_edit', { nodeName: 'NotANode', patch: { description: 'x' }, rationale: 'r' }, ctx);
+    expect(unknown.isError).toBe(true);
+    expect(unknown.content).toContain('不存在');
+
+    const noRat = await dispatchTool('propose_db_edit', { nodeName: 'Multiply', patch: { description: 'x' } }, ctx);
+    expect(noRat.isError).toBe(true);
+
+    const badKey = await dispatchTool('propose_db_edit', { nodeName: 'Multiply', patch: { exportClass: 'X' }, rationale: 'r' }, ctx);
+    expect(badKey.isError).toBe(true);
+  });
+});
+
 describe('read_crawl_log', () => {
   it('returns the last finished crawl tail and respects the lines cap', async () => {
     const lines = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`);

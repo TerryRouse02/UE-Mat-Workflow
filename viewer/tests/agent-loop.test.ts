@@ -1644,3 +1644,30 @@ describe('viewport context block', () => {
     expect(texts).toHaveLength(1);
   });
 });
+
+describe('db_edit_proposal viewer event', () => {
+  it('propose_db_edit emits a db_edit_proposal event with the patch payload', async () => {
+    const provider = new FakeProvider([
+      [
+        {
+          type: 'tool_use', id: 't1', name: 'propose_db_edit',
+          input: { nodeName: 'Multiply', patch: { verified: true }, rationale: '依 UE 5.7 文件查證' },
+        },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [
+        { type: 'text_delta', text: '已送出 DB 修改提案，請確認。' },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ]);
+    const events = await runAndCollect('這個節點的 verified 標錯了', session, provider, ctx);
+    const props = events.filter(e => e.type === 'db_edit_proposal');
+    expect(props).toEqual([{
+      type: 'db_edit_proposal',
+      nodeName: 'Multiply',
+      ueVersion: '5.7',
+      patch: { verified: true },
+      rationale: '依 UE 5.7 文件查證',
+    }]);
+  });
+});
