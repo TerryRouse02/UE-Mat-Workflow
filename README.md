@@ -85,9 +85,11 @@ What it can do:
 
 - **Build & modify graphs** — validated before every write (an invalid graph never reaches disk),
   changed nodes pulse on the canvas, and every turn is undoable (還原 / 重新生成).
-- **See what you see** — each message carries the open graph and selected node, so "this node"
-  just works. The Inspector has an *ask AI* button, and the import dialog can auto-explain a
-  graph you just pasted from UE.
+- **See what you see** — the agent can look up the open graph and selected node on demand, so
+  "this node" just works, while an open file never becomes the accidental target: "create a
+  material" always writes a NEW file (overwriting an existing one requires your explicit say-so).
+  The Inspector has an *ask AI* button, and the import dialog can auto-explain a graph you just
+  pasted from UE.
 - **Propose, never seize** — actions that touch your machine or the public node DB (running a
   UE metadata crawl, editing/adding a DB entry) only ever appear as **confirmation cards**; nothing
   runs until you click approve. Approved crawls report their outcome back into the conversation

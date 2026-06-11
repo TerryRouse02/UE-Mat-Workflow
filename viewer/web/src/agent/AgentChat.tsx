@@ -466,6 +466,17 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     try { localStorage.setItem(THINKING_STORAGE_KEY, v); } catch { /* private mode etc. */ }
   }, []);
 
+  // Abort any in-flight stream on real unmount (e.g. switching into snapshot
+  // mode — the Sidebar keep-alive normally keeps this mounted): otherwise the
+  // fetch keeps streaming and its handlers setState on an unmounted component.
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+  }, []);
+
+  // Stop = abort the local fetch; the server notices the socket close, aborts
+  // the run, and releases its single-flight lock immediately, so an instant
+  // re-send starts a fresh turn (no 409, undo history intact).
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
   }, []);

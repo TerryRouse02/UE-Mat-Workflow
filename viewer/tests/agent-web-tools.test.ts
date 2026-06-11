@@ -12,6 +12,7 @@ import {
   parseDuckDuckGoHtml,
   webSearch,
   type LookupFn,
+  guardedLookup,
 } from '../server/agent/web-tools.js';
 
 const publicLookup: LookupFn = async () => [{ address: '93.184.216.34' }];
@@ -146,5 +147,45 @@ describe('parseDuckDuckGoHtml / webSearch', () => {
     const r2 = await webSearch('xyz', { fetchFn: emptyFetch, lookupFn: publicLookup });
     expect(r2.ok).toBe(false);
     if (!r2.ok) expect(r2.error).toMatch(/no results parsed/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG-8 — DNS-rebinding TOCTOU: the default transport validates every address
+// at CONNECT time via guardedLookup, not only at guardPublicUrl time.
+// ---------------------------------------------------------------------------
+
+describe('guardedLookup (BUG-8)', () => {
+
+  it('blocks a hostname that resolves to loopback (rebinding caught at connect time)', async () => {
+    // localhost resolves locally without network access — deterministic.
+    const err = await new Promise<Error | null>((res) => {
+      guardedLookup('localhost', {}, (e) => res(e));
+    });
+    expect(err).not.toBeNull();
+    expect(String(err?.message)).toContain('blocked');
+  });
+
+  it('surfaces resolution failures as errors', async () => {
+    const err = await new Promise<Error | null>((res) => {
+      guardedLookup('definitely-not-a-real-host.invalid', {}, (e) => res(e));
+    });
+    expect(err).not.toBeNull();
+  });
+});
+
+describe('fetchPublic external cancellation', () => {
+  it('an already-aborted deps.signal short-circuits before any fetch', async () => {
+    const ac = new AbortController();
+    ac.abort();
+    let called = 0;
+    const r = await fetchPublic('https://example.com/', {
+      fetchFn: (async () => { called++; return new Response('x'); }) as unknown as typeof globalThis.fetch,
+      lookupFn: async () => [{ address: '93.184.216.34' }],
+      signal: ac.signal,
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('cancelled');
+    expect(called).toBe(0);
   });
 });

@@ -22,7 +22,7 @@
   一鍵 `pnpm dev`。
 - **現況（2026-06-11 收尾）**：M0–M5 全數落地，並完成後續批次——持久會話＋兩層記憶＋
   自動/手動壓縮（M7/M7b/M11-1）、思考串流、檔案管理／剪貼簿／爬取提案／DB 修改提案
-  ／公網存取／爬取 log 共 23 工具、視窗情境注入、畫布變更高亮、問 AI／匯入後解說入口、
+  ／公網存取／爬取 log／視窗情境查詢 共 24 工具、畫布變更高亮、問 AI／匯入後解說入口、
   系統回報卡＋爬取結果回流、斜槽快捷指令（11 個）、會話 Markdown 匯出、每輪用量顯示、
   Agent 分頁 keep-alive＋注意力小點、聊天欄寬度拖曳。功能快照見 §12。
 
@@ -63,8 +63,9 @@ viewer/
 │     ├─ provider/anthropic.ts  # Messages API 原生 adapter
 │     ├─ provider/openai.ts     # OpenAI-compatible adapter（可配 baseUrl）
 │     ├─ provider/index.ts      # pickProvider(config)
-│     ├─ loop.ts                # agent loop（閉環＋護欄）
-│     ├─ tools.ts               # 23 個 tool 定義 + dispatch（探索/記憶/壓縮/檔案管理/剪貼簿/爬取提案/DB 修改提案/公網/爬取 log）
+│     ├─ loop.ts                # agent loop（閉環＋護欄＋連續失敗熔斷）
+│     ├─ tools.ts               # 24 個 tool 定義 + dispatch（探索/視窗情境/記憶/壓縮/檔案管理/剪貼簿/爬取提案/DB 修改提案/公網/爬取 log）
+│     ├─ pin-validate.ts        # 寫入閘門的連線針腳檢查（鏡像 web/src/validate.ts 語意）
 │     ├─ db-edit.ts              # 節點 DB 修改的驗證＋套用（重生索引＋audit，失敗回滾）
 │     ├─ patch.ts               # patch_graph 領域操作集（純函式）
 │     ├─ query-bridge.ts        # createRequire 載入 agent-pack/query-lib.js 的型別殼
@@ -173,13 +174,14 @@ interface ProviderStatus {
 回明確中文錯誤建議換模型（列例：claude-opus-4-8、gpt-4o、deepseek-chat）。
 MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 
-## 4. Tool 契約（23 個）
+## 4. Tool 契約（24 個）
 
-2026-06-11 追加七個（探索＋記憶＋壓縮）；同日再追加六個（檔案管理＋剪貼簿＋爬取提案＋公網存取）；再追加兩個（DB 修改提案＋爬取 log）：
+2026-06-11 追加七個（探索＋記憶＋壓縮）；同日再追加六個（檔案管理＋剪貼簿＋爬取提案＋公網存取）；再追加兩個（DB 修改提案＋爬取 log）；2026-06-11 bugfix 批次追加 `get_viewport`（視窗情境改為按需查詢，不再注入 prompt）：
 
 | tool | input | returns | guard |
 |---|---|---|---|
-| `list_graphs` | `{}` | graphs/ 下所有 matgraph（路徑/type/name/ueVersion） | 唯讀；200 檔上限；壞檔標記不致命 |
+| `list_graphs` | `{}` | graphs/ 下所有 matgraph（路徑/type/name/ueVersion） | 唯讀；200 檔上限；壞檔標記不致命；不跟隨 symlink |
+| `get_viewport` | `{}` | `{openGraphPath, selectedNodeId}`（無則 null） | 唯讀；資料來自前端每則訊息附帶、存於 ToolContext；**取代視窗情境注入**——開啟中的圖是環境資訊不是操作對象 |
 | `search_mf` | `{query}` | 引擎＋工作 MF 索引關鍵字搜尋（SSoT 在 query-lib `searchMf`；CLI `search-mf`） | 缺索引靜默跳過 |
 | `list_examples` | `{}` | agent-pack/examples 範例清單 | 唯讀 |
 | `rename_graph` | `{from,to}` | 改名/搬移 matgraph（可 undo；不改寫他圖引用） | guardPath ×2；目標不得已存在 |
@@ -203,7 +205,7 @@ MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 | `get_node_signature` | `{name}` | 完整 DB entry（inputs/outputs/params/pinInfo） | 查無時回近似名建議 |
 | `get_mf_signature` | `{assetPath}` | MF 針腳簽名 | `/Engine/`→engine index；其他→workmf index；查無→提示跑對應爬取，**不得編造針腳名** |
 | `read_graph` | `{path}` | 目前 matgraph JSON＋既存錯誤/警告 | 路徑限 `graphs/` 內、限 `.matgraph.json` |
-| `write_graph` | `{path, graph}` | `{ok, warnings}` 或錯誤清單 | **先 validate＋MF 解析，不過不落盤**；初建用 |
+| `write_graph` | `{path, graph, overwrite?}` | `{ok, warnings}` 或錯誤清單 | **先 validate＋MF 解析＋針腳查 DB，不過不落盤**；初建用；**拒絕覆寫非本對話建立的既有檔**（`overwrite:true` 僅限使用者明確要求整檔重寫） |
 | `patch_graph` | `{path, ops[]}` | `{ok, diff[]}` 或 `{opIndex, errors}` | 修改用；見 §5 |
 | `validate_graph` | `{path \| graph}` | 完整錯誤＋警告＋未解析 MF 針腳 | `validateGraph`+`materialStructureWarnings`+`mf-resolver` |
 | `get_graph_errors` | `{path}` | 既存問題清單 | debug 用 |
@@ -263,6 +265,13 @@ runAgent(userText, session):
 ```
 
 - 護欄：`MAX_ITERS`、`TOKEN_CEILING`、撞上限 graceful 收尾（emit `limit` 事件，回報而非沉默）。
+  「0 = 不限制」的語意收在 **loop 內**（caller 直接傳 0，不可自行換算）；不限制模式仍受
+  token 天花板＋**連續失敗熔斷**約束：同檔連續 3 次寫入驗證失敗、或連續 2 次壓縮失敗 →
+  emit `limit(kind:'failures')` 白話收尾（誠實 > 自信的錯）。
+- 視窗情境（2026-06-11 改版）：**不再注入 prompt**——前端照舊隨訊息送 graphPath/selectedNodeId，
+  server 存進 ToolContext，模型需要時呼叫 `get_viewport`。開啟中的圖是環境資訊，
+  不是預設操作對象；建立 vs 修改的意圖分流寫進 system prompt 規則 13/14，
+  `write_graph` 的覆寫硬守衛是最後防線。
 - **使用者永遠看不到原始驗證錯誤**：錯誤只回 tool_result 餵模型自修，0 error 才呈現成果＋白話說明。
 - 每輪不信記憶：修改前先 `read_graph` 對齊磁碟真實狀態（寫進 system prompt 的工具紀律）。
 - Session（M7，2026-06-11 取代「單一記憶體 session」）：會話落盤
@@ -409,8 +418,9 @@ interface AgentChatRequest {
   錯誤一律餵回模型自修，使用者只看最終成果。
 - **修改與回退**：patch 式修改、還原上一步（undo）、重新生成上一回覆（檔案＋歷史＋
   transcript 一併回捲）。
-- **情境理解**：每則訊息附帶目前開啟的圖＋選取節點（［視窗情境］區塊）；Inspector
-  「問 AI」、匯入後自動解說、hover 節點兩層解說。
+- **情境理解**：前端隨訊息附帶目前開啟的圖＋選取節點，模型按需以 `get_viewport` 查詢
+  （不注入 prompt——開啟中的圖是環境資訊，不是預設操作對象）；「建立」意圖一律寫新檔，
+  write_graph 拒絕覆寫非本對話建立的檔；Inspector「問 AI」、匯入後自動解說、hover 節點兩層解說。
 - **提案—批准模型**（agent 永遠拿不到的權限）：爬取（request_crawl → 確認卡 →
   既有 POST /api/crawl）；公開節點 DB 修改／verified 背書／create 補齊
   （propose_db_edit → 確認卡 → POST /api/agent/db-edit，套用→重生索引→audit→失敗回滾）。

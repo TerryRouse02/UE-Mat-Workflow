@@ -10,6 +10,11 @@
 //  - ':' keepalive lines (ignored)
 //  - [DONE] sentinel (terminates iteration)
 //  - no trailing newline on the last event
+//
+// Deliberate limitation: each 'data:' line is parsed as one complete event —
+// multi-line events (several data: lines merged with '\n' per the SSE spec)
+// are not supported. The only producer is our own http-server, which always
+// writes exactly one data: line per event.
 
 import type { AgentSseEvent, AgentChatRequest } from './protocol';
 

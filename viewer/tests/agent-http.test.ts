@@ -1533,3 +1533,136 @@ describe('POST /api/agent/chat thinking', () => {
     }
   }, 10000);
 });
+
+// ---------------------------------------------------------------------------
+// BUG-1 — stop → instant re-send must not 409: the close handler releases the
+// single-flight lock the moment the client disconnects.
+// ---------------------------------------------------------------------------
+
+describe('stop releases the chat lock immediately (BUG-1)', () => {
+  it('an aborted chat can be followed by a new chat within ~100ms, no 409', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test', apiKey: 'sk-x' } });
+
+    const order: string[] = [];
+    // First provider stalls until aborted (mirrors a real fetch: the abort
+    // signal cancels it immediately).
+    const stallUntilAbort: Provider = {
+      async *stream(req: ChatRequest) {
+        await new Promise<void>(res => {
+          req.signal?.addEventListener('abort', () => res(), { once: true });
+          setTimeout(res, 8000);
+        });
+        order.push('A-return');
+        if (req.signal?.aborted) return;
+        yield { type: 'text_delta', text: 'A' };
+        yield { type: 'done', stopReason: 'end' };
+      },
+    };
+    const quickB: Provider = {
+      async *stream() {
+        order.push('B-start');
+        yield { type: 'text_delta', text: 'B 完成。' };
+        yield { type: 'done', stopReason: 'end' };
+      },
+    };
+    let useB = false;
+    const server = await startServer({
+      repoRoot: root, port: 0, webDist: '',
+      providerFactory: () => (useB ? quickB : stallUntilAbort),
+    });
+    const acA = new AbortController();
+    try {
+      // Chat A starts streaming, then the user presses stop (fetch abort).
+      fetch(`http://localhost:${server.port}/api/agent/chat`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'A' }),
+        signal: acA.signal,
+      }).catch(() => { /* expected */ });
+      await new Promise<void>(res => setTimeout(res, 100));
+      acA.abort();
+      await new Promise<void>(res => setTimeout(res, 100));
+
+      // Immediate re-send: must NOT 409, and must stream normally.
+      useB = true;
+      const rB = await fetch(`http://localhost:${server.port}/api/agent/chat`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'B' }),
+      });
+      expect(rB.status).toBe(200);
+      const events = await parseSseResponse(rB);
+      expect(events.some(e => e.type === 'text' && e.text.includes('B 完成'))).toBe(true);
+      expect(events.some(e => e.type === 'error')).toBe(false);
+
+      // BUG-2 — serialization: the aborted run fully unwound BEFORE the new
+      // run touched the session (no interleaved mutation, no stale clobber).
+      expect(order).toEqual(['A-return', 'B-start']);
+    } finally {
+      acA.abort();
+      try { await server.close(); } catch { /* already closed */ }
+    }
+  }, 20000);
+});
+
+// ---------------------------------------------------------------------------
+// BUG-11 — undo/regenerate single-flight: a second mutation while the first
+// is still running gets 409 instead of corrupting the same history.
+// ---------------------------------------------------------------------------
+
+describe('regenerate/undo single-flight (BUG-11)', () => {
+  it('a second regenerate during the first one is rejected with 409', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test', apiKey: 'sk-x' } });
+
+    // A chat that stalls until released keeps chatUnwind pending — the first
+    // regenerate blocks on it, opening a deterministic overlap window.
+    let releaseA: (() => void) | undefined;
+    const stall: Provider = {
+      async *stream(req: ChatRequest) {
+        await new Promise<void>(res => { releaseA = res; setTimeout(res, 8000); });
+        if (req.signal?.aborted) return;
+        yield { type: 'done', stopReason: 'end' };
+      },
+    };
+    const server = await startServer({
+      repoRoot: root, port: 0, webDist: '', providerFactory: () => stall,
+    });
+    const acA = new AbortController();
+    try {
+      fetch(`http://localhost:${server.port}/api/agent/chat`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: 'A' }),
+        signal: acA.signal,
+      }).catch(() => { /* expected */ });
+      await new Promise<void>(res => setTimeout(res, 100));
+      // Stop the chat: lock releases, but the run keeps unwinding until releaseA.
+      acA.abort();
+      await new Promise<void>(res => setTimeout(res, 100));
+
+      // First regenerate enters, holds agentMutating, and waits on chatUnwind.
+      const r1 = fetch(`http://localhost:${server.port}/api/agent/regenerate`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+      });
+      await new Promise<void>(res => setTimeout(res, 100));
+
+      // Second regenerate (and an undo) must be rejected while R1 is running.
+      const r2 = await fetch(`http://localhost:${server.port}/api/agent/regenerate`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+      });
+      expect(r2.status).toBe(409);
+      const u = await fetch(`http://localhost:${server.port}/api/agent/undo`, {
+        method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}',
+      });
+      expect(u.status).toBe(409);
+
+      // Let the stalled run unwind — R1 then completes normally.
+      releaseA?.();
+      const r1res = await r1;
+      expect(r1res.status).toBe(200);
+    } finally {
+      releaseA?.();
+      acA.abort();
+      try { await server.close(); } catch { /* already closed */ }
+    }
+  }, 20000);
+});

@@ -71,6 +71,9 @@ beforeEach(async () => {
     graphsRoot: join(tmpDir, 'graphs'),
     ueVersion: '5.7',
     workMfIndexPath: join(REPO_ROOT, 'agent-pack', 'workmf-index.json'),
+    // Production wiring (http-server) always supplies this set; write_graph
+    // uses it to allow rewrites of files this conversation created.
+    sessionCreatedPaths: new Set<string>(),
   };
 });
 
@@ -714,5 +717,178 @@ describe('web_search / web_fetch via dispatch', () => {
     const fetchFn = (async () => new Response('<html>no results</html>', { status: 200 })) as typeof fetch;
     const r = await dispatchTool('web_search', { query: 'anything' }, { ...ctx, web: { fetchFn, lookupFn: publicLookup } });
     expect(r.isError).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Bugfix regressions (AGENT_BUGFIX_BRIEF)
+// ---------------------------------------------------------------------------
+
+// BUG-5 — the write gate must reject pin names that do not exist on the node.
+describe('connection pin validation gate (BUG-5)', () => {
+  it('write_graph rejects an invented input pin on a regular node', async () => {
+    const bad = {
+      ...VALID_GRAPH,
+      connections: [
+        { from: 'tex:RGB', to: 'mul:NotARealPin' },
+        { from: 'mul:Result', to: 'OUT:BaseColor' },
+      ],
+    };
+    const r = await dispatchTool('write_graph', { path: 'p/bad_pin.matgraph.json', graph: bad }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('NotARealPin');
+    expect(r.content).toContain('Multiply');
+  });
+
+  it('write_graph rejects an invented output pin', async () => {
+    const bad = {
+      ...VALID_GRAPH,
+      connections: [
+        { from: 'tex:Bogus', to: 'mul:A' },
+        { from: 'mul:Result', to: 'OUT:BaseColor' },
+      ],
+    };
+    const r = await dispatchTool('write_graph', { path: 'p/bad_out.matgraph.json', graph: bad }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('Bogus');
+  });
+
+  it('write_graph rejects an invented MaterialOutput attribute pin', async () => {
+    const bad = {
+      ...VALID_GRAPH,
+      connections: [
+        { from: 'tex:RGB', to: 'mul:A' },
+        { from: 'mul:Result', to: 'OUT:Shinyness' },
+      ],
+    };
+    const r = await dispatchTool('write_graph', { path: 'p/bad_attr.matgraph.json', graph: bad }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('Shinyness');
+  });
+
+  it('patch_graph connect to a nonexistent pin is rejected and nothing lands on disk', async () => {
+    const path = 'p/pin_patch.matgraph.json';
+    const w = await dispatchTool('write_graph', { path, graph: VALID_GRAPH }, ctx);
+    expect(w.isError).toBeFalsy();
+    const before = await readFile(join(ctx.graphsRoot, path), 'utf-8');
+    const r = await dispatchTool('patch_graph', {
+      path,
+      ops: [{ op: 'connect', from: 'tex:R', to: 'mul:NotAPinEither' }],
+    }, ctx);
+    expect(r.isError).toBe(true);
+    expect(await readFile(join(ctx.graphsRoot, path), 'utf-8')).toBe(before);
+  });
+
+  it('channel pins and dynamic-pin nodes still pass', async () => {
+    const good = {
+      ...VALID_GRAPH,
+      nodes: [...VALID_GRAPH.nodes, { id: 'cust', type: 'Custom', params: { Code: 'return 1;' } }],
+      connections: [
+        { from: 'tex:R', to: 'mul:A' },          // channel pin from the DB
+        { from: 'cust:AnyOut', to: 'mul:B' },     // dynamic-pin node — skipped
+        { from: 'mul:Result', to: 'OUT:BaseColor' },
+      ],
+    };
+    const r = await dispatchTool('write_graph', { path: 'p/good_pins.matgraph.json', graph: good }, ctx);
+    expect(r.isError).toBeFalsy();
+  });
+});
+
+// BUG-3 (hard layer) — write_graph must not silently clobber a pre-existing
+// file the conversation did not create.
+describe('write_graph overwrite guard (BUG-3)', () => {
+  const path = 'p/preexisting.matgraph.json';
+
+  beforeEach(async () => {
+    const abs = join(ctx.graphsRoot, path);
+    await mkdir(join(ctx.graphsRoot, 'p'), { recursive: true });
+    await writeFile(abs, JSON.stringify({ ...VALID_GRAPH, name: 'original' }, null, 2) + '\n', 'utf-8');
+  });
+
+  it('refuses to overwrite a pre-existing file without overwrite:true', async () => {
+    const r = await dispatchTool('write_graph', { path, graph: { ...VALID_GRAPH, name: 'clobber' } }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('patch_graph');
+    const onDisk = JSON.parse(await readFile(join(ctx.graphsRoot, path), 'utf-8'));
+    expect(onDisk.name).toBe('original');
+  });
+
+  it('overwrite:true (explicit user request) replaces the file', async () => {
+    const r = await dispatchTool('write_graph', { path, graph: { ...VALID_GRAPH, name: 'rebuilt' }, overwrite: true }, ctx);
+    expect(r.isError).toBeFalsy();
+    const onDisk = JSON.parse(await readFile(join(ctx.graphsRoot, path), 'utf-8'));
+    expect(onDisk.name).toBe('rebuilt');
+  });
+
+  it('files created by this conversation may be rewritten freely', async () => {
+    const own = 'p/own_file.matgraph.json';
+    const w1 = await dispatchTool('write_graph', { path: own, graph: VALID_GRAPH }, ctx);
+    expect(w1.isError).toBeFalsy();
+    const w2 = await dispatchTool('write_graph', { path: own, graph: { ...VALID_GRAPH, name: 'revised' } }, ctx);
+    expect(w2.isError).toBeFalsy();
+    const onDisk = JSON.parse(await readFile(join(ctx.graphsRoot, own), 'utf-8'));
+    expect(onDisk.name).toBe('revised');
+  });
+});
+
+// BUG-3 (grounding layer) — viewport is an on-demand tool, never a prompt block.
+describe('get_viewport (BUG-3)', () => {
+  it('returns the open graph and selected node from ToolContext', async () => {
+    const r = await dispatchTool('get_viewport', {}, {
+      ...ctx,
+      viewport: { graphPath: 'demo/water.matgraph.json', selectedNodeId: 'mul' },
+    });
+    expect(JSON.parse(r.content)).toEqual({ openGraphPath: 'demo/water.matgraph.json', selectedNodeId: 'mul' });
+  });
+
+  it('returns nulls when nothing is open', async () => {
+    const r = await dispatchTool('get_viewport', {}, ctx);
+    expect(JSON.parse(r.content)).toEqual({ openGraphPath: null, selectedNodeId: null });
+  });
+});
+
+// BUG-9 — symlinks under graphs/ must not let any file tool escape the tree.
+describe('symlink escape (BUG-9)', () => {
+  it('read/write/delete through a symlinked directory are refused', async () => {
+    const { symlink } = await import('node:fs/promises');
+    const outside = join(tmpDir, 'outside');
+    await mkdir(outside, { recursive: true });
+    await writeFile(join(outside, 'target.matgraph.json'), JSON.stringify(VALID_GRAPH), 'utf-8');
+    await symlink(outside, join(ctx.graphsRoot, 'sneaky'), 'dir');
+
+    for (const [tool, input] of [
+      ['read_graph', { path: 'sneaky/target.matgraph.json' }],
+      ['write_graph', { path: 'sneaky/new.matgraph.json', graph: VALID_GRAPH }],
+      ['delete_graph', { path: 'sneaky/target.matgraph.json' }],
+    ] as const) {
+      const r = await dispatchTool(tool, input, ctx);
+      expect(r.isError, `${tool} must refuse symlink traversal`).toBe(true);
+      expect(r.content).toContain('symlink');
+    }
+    // The outside file is untouched.
+    expect(JSON.parse(await readFile(join(outside, 'target.matgraph.json'), 'utf-8')).name).toBe('test_mat');
+  });
+
+  it('a symlinked FILE inside graphs/ is refused and list_graphs skips it', async () => {
+    const { symlink } = await import('node:fs/promises');
+    const outsideFile = join(tmpDir, 'secret.matgraph.json');
+    await writeFile(outsideFile, JSON.stringify(VALID_GRAPH), 'utf-8');
+    await symlink(outsideFile, join(ctx.graphsRoot, 'link.matgraph.json'), 'file');
+
+    const r = await dispatchTool('read_graph', { path: 'link.matgraph.json' }, ctx);
+    expect(r.isError).toBe(true);
+
+    const list = await dispatchTool('list_graphs', {}, ctx);
+    expect(list.content).not.toContain('link.matgraph.json');
+  });
+});
+
+// BUG-17 — a non-ENOENT pre-read failure must surface, not pass as "new file".
+describe('write_graph pre-read error narrowing (BUG-17)', () => {
+  it('a directory squatting on the target path is a loud error', async () => {
+    await mkdir(join(ctx.graphsRoot, 'dir_squat.matgraph.json'), { recursive: true });
+    const r = await dispatchTool('write_graph', { path: 'dir_squat.matgraph.json', graph: VALID_GRAPH }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('cannot read existing file');
   });
 });

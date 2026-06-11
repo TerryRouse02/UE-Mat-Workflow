@@ -48,6 +48,12 @@ export function validateGraph(input: unknown): ValidationResult {
       }
       const ci = v.indexOf(':');
       const nodeId = v.slice(0, ci);
+      // Both halves must be non-empty: "A:" (trailing colon) or ":Pin" would
+      // otherwise reach disk and surface in UE as a dangling/empty pin.
+      if (!nodeId || !v.slice(ci + 1).trim()) {
+        errors.push(`connections[${i}].${label} must be "nodeId:pinName" (empty nodeId or pinName)`);
+        return null;
+      }
       if (!ids.has(nodeId)) errors.push(`connections[${i}].${label} references unknown node: ${nodeId}`);
       return nodeId;
     };

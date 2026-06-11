@@ -2,8 +2,8 @@
 // (compact_context is defined here but dispatched inside loop.ts — it needs the session.)
 // All tools catch internal throws and convert them to {content, isError:true}.
 
-import { mkdir, rename, writeFile, readdir, readFile, stat, unlink } from 'node:fs/promises';
-import { resolve, join, sep, dirname, relative } from 'node:path';
+import { mkdir, rename, writeFile, readdir, readFile, realpath, stat, unlink } from 'node:fs/promises';
+import { resolve, join, sep, dirname, basename, relative } from 'node:path';
 import type { ToolDef } from './provider/types.js';
 import { validateGraph, materialStructureWarnings } from '../schema.js';
 import { loadGraph } from '../graph-loader.js';
@@ -11,6 +11,7 @@ import { resolveMaterialFunctions } from '../mf-resolver.js';
 import { loadWorkMfIndex } from '../workmf-index.js';
 import { probeEnv } from '../crawl-env.js';
 import { applyPatch, changedNodeIds, type PatchOp } from './patch.js';
+import { connectionPinErrors } from './pin-validate.js';
 import type { MemoryStore, MemoryScope } from './memory-store.js';
 import { fetchPublic, htmlToText, webSearch, WEB_TEXT_CAP, type WebDeps } from './web-tools.js';
 import { validateDbEditPatch, validateDbCreate, DB_EDIT_KEYS } from './db-edit.js';
@@ -52,6 +53,20 @@ export interface ToolContext {
     exitCode: number | null;
     lines: string[];
   } | null;
+  /**
+   * What the user is looking at right now (open graph + selected node), sent
+   * by the web UI with each chat request. Read ON DEMAND via the get_viewport
+   * tool — it is deliberately NOT injected into the prompt, so an open file
+   * never biases a「建立」(create) request into modifying it.
+   */
+  viewport?: { graphPath?: string; selectedNodeId?: string };
+  /**
+   * Absolute paths of graphs CREATED by this conversation. write_graph may
+   * freely rewrite these; any other existing file is refused unless the model
+   * passes overwrite:true (reserved for an explicit user request). Owned by
+   * the session (the HTTP server keeps it on the ActiveSession).
+   */
+  sessionCreatedPaths?: Set<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,12 +91,37 @@ function isInside(root: string, candidate: string): boolean {
 }
 
 /**
+ * Real (symlink-resolved) location of `abs`: realpath of its nearest EXISTING
+ * ancestor with the not-yet-existing suffix re-attached (non-existent segments
+ * cannot be symlinks). Falls back to `abs` if nothing up to the fs root
+ * resolves — the lexical containment check has already run by then.
+ */
+async function realpathNearest(abs: string): Promise<string> {
+  let cur = abs;
+  const tail: string[] = [];
+  for (;;) {
+    try {
+      const real = await realpath(cur);
+      return tail.length > 0 ? join(real, ...tail) : real;
+    } catch {
+      const parent = dirname(cur);
+      if (parent === cur) return abs;
+      tail.unshift(basename(cur));
+      cur = parent;
+    }
+  }
+}
+
+/**
  * Validate and resolve a graph path.
  * - input must be relative
  * - must end with '.matgraph.json'
  * - resolved path must be inside graphsRoot
+ * - the REAL path (symlinks resolved, for the target and every existing
+ *   ancestor) must also be inside graphsRoot — a symlink planted under
+ *   graphs/ must not let reads/writes/deletes escape the tree
  */
-function guardPath(input: unknown, graphsRoot: string): { abs: string } | { error: string } {
+async function guardPath(input: unknown, graphsRoot: string): Promise<{ abs: string } | { error: string }> {
   if (typeof input !== 'string') {
     return { error: 'path must be a string' };
   }
@@ -94,6 +134,13 @@ function guardPath(input: unknown, graphsRoot: string): { abs: string } | { erro
   const abs = resolve(graphsRoot, input);
   if (!isInside(graphsRoot, abs)) {
     return { error: 'path escapes graphs root (directory traversal rejected)' };
+  }
+  // Compare real-to-real so a graphsRoot that itself sits behind a symlink
+  // (e.g. macOS /var → /private/var tmp dirs) still matches.
+  const realRoot = await realpathNearest(resolve(graphsRoot));
+  const realAbs = await realpathNearest(abs);
+  if (!isInside(realRoot, realAbs)) {
+    return { error: 'path escapes graphs root (symlink traversal rejected)' };
   }
   return { abs };
 }
@@ -149,6 +196,11 @@ async function runValidationGate(
     if (unknownTypes.length > 0) {
       errors.push(`unknown node types for ueVersion ${ctx.ueVersion}: ${unknownTypes.join(', ')}`);
     }
+    // Pin-existence check against the DB signatures (mirrors the viewer's
+    // validateConnectionPins) — an invented pin name on a regular node must
+    // fail the gate, not land on disk with ok:true. Unknown-type and
+    // dynamic-pin nodes are skipped (reported above / unverifiable).
+    errors.push(...connectionPinErrors(validGraph, nodesMap));
   }
 
   if (errors.length > 0) {
@@ -189,7 +241,13 @@ async function atomicWrite(absPath: string, content: string): Promise<void> {
   const tmpPath = absPath + '.tmp.' + process.pid + '.' + Date.now();
   await mkdir(dirname(absPath), { recursive: true });
   await writeFile(tmpPath, content, 'utf-8');
-  await rename(tmpPath, absPath);
+  try {
+    await rename(tmpPath, absPath);
+  } catch (err) {
+    // A failed rename must not leave the .tmp file behind in graphs/.
+    await unlink(tmpPath).catch(() => {});
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -257,12 +315,15 @@ export const toolDefs: ToolDef[] = [
     description:
       'Write a complete .matgraph.json. Validates before writing; never writes an invalid graph. ' +
       'All node types must exist in the version DB or be reserved types. ' +
-      'Use for initial creation; use patch_graph for modifications.',
+      'Use for INITIAL CREATION at a path that does not exist yet; use patch_graph for modifications. ' +
+      'Refuses to overwrite a pre-existing file unless this conversation created it, or overwrite:true ' +
+      'is set — which is allowed ONLY after the user explicitly asked to rebuild that exact file.',
     inputSchema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
         graph: { type: 'object', description: 'Complete matgraph object' },
+        overwrite: { type: 'boolean', description: 'Allow replacing a pre-existing file. Only set this after the user explicitly confirmed rebuilding that exact file.' },
       },
       required: ['path', 'graph'],
     },
@@ -316,6 +377,15 @@ export const toolDefs: ToolDef[] = [
     description:
       'List every .matgraph.json under graphs/ with its material name and type. ' +
       'Use this FIRST when the user refers to an existing material and you do not know its path.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'get_viewport',
+    description:
+      'Get what the user is currently looking at in the viewer: the open graph path and the ' +
+      'selected node id (null when nothing is open/selected). Call this when the user refers to ' +
+      '「目前的圖」「這個節點」"this graph"/"this node". An open graph is CONTEXT, not a target: ' +
+      'never modify it unless the user asked to change it.',
     inputSchema: { type: 'object', properties: {} },
   },
   {
@@ -552,6 +622,7 @@ async function _dispatch(
     case 'validate_graph':  return toolValidateGraph(inp, ctx);
     case 'get_graph_errors':return toolGetGraphErrors(inp, ctx);
     case 'list_graphs':     return toolListGraphs(ctx);
+    case 'get_viewport':    return toolGetViewport(ctx);
     case 'search_mf':       return toolSearchMf(inp, ctx);
     case 'list_examples':   return toolListExamples(ctx);
     case 'read_example':    return toolReadExample(inp, ctx);
@@ -579,6 +650,19 @@ async function _dispatch(
 
 const LIST_GRAPHS_CAP = 200;
 
+// On-demand viewport lookup (the grounding half of the create-vs-modify fix):
+// the web UI sends the open graph + selected node with every chat request, the
+// server caches it in ToolContext, and the model reads it only when it needs
+// to resolve「目前/這個」— it is never injected into the prompt.
+async function toolGetViewport(ctx: ToolContext): Promise<{ content: string; isError?: boolean }> {
+  return {
+    content: JSON.stringify({
+      openGraphPath: ctx.viewport?.graphPath ?? null,
+      selectedNodeId: ctx.viewport?.selectedNodeId ?? null,
+    }),
+  };
+}
+
 async function toolListGraphs(ctx: ToolContext): Promise<{ content: string; isError?: boolean }> {
   const files: string[] = [];
   async function walk(dir: string): Promise<void> {
@@ -591,6 +675,9 @@ async function toolListGraphs(ctx: ToolContext): Promise<{ content: string; isEr
     for (const e of entries) {
       if (files.length >= LIST_GRAPHS_CAP) return;
       if (e.name.startsWith('.')) continue;
+      // Never follow symlinks — a planted link must not let the walk (or the
+      // later readFile) escape graphs/.
+      if (e.isSymbolicLink()) continue;
       const p = join(dir, e.name);
       if (e.isDirectory()) await walk(p);
       else if (e.name.endsWith('.matgraph.json')) files.push(p);
@@ -860,7 +947,7 @@ async function toolReadGraph(
   inp: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ content: string; isError?: boolean }> {
-  const guard = guardPath(inp.path, ctx.graphsRoot);
+  const guard = await guardPath(inp.path, ctx.graphsRoot);
   if ('error' in guard) return { content: guard.error, isError: true };
 
   const loaded = await loadGraph(guard.abs);
@@ -904,7 +991,7 @@ async function toolWriteGraph(
   inp: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ content: string; isError?: boolean }> {
-  const guard = guardPath(inp.path, ctx.graphsRoot);
+  const guard = await guardPath(inp.path, ctx.graphsRoot);
   if ('error' in guard) return { content: guard.error, isError: true };
 
   const graph = inp.graph;
@@ -921,6 +1008,32 @@ async function toolWriteGraph(
     };
   }
 
+  // One pre-read serves the overwrite guard AND the changed-node highlight.
+  // Only ENOENT means "new file"; any other failure (permissions, a directory
+  // in the way) is a real I/O error and must surface, not pass as a fresh file.
+  let oldRaw: string | null = null;
+  try {
+    oldRaw = await readFile(guard.abs, 'utf-8');
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException)?.code !== 'ENOENT') {
+      return { content: `write_graph: cannot read existing file: ${(e as Error).message}`, isError: true };
+    }
+  }
+
+  // HARD overwrite guard (the safety net behind the create/modify prompt
+  // rules): an existing file this conversation did NOT create is only
+  // rewritable with an explicit overwrite:true — which the model may set only
+  // after the user asked for that exact file to be rebuilt.
+  if (oldRaw !== null && inp.overwrite !== true && !ctx.sessionCreatedPaths?.has(guard.abs)) {
+    return {
+      content:
+        `write_graph: 「${String(inp.path)}」已存在，且不是本次對話建立的檔案。` +
+        '修改既有材質請改用 patch_graph；建立新材質請改用一個不存在的新路徑；' +
+        '只有在使用者明確要求整檔重寫這個檔案時，才能帶 overwrite: true 重試。',
+      isError: true,
+    };
+  }
+
   const report = await runValidationGate(graph, dirname(guard.abs), ctx);
 
   if (report.errors.length > 0) {
@@ -931,11 +1044,13 @@ async function toolWriteGraph(
   }
 
   // Changed nodes vs the previous on-disk version (for the canvas highlight):
-  // new file → every node; overwrite → nodes that are new or differ from old.
-  let changed: string[];
+  // new file (or unparseable old content) → every node; overwrite → nodes
+  // that are new or differ from old.
   const newNodes = Array.isArray(g.nodes) ? (g.nodes as Array<{ id?: unknown }>) : [];
+  let changed: string[];
   try {
-    const old = JSON.parse(await readFile(guard.abs, 'utf-8')) as { nodes?: Array<{ id?: unknown }> };
+    if (oldRaw === null) throw new Error('new file');
+    const old = JSON.parse(oldRaw) as { nodes?: Array<{ id?: unknown }> };
     const oldById = new Map((old.nodes ?? []).map(n => [String(n.id), JSON.stringify(n)]));
     changed = newNodes
       .filter(n => oldById.get(String(n.id)) !== JSON.stringify(n))
@@ -948,6 +1063,9 @@ async function toolWriteGraph(
   // per-iteration turnId; the empty string here is never seen by the outer hook.
   await ctx.beforeWrite?.(guard.abs, '');
   await atomicWrite(guard.abs, JSON.stringify(graph, null, 2) + '\n');
+  // A freshly created file belongs to this conversation — later full rewrites
+  // of it (self-corrections, 重做) skip the overwrite guard.
+  if (oldRaw === null) ctx.sessionCreatedPaths?.add(guard.abs);
 
   return {
     content: JSON.stringify({
@@ -967,7 +1085,7 @@ async function toolPatchGraph(
   inp: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ content: string; isError?: boolean }> {
-  const guard = guardPath(inp.path, ctx.graphsRoot);
+  const guard = await guardPath(inp.path, ctx.graphsRoot);
   if ('error' in guard) return { content: guard.error, isError: true };
 
   // File must exist
@@ -1031,7 +1149,7 @@ async function toolValidateGraph(
   let graphDir: string;
 
   if (inp.path != null) {
-    const guard = guardPath(inp.path, ctx.graphsRoot);
+    const guard = await guardPath(inp.path, ctx.graphsRoot);
     if ('error' in guard) return { content: guard.error, isError: true };
     const loaded = await loadGraph(guard.abs);
     graphData = loaded.graph ?? null;
@@ -1065,7 +1183,7 @@ async function toolGetGraphErrors(
   inp: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ content: string; isError?: boolean }> {
-  const guard = guardPath(inp.path, ctx.graphsRoot);
+  const guard = await guardPath(inp.path, ctx.graphsRoot);
   if ('error' in guard) return { content: guard.error, isError: true };
 
   const loaded = await loadGraph(guard.abs);
@@ -1095,9 +1213,9 @@ async function toolRenameGraph(
   inp: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ content: string; isError?: boolean }> {
-  const from = guardPath(inp.from, ctx.graphsRoot);
+  const from = await guardPath(inp.from, ctx.graphsRoot);
   if ('error' in from) return { content: `from: ${from.error}`, isError: true };
-  const to = guardPath(inp.to, ctx.graphsRoot);
+  const to = await guardPath(inp.to, ctx.graphsRoot);
   if ('error' in to) return { content: `to: ${to.error}`, isError: true };
 
   try {
@@ -1132,7 +1250,7 @@ async function toolDeleteGraph(
   inp: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ content: string; isError?: boolean }> {
-  const guard = guardPath(inp.path, ctx.graphsRoot);
+  const guard = await guardPath(inp.path, ctx.graphsRoot);
   if ('error' in guard) return { content: guard.error, isError: true };
 
   try {
@@ -1163,7 +1281,7 @@ async function toolExportToClipboard(
   inp: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ content: string; isError?: boolean }> {
-  const guard = guardPath(inp.path, ctx.graphsRoot);
+  const guard = await guardPath(inp.path, ctx.graphsRoot);
   if ('error' in guard) return { content: guard.error, isError: true };
 
   const loaded = await loadGraph(guard.abs);

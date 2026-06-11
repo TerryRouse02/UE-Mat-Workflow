@@ -52,7 +52,7 @@ export interface ChatExpect {
   /** Exact ordered paths of graph_written events. Omit to skip. */
   graphWritten?: string[];
   /** Expected limit event kind. Absent → the runner asserts NO limit event. */
-  limit?: 'iters' | 'cost';
+  limit?: 'iters' | 'cost' | 'failures';
   /**
    * SSE event types that must each appear at least once in the step's stream
    * (viewer-action coverage: export_request, crawl_proposal, db_edit_proposal…).

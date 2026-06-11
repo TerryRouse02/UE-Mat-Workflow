@@ -120,6 +120,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     transcript: AgentTranscriptEntry[];
     title: string;
     createdAt: string;
+    /**
+     * Abs paths of graphs this conversation CREATED — write_graph may rewrite
+     * these freely; other existing files need an explicit overwrite:true.
+     * In-memory only (like the checkpoint turn stack): a server restart
+     * conservatively forgets them, so old files regain overwrite protection.
+     */
+    createdPaths: Set<string>;
   }
   const activeSessions = new Map<string, ActiveSession>();
   // The session an id-less chat/undo/reset request applies to. The web UI
@@ -130,6 +137,16 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   let agentStreaming = false;
   // AbortController for the currently-streaming chat (if any).
   const agentAbortRef = { current: null as AbortController | null };
+  // Resolves when the most recent chat run has FULLY unwound (its finally ran,
+  // session persisted). The streaming lock is released the moment the client
+  // disconnects (stop button) so a re-send never 409s, but the aborted
+  // generator can take seconds to unwind — the next chat/undo/regenerate
+  // awaits this so two runs never mutate the same session concurrently.
+  let chatUnwind: Promise<void> = Promise.resolve();
+  // Single-flight for history-mutating endpoints (undo / regenerate): the
+  // entry check alone left every await window open to a concurrent second
+  // mutation of the same session history.
+  let agentMutating = false;
   // Provider factory — default pickProvider, overridable for tests.
   const makeProvider = opts.providerFactory ?? pickProvider;
 
@@ -150,6 +167,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       transcript: [],
       title: '',
       createdAt: new Date().toISOString(),
+      createdPaths: new Set<string>(),
     };
     activeSessions.set(id, active);
     return active;
@@ -177,6 +195,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       transcript: persisted.transcript,
       title: persisted.title,
       createdAt: persisted.createdAt,
+      createdPaths: new Set<string>(),
     };
     activeSessions.set(id, active);
     return active;
@@ -602,41 +621,55 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       sendJson(res, 409, { error: '對話進行中，無法還原。請等待完成後再試。' });
       return;
     }
-
-    // Optional body { sessionId } — absent falls back to the current session.
-    let sessionId = currentSessionId;
+    // Single-flight with regenerate/undo: the entry check above is not enough —
+    // every await below is a window for a concurrent second mutation.
+    if (agentMutating) {
+      sendJson(res, 409, { error: '另一個還原／重新生成正在進行中，請稍候。' });
+      return;
+    }
+    agentMutating = true;
     try {
-      const raw = await readBody(req);
-      if (raw) {
-        const parsed = JSON.parse(raw) as { sessionId?: unknown };
-        if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
-          sessionId = parsed.sessionId;
+      // A stopped chat releases the streaming lock before its generator has
+      // fully unwound — wait it out so undo never races an in-flight write.
+      await chatUnwind;
+
+      // Optional body { sessionId } — absent falls back to the current session.
+      let sessionId = currentSessionId;
+      try {
+        const raw = await readBody(req);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { sessionId?: unknown };
+          if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
+            sessionId = parsed.sessionId;
+          }
         }
+      } catch { /* empty/invalid body → current session */ }
+
+      const active = sessionId ? await resumeSession(sessionId) : null;
+      if (!active) {
+        const body: AgentUndoResponse = { ok: false, reason: 'nothing-to-undo' };
+        sendJson(res, 200, body);
+        return;
       }
-    } catch { /* empty/invalid body → current session */ }
 
-    const active = sessionId ? await resumeSession(sessionId) : null;
-    if (!active) {
-      const body: AgentUndoResponse = { ok: false, reason: 'nothing-to-undo' };
+      const restored = await active.checkpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'));
+
+      if (restored === null) {
+        const body: AgentUndoResponse = { ok: false, reason: 'nothing-to-undo' };
+        sendJson(res, 200, body);
+        return;
+      }
+
+      // Filter out SKIPPED entries, convert abs paths to graphsRoot-relative.
+      const relPaths = restored
+        .filter(p => !p.startsWith('!SKIPPED:'))
+        .map(p => relative(resolve(opts.repoRoot, 'graphs'), p));
+
+      const body: AgentUndoResponse = { ok: true, restored: relPaths };
       sendJson(res, 200, body);
-      return;
+    } finally {
+      agentMutating = false;
     }
-
-    const restored = await active.checkpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'));
-
-    if (restored === null) {
-      const body: AgentUndoResponse = { ok: false, reason: 'nothing-to-undo' };
-      sendJson(res, 200, body);
-      return;
-    }
-
-    // Filter out SKIPPED entries, convert abs paths to graphsRoot-relative.
-    const relPaths = restored
-      .filter(p => !p.startsWith('!SKIPPED:'))
-      .map(p => relative(resolve(opts.repoRoot, 'graphs'), p));
-
-    const body: AgentUndoResponse = { ok: true, restored: relPaths };
-    sendJson(res, 200, body);
   }
 
   /**
@@ -651,65 +684,78 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       sendJson(res, 409, { error: '對話進行中，無法重新生成。請等待完成或停止後再試。' });
       return;
     }
-
-    let sessionId = currentSessionId;
-    try {
-      const raw = await readBody(req);
-      if (raw) {
-        const parsed = JSON.parse(raw) as { sessionId?: unknown };
-        if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
-          sessionId = parsed.sessionId;
-        }
-      }
-    } catch { /* empty/invalid body → current session */ }
-
-    const active = sessionId ? await resumeSession(sessionId) : null;
-    const lastUserIdx = active
-      ? active.transcript.map(e => e.kind).lastIndexOf('user')
-      : -1;
-    if (!active || lastUserIdx === -1) {
-      sendJson(res, 200, { ok: false, reason: 'nothing-to-regenerate' } satisfies AgentRegenerateResponse);
+    // Single-flight: two concurrent regenerates would each rewind the same
+    // history once — the entry check alone leaves the await windows open.
+    if (agentMutating) {
+      sendJson(res, 409, { error: '另一個還原／重新生成正在進行中，請稍候。' });
       return;
     }
-    const userText = (active.transcript[lastUserIdx] as { kind: 'user'; text: string }).text;
+    agentMutating = true;
+    try {
+      // Wait out a stopped chat's unwind (see handleAgentUndo).
+      await chatUnwind;
 
-    // Restore the files this turn wrote (no-op when it wrote nothing).
-    await active.checkpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'));
+      let sessionId = currentSessionId;
+      try {
+        const raw = await readBody(req);
+        if (raw) {
+          const parsed = JSON.parse(raw) as { sessionId?: unknown };
+          if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
+            sessionId = parsed.sessionId;
+          }
+        }
+      } catch { /* empty/invalid body → current session */ }
 
-    // Trim the message history back to before this user turn. The turn began
-    // either as its own text-only user message, or as a text block appended to
-    // a tool_results user message (the merged shape runAgent creates when the
-    // previous turn ended on a ceiling/abort) — in the merged case keep the
-    // tool_results so the preceding assistant tool_use stays answered.
-    const msgs = active.loop.messages;
-    let cut = -1;
-    for (let i = msgs.length - 1; i >= 0; i--) {
-      const m = msgs[i];
-      if (m.role === 'user' && m.content.some(b => b.type === 'text' && b.text === userText)) {
-        cut = i;
-        break;
+      const active = sessionId ? await resumeSession(sessionId) : null;
+      const lastUserIdx = active
+        ? active.transcript.map(e => e.kind).lastIndexOf('user')
+        : -1;
+      if (!active || lastUserIdx === -1) {
+        sendJson(res, 200, { ok: false, reason: 'nothing-to-regenerate' } satisfies AgentRegenerateResponse);
+        return;
       }
-    }
-    if (cut !== -1) {
-      const m = msgs[cut];
-      // Remove only the LAST matching text block (identical re-sends stay intact).
-      let removeIdx = -1;
-      for (let j = m.content.length - 1; j >= 0; j--) {
-        const b = m.content[j];
-        if (b.type === 'text' && b.text === userText) { removeIdx = j; break; }
-      }
-      // Also drop the turn's viewport-context block — the re-send attaches a
-      // fresh one, and a stale one must not linger in a merged message.
-      const others = m.content.filter((b, j) =>
-        j !== removeIdx && !(b.type === 'text' && b.text.startsWith(VIEW_CONTEXT_PREFIX)));
-      active.loop.messages = others.some(b => b.type === 'tool_result')
-        ? [...msgs.slice(0, cut), { role: 'user' as const, content: others }]
-        : msgs.slice(0, cut);
-    }
+      const userText = (active.transcript[lastUserIdx] as { kind: 'user'; text: string }).text;
 
-    active.transcript = active.transcript.slice(0, lastUserIdx);
-    await persistSession(active);
-    sendJson(res, 200, { ok: true, text: userText } satisfies AgentRegenerateResponse);
+      // Restore the files this turn wrote (no-op when it wrote nothing).
+      await active.checkpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'));
+
+      // Trim the message history back to before this user turn. The turn began
+      // either as its own text-only user message, or as a text block appended to
+      // a tool_results user message (the merged shape runAgent creates when the
+      // previous turn ended on a ceiling/abort) — in the merged case keep the
+      // tool_results so the preceding assistant tool_use stays answered.
+      const msgs = active.loop.messages;
+      let cut = -1;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        const m = msgs[i];
+        if (m.role === 'user' && m.content.some(b => b.type === 'text' && b.text === userText)) {
+          cut = i;
+          break;
+        }
+      }
+      if (cut !== -1) {
+        const m = msgs[cut];
+        // Remove only the LAST matching text block (identical re-sends stay intact).
+        let removeIdx = -1;
+        for (let j = m.content.length - 1; j >= 0; j--) {
+          const b = m.content[j];
+          if (b.type === 'text' && b.text === userText) { removeIdx = j; break; }
+        }
+        // Also drop any legacy viewport-context block (older sessions carry
+        // them; the injection itself is gone — viewport is a tool now).
+        const others = m.content.filter((b, j) =>
+          j !== removeIdx && !(b.type === 'text' && b.text.startsWith(VIEW_CONTEXT_PREFIX)));
+        active.loop.messages = others.some(b => b.type === 'tool_result')
+          ? [...msgs.slice(0, cut), { role: 'user' as const, content: others }]
+          : msgs.slice(0, cut);
+      }
+
+      active.transcript = active.transcript.slice(0, lastUserIdx);
+      await persistSession(active);
+      sendJson(res, 200, { ok: true, text: userText } satisfies AgentRegenerateResponse);
+    } finally {
+      agentMutating = false;
+    }
   }
 
   /**
@@ -748,6 +794,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   /** POST /api/agent/reset — abort any in-flight chat and detach the current session. */
   async function handleAgentReset(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    if (agentMutating) {
+      sendJson(res, 409, { error: '正在還原／重新生成，請稍候再試。' });
+      return;
+    }
 
     // Abort any in-flight streaming chat.
     agentAbortRef.current?.abort();
@@ -822,6 +872,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
     if (agentStreaming && currentSessionId === id) {
       sendJson(res, 409, { error: '對話進行中，無法刪除。請先停止。' });
+      return;
+    }
+    if (agentMutating) {
+      sendJson(res, 409, { error: '正在還原／重新生成，請稍候再試。' });
       return;
     }
     const active = activeSessions.get(id);
@@ -938,15 +992,36 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   async function handleAgentChat(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
 
-    // Single-flight: reject concurrent chats.
+    // Single-flight: reject concurrent chats (and chats during undo/regenerate).
     // IMPORTANT: set the flag here, synchronously, before any await — otherwise a
     // second request can arrive during readBody/readLlmConfig and pass the guard (TOCTOU).
     if (agentStreaming) {
       sendJson(res, 409, { error: '目前已有對話進行中，請等待完成或停止後再試。' });
       return;
     }
+    if (agentMutating) {
+      sendJson(res, 409, { error: '正在還原／重新生成，請稍候再試。' });
+      return;
+    }
     agentStreaming = true;
 
+    // Serialize against the previous run's unwind: a stopped chat releases the
+    // streaming lock immediately (socket close), but its generator may still
+    // be unwinding (a tool call in flight) — wait for it to fully finish
+    // (including persistSession) before touching any session state, so an
+    // aborted old run can never interleave with or clobber this run.
+    const prevUnwind = chatUnwind;
+    let releaseUnwind!: () => void;
+    chatUnwind = new Promise<void>((r) => { releaseUnwind = r; });
+    try {
+      await prevUnwind;
+      await handleAgentChatInner(req, res);
+    } finally {
+      releaseUnwind();
+    }
+  }
+
+  async function handleAgentChatInner(req: IncomingMessage, res: import('node:http').ServerResponse) {
     let body: AgentChatRequest;
     try { body = JSON.parse(await readBody(req)) as AgentChatRequest; }
     catch (e) {
@@ -1030,8 +1105,26 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     const ac = new AbortController();
     agentAbortRef.current = ac;
 
-    // Abort when client disconnects.
-    req.on('close', () => { ac.abort(); });
+    // Abort when the client disconnects (stop button = fetch abort = socket
+    // close), and release the single-flight lock IMMEDIATELY: the aborted
+    // generator only notices the abort at its next event boundary and can take
+    // seconds to unwind — without this, an instant re-send hits a spurious
+    // 409. The next chat serializes behind chatUnwind, so the early release
+    // can never let two runs mutate the same session concurrently.
+    //
+    // NOTE: mid-response disconnects surface on the RESPONSE ('close' with
+    // writableEnded still false) — the request stream completed long ago at
+    // readBody, so req 'close' alone misses them. Keep both for robustness.
+    const onClientGone = () => {
+      if (res.writableEnded) return; // normal completion, nothing to abort
+      ac.abort();
+      if (agentAbortRef.current === ac) {
+        agentStreaming = false;
+        agentAbortRef.current = null;
+      }
+    };
+    req.on('close', onClientGone);
+    res.on('close', onClientGone);
 
     const graphsRoot = resolve(opts.repoRoot, 'graphs');
     const agentPackRoot = resolve(opts.repoRoot, 'agent-pack');
@@ -1054,6 +1147,17 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       appendTranscript(active.transcript, { kind: 'event', event: out });
     };
 
+    // Viewport state rides in the ToolContext and is read ON DEMAND via the
+    // get_viewport tool — never injected into the prompt (an injected open
+    // graph biased「建立」requests into modifying the open file).
+    const viewport: { graphPath?: string; selectedNodeId?: string } = {};
+    if (typeof body.graphPath === 'string' && body.graphPath.trim()) {
+      viewport.graphPath = body.graphPath.trim();
+    }
+    if (typeof body.selectedNodeId === 'string' && body.selectedNodeId.trim()) {
+      viewport.selectedNodeId = body.selectedNodeId.trim();
+    }
+
     const ctx = {
       repoRoot: opts.repoRoot,
       graphsRoot,
@@ -1064,23 +1168,16 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       },
       memory: active.memory,
       getCrawlLog: () => runner.lastLog(),
+      viewport,
+      sessionCreatedPaths: active.createdPaths,
+      // Lets web_fetch/web_search abort promptly when the user stops the turn.
+      web: { signal: ac.signal },
     };
 
     // Allowlist the per-turn thinking level from the request body.
     const thinking = body.thinking === 'low' || body.thinking === 'medium' || body.thinking === 'high'
       ? body.thinking
       : undefined;
-
-    // Viewport context: what the user is looking at right now. One line, no
-    // newlines (the values come from the user's own graphs, but keep it tidy).
-    const ctxParts: string[] = [];
-    if (typeof body.graphPath === 'string' && body.graphPath.trim()) {
-      ctxParts.push(`目前開啟的圖：${body.graphPath.trim()}`);
-    }
-    if (typeof body.selectedNodeId === 'string' && body.selectedNodeId.trim()) {
-      ctxParts.push(`使用者選取的節點 id：${body.selectedNodeId.trim()}`);
-    }
-    const viewContext = ctxParts.join('；').replace(/\s*\n\s*/g, ' ') || undefined;
 
     try {
       await runAgent(
@@ -1094,21 +1191,30 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         {
           maxTokens: llmConfig.maxTokens,
           thinking,
-          viewContext,
-          // 0 = unlimited (token ceiling still applies); absent → loop default.
-          maxIters: llmConfig.maxIters === 0 ? Number.MAX_SAFE_INTEGER : llmConfig.maxIters,
+          // 0 = unlimited is the LOOP's semantic (single source of truth there);
+          // unlimited runs are still bounded by the token ceiling and the
+          // consecutive-failure breakers.
+          maxIters: llmConfig.maxIters,
           // Context window drives both knobs: compact at half, hard-stop at the window.
           compactThreshold: llmConfig.contextLimit !== undefined ? Math.floor(llmConfig.contextLimit / 2) : undefined,
           tokenCeiling: llmConfig.contextLimit,
         },
       );
     } catch (e) {
-      const msg = (e as Error)?.message ?? 'unknown error';
-      // Tool-rejection messages get the model-switch hint via emit; everything
-      // else gets the generic prefix.
-      const toolRejected = /4\d\d/.test(msg) && /tool/i.test(msg);
-      emit({ type: 'error', message: toolRejected ? msg : `對話發生錯誤：${msg}` });
-      emit({ type: 'done' });
+      // A user-initiated abort is a normal cancellation, not an error — the
+      // adapters already swallow their own AbortErrors, but anything that
+      // slips through (e.g. the initial provider fetch aborting) must not
+      // surface as a fake「對話發生錯誤」.
+      if (ac.signal.aborted || (e as Error)?.name === 'AbortError') {
+        emit({ type: 'done' });
+      } else {
+        const msg = (e as Error)?.message ?? 'unknown error';
+        // Tool-rejection messages get the model-switch hint via emit; everything
+        // else gets the generic prefix.
+        const toolRejected = /4\d\d/.test(msg) && /tool/i.test(msg);
+        emit({ type: 'error', message: toolRejected ? msg : `對話發生錯誤：${msg}` });
+        emit({ type: 'done' });
+      }
     } finally {
       // Ownership check: a reset may abort this run and hand the lock to a
       // NEWER chat while this generator is still unwinding (the abort only

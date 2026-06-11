@@ -1041,3 +1041,102 @@ describe('OpenAIAdapter thinking', () => {
     expect(JSON.stringify(msgs)).toContain('"a"');
   });
 });
+
+// ---------------------------------------------------------------------------
+// Bugfix regressions (AGENT_BUGFIX_BRIEF)
+// ---------------------------------------------------------------------------
+
+// BUG-12 — Anthropic message_delta usage is CUMULATIVE; last value wins.
+describe('Anthropic cumulative usage (BUG-12)', () => {
+  it('does not accumulate output_tokens across message_delta events', async () => {
+    const fixture = [
+      'data: {"type":"message_start","message":{"usage":{"input_tokens":100}}}\n\n',
+      'data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"hi"}}\n\n',
+      'data: {"type":"message_delta","usage":{"output_tokens":10}}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":25}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ];
+    const adapter = new AnthropicAdapter({ provider: 'anthropic', model: 'm', apiKey: 'k' }, fakeFetch(fixture));
+    const events = await collect(adapter.stream(SIMPLE_REQ));
+    const usage = events.find(e => e.type === 'usage');
+    expect(usage).toEqual({ type: 'usage', inputTokens: 100, outputTokens: 25 });
+  });
+});
+
+// BUG-13 — OpenAI-compat servers that omit tool_calls[].index must not
+// collapse parallel calls into one broken arguments string.
+describe('OpenAI tool_calls without index (BUG-13)', () => {
+  it('id starts a new entry; id-less fragments extend the last one', async () => {
+    const fixture = [
+      'data: {"choices":[{"delta":{"tool_calls":[{"id":"a","function":{"name":"f1","arguments":"{\\"x\\""}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":":1}"}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{"tool_calls":[{"id":"b","function":{"name":"f2","arguments":"{\\"y\\":2}"}}]}}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"tool_calls"}]}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    const adapter = new OpenAIAdapter({ provider: 'openai-compatible', model: 'm', apiKey: 'k' }, fakeFetch(fixture));
+    const events = await collect(adapter.stream(SIMPLE_REQ));
+    const tools = events.filter(e => e.type === 'tool_use');
+    expect(tools).toHaveLength(2);
+    expect(tools[0]).toMatchObject({ name: 'f1', input: { x: 1 } });
+    expect(tools[1]).toMatchObject({ name: 'f2', input: { y: 2 } });
+  });
+});
+
+// BUG-7 — a user abort mid-stream must end the stream silently: no error
+// event, no done (the loop's signal check handles teardown).
+describe('Abort mid-stream ends silently (BUG-7)', () => {
+  function abortingFetch(firstChunks: string[]): typeof globalThis.fetch {
+    return async () => {
+      let sent = false;
+      return new Response(new ReadableStream<Uint8Array>({
+        pull(controller) {
+          if (!sent) {
+            sent = true;
+            for (const ch of firstChunks) controller.enqueue(ENC.encode(ch));
+          } else {
+            controller.error(Object.assign(new Error('The operation was aborted'), { name: 'AbortError' }));
+          }
+        },
+      }), { status: 200, headers: { 'content-type': 'text/event-stream' } });
+    };
+  }
+
+  it('Anthropic adapter swallows the AbortError and emits no error/done', async () => {
+    const ac = new AbortController();
+    const adapter = new AnthropicAdapter(
+      { provider: 'anthropic', model: 'm', apiKey: 'k' },
+      abortingFetch(['data: {"type":"content_block_delta","delta":{"type":"text_delta","text":"部分"}}\n\n']),
+    );
+    const events: StreamEvent[] = [];
+    for await (const ev of adapter.stream({ ...SIMPLE_REQ, signal: ac.signal })) {
+      events.push(ev);
+      ac.abort(); // user presses stop after the first delta
+    }
+    expect(events).toEqual([{ type: 'text_delta', text: '部分' }]);
+  });
+
+  it('OpenAI adapter swallows the AbortError and emits no error/done', async () => {
+    const ac = new AbortController();
+    const adapter = new OpenAIAdapter(
+      { provider: 'openai-compatible', model: 'm', apiKey: 'k' },
+      abortingFetch(['data: {"choices":[{"delta":{"content":"部分"}}]}\n\n']),
+    );
+    const events: StreamEvent[] = [];
+    for await (const ev of adapter.stream({ ...SIMPLE_REQ, signal: ac.signal })) {
+      events.push(ev);
+      ac.abort();
+    }
+    expect(events).toEqual([{ type: 'text_delta', text: '部分' }]);
+  });
+
+  it('a non-abort stream error still propagates', async () => {
+    const adapter = new AnthropicAdapter(
+      { provider: 'anthropic', model: 'm', apiKey: 'k' },
+      (async () => new Response(new ReadableStream<Uint8Array>({
+        pull(controller) { controller.error(new Error('boom')); },
+      }), { status: 200 })) as unknown as typeof globalThis.fetch,
+    );
+    await expect(collect(adapter.stream(SIMPLE_REQ))).rejects.toThrow('boom');
+  });
+});

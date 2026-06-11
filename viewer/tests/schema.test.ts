@@ -176,3 +176,32 @@ describe('semantic lint warnings (direct MaterialOutput connections)', () => {
     ))).toEqual([]);
   });
 });
+
+// BUG-6 regression — an endpoint with an empty pin ("A:") or empty node id
+// (":Pin") must be rejected; it would surface in UE as a dangling pin.
+describe('empty endpoint halves (BUG-6)', () => {
+  const base = {
+    schemaVersion: '1.0',
+    ueVersion: '5.7',
+    type: 'Material',
+    name: 'm',
+    nodes: [{ id: 'A', type: 'Constant' }, { id: 'B', type: 'Multiply' }],
+  };
+
+  it('rejects a trailing-colon endpoint (empty pin)', () => {
+    const r = validateGraph({ ...base, connections: [{ from: 'A:', to: 'B:A' }] });
+    expect(r.graph).toBeNull();
+    expect(r.errors.join('\n')).toContain('connections[0].from');
+  });
+
+  it('rejects a whitespace-only pin', () => {
+    const r = validateGraph({ ...base, connections: [{ from: 'A:Value', to: 'B:  ' }] });
+    expect(r.graph).toBeNull();
+    expect(r.errors.join('\n')).toContain('connections[0].to');
+  });
+
+  it('rejects an empty node id (":Pin")', () => {
+    const r = validateGraph({ ...base, connections: [{ from: ':Value', to: 'B:A' }] });
+    expect(r.graph).toBeNull();
+  });
+});

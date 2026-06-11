@@ -82,12 +82,17 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   `GET/POST /api/agent/sessions` + `GET/DELETE /api/agent/sessions/:id` (persistent sessions: list/create/replay/delete);
   static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
   `listFiles`, crawl progress broadcast.
-- `server/agent/` — the built-in conversational material agent (providers, 23-tool loop,
+- `server/agent/` — the built-in conversational material agent (providers, 24-tool loop,
   checkpoints/undo, sessions, memory, compaction, web access, DB-edit apply). The design
   contract + per-file map live in `viewer/AGENT_DESIGN.md` — read that before touching it.
-  Key invariant: the agent only PROPOSES crawls/DB edits; user-approved cards call the
+  Key invariants: the agent only PROPOSES crawls/DB edits; user-approved cards call the
   state-changing endpoints. `contextTokens` (last round in+out) gates compaction and the
-  context ceiling; `totalTokens` is cumulative spend for display only.
+  context ceiling; `totalTokens` is cumulative spend for display only. Viewport state
+  (open graph / selected node) is read on demand via the `get_viewport` tool — never
+  injected into the prompt. `write_graph` refuses to overwrite files the conversation
+  did not create (hard create-vs-modify guard; `overwrite:true` is user-confirmed only).
+  The write gate validates connection pin names against the DB (`agent/pin-validate.ts`,
+  mirroring web `validate.ts` semantics — keep the two in sync).
 - `server/agent/explain.ts` — `explainNode()` one-shot LLM call (no tools); `buildGraphContext()` graph connection summary; `RESERVED_NODE_DESCRIPTIONS` built-in zh-TW descriptions for the four reserved node types.
 - `schema.ts` — `validateGraph` (the `.matgraph.json` contract). `graph-loader.ts` — read+parse+validate.
 - `mf-resolver.ts` — resolves `MaterialFunctionCall` pins from sibling `.matgraph.json`,

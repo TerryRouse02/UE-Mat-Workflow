@@ -10,7 +10,7 @@
 // The .agent-checkpoints/ directory must be listed in the root .gitignore.
 
 import { mkdir, readFile, readdir, writeFile, rename, rm, unlink } from 'node:fs/promises';
-import { join, dirname, resolve } from 'node:path';
+import { join, dirname, resolve, relative, isAbsolute } from 'node:path';
 import { existsSync } from 'node:fs';
 
 /** Sentinel written when the target file did not exist before write. */
@@ -108,8 +108,8 @@ export function createCheckpointStore(viewerRoot: string, sessionId: string): Ch
       return [];
     }
 
-    // Normalize the allowed root once for cheap prefix checks.
-    const normAllowedRoot = allowedRoot ? resolve(allowedRoot) + '/' : null;
+    // Normalize the allowed root once for the containment checks below.
+    const normAllowedRoot = allowedRoot ? resolve(allowedRoot) : null;
 
     const restored: string[] = [];
 
@@ -120,10 +120,11 @@ export function createCheckpointStore(viewerRoot: string, sessionId: string): Ch
 
       // Defense-in-depth (§7): if an allowedRoot is specified and the decoded
       // target lies outside it, skip restoration and report loudly.
+      // path.relative is separator-correct on both platforms — a hand-built
+      // '/'-prefix check silently skipped EVERY restore on Windows ('\').
       if (normAllowedRoot) {
-        const normTarget = resolve(absPath);
-        const inside = normTarget === normAllowedRoot.slice(0, -1) ||
-                       normTarget.startsWith(normAllowedRoot);
+        const rel = relative(normAllowedRoot, resolve(absPath));
+        const inside = rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
         if (!inside) {
           console.warn(
             `[checkpoint] undoLastTurn: skipping out-of-root path "${absPath}" ` +

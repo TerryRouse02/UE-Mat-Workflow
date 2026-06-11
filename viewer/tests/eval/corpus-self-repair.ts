@@ -157,23 +157,50 @@ export const selfRepairScenarios: Scenario[] = [
   {
     name: 'self-repair: gives up gracefully at the iteration ceiling',
     description: 'A model that never produces a valid graph stops at maxIters with a limit(iters) event and leaves NO file behind.',
-    options: { maxIters: 3 },
+    options: { maxIters: 2 },
     steps: [
       chat(
         '做一個材質',
         [
-          // Scripted one turn beyond the ceiling to prove the loop stops at 3.
+          // Scripted one turn beyond the ceiling to prove the loop stops at 2
+          // (below the same-file failure breaker, which fires at 3).
           toolTurn({ id: 'r5-a', name: 'write_graph', input: { path: 'proj/never.matgraph.json', graph: invalidGraphMissingType() } }),
           toolTurn({ id: 'r5-b', name: 'write_graph', input: { path: 'proj/never.matgraph.json', graph: invalidGraphMissingType() } }),
           toolTurn({ id: 'r5-c', name: 'write_graph', input: { path: 'proj/never.matgraph.json', graph: invalidGraphMissingType() } }),
-          toolTurn({ id: 'r5-d', name: 'write_graph', input: { path: 'proj/never.matgraph.json', graph: invalidGraphMissingType() } }),
         ],
         {
           limit: 'iters',
+          providerCalls: 2,
+          toolEndOk: [false, false],
+          graphWritten: [],
+          files: [{ path: 'proj/never.matgraph.json', exists: false }],
+        },
+      ),
+    ],
+  },
+
+  {
+    name: 'self-repair: same-file failure breaker stops an unlimited run',
+    description:
+      'maxIters 0 (unlimited) must NOT spin: three consecutive failed writes to the SAME file trip the ' +
+      'circuit breaker — a limit(failures) event, a plain-language stop, no file on disk.',
+    options: { maxIters: 0 },
+    steps: [
+      chat(
+        '改一改這個材質',
+        [
+          // Scripted past the breaker to prove the loop stops at 3 failures.
+          toolTurn({ id: 'r6-a', name: 'write_graph', input: { path: 'proj/stuck.matgraph.json', graph: invalidGraphMissingType() } }),
+          toolTurn({ id: 'r6-b', name: 'write_graph', input: { path: 'proj/stuck.matgraph.json', graph: invalidGraphMissingType() } }),
+          toolTurn({ id: 'r6-c', name: 'write_graph', input: { path: 'proj/stuck.matgraph.json', graph: invalidGraphMissingType() } }),
+          toolTurn({ id: 'r6-d', name: 'write_graph', input: { path: 'proj/stuck.matgraph.json', graph: invalidGraphMissingType() } }),
+        ],
+        {
+          limit: 'failures',
           providerCalls: 3,
           toolEndOk: [false, false, false],
           graphWritten: [],
-          files: [{ path: 'proj/never.matgraph.json', exists: false }],
+          files: [{ path: 'proj/stuck.matgraph.json', exists: false }],
         },
       ),
     ],

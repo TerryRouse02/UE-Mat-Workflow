@@ -21,7 +21,7 @@ export type AgentSseEvent =
   | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; create: boolean; patch: Record<string, unknown>; rationale: string } // UI shows a confirm card; user approves via POST /api/agent/db-edit
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
   | { type: 'compacted'; message: string }                           // old turns summarized into session memory
-  | { type: 'limit'; kind: 'iters' | 'cost'; message: string }
+  | { type: 'limit'; kind: 'iters' | 'cost' | 'failures'; message: string }
   | { type: 'error'; message: string }
   | { type: 'done' };
 

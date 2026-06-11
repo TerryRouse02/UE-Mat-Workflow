@@ -3,7 +3,7 @@
 // Anthropic SSE dialect (content_block_start/delta/stop, message_delta, etc.).
 // fetchFn injection keeps this unit-testable with zero real network calls.
 
-import { parseSse } from './sse.js';
+import { parseSse, abortSafe } from './sse.js';
 import type {
   ChatRequest,
   LLMConfig,
@@ -163,7 +163,11 @@ export class AnthropicAdapter implements Provider {
     // A redacted_thinking block arrives complete in content_block_start.
     let currentRedacted: string | null = null;
 
-    for await (const line of parseSse(response.body)) {
+    // abortSafe: a user-initiated abort makes reader.read() inside parseSse
+    // throw an AbortError — a normal cancellation, not a provider failure.
+    // The stream then ends silently (no error/done event) instead of the
+    // error surfacing as a fake 「對話發生錯誤」 to the user.
+    for await (const line of abortSafe(parseSse(response.body), req.signal)) {
       // parseSse strips Anthropic's `event:` lines; the data JSON always carries
       // its own `type` field, so dispatch on that instead of the SSE event name.
       let evt: Record<string, unknown>;
@@ -238,8 +242,10 @@ export class AnthropicAdapter implements Provider {
         }
 
         case 'message_delta': {
+          // message_delta usage carries CUMULATIVE totals, not deltas — last
+          // value wins (same rule as the OpenAI adapter), never accumulate.
           const usage = evt.usage as Record<string, number> | undefined;
-          if (usage) outputTokens += usage.output_tokens ?? 0;
+          if (usage && typeof usage.output_tokens === 'number') outputTokens = usage.output_tokens;
           const delta = evt.delta as Record<string, unknown> | undefined;
           if (delta?.stop_reason) {
             stopReason = mapStopReason(delta.stop_reason as string);
@@ -271,6 +277,10 @@ export class AnthropicAdapter implements Provider {
           break;
       }
     }
+
+    // An aborted stream ends silently — no synthetic done either (the loop's
+    // own signal check handles the turn teardown).
+    if (req.signal?.aborted) return;
 
     // Stream ended without message_stop (truncated response or network drop).
     yield { type: 'done', stopReason };

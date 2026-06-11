@@ -229,11 +229,18 @@ function applyRenameNode(g: MatGraph, op: RenameNodeOp, diff: string[], why: str
   return null;
 }
 
+// "nodeId:pinName" with both halves non-empty — "A:" or ":Pin" are rejected
+// here AND by schema.ts checkEnd (the final gate before disk).
+function isValidEnd(v: string): boolean {
+  const ci = v.indexOf(':');
+  return ci > 0 && v.slice(ci + 1).trim().length > 0;
+}
+
 function applyConnect(g: MatGraph, op: ConnectOp, diff: string[], why: string): string | null {
-  if (!op.from.includes(':')) {
+  if (typeof op.from !== 'string' || !isValidEnd(op.from)) {
     return `connect: from "${op.from}" must be "nodeId:pinName"`;
   }
-  if (!op.to.includes(':')) {
+  if (typeof op.to !== 'string' || !isValidEnd(op.to)) {
     return `connect: to "${op.to}" must be "nodeId:pinName"`;
   }
   // Duplicate connection check
@@ -247,10 +254,10 @@ function applyConnect(g: MatGraph, op: ConnectOp, diff: string[], why: string): 
 }
 
 function applyDisconnect(g: MatGraph, op: DisconnectOp, diff: string[], why: string): string | null {
-  if (!op.from.includes(':')) {
+  if (typeof op.from !== 'string' || !isValidEnd(op.from)) {
     return `disconnect: from "${op.from}" must be "nodeId:pinName"`;
   }
-  if (!op.to.includes(':')) {
+  if (typeof op.to !== 'string' || !isValidEnd(op.to)) {
     return `disconnect: to "${op.to}" must be "nodeId:pinName"`;
   }
   const idx = g.connections.findIndex(c => c.from === op.from && c.to === op.to);

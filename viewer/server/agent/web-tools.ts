@@ -2,17 +2,24 @@
 // web_search / web_fetch tools.
 //
 // Security model: the server runs on the user's machine, so the agent must
-// never be able to point these tools at the user's own network. Every fetch
-// (including each redirect hop) passes guardPublicUrl: http/https only, no
-// loopback/private/link-local addresses, hostnames DNS-resolved and every
-// address checked. Residual risk: DNS rebinding between the check and the
-// fetch — accepted for a local tool (native fetch exposes no lookup pinning).
+// never be able to point these tools at the user's own network. Two layers:
+//  1. guardPublicUrl (per URL, per redirect hop): http/https only, no
+//     loopback/private/link-local hosts, hostnames DNS-resolved and every
+//     address checked — fast, friendly errors.
+//  2. The default transport (pinnedFetch, node:http/https with a guarded
+//     `lookup`) re-validates every address at CONNECT time, so DNS rebinding
+//     between check and fetch cannot reach a private address (TOCTOU closed;
+//     native fetch exposes no lookup hook, hence the hand-rolled client).
 //
 // web_search uses DuckDuckGo's HTML endpoint (no API key). It is best-effort:
 // a layout change upstream degrades into a clear tool error, never a crash.
 
 import { lookup } from 'node:dns/promises';
+import { lookup as dnsLookupCb } from 'node:dns';
 import { isIP } from 'node:net';
+import { request as httpRequest } from 'node:http';
+import { request as httpsRequest } from 'node:https';
+import { Readable } from 'node:stream';
 
 export const WEB_TEXT_CAP = 15_000;
 const MAX_REDIRECTS = 4;
@@ -26,6 +33,8 @@ export type LookupFn = (hostname: string, opts: { all: true }) => Promise<Array<
 export interface WebDeps {
   fetchFn?: FetchFn;
   lookupFn?: LookupFn;
+  /** External cancellation (user pressed stop) — aborts the in-flight fetch. */
+  signal?: AbortSignal;
 }
 
 // ---------------------------------------------------------------------------
@@ -85,6 +94,71 @@ export async function guardPublicUrl(raw: string, lookupFn?: LookupFn): Promise<
 }
 
 // ---------------------------------------------------------------------------
+// Pinned default transport (TOCTOU-safe)
+// ---------------------------------------------------------------------------
+
+type LookupCallback = (err: NodeJS.ErrnoException | null, address?: unknown, family?: number) => void;
+
+/**
+ * dns.lookup wrapper handed to http(s).request: resolves with the caller's
+ * options, then validates EVERY address before the socket may use it. This is
+ * the connect-time enforcement — a hostname that re-resolves to a private
+ * address after guardPublicUrl passed (DNS rebinding) fails right here.
+ * Exported for tests.
+ */
+export function guardedLookup(hostname: string, options: Record<string, unknown> | LookupCallback, callback?: LookupCallback): void {
+  const opts = (typeof options === 'function' ? {} : options) as Record<string, unknown>;
+  const cb = (typeof options === 'function' ? options : callback) as LookupCallback;
+  dnsLookupCb(hostname, { ...opts, all: true }, (err, addresses) => {
+    if (err) return cb(err);
+    const list = addresses as Array<{ address: string; family: number }>;
+    if (!Array.isArray(list) || list.length === 0) {
+      return cb(Object.assign(new Error(`DNS resolution failed for ${hostname}`), { code: 'ENOTFOUND' }));
+    }
+    for (const a of list) {
+      if (isPrivateIp(a.address)) {
+        return cb(Object.assign(new Error('loopback/private addresses are blocked'), { code: 'EBLOCKED' }));
+      }
+    }
+    if (opts.all) return cb(null, list);
+    cb(null, list[0].address, list[0].family);
+  });
+}
+
+// Minimal fetch-shaped client over node:http(s) so we can inject the guarded
+// lookup (global fetch has no such hook). Only the surface fetchPublic uses:
+// status, headers.get, body as a web ReadableStream; never follows redirects.
+const pinnedFetch: FetchFn = ((input: string | URL, init?: RequestInit): Promise<Response> => {
+  return new Promise((resolvePromise, rejectPromise) => {
+    const u = new URL(String(input));
+    const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(
+      u,
+      {
+        method: init?.method ?? 'GET',
+        headers: init?.headers as Record<string, string> | undefined,
+        lookup: guardedLookup as unknown as import('node:net').LookupFunction,
+        signal: init?.signal ?? undefined,
+      },
+      (res) => {
+        resolvePromise({
+          ok: (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300,
+          status: res.statusCode ?? 0,
+          headers: {
+            get: (name: string) => {
+              const v = res.headers[name.toLowerCase()];
+              return Array.isArray(v) ? v.join(', ') : v ?? null;
+            },
+          },
+          body: Readable.toWeb(res) as unknown as ReadableStream<Uint8Array>,
+        } as unknown as Response);
+      },
+    );
+    req.on('error', rejectPromise);
+    req.end();
+  });
+}) as FetchFn;
+
+// ---------------------------------------------------------------------------
 // Capped, redirect-checked fetch
 // ---------------------------------------------------------------------------
 
@@ -93,14 +167,19 @@ export type FetchPublicResult =
   | { ok: false; error: string };
 
 export async function fetchPublic(rawUrl: string, deps: WebDeps = {}): Promise<FetchPublicResult> {
-  const fetchFn = deps.fetchFn ?? globalThis.fetch;
+  // Default transport is the pinned client (connect-time address validation);
+  // tests inject a plain fetchFn and keep working unchanged.
+  const fetchFn = deps.fetchFn ?? pinnedFetch;
   let url = rawUrl;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
     const guardErr = await guardPublicUrl(url, deps.lookupFn);
     if (guardErr) return { ok: false, error: guardErr };
 
+    if (deps.signal?.aborted) return { ok: false, error: 'fetch cancelled' };
     const ctrl = new AbortController();
+    const onOuterAbort = () => ctrl.abort();
+    deps.signal?.addEventListener('abort', onOuterAbort, { once: true });
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
     try {
       const res = await fetchFn(url, {
@@ -129,10 +208,14 @@ export async function fetchPublic(rawUrl: string, deps: WebDeps = {}): Promise<F
         truncatedBody: truncated,
       };
     } catch (e) {
-      const msg = (e as Error)?.name === 'AbortError' ? `timed out after ${FETCH_TIMEOUT_MS / 1000}s` : String((e as Error)?.message ?? e);
+      const aborted = (e as Error)?.name === 'AbortError' || (e as NodeJS.ErrnoException)?.code === 'ABORT_ERR';
+      const msg = aborted
+        ? (deps.signal?.aborted ? 'cancelled' : `timed out after ${FETCH_TIMEOUT_MS / 1000}s`)
+        : String((e as Error)?.message ?? e);
       return { ok: false, error: `fetch failed: ${msg}` };
     } finally {
       clearTimeout(timer);
+      deps.signal?.removeEventListener('abort', onOuterAbort);
     }
   }
   return { ok: false, error: `too many redirects (>${MAX_REDIRECTS})` };

@@ -8,6 +8,11 @@
 //   - 'data: [DONE]' sentinel ends iteration immediately.
 //   - A trailing 'data:' line with no final newline is flushed on stream end.
 //   - releaseLock() is called in finally, even on early return.
+//
+// Deliberate limitation: each 'data:' line is yielded as its own payload —
+// multi-line events (several data: lines joined by '\n' per the SSE spec) are
+// NOT merged. Both dialects this parser consumes (Anthropic Messages API,
+// OpenAI chat completions) emit exactly one data: line per event.
 
 export async function* parseSse(
   body: ReadableStream<Uint8Array>,
@@ -54,5 +59,22 @@ export async function* parseSse(
     }
   } finally {
     reader.releaseLock();
+  }
+}
+
+/**
+ * Pass-through wrapper that swallows the AbortError a cancelled fetch makes
+ * reader.read() throw. A user-initiated abort is a normal cancellation, not a
+ * provider failure — the stream just ends. Any other error still propagates.
+ */
+export async function* abortSafe<T>(
+  src: AsyncIterable<T>,
+  signal?: AbortSignal,
+): AsyncGenerator<T> {
+  try {
+    yield* src;
+  } catch (err) {
+    if (signal?.aborted || (err as Error)?.name === 'AbortError') return;
+    throw err;
   }
 }

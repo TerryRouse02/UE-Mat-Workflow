@@ -88,7 +88,7 @@ const VALID_GRAPH = {
   ],
   connections: [
     { from: 'emit_col:RGB', to: 'mul:A' },
-    { from: 'emit_pow:Result', to: 'mul:B' },
+    { from: 'emit_pow:Value', to: 'mul:B' },
     { from: 'mul:Result', to: 'OUT:EmissiveColor' },
   ],
 };
@@ -107,6 +107,9 @@ beforeEach(async () => {
     beforeWrite: async (absPath: string, turnId: string) => {
       await checkpointStore.snapshotFile(turnId || 'turn-0', absPath);
     },
+    // Production wiring (http-server) always supplies this set; write_graph
+    // uses it to allow rewrites of files this conversation created.
+    sessionCreatedPaths: new Set<string>(),
   };
 
   session = createSession('test-session', '5.7');
@@ -1612,35 +1615,44 @@ describe('viewer-action event fan-out', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Viewport context block (options.viewContext)
+// Viewport context — on-demand tool, never injected (BUG-3 layer 1)
 // ---------------------------------------------------------------------------
 
-describe('viewport context block', () => {
-  it('appends a VIEW_CONTEXT_PREFIX text block after the user text', async () => {
+describe('viewport context', () => {
+  it('is NEVER injected into the user message — viewport rides in ToolContext only', async () => {
     const provider = new FakeProvider([
       [
         { type: 'text_delta', text: '了解。' },
         { type: 'done', stopReason: 'end' },
       ],
     ]);
-    await runAndCollect('這個節點是做什麼的？', session, provider, ctx, undefined, {
-      viewContext: '目前開啟的圖：demo/a.matgraph.json；使用者選取的節點 id：mul',
-    });
+    const vpCtx = { ...ctx, viewport: { graphPath: 'demo/a.matgraph.json', selectedNodeId: 'mul' } };
+    await runAndCollect('這個節點是做什麼的？', session, provider, vpCtx);
     const first = session.messages[0];
     expect(first.role).toBe('user');
     const texts = first.content.filter(b => b.type === 'text') as { type: 'text'; text: string }[];
-    expect(texts).toHaveLength(2);
+    expect(texts).toHaveLength(1);
     expect(texts[0].text).toBe('這個節點是做什麼的？');
-    expect(texts[1].text.startsWith(VIEW_CONTEXT_PREFIX)).toBe(true);
-    expect(texts[1].text).toContain('demo/a.matgraph.json');
-    expect(texts[1].text).toContain('mul');
+    expect(texts.some(t => t.text.startsWith(VIEW_CONTEXT_PREFIX))).toBe(false);
   });
 
-  it('no viewContext → single text block, and empty/whitespace context is dropped', async () => {
-    const provider = new FakeProvider([]);
-    await runAndCollect('你好', session, provider, ctx, undefined, { viewContext: '   ' });
-    const texts = session.messages[0].content.filter(b => b.type === 'text');
-    expect(texts).toHaveLength(1);
+  it('get_viewport returns the open graph and selected node from ToolContext', async () => {
+    const provider = new FakeProvider([
+      [
+        { type: 'tool_use', id: 'vp1', name: 'get_viewport', input: {} },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [
+        { type: 'text_delta', text: '你目前開著 demo/a。' },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ]);
+    const vpCtx = { ...ctx, viewport: { graphPath: 'demo/a.matgraph.json', selectedNodeId: 'mul' } };
+    await runAndCollect('目前的圖是哪張？', session, provider, vpCtx);
+    const toolResultMsg = session.messages.find(m =>
+      m.role === 'user' && m.content.some(b => b.type === 'tool_result'));
+    const tr = toolResultMsg!.content.find(b => b.type === 'tool_result') as { content: string };
+    expect(JSON.parse(tr.content)).toEqual({ openGraphPath: 'demo/a.matgraph.json', selectedNodeId: 'mul' });
   });
 });
 
@@ -1696,5 +1708,93 @@ describe('contextTokens vs totalTokens (compaction-too-eager regression)', () =>
     // re-sent history was what made auto-compaction fire way too early.
     expect(session.totalTokens).toBe(33_700);
     expect(session.contextTokens).toBe(12_300);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG-4 — maxIters semantics live in the loop: 0 = unlimited, never 0 turns
+// ---------------------------------------------------------------------------
+
+describe('maxIters 0 = unlimited (BUG-4)', () => {
+  it('runs past the default MAX_ITERS instead of doing zero iterations', async () => {
+    // 10 scripted tool rounds + final text = 11 provider calls > MAX_ITERS (8).
+    const turns: StreamEvent[][] = [];
+    for (let i = 0; i < 10; i++) {
+      turns.push([
+        { type: 'tool_use', id: `u${i}`, name: 'list_graphs', input: {} },
+        { type: 'done', stopReason: 'tool_use' },
+      ]);
+    }
+    turns.push([{ type: 'text_delta', text: '做完了。' }, { type: 'done', stopReason: 'end' }]);
+
+    const provider = new FakeProvider(turns);
+    const events = await runAndCollect('全部列出來', session, provider, ctx, undefined, { maxIters: 0 });
+
+    expect(provider.calls).toBe(11);
+    expect(events.filter(e => e.type === 'limit')).toEqual([]);
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('three consecutive failed writes to one file trip the failures breaker', async () => {
+    const badGraph = { schemaVersion: '1.0', ueVersion: '5.7', name: 'x', nodes: [], connections: [] }; // type missing
+    const turns: StreamEvent[][] = [];
+    for (let i = 0; i < 4; i++) {
+      turns.push([
+        { type: 'tool_use', id: `w${i}`, name: 'write_graph', input: { path: 'proj/stuck.matgraph.json', graph: badGraph } },
+        { type: 'done', stopReason: 'tool_use' },
+      ]);
+    }
+    const provider = new FakeProvider(turns);
+    const events = await runAndCollect('改這張圖', session, provider, ctx, undefined, { maxIters: 0 });
+
+    expect(provider.calls).toBe(3); // stopped by the breaker, not the script
+    const limits = events.filter(e => e.type === 'limit');
+    expect(limits).toHaveLength(1);
+    if (limits[0]?.type === 'limit') {
+      expect(limits[0].kind).toBe('failures');
+      expect(limits[0].message).toContain('proj/stuck.matgraph.json');
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// BUG-10 — checkpoint containment must be separator-correct (path.relative),
+// including the prefix-confusion case (graphs vs graphs-evil).
+// ---------------------------------------------------------------------------
+
+describe('checkpoint containment via path.relative (BUG-10)', () => {
+  it('a sibling directory sharing the root prefix is skipped', async () => {
+    const { createCheckpointStore: mkStore } = await import('../server/agent/checkpoint.js');
+    const store = mkStore(join(tmpDir, 'viewer'), 'sess-prefix');
+
+    const allowedRoot = join(tmpDir, 'graphs');
+    await mkdir(allowedRoot, { recursive: true });
+    const evilPath = join(tmpDir, 'graphs-evil', 'x.matgraph.json');
+    await mkdir(dirname(evilPath), { recursive: true });
+    await writeFile(evilPath, 'original', 'utf-8');
+
+    await store.snapshotFile('turn-1', evilPath);
+    await writeFile(evilPath, 'ROGUE', 'utf-8');
+
+    const restored = await store.undoLastTurn(allowedRoot);
+    expect(restored?.some(p => p.startsWith('!SKIPPED:'))).toBe(true);
+    expect(await readFile(evilPath, 'utf-8')).toBe('ROGUE');
+  });
+
+  it('the allowedRoot itself and nested children are restorable', async () => {
+    const { createCheckpointStore: mkStore } = await import('../server/agent/checkpoint.js');
+    const store = mkStore(join(tmpDir, 'viewer'), 'sess-nested');
+
+    const allowedRoot = join(tmpDir, 'graphs');
+    const nested = join(allowedRoot, 'deep', 'dir', 'f.matgraph.json');
+    await mkdir(dirname(nested), { recursive: true });
+    await writeFile(nested, '{"v":1}', 'utf-8');
+
+    await store.snapshotFile('turn-1', nested);
+    await writeFile(nested, '{"v":2}', 'utf-8');
+
+    const restored = await store.undoLastTurn(allowedRoot);
+    expect(restored).toEqual([nested]);
+    expect(JSON.parse(await readFile(nested, 'utf-8')).v).toBe(1);
   });
 });

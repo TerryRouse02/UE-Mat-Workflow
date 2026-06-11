@@ -3,7 +3,7 @@
 // and any server that speaks the OpenAI chat-completions dialect.
 // fetchFn injection keeps this unit-testable with zero real network calls.
 
-import { parseSse } from './sse.js';
+import { parseSse, abortSafe } from './sse.js';
 import type {
   ChatRequest,
   LLMConfig,
@@ -186,7 +186,9 @@ export class OpenAIAdapter implements Provider {
     // at most once before done (last value wins; totals, not deltas).
     let lastUsage: { inputTokens: number; outputTokens: number } | null = null;
 
-    for await (const line of parseSse(response.body)) {
+    // abortSafe: a user abort mid-stream is a normal cancellation — end the
+    // stream silently instead of surfacing a fake error (see sse.ts).
+    for await (const line of abortSafe(parseSse(response.body), req.signal)) {
       let chunk: Record<string, unknown>;
       try {
         chunk = JSON.parse(line) as Record<string, unknown>;
@@ -225,8 +227,15 @@ export class OpenAIAdapter implements Provider {
         const toolCalls = delta.tool_calls as Array<Record<string, unknown>> | undefined;
         if (toolCalls) {
           for (const tc of toolCalls) {
-            const idx = tc.index as number;
+            // Some compat servers (Mistral, certain Ollama builds) omit
+            // `index`. Without a fallback every fragment would collapse into
+            // the same Map key and parallel calls would concatenate into one
+            // broken arguments string. Fallback rule: a fragment carrying an
+            // id starts a new entry; an id-less continuation extends the last.
             const fn = tc.function as Record<string, unknown> | undefined;
+            const idx = typeof tc.index === 'number'
+              ? tc.index
+              : (tc.id ? toolAccByIndex.size : Math.max(0, toolAccByIndex.size - 1));
 
             if (!toolAccByIndex.has(idx)) {
               // First fragment carries id and name.
@@ -260,6 +269,10 @@ export class OpenAIAdapter implements Provider {
         }
       }
     }
+
+    // An aborted stream ends silently — no partial-tool flush, no done (the
+    // loop's own signal check handles the turn teardown).
+    if (req.signal?.aborted) return;
 
     // If we never saw a finish_reason (e.g. stream ended abruptly), still flush
     // any accumulated tool calls if we saw tool_calls type.

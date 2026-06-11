@@ -488,3 +488,22 @@ describe('changedNodeIds (canvas diff highlight)', () => {
     expect(changedNodeIds([{ op: 'removeNode', id: 'a' }])).toEqual([]);
   });
 });
+
+// BUG-6 regression — connect/disconnect must reject empty endpoint halves.
+describe('empty endpoint halves (BUG-6)', () => {
+  it('connect with a trailing-colon from is rejected', () => {
+    const r = applyPatch(baseGraph(), [{ op: 'connect', from: 'A:', to: 'B:A' } as PatchOp]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.applyError).toContain('nodeId:pinName');
+  });
+
+  it('connect with an empty node id is rejected', () => {
+    const r = applyPatch(baseGraph(), [{ op: 'connect', from: ':Value', to: 'B:A' } as PatchOp]);
+    expect(r.ok).toBe(false);
+  });
+
+  it('disconnect with an empty pin is rejected', () => {
+    const r = applyPatch(baseGraph(), [{ op: 'disconnect', from: 'A:', to: 'B:A' } as PatchOp]);
+    expect(r.ok).toBe(false);
+  });
+});

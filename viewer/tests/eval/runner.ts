@@ -89,6 +89,9 @@ export async function runScenario(scenario: Scenario): Promise<void> {
         await store.snapshotFile(turnId || 'turn-0', absPath);
       },
       memory,
+      // Production wiring (http-server) always supplies this set; the
+      // write_graph overwrite guard consults it for same-conversation rewrites.
+      sessionCreatedPaths: new Set<string>(),
       ...scenario.ctxExtras,
     };
 

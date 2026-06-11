@@ -48,11 +48,20 @@ export const COMPACT_THRESHOLD = 150_000;
 export const COMPACT_KEEP_TURNS = 4;
 
 /**
- * Marker prefix for the viewport-context text block appended after the user's
- * message (open graph + selected node). Regenerate strips blocks carrying this
- * prefix so a rewound turn never leaves stale context in a merged message.
+ * Marker prefix of the viewport-context text blocks that older sessions carry
+ * in their history. The per-message injection is GONE — it biased the model
+ * into treating the open graph as the operation target (a「建立」request would
+ * modify the open file); viewport state is now pulled on demand via the
+ * get_viewport tool (ToolContext.viewport). The prefix is kept so regenerate
+ * can still strip legacy blocks out of pre-existing session files.
  */
 export const VIEW_CONTEXT_PREFIX = '［視窗情境］';
+
+/** Consecutive failed write/patch attempts on the SAME file before the loop
+    stops and asks the user instead of burning tokens (BUG-4 circuit breaker). */
+export const WRITE_FAIL_BREAKER = 3;
+/** Consecutive failed compact_context attempts before the loop stops. */
+export const COMPACT_FAIL_BREAKER = 2;
 
 // ---------------------------------------------------------------------------
 // Session type (server-side only)
@@ -110,7 +119,12 @@ export type EmitFn = (event: AgentSseEvent) => void;
 
 /** Optional overrides for limits — useful so tests can use tiny ceilings. */
 export interface RunAgentOptions {
-  /** Override MAX_ITERS for this call (default: MAX_ITERS = 8). */
+  /**
+   * Override MAX_ITERS for this call (default: MAX_ITERS = 8).
+   * 0 means "unlimited" — the loop converts it to MAX_SAFE_INTEGER itself
+   * (callers must NOT pre-convert); the token ceiling and the consecutive-
+   * failure breakers still bound an unlimited run.
+   */
   maxIters?: number;
   /** Override TOKEN_CEILING for this call (default: TOKEN_CEILING = 300_000). */
   tokenCeiling?: number;
@@ -130,12 +144,6 @@ export interface RunAgentOptions {
   compactThreshold?: number;
   /** Override COMPACT_KEEP_TURNS. */
   compactKeepTurns?: number;
-  /**
-   * What the user is currently looking at (open graph, selected node) — sent
-   * by the web UI per message. Appended as a separate VIEW_CONTEXT_PREFIX text
-   * block so the model can resolve「目前的圖」「這個節點」.
-   */
-  viewContext?: string;
 }
 
 export async function runAgent(
@@ -149,7 +157,11 @@ export async function runAgent(
   signal?: AbortSignal,
   options?: RunAgentOptions,
 ): Promise<void> {
-  const maxIters = options?.maxIters ?? MAX_ITERS;
+  // 0 = unlimited lives HERE (single source of truth) — `??` alone would turn
+  // an explicit 0 into a zero-iteration loop that ends silently.
+  const maxIters = options?.maxIters === 0
+    ? Number.MAX_SAFE_INTEGER
+    : (options?.maxIters ?? MAX_ITERS);
   const tokenCeiling = options?.tokenCeiling ?? TOKEN_CEILING;
   const maxTokens = options?.maxTokens ?? 8192;
 
@@ -182,16 +194,6 @@ export async function runAgent(
       content: [{ type: 'text', text: userText }],
     });
   }
-  // Viewport context rides as its own marked block (after the user text) so it
-  // never contaminates the transcript text and regenerate can strip it cleanly.
-  const viewContext = options?.viewContext?.trim();
-  if (viewContext) {
-    session.messages.at(-1)!.content.push({
-      type: 'text',
-      text: `${VIEW_CONTEXT_PREFIX}${viewContext.slice(0, 500)}`,
-    });
-  }
-
   // One checkpoint turn per user turn: every write made while serving this
   // user message shares the id, so a single undo reverts the whole exchange
   // (M4 「回上一步」 semantics).
@@ -212,6 +214,13 @@ export async function runAgent(
   // does not fire a second (contradictory) limit when a cost-ceiling break exits
   // the loop while tool results are already appended.
   let limitEmitted = false;
+
+  // Circuit breakers (BUG-4): an "unlimited" run must still stop when it is
+  // demonstrably stuck — N consecutive failed writes to the SAME file, or
+  // repeated failed compactions — instead of burning tokens until the ceiling.
+  const writeFailCounts = new Map<string, number>();
+  let compactFailCount = 0;
+  let breakerMessage: string | null = null;
 
   for (let iter = 0; iter < maxIters; iter++) {
     if (signal?.aborted) break;
@@ -342,6 +351,28 @@ export async function runAgent(
         summary: result.isError ? undefined : toolEndSummary(call.name, result.content),
       });
 
+      // Feed the circuit breakers.
+      if (writeTools.has(call.name)) {
+        const path = String((call.input as Record<string, unknown> | null)?.path ?? '');
+        if (result.isError) {
+          const n = (writeFailCounts.get(path) ?? 0) + 1;
+          writeFailCounts.set(path, n);
+          if (n >= WRITE_FAIL_BREAKER) {
+            breakerMessage =
+              `我連續 ${n} 次修改「${path}」都沒有通過驗證，先停下來以免空轉。` +
+              '可以告訴我更具體的需求，或考慮新建一張圖、換個做法再試。';
+          }
+        } else {
+          writeFailCounts.delete(path);
+        }
+      }
+      if (call.name === 'compact_context') {
+        compactFailCount = result.isError ? compactFailCount + 1 : 0;
+        if (compactFailCount >= COMPACT_FAIL_BREAKER) {
+          breakerMessage = `連續 ${compactFailCount} 次壓縮上下文都失敗，先停下來。請改用「新對話」或稍後再試。`;
+        }
+      }
+
       // Successful tool results fan out to UI events: plain-language diff lines
       // (any tool that returns them), graph_written for writes/renames, and the
       // viewer-action signals for clipboard export and crawl proposals.
@@ -421,6 +452,15 @@ export async function runAgent(
       role: 'user',
       content: toolResults,
     });
+
+    // Circuit breaker tripped — every tool_use above is already answered, so
+    // the history stays legal; stop with an honest plain-language explanation
+    // instead of letting the model spin (誠實 > 自信的錯).
+    if (breakerMessage) {
+      emit({ type: 'limit', kind: 'failures', message: breakerMessage });
+      limitEmitted = true;
+      break;
+    }
 
     // Check ceiling again after tools round.
     if (session.contextTokens >= tokenCeiling) {
@@ -724,6 +764,7 @@ function toolSummary(call: ToolUseBlock): string {
     case 'validate_graph':    return `驗證圖形：${typeof inp.path === 'string' ? inp.path : '(inline)'}`;
     case 'get_graph_errors':  return `取得圖形錯誤：${String(inp.path ?? '')}`;
     case 'list_graphs':       return '列出現有圖形檔案';
+    case 'get_viewport':      return '查看視窗情境（開啟的圖／選取節點）';
     case 'search_mf':         return `搜尋 MF：${String(inp.query ?? '')}`;
     case 'list_examples':     return '列出參考範例';
     case 'read_example':      return `讀取範例：${String(inp.name ?? '')}`;
