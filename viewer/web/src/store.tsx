@@ -113,6 +113,7 @@ interface Ctx {
   saveConfig(projectPath: string, engineRoot: string): Promise<{ ok: boolean; error?: string }>;
   saveAgentConfig(llm: {
     provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
+    maxIters?: number; contextLimit?: number;
   }): Promise<{ ok: boolean; error?: string }>;
 }
 
@@ -232,6 +233,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   // The response shape is EnvStatus (not Llm) per the server contract.
   const saveAgentConfig = useCallback(async (llm: {
     provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
+    maxIters?: number; contextLimit?: number;
   }) => {
     try {
       const r = await fetch('/api/config', {

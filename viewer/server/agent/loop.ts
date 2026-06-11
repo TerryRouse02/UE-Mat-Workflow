@@ -278,7 +278,19 @@ export async function runAgent(
       // Emit tool_start with a human-readable summary.
       emit({ type: 'tool_start', name: call.name, summary: toolSummary(call) });
 
-      const result = await dispatchTool(call.name, call.input, turnCtx);
+      // compact_context is dispatched here, not in tools.ts — it needs the
+      // session/provider that only the loop holds.
+      const result = call.name === 'compact_context'
+        ? await (async () => {
+            const r = await compactNow(
+              session, provider, model, ctx, emit, signal,
+              options?.compactKeepTurns ?? COMPACT_KEEP_TURNS,
+            );
+            return r.ok
+              ? { content: `已將先前 ${r.droppedTurns} 輪對話摘要進會話記憶並壓縮歷史。`, isError: false }
+              : { content: r.reason ?? '壓縮失敗。', isError: true };
+          })()
+        : await dispatchTool(call.name, call.input, turnCtx);
 
       // Emit tool_end.
       emit({
@@ -442,6 +454,14 @@ async function summarizeForCompaction(
   }
 }
 
+/** Outcome of an explicit/threshold compaction attempt. */
+export interface CompactResult {
+  ok: boolean;
+  droppedTurns?: number;
+  /** zh-TW explanation when ok=false — safe to hand to the model as a tool result. */
+  reason?: string;
+}
+
 /**
  * When the session crosses the threshold, summarize everything but the last
  * keepTurns user turns into session memory and trim the message history.
@@ -458,8 +478,27 @@ async function maybeCompact(
   keepTurns: number,
 ): Promise<void> {
   if (session.totalTokens < threshold) return;
-  if (!ctx.memory) return; // the summary needs a home
-  if (signal?.aborted) return;
+  await compactNow(session, provider, model, ctx, emit, signal, keepTurns);
+}
+
+/**
+ * Unconditional compaction — shared by the threshold path and the model-callable
+ * compact_context tool. Cut points and memory writes are identical; only the
+ * trigger differs. Safe mid-turn: cut points are text-only user messages, so the
+ * in-flight turn (its user message and the assistant tool_use tail) always
+ * survives the trim.
+ */
+export async function compactNow(
+  session: AgentLoopSession,
+  provider: Provider,
+  model: string,
+  ctx: ToolContext,
+  emit: EmitFn,
+  signal: AbortSignal | undefined,
+  keepTurns: number,
+): Promise<CompactResult> {
+  if (!ctx.memory) return { ok: false, reason: '此會話沒有記憶儲存空間，無法壓縮。' }; // the summary needs a home
+  if (signal?.aborted) return { ok: false, reason: '已中斷。' };
 
   const msgs = session.messages;
 
@@ -474,15 +513,17 @@ async function maybeCompact(
     const hasToolResult = m.content.some(b => b.type === 'tool_result');
     if (hasText && !hasToolResult) safeStarts.push(i);
   }
-  if (safeStarts.length <= keepTurns) return;
+  if (safeStarts.length <= keepTurns) {
+    return { ok: false, reason: `對話輪數還不足以壓縮（需超過 ${keepTurns} 輪完整對話），目前無須壓縮。` };
+  }
 
   const cut = safeStarts[safeStarts.length - keepTurns];
-  if (cut <= 0) return;
+  if (cut <= 0) return { ok: false, reason: '沒有可壓縮的較早歷史。' };
   const dropped = msgs.slice(0, cut);
   const droppedTurns = safeStarts.filter(i => i < cut).length;
 
   const summary = await summarizeForCompaction(provider, model, dropped, session, signal);
-  if (summary === null) return;
+  if (summary === null) return { ok: false, reason: '摘要產生失敗，本次未壓縮（歷史保持原樣）。' };
 
   const block = `## 先前對話摘要（自動壓縮）\n${summary}`;
   try {
@@ -493,7 +534,8 @@ async function maybeCompact(
     try {
       await ctx.memory.replace('session', block);
     } catch {
-      return; // even replace failed — keep the history untouched
+      // even replace failed — keep the history untouched
+      return { ok: false, reason: '寫入會話記憶失敗，本次未壓縮（歷史保持原樣）。' };
     }
   }
 
@@ -507,6 +549,7 @@ async function maybeCompact(
     type: 'compacted',
     message: `對話較長，已將先前 ${droppedTurns} 輪摘要寫入會話記憶並壓縮歷史。`,
   });
+  return { ok: true, droppedTurns };
 }
 
 // ---------------------------------------------------------------------------
@@ -608,15 +651,17 @@ function toolSummary(call: ToolUseBlock): string {
     case 'read_example':      return `讀取範例：${String(inp.name ?? '')}`;
     case 'read_memory':       return `讀取記憶：${inp.scope === 'longterm' ? '長期' : '本對話'}`;
     case 'update_memory':     return `更新記憶：${inp.scope === 'longterm' ? '長期' : '本對話'}`;
+    case 'compact_context':   return '壓縮對話上下文';
     default:                  return call.name;
   }
 }
 
 function toolEndSummary(toolName: string, _content: string): string | undefined {
   switch (toolName) {
-    case 'write_graph':   return '圖形已寫入';
-    case 'patch_graph':   return '圖形已更新';
-    case 'update_memory': return '記憶已更新';
-    default:              return undefined;
+    case 'write_graph':     return '圖形已寫入';
+    case 'patch_graph':     return '圖形已更新';
+    case 'update_memory':   return '記憶已更新';
+    case 'compact_context': return '上下文已壓縮';
+    default:                return undefined;
   }
 }

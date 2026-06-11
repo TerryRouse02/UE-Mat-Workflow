@@ -137,12 +137,16 @@ interface LLMConfig {
   apiKey?: string;       // Ollama 可省略
   model: string;
   maxTokens?: number;
+  maxIters?: number;     // 每輪工具迴圈上限；0 = 不限制（仍受 token 上限保護）；缺省 = 8
+  contextLimit?: number; // 模型上下文視窗（tokens）；驅動壓縮門檻（½）與 token 上限；缺省 = 300K/150K
 }
 // 前端只拿這個（GET /api/agent/status）——apiKey 永不進任何前端回應
 // baseUrl 為使用者自填端點（非機密）、hasApiKey 只回布林（2026-06-11 擴充）
+// maxIters / contextLimit 一併回傳供 Config 表單回填（非機密）
 interface ProviderStatus {
   configured: boolean; provider?: string; model?: string;
   baseUrl?: string; hasApiKey?: boolean;
+  maxIters?: number; contextLimit?: number;
 }
 ```
 
@@ -155,9 +159,9 @@ interface ProviderStatus {
 回明確中文錯誤建議換模型（列例：claude-opus-4-8、gpt-4o、deepseek-chat）。
 MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 
-## 4. Tool 契約（14 個）
+## 4. Tool 契約（15 個）
 
-2026-06-11 追加六個（探索＋記憶）：
+2026-06-11 追加七個（探索＋記憶＋壓縮）：
 
 | tool | input | returns | guard |
 |---|---|---|---|
@@ -167,6 +171,7 @@ MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 | `read_example` | `{name}` | 整個範例專案的 matgraph 檔 | 名稱 allowlist regex；30K 字上限 |
 | `read_memory` | `{scope}` | session / longterm 記憶內容 | 路徑寫死無穿越面 |
 | `update_memory` | `{scope, op: append\|replace, content}` | `{ok}` | 8K 字上限，超限響亮報錯要求 replace 精煉 |
+| `compact_context` | `{}` | 壓縮輪數或「無須壓縮」說明 | **在 loop.ts 攔截執行（需 session/provider），不走 dispatchTool**；與門檻壓縮共用 `compactNow`，切點規則相同、turn 中安全 |
 
 原 MVP 八個：
 
@@ -246,10 +251,15 @@ runAgent(userText, session):
   undo 收 `{sessionId}`；reset 只「中止＋脫離」不刪檔。undo 棧不跨重啟（已記錄的限制）。
 - 記憶（M7b）：longterm（跨會話）＋ session（隨會話）兩層，僅經 read/update_memory 工具寫；
   每輪 user turn 重讀並注入 system prompt。刪會話連帶刪其 session 記憶，longterm 不動。
-- 壓縮（M11-1）：totalTokens 過 `COMPACT_THRESHOLD`（150K）時，保留最後
+- 壓縮（M11-1）：totalTokens 過 `COMPACT_THRESHOLD`（預設 150K）時，保留最後
   `COMPACT_KEEP_TURNS`（4）輪、其餘以一次性無工具呼叫摘要進 session 記憶後裁剪歷史並
   重估 totalTokens。切點只能是「純文字 user 訊息」（避免孤兒 tool_result）；摘要失敗一律
-  安全 no-op。發 `compacted` SSE 事件。
+  安全 no-op。發 `compacted` SSE 事件。模型也可主動呼叫 `compact_context` 工具觸發同一
+  條路徑（`compactNow`，loop 內攔截）。
+- 組態旋鈕（2026-06-11）：`Llm.maxIters`（0 = 不限制，HTTP 層換算成
+  `Number.MAX_SAFE_INTEGER`）；`Llm.contextLimit`（tokens）同時驅動
+  `compactThreshold = ½·limit` 與 `tokenCeiling = limit`。Config 分頁以兩個下拉選擇
+  （8/16/32/不限制；預設/128K/200K/256K/1M）。
 - Abort：前端斷線（`req.on('close')`）→ AbortController → 上游 fetch 中止。
 
 ### Checkpoint / undo（checkpoint.ts）

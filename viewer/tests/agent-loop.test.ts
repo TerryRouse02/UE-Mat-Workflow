@@ -1406,6 +1406,76 @@ describe('compaction', () => {
     expect(session.totalTokens).toBeLessThan(100_000);
   });
 
+  it('compact_context tool: model-triggered compaction works below the auto threshold', async () => {
+    const memory = createMemoryStore(join(tmpDir, 'viewer'), 'tool-compact');
+    const memCtx: ToolContext = { ...ctx, memory };
+    seedTurns(6);
+    session.totalTokens = 10; // far below threshold — only the tool can compact
+
+    const provider = new RecordingProvider([
+      // Call #1 = the turn: the model decides to compact.
+      [
+        { type: 'tool_use', id: 'cc-1', name: 'compact_context', input: {} },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      // Call #2 = the summarizer one-shot triggered by the tool.
+      [{ type: 'text_delta', text: '摘要：先前六輪的重點。' }, { type: 'done', stopReason: 'end' }],
+      // Call #3 = the turn continues after the tool result.
+      [{ type: 'text_delta', text: '已完成壓縮。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+
+    const events: AgentSseEvent[] = [];
+    await runAgent('壓縮上下文', session, provider, 'fake-model', memCtx, e => events.push(e), undefined, {
+      compactThreshold: 1_000_000, compactKeepTurns: 2,
+    });
+
+    // Tool surfaced with the zh-TW step line and succeeded.
+    expect(events.some(e => e.type === 'tool_start' && e.name === 'compact_context')).toBe(true);
+    const end = events.find(e => e.type === 'tool_end' && e.name === 'compact_context');
+    expect(end?.type === 'tool_end' && end.ok).toBe(true);
+    expect(events.some(e => e.type === 'compacted')).toBe(true);
+
+    // Summary written to session memory; old turns trimmed; the in-flight
+    // turn (its user message + assistant tool_use tail) survived the cut.
+    expect(await memory.read('session')).toContain('先前六輪的重點');
+    const flat = JSON.stringify(session.messages);
+    expect(flat).not.toContain('第1輪請求');
+    expect(flat).toContain('壓縮上下文');
+    expect(flat).toContain('已完成壓縮');
+    for (let i = 1; i < session.messages.length; i++) {
+      expect(session.messages[i].role).not.toBe(session.messages[i - 1].role);
+    }
+
+    // The model received an informative tool result (dropped-turn count).
+    const lastReq = JSON.stringify(provider.requests[2].messages);
+    expect(lastReq).toContain('已將先前');
+  });
+
+  it('compact_context tool: reports not-enough-history instead of failing hard', async () => {
+    const memory = createMemoryStore(join(tmpDir, 'viewer'), 'tool-compact-short');
+    const memCtx: ToolContext = { ...ctx, memory };
+    // No seeded turns — only the in-flight one. Nothing to compact.
+    const provider = new RecordingProvider([
+      [
+        { type: 'tool_use', id: 'cc-2', name: 'compact_context', input: {} },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [{ type: 'text_delta', text: '目前對話還不長。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+
+    const events: AgentSseEvent[] = [];
+    await runAgent('壓縮', session, provider, 'fake-model', memCtx, e => events.push(e), undefined, {
+      compactThreshold: 1_000_000, compactKeepTurns: 2,
+    });
+
+    const end = events.find(e => e.type === 'tool_end' && e.name === 'compact_context');
+    expect(end?.type === 'tool_end' && end.ok).toBe(false);
+    expect(events.some(e => e.type === 'compacted')).toBe(false);
+    // The tool result explains why (fed back to the model, not thrown).
+    expect(JSON.stringify(provider.requests[1].messages)).toContain('無須壓縮');
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
   it('does not compact below threshold or without a memory store', async () => {
     seedTurns(6);
     session.totalTokens = 50; // below custom threshold

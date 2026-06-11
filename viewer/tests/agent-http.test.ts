@@ -249,6 +249,47 @@ describe('POST /api/config Llm extension', () => {
     }
   }, 5000);
 
+  it('persists maxIters/contextLimit, echoes them in status, and clears on sentinel values', async () => {
+    const root = makeTmpRoot();
+    const configPath = resolve(root, 'tools', 'node-t3d-metadata', 'local.config.json');
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    try {
+      // Save with explicit values (0 = unlimited iterations).
+      let r = await fetch(`http://localhost:${server.port}/api/config`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          Llm: { provider: 'anthropic', model: 'm', maxIters: 0, contextLimit: 1_000_000 },
+        }),
+      });
+      expect(r.status).toBe(200);
+      let llm = (JSON.parse(readFileSync(configPath, 'utf-8')) as { Llm: Record<string, unknown> }).Llm;
+      expect(llm.maxIters).toBe(0);
+      expect(llm.contextLimit).toBe(1_000_000);
+
+      // Status mirrors both (form seeding) — and still never the key.
+      r = await fetch(`http://localhost:${server.port}/api/agent/status`);
+      const status = await r.json() as { maxIters?: number; contextLimit?: number; apiKey?: unknown };
+      expect(status.maxIters).toBe(0);
+      expect(status.contextLimit).toBe(1_000_000);
+      expect(status.apiKey).toBeUndefined();
+
+      // Sentinels clear back to the loop defaults: contextLimit -1, maxIters non-integer.
+      r = await fetch(`http://localhost:${server.port}/api/config`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ Llm: { contextLimit: -1, maxIters: 'bogus' } }),
+      });
+      expect(r.status).toBe(200);
+      llm = (JSON.parse(readFileSync(configPath, 'utf-8')) as { Llm: Record<string, unknown> }).Llm;
+      expect(llm.contextLimit).toBeUndefined();
+      expect(llm.maxIters).toBeUndefined();
+      expect(llm.model).toBe('m'); // untouched fields preserved
+    } finally {
+      await server.close();
+    }
+  }, 5000);
+
   it('preserves non-Llm config fields when updating Llm', async () => {
     const root = makeTmpRoot();
     const configPath = resolve(root, 'tools', 'node-t3d-metadata', 'local.config.json');

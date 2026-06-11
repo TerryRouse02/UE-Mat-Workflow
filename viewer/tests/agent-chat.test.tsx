@@ -11,6 +11,7 @@ import type { AgentSseEvent } from '../web/src/agent/protocol.js';
 // Since AgentChat calls useStore, we need to mock the store module.
 import { AgentChat } from '../web/src/agent/AgentChat.js';
 import { Sidebar } from '../web/src/Sidebar.js';
+import { applyAgentEvent, newTurnFlags, startUserTurn } from '../web/src/agent/transcript.js';
 
 // ---------------------------------------------------------------------------
 // Mock the store module
@@ -658,7 +659,7 @@ describe('AgentChat thinking', () => {
       expect(container.textContent).toContain('好的，開始。');
     }, { timeout: 2000 });
 
-    // Collapsed by default: header visible, reasoning text hidden.
+    // Auto-collapsed once non-thinking events arrive: header visible, text hidden.
     expect(container.textContent).toContain('思考過程');
     expect(container.querySelector('.agent-thinking-text')).toBeNull();
     expect(container.textContent).not.toContain('先分析需求');
@@ -668,6 +669,25 @@ describe('AgentChat thinking', () => {
     await act(async () => { fireEvent.click(head); });
     expect(container.querySelector('.agent-thinking-text')).toBeTruthy();
     expect(container.textContent).toContain('先分析需求');
+  });
+
+  it('thinking streams open and auto-collapses on the first non-thinking event', () => {
+    const flags = newTurnFlags();
+    let items = startUserTurn([], '做材質');
+
+    // While reasoning streams the card is open so the user watches it live.
+    items = applyAgentEvent(items, { type: 'thinking', text: '想一下' }, flags);
+    expect(items.at(-1)).toMatchObject({ kind: 'thinking', collapsed: false });
+
+    // usage events interleave with the stream and must not fold it.
+    items = applyAgentEvent(items, { type: 'usage', inputTokens: 1, outputTokens: 1, estimated: false }, flags);
+    expect(items.at(-1)).toMatchObject({ kind: 'thinking', collapsed: false });
+    items = applyAgentEvent(items, { type: 'thinking', text: '再想' }, flags);
+    expect(items.at(-1)).toMatchObject({ kind: 'thinking', text: '想一下再想', collapsed: false });
+
+    // The first non-thinking event (here a tool step) folds the card.
+    items = applyAgentEvent(items, { type: 'tool_start', name: 'search_nodes', summary: '搜尋節點：glow' }, flags);
+    expect(items.find(i => i.kind === 'thinking')).toMatchObject({ collapsed: true });
   });
 });
 

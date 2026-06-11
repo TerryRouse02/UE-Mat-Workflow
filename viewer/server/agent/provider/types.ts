@@ -65,6 +65,13 @@ export interface LLMConfig {
   apiKey?: string;
   model: string;
   maxTokens?: number;
+  // Agent-loop iteration ceiling per user turn. 0 = unlimited (the token
+  // ceiling still guards runaway cost). Absent → loop default (8).
+  maxIters?: number;
+  // Model context window in tokens (e.g. 128000 / 200000 / 1000000). Drives
+  // the compaction threshold (½ of it) and the session token ceiling.
+  // Absent → loop defaults (compact at 150K, ceiling 300K).
+  contextLimit?: number;
 }
 
 // Shape returned by GET /api/agent/status — apiKey must never appear here.
@@ -75,4 +82,8 @@ export interface ProviderStatus {
   model?: string;
   baseUrl?: string;
   hasApiKey?: boolean;
+  /** Mirrors LLMConfig.maxIters so the Config form can seed itself. 0 = unlimited. */
+  maxIters?: number;
+  /** Mirrors LLMConfig.contextLimit (tokens) so the Config form can seed itself. */
+  contextLimit?: number;
 }

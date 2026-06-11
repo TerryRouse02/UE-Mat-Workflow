@@ -45,7 +45,8 @@ export interface DiffBlock {
   collapsed: boolean;
 }
 
-/** Model reasoning stream (thinking SSE events) — collapsed by default. */
+/** Model reasoning stream (thinking SSE events) — open while streaming,
+    auto-collapsed by the first non-thinking event of the turn. */
 export interface ThinkingItem {
   kind: 'thinking';
   text: string;
@@ -99,6 +100,15 @@ export function accumulateUsage(prev: UsageTotal | null, event: { inputTokens: n
  * 已開啟 notice but the actual open() side effect belongs to the caller.
  */
 export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: TurnFlags): ChatItem[] {
+  // Thinking streams expanded so the user watches it live; the first
+  // non-thinking event of the turn means reasoning ended — fold it up.
+  // (usage can arrive interleaved with the stream and must not collapse it.)
+  if (event.type !== 'thinking' && event.type !== 'usage') {
+    const last = items[items.length - 1];
+    if (last?.kind === 'thinking' && !last.collapsed) {
+      items = [...items.slice(0, -1), { ...last, collapsed: true }];
+    }
+  }
   switch (event.type) {
     case 'text': {
       if (flags.needsNewBubble) {
@@ -122,7 +132,7 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
         updated[updated.length - 1] = { ...last, text: last.text + event.text };
         return updated;
       }
-      return [...items, { kind: 'thinking', text: event.text, collapsed: true }];
+      return [...items, { kind: 'thinking', text: event.text, collapsed: false }];
     }
 
     case 'tool_start': {

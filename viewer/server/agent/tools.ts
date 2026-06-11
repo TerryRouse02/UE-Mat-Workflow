@@ -1,4 +1,5 @@
-// server/agent/tools.ts — 8 tool definitions + dispatch for the material agent.
+// server/agent/tools.ts — tool definitions + dispatch for the material agent.
+// (compact_context is defined here but dispatched inside loop.ts — it needs the session.)
 // All tools catch internal throws and convert them to {content, isError:true}.
 
 import { mkdir, rename, writeFile, readdir, readFile } from 'node:fs/promises';
@@ -364,6 +365,16 @@ export const toolDefs: ToolDef[] = [
       required: ['scope', 'op', 'content'],
     },
   },
+  {
+    name: 'compact_context',
+    description:
+      'Summarize the older turns of THIS conversation into session memory and trim them from the ' +
+      'context window, freeing room for long sessions. The most recent turns are always kept. ' +
+      'Call this when the user asks to compact/壓縮 the conversation, or when the history has grown ' +
+      'very long. The summary is auto-injected into your system prompt afterwards, so nothing ' +
+      'important is lost.',
+    inputSchema: { type: 'object', properties: {} },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -404,6 +415,9 @@ async function _dispatch(
     case 'read_example':    return toolReadExample(inp, ctx);
     case 'read_memory':     return toolReadMemory(inp, ctx);
     case 'update_memory':   return toolUpdateMemory(inp, ctx);
+    case 'compact_context':
+      // Needs the live session/provider — the loop intercepts it before dispatch.
+      return { content: 'compact_context 只能由代理迴圈執行。', isError: true };
     default:
       return { content: `unknown tool: ${name}`, isError: true };
   }

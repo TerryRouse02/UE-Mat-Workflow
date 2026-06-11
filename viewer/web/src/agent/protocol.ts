@@ -49,6 +49,10 @@ export interface ProviderStatus {
   model?: string;
   baseUrl?: string;
   hasApiKey?: boolean;
+  /** Agent-loop iteration ceiling per user turn. 0 = unlimited. Absent → default (8). */
+  maxIters?: number;
+  /** Model context window in tokens (drives compaction + token ceiling). Absent → defaults. */
+  contextLimit?: number;
 }
 
 /** Response from POST /api/agent/undo — mirrored from server/agent/agent-types.ts */

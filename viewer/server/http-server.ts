@@ -370,6 +370,26 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           }
         }
 
+        // maxIters: integer ≥ 0 (0 = unlimited); anything else clears → loop default.
+        if (llmIn.maxIters !== undefined) {
+          const n = Number(llmIn.maxIters);
+          if (Number.isInteger(n) && n >= 0) {
+            llmConfig.maxIters = Math.min(n, 1000);
+          } else {
+            delete llmConfig.maxIters;
+          }
+        }
+
+        // contextLimit: model context window in tokens; 0/invalid clears → loop defaults.
+        if (llmIn.contextLimit !== undefined) {
+          const n = Number(llmIn.contextLimit);
+          if (Number.isFinite(n) && n >= 32_000) {
+            llmConfig.contextLimit = Math.min(Math.floor(n), 10_000_000);
+          } else {
+            delete llmConfig.contextLimit;
+          }
+        }
+
         merged.Llm = llmConfig;
       } catch (e) { sendJson(res, 400, { error: (e as Error).message }); return; }
     }
@@ -473,6 +493,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         apiKey: typeof llm.apiKey === 'string' ? llm.apiKey : undefined,
         model: llm.model.trim(),
         maxTokens: typeof llm.maxTokens === 'number' && llm.maxTokens > 0 ? Math.floor(llm.maxTokens) : undefined,
+        maxIters: typeof llm.maxIters === 'number' && Number.isInteger(llm.maxIters) && llm.maxIters >= 0 ? llm.maxIters : undefined,
+        contextLimit: typeof llm.contextLimit === 'number' && llm.contextLimit >= 32_000 ? Math.floor(llm.contextLimit) : undefined,
       };
     } catch {
       return null;
@@ -489,6 +511,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           model: config.model,
           baseUrl: config.baseUrl,
           hasApiKey: config.apiKey !== undefined,
+          maxIters: config.maxIters,
+          contextLimit: config.contextLimit,
         }
       : { configured: false };
     sendJson(res, 200, status);
@@ -945,7 +969,15 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         ctx,
         emit,
         ac.signal,
-        { maxTokens: llmConfig.maxTokens, thinking },
+        {
+          maxTokens: llmConfig.maxTokens,
+          thinking,
+          // 0 = unlimited (token ceiling still applies); absent → loop default.
+          maxIters: llmConfig.maxIters === 0 ? Number.MAX_SAFE_INTEGER : llmConfig.maxIters,
+          // Context window drives both knobs: compact at half, hard-stop at the window.
+          compactThreshold: llmConfig.contextLimit !== undefined ? Math.floor(llmConfig.contextLimit / 2) : undefined,
+          tokenCeiling: llmConfig.contextLimit,
+        },
       );
     } catch (e) {
       const msg = (e as Error)?.message ?? 'unknown error';

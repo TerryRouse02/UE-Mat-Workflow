@@ -495,8 +495,26 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
 interface AiSectionProps {
   saveAgentConfig: (llm: {
     provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
+    maxIters?: number; contextLimit?: number;
   }) => Promise<{ ok: boolean; error?: string }>;
 }
+
+// 最大迭代次數 choices — value is what gets stored (0 = unlimited).
+const MAX_ITERS_OPTIONS = [
+  { value: '8',  label: '8（預設）' },
+  { value: '16', label: '16' },
+  { value: '32', label: '32' },
+  { value: '0',  label: '不限制（仍受上下文上限保護）' },
+];
+
+// 上下文長度 choices — tokens; '' = use the loop defaults (300K 上限 / 150K 壓縮).
+const CONTEXT_LIMIT_OPTIONS = [
+  { value: '',        label: '預設（300K 上限，150K 開始壓縮）' },
+  { value: '128000',  label: '128K' },
+  { value: '200000',  label: '200K' },
+  { value: '256000',  label: '256K' },
+  { value: '1000000', label: '1M' },
+];
 
 function AiSection({ saveAgentConfig }: AiSectionProps) {
   const [provider, setProvider] = useState<'anthropic' | 'openai-compatible'>('anthropic');
@@ -506,6 +524,8 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
   // without typing leaves the previously-stored key intact (the server contract).
   const [apiKey, setApiKey] = useState('');
   const [maxTokens, setMaxTokens] = useState('');
+  const [maxIters, setMaxIters] = useState('8');
+  const [contextLimit, setContextLimit] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [status, setStatus] = useState<ProviderStatus | null>(null);
@@ -527,6 +547,15 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
           if (s.provider === 'anthropic' || s.provider === 'openai-compatible') setProvider(s.provider);
           setModel(m => m || (s.model ?? ''));
           setBaseUrl(b => b || (s.baseUrl ?? ''));
+          // Seed the two selects only when the stored value matches an option;
+          // a hand-edited custom number keeps the default choice instead of
+          // silently rendering a value the select cannot show.
+          if (s.maxIters !== undefined && MAX_ITERS_OPTIONS.some(o => o.value === String(s.maxIters))) {
+            setMaxIters(String(s.maxIters));
+          }
+          if (s.contextLimit !== undefined && CONTEXT_LIMIT_OPTIONS.some(o => o.value === String(s.contextLimit))) {
+            setContextLimit(String(s.contextLimit));
+          }
         }
       } catch { /* ignore */ }
     })();
@@ -536,12 +565,19 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
     setSaving(true);
     setMsg(null);
     setTestResult(null);
-    const llm: { provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number } = {
+    const llm: {
+      provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
+      maxIters?: number; contextLimit?: number;
+    } = {
       provider,
       model: model.trim(),
       // Always sent (both providers accept a custom endpoint / relay);
       // an empty string clears the stored value → adapters fall back to the default.
       baseUrl: baseUrl.trim(),
+      // Always sent: 0 = unlimited iterations; the server stores the number as-is.
+      maxIters: parseInt(maxIters, 10),
+      // Always sent: '' maps to -1 which the server treats as "clear → defaults".
+      contextLimit: contextLimit === '' ? -1 : parseInt(contextLimit, 10),
     };
     // Only send apiKey if the user typed something; empty = leave stored key intact.
     if (apiKey) llm.apiKey = apiKey;
@@ -607,6 +643,18 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
               <span className="k">API Key</span>
               <span className="v">{status.hasApiKey ? '已儲存（不會顯示）' : '未設定'}</span>
             </div>
+            {status.maxIters !== undefined && (
+              <div className="ai-row">
+                <span className="k">迭代上限</span>
+                <span className="v">{status.maxIters === 0 ? '不限制' : status.maxIters}</span>
+              </div>
+            )}
+            {status.contextLimit !== undefined && (
+              <div className="ai-row">
+                <span className="k">上下文</span>
+                <span className="v">{status.contextLimit >= 1_000_000 ? `${status.contextLimit / 1_000_000}M` : `${Math.round(status.contextLimit / 1000)}K`} tokens</span>
+              </div>
+            )}
             <div className="ai-test-row">
               <button className="btn sm" disabled={testing} onClick={() => void onTest()}>
                 {testing
@@ -689,6 +737,34 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
             placeholder="8192"
             inputMode="numeric"
           />
+        </div>
+      </div>
+
+      <div className="field">
+        <label>
+          最大迭代次數{' '}
+          <span style={{ color: 'var(--text-mute)' }}>— 每輪對話的工具迴圈上限</span>
+        </label>
+        <div className="inp">
+          <select value={maxIters} onChange={e => setMaxIters(e.target.value)}>
+            {MAX_ITERS_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="field">
+        <label>
+          上下文長度{' '}
+          <span style={{ color: 'var(--text-mute)' }}>— 依模型視窗選擇；達一半自動壓縮舊對話</span>
+        </label>
+        <div className="inp">
+          <select value={contextLimit} onChange={e => setContextLimit(e.target.value)}>
+            {CONTEXT_LIMIT_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
         </div>
       </div>
 

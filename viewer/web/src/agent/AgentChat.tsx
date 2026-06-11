@@ -179,6 +179,10 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  // One-shot jump-to-bottom: set when a session's items are (re)loaded — on
+  // mount (tab switch) or session switch — so the view starts at the latest
+  // message instead of the top. Live streaming keeps the near-bottom rule.
+  const jumpToBottomRef = useRef(false);
 
   // Fetch /api/agent/status on mount and after config saves.
   const fetchStatus = useCallback(async () => {
@@ -216,6 +220,7 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
       if (!r.ok) return;
       const detail = await r.json() as AgentSessionDetail;
       const { items: reduced, usage: total } = reduceTranscript(detail.transcript);
+      jumpToBottomRef.current = true;
       setItems(reduced);
       setUsage(total);
       setSessionId(id);
@@ -270,9 +275,15 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
 
   // Auto-scroll to bottom when items change — but only when the user is already
   // near the bottom, so scrolling up to re-read is never yanked away.
+  // Exception: a freshly loaded session always jumps to the latest message.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
+    if (jumpToBottomRef.current) {
+      jumpToBottomRef.current = false;
+      el.scrollTop = el.scrollHeight;
+      return;
+    }
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     if (distance < 240) el.scrollTop = el.scrollHeight;
   }, [items]);
