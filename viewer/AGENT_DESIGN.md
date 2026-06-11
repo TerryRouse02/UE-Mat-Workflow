@@ -58,11 +58,13 @@ viewer/
 │     ├─ provider/openai.ts     # OpenAI-compatible adapter（可配 baseUrl）
 │     ├─ provider/index.ts      # pickProvider(config)
 │     ├─ loop.ts                # agent loop（閉環＋護欄）
-│     ├─ tools.ts               # 8 個 tool 定義 + dispatch
+│     ├─ tools.ts               # 14 個 tool 定義 + dispatch（2026-06-11 起含探索/記憶工具）
 │     ├─ patch.ts               # patch_graph 領域操作集（純函式）
 │     ├─ query-bridge.ts        # createRequire 載入 agent-pack/query-lib.js 的型別殼
 │     ├─ prompt.ts              # 新手人格 system prompt（runtime 讀 SPEC.md）
 │     ├─ checkpoint.ts          # 寫入前快照 → viewer/.agent-checkpoints/
+│     ├─ session-store.ts       # M7 會話落盤 → viewer/.agent-sessions/<id>.json
+│     ├─ memory-store.ts        # M7b 兩層記憶 → .agent-memory/longterm.md ＋ <id>.memory.md
 │     ├─ explain.ts             # hover「深入解說」一次性 LLM 路徑
 │     └─ agent-types.ts         # node-free wire 型別（鏡像 web/src/agent/protocol.ts）
 └─ web/src/agent/
@@ -153,7 +155,20 @@ interface ProviderStatus {
 回明確中文錯誤建議換模型（列例：claude-opus-4-8、gpt-4o、deepseek-chat）。
 MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 
-## 4. Tool 契約（8 個）
+## 4. Tool 契約（14 個）
+
+2026-06-11 追加六個（探索＋記憶）：
+
+| tool | input | returns | guard |
+|---|---|---|---|
+| `list_graphs` | `{}` | graphs/ 下所有 matgraph（路徑/type/name/ueVersion） | 唯讀；200 檔上限；壞檔標記不致命 |
+| `search_mf` | `{query}` | 引擎＋工作 MF 索引關鍵字搜尋（SSoT 在 query-lib `searchMf`；CLI `search-mf`） | 缺索引靜默跳過 |
+| `list_examples` | `{}` | agent-pack/examples 範例清單 | 唯讀 |
+| `read_example` | `{name}` | 整個範例專案的 matgraph 檔 | 名稱 allowlist regex；30K 字上限 |
+| `read_memory` | `{scope}` | session / longterm 記憶內容 | 路徑寫死無穿越面 |
+| `update_memory` | `{scope, op: append\|replace, content}` | `{ok}` | 8K 字上限，超限響亮報錯要求 replace 精煉 |
+
+原 MVP 八個：
 
 | tool | input | returns | guard |
 |---|---|---|---|
@@ -223,8 +238,18 @@ runAgent(userText, session):
 - 護欄：`MAX_ITERS`、`TOKEN_CEILING`、撞上限 graceful 收尾（emit `limit` 事件，回報而非沉默）。
 - **使用者永遠看不到原始驗證錯誤**：錯誤只回 tool_result 餵模型自修，0 error 才呈現成果＋白話說明。
 - 每輪不信記憶：修改前先 `read_graph` 對齊磁碟真實狀態（寫進 system prompt 的工具紀律）。
-- Session：MVP 為 server 記憶體單一活躍 session `{id, messages, ueVersion, graphPath?}`；
-  `POST /api/agent/reset` 清空。
+- Session（M7，2026-06-11 取代「單一記憶體 session」）：會話落盤
+  `viewer/.agent-sessions/<id>.json`（gitignored）＝中性 messages（含 thinking block）＋
+  可重播 transcript（user 文字＋SSE 事件，text/thinking 落盤時合併）＋ meta。
+  `AgentChatRequest.sessionId` 顯式綁定（未知 id → 404）；無 id 走 current-session 舊流程。
+  CRUD：`GET/POST /api/agent/sessions`、`GET/DELETE /api/agent/sessions/:id`。
+  undo 收 `{sessionId}`；reset 只「中止＋脫離」不刪檔。undo 棧不跨重啟（已記錄的限制）。
+- 記憶（M7b）：longterm（跨會話）＋ session（隨會話）兩層，僅經 read/update_memory 工具寫；
+  每輪 user turn 重讀並注入 system prompt。刪會話連帶刪其 session 記憶，longterm 不動。
+- 壓縮（M11-1）：totalTokens 過 `COMPACT_THRESHOLD`（150K）時，保留最後
+  `COMPACT_KEEP_TURNS`（4）輪、其餘以一次性無工具呼叫摘要進 session 記憶後裁剪歷史並
+  重估 totalTokens。切點只能是「純文字 user 訊息」（避免孤兒 tool_result）；摘要失敗一律
+  安全 no-op。發 `compacted` SSE 事件。
 - Abort：前端斷線（`req.on('close')`）→ AbortController → 上游 fetch 中止。
 
 ### Checkpoint / undo（checkpoint.ts）
@@ -254,6 +279,8 @@ get_signature 再連線；MF 必查 `get_mf_signature`；改圖前先 `read_grap
 | `/api/agent/reset` | POST | 清空 session | `sameOrigin` |
 | `/api/agent/status` | GET | `ProviderStatus`（永不含 apiKey） | 同 `/api/env` |
 | `/api/agent/test` | POST | 用「已儲存」設定發最小請求驗證連線；錯誤翻白話（2026-06-11） | `sameOrigin`；30s 上限 |
+| `/api/agent/sessions` | GET / POST | 會話列表／新建（M7） | POST 過 `sameOrigin` |
+| `/api/agent/sessions/:id` | GET / DELETE | 轉錄重播／刪除（連帶 checkpoints＋session 記憶） | id regex；DELETE 過 `sameOrigin`、串流中 409 |
 | `/api/config` | POST（擴充） | 新收 `Llm` 物件；`baseUrl: ''` 表清除（兩個 provider 都收 baseUrl） | 既有守衛 |
 
 ### Wire 型別（agent-types.ts ↔ web/src/agent/protocol.ts，鏡像）
@@ -267,6 +294,7 @@ type AgentSseEvent =
   | { type: 'diff'; lines: string[] }                                // 白話 diff（成功寫入後）
   | { type: 'graph_written'; path: string }                          // UI 可自動開啟該檔
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
+  | { type: 'compacted'; message: string }                           // 壓縮通知（2026-06-11）
   | { type: 'limit'; kind: 'iters' | 'cost'; message: string }
   | { type: 'error'; message: string }
   | { type: 'done' };
@@ -277,6 +305,7 @@ type AgentSseEvent =
 interface AgentChatRequest {
   text: string; ueVersion?: string; graphPath?: string;
   thinking?: 'off' | 'low' | 'medium' | 'high';
+  sessionId?: string;   // M7：顯式綁定持久會話；web UI 一律帶
 }
 ```
 
