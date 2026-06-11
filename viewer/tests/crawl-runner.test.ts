@@ -173,3 +173,15 @@ describe('createCrawlRunner', () => {
     expect(runner.cancel()).toBe(false);
   });
 });
+
+describe('lastLog', () => {
+  it('is null before any crawl, then holds the finished crawl tail (success and error)', async () => {
+    const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', "process.stdout.write('hello\\n'); process.exit(2)"] });
+    const runner = createCrawlRunner(tmpdir(), { commandFor });
+    expect(runner.lastLog()).toBeNull();
+    await runToDone(runner, 'workmf');
+    const snap = runner.lastLog();
+    expect(snap).toMatchObject({ kind: 'workmf', status: 'error', exitCode: 2 });
+    expect(snap!.lines).toContain('hello');
+  });
+});

@@ -9,6 +9,13 @@ describe('diagnoseCrawl', () => {
     expect(d!.fix).toMatch(/-ForcePackage/);
   });
 
+  it('maps the localized UE plugin module failure to the -ForcePackage fix', () => {
+    const d = diagnoseCrawl(['LogPluginManager: Error: 無法找到模組“UEMatExportMetadata”，因此插件“UEMatExportMetadata”加载失败。']);
+    expect(d).not.toBeNull();
+    expect(d!.who).toBe('you');
+    expect(d!.fix).toMatch(/-ForcePackage/);
+  });
+
   it('routes a BuildPlugin compile failure to the maintainer', () => {
     const d = diagnoseCrawl(['BuildPlugin failed with exit code 6. Log: x']);
     expect(d!.who).toBe('maintainer');

@@ -20,9 +20,9 @@ const RULES: Rule[] = [
     who: 'you',
   },
   {
-    test: /could not be loaded|missing or incompatible modules|incompatible module|failed to load because/i,
-    cause: '外掛二進位與你的引擎 build 不相容，UE 載入外掛失敗。',
-    fix: '在終端機跑 Invoke-NodeT3DMetadataMaintenance.ps1 -ForcePackage，對你的引擎重新打包外掛（仍是外部、不會放進專案）。',
+    test: /could not be loaded|missing or incompatible modules|incompatible module|failed to load because|無法找到模組.*UEMatExportMetadata|插件.*UEMatExportMetadata.*加載失敗|插件.*UEMatExportMetadata.*加载失败/i,
+    cause: 'UE 載入 UEMatExportMetadata 外掛失敗，通常是外掛二進位沒有對上目前的自訂引擎 build / Editor target。',
+    fix: '先在終端機跑 Invoke-NodeT3DMetadataMaintenance.ps1 -ForcePackage，用目前設定的 EngineRoot 重新打包外掛；若仍失敗，請確認它是用你們專案實際使用的自訂引擎、Editor target 與必要模組依賴建出的版本。',
     who: 'you',
   },
   {

@@ -30,6 +30,23 @@ interface State {
   // index for the Nodes tab (kept separate from metadataVersion: workmf is NOT a
   // public agent-pack file, so it must not trigger the agent-pack re-fetch).
   workMfVersion: number;
+  // Nodes the agent just wrote/modified — the Graph pulses them once the file
+  // opens. ts gates staleness (an old highlight never re-fires on later mounts).
+  agentHighlight: { path: string; ids: string[]; nonce: number; ts: number } | null;
+  // Agent asked for a UE-clipboard export of this graph; App performs it once
+  // the graph is open and rendered (T3D needs the dagre positions). ts gates
+  // staleness like agentHighlight.
+  agentExportReq: { path: string; nonce: number; ts: number } | null;
+  // Currently selected canvas node (lifted from App so the agent chat can
+  // attach it as viewport context on every message).
+  selectedNodeId: string | null;
+  // One-shot "say this to the agent" request (問 AI button, post-import
+  // explain). App switches to the Agent tab; AgentChat consumes the text —
+  // send=true submits immediately, send=false prefills the input.
+  agentAsk: { text: string; send: boolean; nonce: number; ts: number } | null;
+  // Agent-tab attention cue: busy = a reply is streaming; unseen = a reply
+  // finished while another tab was active (cleared when the tab is opened).
+  agentActivity: 'idle' | 'busy' | 'unseen';
 }
 
 type Action =
@@ -44,6 +61,12 @@ type Action =
   | { type: 'wsClosed' }
   | { type: 'snapshot' }
   | { type: 'setEnv'; env: EnvStatus }
+  | { type: 'agentHighlight'; path: string; ids: string[] }
+  | { type: 'agentExportReq'; path: string }
+  | { type: 'selectNode'; id: string | null }
+  | { type: 'metadataBumped' }
+  | { type: 'agentAsk'; text: string; send: boolean }
+  | { type: 'agentActivity'; value: 'idle' | 'busy' | 'unseen' }
   | { type: 'crawlReset' }
   | CrawlAction;
 
@@ -53,6 +76,8 @@ const initial: State = {
   files: [], currentPath: null, breadcrumb: [], graphs: {}, errors: {},
   connection: 'reconnecting', lastUpdate: null,
   env: null, crawl: idleCrawl, metadataVersion: 0, workMfVersion: 0,
+  agentHighlight: null, agentExportReq: null,
+  selectedNodeId: null, agentAsk: null, agentActivity: 'idle',
 };
 
 function reducer(s: State, a: Action): State {
@@ -75,6 +100,19 @@ function reducer(s: State, a: Action): State {
       return { ...s, breadcrumb: s.breadcrumb.slice(0, a.toIndex + 1) };
     case 'setEnv':
       return { ...s, env: a.env };
+    case 'agentHighlight':
+      return { ...s, agentHighlight: { path: a.path, ids: a.ids, nonce: (s.agentHighlight?.nonce ?? 0) + 1, ts: Date.now() } };
+    case 'agentExportReq':
+      return { ...s, agentExportReq: { path: a.path, nonce: (s.agentExportReq?.nonce ?? 0) + 1, ts: Date.now() } };
+    case 'selectNode':
+      return { ...s, selectedNodeId: a.id };
+    case 'metadataBumped':
+      // A user-approved DB edit rewrote the public agent-pack files server-side.
+      return { ...s, metadataVersion: s.metadataVersion + 1 };
+    case 'agentAsk':
+      return { ...s, agentAsk: { text: a.text, send: a.send, nonce: (s.agentAsk?.nonce ?? 0) + 1, ts: Date.now() } };
+    case 'agentActivity':
+      return s.agentActivity === a.value ? s : { ...s, agentActivity: a.value };
     case 'crawlReset':
       return { ...s, crawl: idleCrawl };
     case 'crawlStarted':
@@ -111,6 +149,22 @@ interface Ctx {
   resetCrawl(): void;
   refreshEnv(): void;
   saveConfig(projectPath: string, engineRoot: string): Promise<{ ok: boolean; error?: string }>;
+  saveAgentConfig(llm: {
+    provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
+    maxIters?: number; contextLimit?: number;
+  }): Promise<{ ok: boolean; error?: string }>;
+  /** Pulse the given nodes on the canvas once the graph at path is open (agent diff highlight). */
+  highlightNodes(path: string, ids: string[]): void;
+  /** Ask App to export the graph at path to the UE clipboard once it is rendered. */
+  requestAgentExport(path: string): void;
+  /** Select (or clear) the canvas node shown in the Inspector / sent as agent context. */
+  selectNode(id: string | null): void;
+  /** Hand a message to the agent chat: send=true submits it, send=false prefills the input. */
+  askAgent(text: string, send: boolean): void;
+  /** Re-fetch the agent-pack data after a server-side DB edit (approved db_edit_proposal). */
+  bumpMetadata(): void;
+  /** Agent-tab attention cue, driven by AgentChat (busy/unseen/idle). */
+  setAgentActivity(value: 'idle' | 'busy' | 'unseen'): void;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -224,7 +278,55 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const open = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'open', path }); }, []);
   const enterMF = useCallback((path: string) => { wsRef.current?.send({ kind: 'open', path }); dispatch({ type: 'enterMF', mfPath: path }); }, []);
   const popBreadcrumb = useCallback((i: number) => { dispatch({ type: 'popBreadcrumb', toIndex: i }); }, []);
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig]);
+
+  // Save AI assistant configuration via POST /api/config with Llm field.
+  // The response shape is EnvStatus (not Llm) per the server contract.
+  const saveAgentConfig = useCallback(async (llm: {
+    provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
+    maxIters?: number; contextLimit?: number;
+  }) => {
+    try {
+      const r = await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ Llm: llm }),
+      });
+      if (!r.ok) {
+        const e = (await r.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: e.error || `HTTP ${r.status}` };
+      }
+      dispatch({ type: 'setEnv', env: await r.json() });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }, []);
+
+  const highlightNodes = useCallback((path: string, ids: string[]) => {
+    if (ids.length > 0) dispatch({ type: 'agentHighlight', path, ids });
+  }, []);
+
+  const requestAgentExport = useCallback((path: string) => {
+    dispatch({ type: 'agentExportReq', path });
+  }, []);
+
+  const selectNode = useCallback((id: string | null) => {
+    dispatch({ type: 'selectNode', id });
+  }, []);
+
+  const askAgent = useCallback((text: string, send: boolean) => {
+    dispatch({ type: 'agentAsk', text, send });
+  }, []);
+
+  const bumpMetadata = useCallback(() => {
+    dispatch({ type: 'metadataBumped' });
+  }, []);
+
+  const setAgentActivity = useCallback((value: 'idle' | 'busy' | 'unseen') => {
+    dispatch({ type: 'agentActivity', value });
+  }, []);
+
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

@@ -44,13 +44,14 @@ pnpm dev
 
 （後端/server 的 `.ts` 改動仍需重跑一次 `pnpm dev`。）
 
-Sidebar 有三個 tab：
+Sidebar 有四個 tab：
 
 | Tab | 內容 |
 |---|---|
 | **Files** | 你的材質，依專案資料夾分組。`graphs/` 下每個子資料夾就是一個專案，裡面所有檔案都會顯示；只有直接放在 `graphs/` 根層的檔案會落到「Unorganized」區。 |
 | **Nodes** | UE 5.7 完整節點庫——可依名稱或描述搜尋、按分類瀏覽，點節點看 inputs / outputs / params 細節，包含型別與徽章（verified、dynamic-pin、deprecated）。下方還有兩個可摺疊瀏覽器：**Official Material Functions**（引擎的 `/Engine/Functions` 函式庫）與 **Project Material Functions**（你自己的 `/Game` MF，WorkMF 爬取索引後即時顯示）。 |
-| **Config** | 填入爬取要用的 `ProjectPath` + `EngineRoot` 按 **儲存設定**（幫你寫好 `local.config.json`）、看環境檢查清單、執行 UE 元資料爬取——全程按鈕操作、免終端機。Windows 與 macOS 皆可；見 [從瀏覽器刷新 UE 元資料](#從瀏覽器刷新-ue-元資料windows--macos)。 |
+| **Config** | 填入爬取要用的 `ProjectPath` + `EngineRoot` 按 **儲存設定**（幫你寫好 `local.config.json`）、看環境檢查清單、執行 UE 元資料爬取、設定 **AI 助手**（provider／model／API key）——全程按鈕操作、免終端機。Windows 與 macOS 皆可；見 [從瀏覽器刷新 UE 元資料](#從瀏覽器刷新-ue-元資料windows--macos)。 |
+| **Agent** | 內建的對話式材質 agent——見 [內建 AI 材質 agent](#內建-ai-材質-agent)。匯出的 HTML 快照中不顯示。 |
 
 檔案變動時 viewer 會自動 reload。
 
@@ -69,6 +70,34 @@ macOS 用 PowerShell Core 7（`pwsh`，透過官方 PowerShell `.pkg` 或 `brew 
 `tools/node-t3d-metadata/local.config.json`，免改 JSON），看環境檢查清單變綠，再按爬取按鈕即可。
 完整步驟見 [`tools/node-t3d-metadata/README.zh-TW.md`](./tools/node-t3d-metadata/README.zh-TW.md)
 的「從 web viewer 觸發爬取」一節。
+
+---
+
+## 內建 AI 材質 agent
+
+Sidebar 第四個 tab 是給**不懂材質的人**用的對話式 agent：用白話描述想要的效果，它直接在畫布上
+即時生成節點圖，每次修改都附白話變更清單。先到 **Config tab → AI 助手** 設定一次
+（Anthropic 或任何 OpenAI 相容端點——OpenAI、DeepSeek、Groq，或免 API key 的本機 Ollama）；
+key 存在已 gitignore 的 `local.config.json`，除了你自選的 provider 之外不會離開你的機器。
+
+它能做什麼：
+
+- **建圖與修改**——每次寫入前先驗證（不合法的圖永遠不落盤），變更節點在畫布上脈衝高亮，
+  每一輪都可「還原」或「重新生成」。
+- **看得到你看的東西**——每則訊息自動附帶目前開啟的圖與選取的節點，「這個節點」直接聽得懂；
+  Inspector 有「問 AI」按鈕，從 UE 匯入時也可勾選讓它自動解說貼回來的圖。
+- **只提案、不越權**——會動到你機器或公開節點 DB 的操作（跑 UE 元資料爬取、修改／補齊 DB
+  條目）一律以**確認卡**呈現，你按下批准才執行。批准的爬取完成後會自動把結果回報進對話，
+  agent 接著繼續工作或診斷失敗原因（`read_crawl_log`）。
+- **拿進 UE**——說一聲就把圖以可貼上的 T3D 複製到剪貼簿（與標題列導出按鈕同一條路徑），
+  到 UE 材質編輯器按 Ctrl+V。
+- **查資料**——零金鑰網路搜尋＋有 SSRF 防護的網頁抓取，補模型知識庫的時差。
+- **長對話不斷線**——會話持久化（切換／重播／刪除）、兩層記憶、自動上下文壓縮、
+  每輪 token 用量顯示、一鍵把對話匯出成 Markdown。
+
+輸入框打 `/` 喚出快捷指令（`/validate`、`/explain`、`/export`、`/compact`、`/log`、`/help`、
+`/regen`、`/undo`、`/md`、`/new`、`/crawlmf`）。開發者請見設計契約
+[`viewer/AGENT_DESIGN.md`](./viewer/AGENT_DESIGN.md)。
 
 ---
 

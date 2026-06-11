@@ -6,6 +6,7 @@ import { Icon } from './Icon';
 import './config.css';
 import { fmtTimeCompact as fmtTime, relTimeMinutes as relTime } from './timeUtils';
 import { parseLogLine } from './uiHelpers';
+import type { ProviderStatus } from './agent/protocol';
 
 // ─── CRAWL_KIND_META ────────────────────────────────────────────────────────
 
@@ -337,11 +338,28 @@ function CrawlOpsSection({ env, mfRoot, setMfRoot, matRoot, setMatRoot, justRan,
 
 function RunLog({ lines }: { lines: Array<{ t: number; lvl: string; msg: string }> }) {
   const ref = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const lastLineCountRef = useRef(0);
+
   useEffect(() => {
-    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [lines]);
+    const el = ref.current;
+    if (!el) return;
+
+    const firstRender = lastLineCountRef.current === 0;
+    lastLineCountRef.current = lines.length;
+    if (firstRender || stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [lines.length, lines[lines.length - 1]?.msg]);
+
+  const onScroll = () => {
+    const el = ref.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+  };
+
   return (
-    <div className="runlog" ref={ref}>
+    <div className="runlog" ref={ref} onScroll={onScroll} onWheel={e => e.stopPropagation()}>
       {lines.map((l, i) => (
         <div key={i} className={'ll ' + l.lvl}>
           <span className="lt">+{l.t.toFixed(1)}s</span>
@@ -364,6 +382,7 @@ interface RunPanelProps {
 
 function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) {
   const [elapsed, setElapsed] = useState(0);
+  const [copiedLog, setCopiedLog] = useState(false);
   useEffect(() => {
     if (crawl.status !== 'running') return;
     setElapsed(Date.now() - startRef);
@@ -385,6 +404,15 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
     : undefined;
 
   const diag = crawl.status === 'error' ? diagnoseCrawl(crawl.logs) : null;
+  const copyErrorLog = async () => {
+    try {
+      await navigator.clipboard.writeText(crawl.logs.join('\n'));
+      setCopiedLog(true);
+      window.setTimeout(() => setCopiedLog(false), 1400);
+    } catch {
+      setCopiedLog(false);
+    }
+  };
 
   return (
     <div className="runwrap">
@@ -444,9 +472,17 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
 
       {crawl.status === 'error' && (
         <div className="run-result err">
-          <div className="rt">
-            <Icon name="warn" size={15} /> {meta.label}失敗
-            {crawl.exitCode != null ? `（exit ${crawl.exitCode}）` : ''}
+          <div className="errtop">
+            <div className="rt">
+              <Icon name="warn" size={15} /> {meta.label}失敗
+              {crawl.exitCode != null ? `（exit ${crawl.exitCode}）` : ''}
+            </div>
+            {crawl.logs.length > 0 && (
+              <button className="copylogbtn" onClick={() => void copyErrorLog()}>
+                <Icon name={copiedLog ? 'check' : 'clip'} size={12} />
+                {copiedLog ? '已複製' : '複製錯誤 log'}
+              </button>
+            )}
           </div>
           {diag ? (
             <>
@@ -489,6 +525,301 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
   );
 }
 
+// ─── §4 AiSection ───────────────────────────────────────────────────────────
+
+interface AiSectionProps {
+  saveAgentConfig: (llm: {
+    provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
+    maxIters?: number; contextLimit?: number;
+  }) => Promise<{ ok: boolean; error?: string }>;
+}
+
+// 最大迭代次數 choices — value is what gets stored (0 = unlimited).
+const MAX_ITERS_OPTIONS = [
+  { value: '8',  label: '8（預設）' },
+  { value: '16', label: '16' },
+  { value: '32', label: '32' },
+  { value: '0',  label: '不限制（仍受上下文上限保護）' },
+];
+
+// 上下文長度 choices — tokens; '' = use the loop defaults (300K 上限 / 150K 壓縮).
+const CONTEXT_LIMIT_OPTIONS = [
+  { value: '',        label: '預設（300K 上限，150K 開始壓縮）' },
+  { value: '128000',  label: '128K' },
+  { value: '200000',  label: '200K' },
+  { value: '256000',  label: '256K' },
+  { value: '1000000', label: '1M' },
+];
+
+function AiSection({ saveAgentConfig }: AiSectionProps) {
+  const [provider, setProvider] = useState<'anthropic' | 'openai-compatible'>('anthropic');
+  const [baseUrl, setBaseUrl] = useState('');
+  const [model, setModel] = useState('');
+  // apiKey is NEVER pre-filled from anywhere — password input only. Saving
+  // without typing leaves the previously-stored key intact (the server contract).
+  const [apiKey, setApiKey] = useState('');
+  const [maxTokens, setMaxTokens] = useState('');
+  const [maxIters, setMaxIters] = useState('8');
+  const [contextLimit, setContextLimit] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [status, setStatus] = useState<ProviderStatus | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+
+  // Fetch current provider status on mount; seed the form from the saved config
+  // ONCE so the user edits what is stored instead of a blank form (key excluded).
+  const seededRef = useRef(false);
+  useEffect(() => {
+    void (async () => {
+      try {
+        const r = await fetch('/api/agent/status', { cache: 'no-store' });
+        if (!r.ok) return;
+        const s = await r.json() as ProviderStatus;
+        setStatus(s);
+        if (!seededRef.current && s.configured) {
+          seededRef.current = true;
+          if (s.provider === 'anthropic' || s.provider === 'openai-compatible') setProvider(s.provider);
+          setModel(m => m || (s.model ?? ''));
+          setBaseUrl(b => b || (s.baseUrl ?? ''));
+          // Seed the two selects only when the stored value matches an option;
+          // a hand-edited custom number keeps the default choice instead of
+          // silently rendering a value the select cannot show.
+          if (s.maxIters !== undefined && MAX_ITERS_OPTIONS.some(o => o.value === String(s.maxIters))) {
+            setMaxIters(String(s.maxIters));
+          }
+          if (s.contextLimit !== undefined && CONTEXT_LIMIT_OPTIONS.some(o => o.value === String(s.contextLimit))) {
+            setContextLimit(String(s.contextLimit));
+          }
+        }
+      } catch { /* ignore */ }
+    })();
+  }, []);
+
+  const onSave = async () => {
+    setSaving(true);
+    setMsg(null);
+    setTestResult(null);
+    const llm: {
+      provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
+      maxIters?: number; contextLimit?: number;
+    } = {
+      provider,
+      model: model.trim(),
+      // Always sent (both providers accept a custom endpoint / relay);
+      // an empty string clears the stored value → adapters fall back to the default.
+      baseUrl: baseUrl.trim(),
+      // Always sent: 0 = unlimited iterations; the server stores the number as-is.
+      maxIters: parseInt(maxIters, 10),
+      // Always sent: '' maps to -1 which the server treats as "clear → defaults".
+      contextLimit: contextLimit === '' ? -1 : parseInt(contextLimit, 10),
+    };
+    // Only send apiKey if the user typed something; empty = leave stored key intact.
+    if (apiKey) llm.apiKey = apiKey;
+    const mt = parseInt(maxTokens.trim(), 10);
+    if (!isNaN(mt) && mt > 0) llm.maxTokens = mt;
+
+    const r = await saveAgentConfig(llm);
+    setSaving(false);
+    if (r.ok) {
+      setMsg({ ok: true, text: '已儲存 AI 助手設定。' });
+      setApiKey(''); // Clear after save to avoid accidental re-submission.
+      // Refresh status after save.
+      try {
+        const s = await fetch('/api/agent/status', { cache: 'no-store' });
+        if (s.ok) setStatus(await s.json() as ProviderStatus);
+      } catch { /* ignore */ }
+    } else {
+      setMsg({ ok: false, text: r.error ?? '儲存失敗' });
+    }
+  };
+
+  const onTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await fetch('/api/agent/test', { method: 'POST', cache: 'no-store' });
+      if (!r.ok) {
+        setTestResult({ ok: false, text: `測試請求失敗（HTTP ${r.status}）` });
+        return;
+      }
+      const body = await r.json() as import('./agent/protocol').AgentTestResponse;
+      setTestResult(body.ok
+        ? { ok: true, text: `連線成功 — ${body.model} 回應正常` }
+        : { ok: false, text: body.error });
+    } catch {
+      setTestResult({ ok: false, text: '測試請求失敗' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="cfg-sec">
+      <div className="sech">
+        <span className="secn">4</span>
+        <span className="sect">AI 助手</span>
+        <span className="secd">對話式材質生成</span>
+      </div>
+
+      {/* Saved-config status card. The key itself is never echoed — only whether one is stored. */}
+      <div className={'ai-card' + (status?.configured ? '' : ' uncfg')}>
+        {status?.configured ? (
+          <>
+            <div className="ai-card-head">
+              <Icon name="check" size={12} /> 已設定
+            </div>
+            <div className="ai-row"><span className="k">Provider</span><span className="v">{status.provider}</span></div>
+            <div className="ai-row"><span className="k">Model</span><span className="v">{status.model}</span></div>
+            {status.baseUrl && (
+              <div className="ai-row"><span className="k">Base URL</span><span className="v">{status.baseUrl}</span></div>
+            )}
+            <div className="ai-row">
+              <span className="k">API Key</span>
+              <span className="v">{status.hasApiKey ? '已儲存（不會顯示）' : '未設定'}</span>
+            </div>
+            {status.maxIters !== undefined && (
+              <div className="ai-row">
+                <span className="k">迭代上限</span>
+                <span className="v">{status.maxIters === 0 ? '不限制' : status.maxIters}</span>
+              </div>
+            )}
+            {status.contextLimit !== undefined && (
+              <div className="ai-row">
+                <span className="k">上下文</span>
+                <span className="v">{status.contextLimit >= 1_000_000 ? `${status.contextLimit / 1_000_000}M` : `${Math.round(status.contextLimit / 1000)}K`} tokens</span>
+              </div>
+            )}
+            <div className="ai-test-row">
+              <button className="btn sm" disabled={testing} onClick={() => void onTest()}>
+                {testing
+                  ? <><Icon name="refresh" size={12} className="spin" /> 測試中…</>
+                  : <><Icon name="bolt" size={12} /> 測試連線</>}
+              </button>
+              {testResult && (
+                <span className={'ai-test-result ' + (testResult.ok ? 'ok' : 'err')}>{testResult.text}</span>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="ai-card-head">
+            <Icon name="warn" size={12} /> 尚未設定 — 填寫下方欄位並儲存
+          </div>
+        )}
+      </div>
+
+      <div className="field">
+        <label>Provider</label>
+        <div className="inp">
+          <select
+            value={provider}
+            onChange={e => setProvider(e.target.value as 'anthropic' | 'openai-compatible')}
+          >
+            <option value="anthropic">Anthropic (Claude)</option>
+            <option value="openai-compatible">OpenAI-compatible (OpenAI / DeepSeek / Ollama / …)</option>
+          </select>
+        </div>
+      </div>
+
+      <div className="field">
+        <label>
+          Base URL{' '}
+          <span style={{ color: 'var(--text-mute)' }}>
+            {provider === 'anthropic' ? '— 選填，中轉/代理用；留空走官方 API' : '— 例如 https://api.openai.com/v1'}
+          </span>
+        </label>
+        <div className="inp">
+          <input
+            value={baseUrl}
+            onChange={e => setBaseUrl(e.target.value)}
+            spellCheck={false}
+            placeholder={provider === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com/v1'}
+          />
+        </div>
+      </div>
+
+      <div className="field">
+        <label>Model</label>
+        <div className="inp">
+          <input
+            value={model}
+            onChange={e => setModel(e.target.value)}
+            spellCheck={false}
+            placeholder={provider === 'anthropic' ? 'claude-opus-4-8' : 'gpt-4o'}
+          />
+        </div>
+      </div>
+
+      <div className="field">
+        <label>API Key <span style={{ color: 'var(--text-mute)' }}>— 不填保留現有金鑰</span></label>
+        <div className="inp">
+          <input
+            type="password"
+            value={apiKey}
+            onChange={e => setApiKey(e.target.value)}
+            autoComplete="off"
+            placeholder="sk-…（不填表示保留現有金鑰）"
+          />
+        </div>
+      </div>
+
+      <div className="field">
+        <label>Max Tokens <span style={{ color: 'var(--text-mute)' }}>— 選填，預設 8192</span></label>
+        <div className="inp">
+          <input
+            value={maxTokens}
+            onChange={e => setMaxTokens(e.target.value)}
+            placeholder="8192"
+            inputMode="numeric"
+          />
+        </div>
+      </div>
+
+      <div className="field">
+        <label>
+          最大迭代次數{' '}
+          <span style={{ color: 'var(--text-mute)' }}>— 每輪對話的工具迴圈上限</span>
+        </label>
+        <div className="inp">
+          <select value={maxIters} onChange={e => setMaxIters(e.target.value)}>
+            {MAX_ITERS_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="field">
+        <label>
+          上下文長度{' '}
+          <span style={{ color: 'var(--text-mute)' }}>— 依模型視窗選擇；達一半自動壓縮舊對話</span>
+        </label>
+        <div className="inp">
+          <select value={contextLimit} onChange={e => setContextLimit(e.target.value)}>
+            {CONTEXT_LIMIT_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <button
+        className="btn sm"
+        style={{ marginTop: 2 }}
+        disabled={saving || !model.trim()}
+        onClick={() => void onSave()}
+      >
+        <Icon name="check" size={13} /> {saving ? '儲存中…' : '儲存 AI 設定'}
+      </button>
+      {msg && (
+        <div style={{ fontSize: 11, marginTop: 5, color: msg.ok ? 'var(--ok)' : 'var(--error)' }}>
+          {msg.text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── ConfigPanel (public export) ────────────────────────────────────────────
 
 export interface ConfigPanelProps {
@@ -501,7 +832,7 @@ export interface ConfigPanelProps {
 }
 
 export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPanelProps) {
-  const { state, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig } = useStore();
+  const { state, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig } = useStore();
   const { env, crawl, connection } = state;
 
   // Each crawl scope reads its own content root; the advanced/maintenance crawls
@@ -614,6 +945,7 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
         justRan={justRan}
         onStart={onStart}
       />
+      <AiSection saveAgentConfig={saveAgentConfig} />
     </div>
   );
 }

@@ -111,3 +111,68 @@ describe('validateGraph', () => {
     expect(r.errors.some(e => /nodes\[0\]\.id must not contain ':'/.test(e))).toBe(true);
   });
 });
+
+describe('semantic lint warnings (direct MaterialOutput connections)', () => {
+  const lintMat = (
+    nodes: Array<{ id: string; type: string; params?: Record<string, unknown> }>,
+    connections: Array<{ from: string; to: string }>,
+  ) => ({ schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm', nodes, connections }) as never;
+
+  const OUT = { id: 'OUT', type: 'MaterialOutput' };
+
+  it('warns when a texture without SamplerType "Normal" feeds the Normal output', () => {
+    const w = materialStructureWarnings(lintMat(
+      [OUT, { id: 'nrm', type: 'TextureSample', params: { SamplerType: 'Color' } }],
+      [{ from: 'nrm:RGB', to: 'OUT:Normal' }],
+    ));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(/"nrm".*Normal output.*SamplerType is "Color"/);
+
+    // Unset SamplerType says so explicitly.
+    const w2 = materialStructureWarnings(lintMat(
+      [OUT, { id: 'nrm', type: 'TextureSampleParameter2D' }],
+      [{ from: 'nrm:RGB', to: 'OUT:Normal' }],
+    ));
+    expect(w2[0]).toMatch(/unset \(defaults to Color\)/);
+  });
+
+  it('accepts SamplerType "Normal" into the Normal output, and warns on the reverse misuse', () => {
+    const good = materialStructureWarnings(lintMat(
+      [OUT, { id: 'nrm', type: 'TextureSample', params: { SamplerType: 'Normal' } }],
+      [{ from: 'nrm:RGB', to: 'OUT:Normal' }],
+    ));
+    expect(good).toEqual([]);
+
+    const bad = materialStructureWarnings(lintMat(
+      [OUT, { id: 'tex', type: 'TextureSample', params: { SamplerType: 'Normal' } }],
+      [{ from: 'tex:RGB', to: 'OUT:BaseColor' }],
+    ));
+    expect(bad).toHaveLength(1);
+    expect(bad[0]).toMatch(/"tex".*SamplerType "Normal".*BaseColor/);
+  });
+
+  it('warns when a vector constant feeds a scalar output pin, naming a channel fix', () => {
+    const w = materialStructureWarnings(lintMat(
+      [OUT, { id: 'col', type: 'Constant3Vector' }],
+      [{ from: 'col:RGB', to: 'OUT:Roughness' }],
+    ));
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatch(/"col" \(Constant3Vector\).*scalar Roughness.*"col:R"/);
+  });
+
+  it('stays silent for indirect connections and for vector pins', () => {
+    expect(materialStructureWarnings(lintMat(
+      [
+        OUT,
+        { id: 'col', type: 'Constant3Vector' },
+        { id: 'mul', type: 'Multiply' },
+        { id: 'tex', type: 'TextureSample' }, // no SamplerType, but only feeds mul
+      ],
+      [
+        { from: 'tex:RGB', to: 'mul:A' },
+        { from: 'col:RGB', to: 'mul:B' },
+        { from: 'mul:Result', to: 'OUT:BaseColor' }, // vector into a color pin — fine
+      ],
+    ))).toEqual([]);
+  });
+});

@@ -44,13 +44,14 @@ pnpm dev
 
 (Backend/server `.ts` changes still need a re-run of `pnpm dev`.)
 
-The sidebar has three tabs:
+The sidebar has four tabs:
 
 | Tab | What it shows |
 |---|---|
 | **Files** | Your materials, grouped by project folder. Every sub-folder under `graphs/` is one project showing all its files; only files at the `graphs/` root fall under "Unorganized". |
 | **Nodes** | The full UE 5.7 node library — search by name or description, browse by category, click a node to see its inputs / outputs / params with type info and badges (verified, dynamic-pin, deprecated). Below it sit two collapsible browsers: **Official Material Functions** (the engine's `/Engine/Functions` library) and **Project Material Functions** (your own `/Game` MFs, shown live once a WorkMF crawl has indexed them). |
-| **Config** | Set the crawl's `ProjectPath` + `EngineRoot` and **Save** (writes `local.config.json` for you), read the environment checklist, and run the UE metadata crawls — all button-driven, no terminal. Windows and macOS; see [Refresh UE metadata from the browser](#refresh-ue-metadata-from-the-browser-windows--macos). |
+| **Config** | Set the crawl's `ProjectPath` + `EngineRoot` and **Save** (writes `local.config.json` for you), read the environment checklist, run the UE metadata crawls, and configure the **AI assistant** (provider / model / API key) — all button-driven, no terminal. Windows and macOS; see [Refresh UE metadata from the browser](#refresh-ue-metadata-from-the-browser-windows--macos). |
+| **Agent** | The built-in conversational material agent — see [Built-in AI material agent](#built-in-ai-material-agent). Hidden in exported HTML snapshots. |
 
 The viewer hot-reloads when files change.
 
@@ -68,6 +69,38 @@ In the Config tab you type your `ProjectPath` + `EngineRoot` and click **Save** 
 `tools/node-t3d-metadata/local.config.json` for you — no JSON editing), watch the environment
 checklist turn green, then click the crawl buttons. The full walkthrough is in
 [`tools/node-t3d-metadata/README.md`](./tools/node-t3d-metadata/README.md#trigger-a-crawl-from-the-web-viewer-no-terminal).
+
+---
+
+## Built-in AI material agent
+
+The viewer's fourth sidebar tab is a conversational agent for people who **don't know materials**:
+describe what you want in plain language and it builds the node graph live on the canvas, with a
+plain-language change list after every edit. Configure it once in the **Config tab → AI assistant**
+(Anthropic or any OpenAI-compatible endpoint — OpenAI, DeepSeek, Groq, or a local Ollama with no
+API key); the key is stored in the gitignored `local.config.json` and never leaves your machine
+except to the provider you chose.
+
+What it can do:
+
+- **Build & modify graphs** — validated before every write (an invalid graph never reaches disk),
+  changed nodes pulse on the canvas, and every turn is undoable (還原 / 重新生成).
+- **See what you see** — each message carries the open graph and selected node, so "this node"
+  just works. The Inspector has an *ask AI* button, and the import dialog can auto-explain a
+  graph you just pasted from UE.
+- **Propose, never seize** — actions that touch your machine or the public node DB (running a
+  UE metadata crawl, editing/adding a DB entry) only ever appear as **confirmation cards**; nothing
+  runs until you click approve. Approved crawls report their outcome back into the conversation
+  automatically so the agent can resume or diagnose failures (`read_crawl_log`).
+- **Ship to UE** — ask for the clipboard and it copies the graph as paste-ready T3D (same path as
+  the header export button); paste into UE's Material Editor with Ctrl+V.
+- **Research** — zero-key web search + SSRF-guarded page fetch for knowledge newer than the model.
+- **Stay long-lived** — persistent sessions (switch / replay / delete), two-layer memory, automatic
+  context compaction, per-turn token usage, and one-click Markdown export of the conversation.
+
+Type `/` in the input box for quick commands (`/validate`, `/explain`, `/export`, `/compact`,
+`/log`, `/help`, `/regen`, `/undo`, `/md`, `/new`, `/crawlmf`). Developers: the full design
+contract lives in [`viewer/AGENT_DESIGN.md`](./viewer/AGENT_DESIGN.md).
 
 ---
 

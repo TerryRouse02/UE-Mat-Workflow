@@ -1,4 +1,5 @@
-import { useMemo, useEffect, useState } from 'react';
+import { useMemo, useEffect, useState, useRef, useCallback } from 'react';
+import React from 'react';
 import ReactFlow, { type Node, type Edge, Background, Controls, MiniMap, useNodesState, useReactFlow, useNodesInitialized, ReactFlowProvider, BackgroundVariant } from 'reactflow';
 import 'reactflow/dist/style.css';
 import './graph.css';
@@ -15,6 +16,7 @@ import { mfPinsUnresolved } from './graphDiagnostics';
 import { pinColor } from './theme/colors';
 import { splitRef } from './connstr';
 import { computeCommentBounds } from './commentBounds';
+import { NodeExplainPopover } from './agent/NodeExplainPopover';
 
 function setHandleHighlight(nodeId: string, handleId: string | null | undefined, on: boolean) {
   if (!handleId) return;
@@ -41,6 +43,8 @@ export interface GraphProps {
   onPositions?: (p: Record<string, { x: number; y: number }>) => void;
   /** Centre + highlight a node (from a debug-panel click); nonce re-triggers it. */
   focus?: { id: string; nonce: number } | null;
+  /** Agent diff highlight: pulse these nodes + fit the view to them; nonce re-triggers. */
+  agentHighlight?: { ids: string[]; nonce: number } | null;
 }
 
 function inferPinsFromConnections(
@@ -92,11 +96,65 @@ function resolveMFRelative(mfRef: string, currentPath: string): string {
   return (dir + cleaned).replace(/\/\.\//g, '/');
 }
 
-function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPositions, focus }: GraphProps) {
+/** State for the node-explain hover popover. Null when closed. */
+interface PopoverSlot {
+  nodeId: string;
+  nodeType: string;
+  x: number;
+  y: number;
+}
+
+const HOVER_DELAY_MS = 500;
+
+function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPositions, focus, agentHighlight }: GraphProps) {
   const { graph, derivedPins } = payload;
 
   const rf = useReactFlow();
   const [selId, setSelId] = useState<string | null>(null);
+
+  // ─── Hover popover state ─────────────────────────────────────────────────
+  // Single {nodeId, nodeType, x, y} slot; no per-node state, no layout re-run.
+  const [popover, setPopover] = useState<PopoverSlot | null>(null);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // LLM result cache lives at GraphInner scope so it persists across close/reopen cycles.
+  const explainCacheRef = useRef<Map<string, string>>(new Map());
+
+  const clearHoverTimer = useCallback(() => {
+    if (hoverTimerRef.current !== null) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  }, []);
+
+  const handleNodeMouseEnter = useCallback((_event: React.MouseEvent, node: Node) => {
+    clearHoverTimer();
+    const nodeType = (node.data as { nodeType?: string })?.nodeType ?? node.id;
+    const event = _event;
+    hoverTimerRef.current = setTimeout(() => {
+      setPopover({
+        nodeId: node.id,
+        nodeType,
+        x: event.clientX,
+        y: event.clientY,
+      });
+    }, HOVER_DELAY_MS);
+  }, [clearHoverTimer]);
+
+  const handleNodeMouseLeave = useCallback(() => {
+    clearHoverTimer();
+    // Do NOT close an already-open popover on mouse leave — the user needs to
+    // interact with it (click 深入解說, scroll, then close via × or Escape).
+    // The popover is closed via its own close button or pane-click.
+  }, [clearHoverTimer]);
+
+  // Close popover when the pane is clicked (i.e., clicking outside any node).
+  const closePopover = useCallback(() => {
+    clearHoverTimer();
+    setPopover(null);
+  }, [clearHoverTimer]);
+
+  // Cleanup timer on unmount.
+  useEffect(() => () => clearHoverTimer(), [clearHoverTimer]);
 
   const initialLayout = useMemo(() => {
     // Load-time validation: connections referencing pins that don't exist on the
@@ -114,14 +172,14 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
         const pinProblems = pinIssuesByNode.get(n.id);
         return {
           id: n.id, type: 'materialOutput', position: { x: 0, y: 0 },
-          data: { id: n.id, params: n.params, warning: pinProblems?.join('\n') },
+          data: { id: n.id, nodeType: n.type, params: n.params, warning: pinProblems?.join('\n') },
         };
       }
       if (n.type === 'FunctionInput') {
-        return { id: n.id, type: 'functionInput', position: { x: 0, y: 0 }, data: { id: n.id, params: n.params } };
+        return { id: n.id, type: 'functionInput', position: { x: 0, y: 0 }, data: { id: n.id, nodeType: n.type, params: n.params } };
       }
       if (n.type === 'FunctionOutput') {
-        return { id: n.id, type: 'functionOutput', position: { x: 0, y: 0 }, data: { id: n.id, params: n.params } };
+        return { id: n.id, type: 'functionOutput', position: { x: 0, y: 0 }, data: { id: n.id, nodeType: n.type, params: n.params } };
       }
       if (n.type === 'MaterialFunctionCall') {
         const mfPath = (n.params?.MaterialFunction as string | undefined) ?? '';
@@ -131,6 +189,7 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
           id: n.id, type: 'materialFunctionCall', position: { x: 0, y: 0 },
           data: {
             id: n.id,
+            nodeType: n.type,
             label: mfPath.split('/').pop()?.replace('.matgraph.json', '') ?? 'unknown',
             inputs: pins.inputs, outputs: pins.outputs,
             params: n.params,
@@ -191,7 +250,7 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
       return {
         id: n.id, type: 'generic', position: { x: 0, y: 0 },
         data: {
-          id: n.id, label: n.type,
+          id: n.id, nodeType: n.type, label: n.type,
           inputs: finalInputs, outputs: finalOutputs,
           params: n.params,
           warning,
@@ -268,6 +327,27 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
     setSelId(focus.id);
   }, [focus, rf]);
 
+  // Agent diff highlight: pulse the nodes the agent just wrote and fit the view
+  // to them. Waits for nodesInitialized so the fit lands on measured nodes (the
+  // graph usually just re-opened). The pulse class self-clears after ~4s so the
+  // canvas returns to normal without user interaction.
+  useEffect(() => {
+    if (!agentHighlight || !nodesInitialized) return;
+    const idSet = new Set(agentHighlight.ids);
+    setNodes(ns => ns.map(n => (idSet.has(n.id) ? { ...n, className: 'agent-changed' } : n)));
+    const present = agentHighlight.ids.filter(id => rf.getNode(id));
+    if (present.length > 0) {
+      rf.fitView({ nodes: present.map(id => ({ id })), padding: 0.35, duration: 400, maxZoom: 1.1 });
+    }
+    const t = setTimeout(() => {
+      setNodes(ns => ns.map(n => (n.className === 'agent-changed' ? { ...n, className: undefined } : n)));
+    }, 4000);
+    return () => clearTimeout(t);
+    // initialLayout.nodes is a dep on purpose: the watcher pushes the updated
+    // graph ~300ms after graph_written, and the layout-reset effect above wipes
+    // classNames — this re-applies the pulse on the fresh node set.
+  }, [agentHighlight, nodesInitialized, rf, setNodes, initialLayout.nodes]);
+
   const commentNodes: Node[] = useMemo(() => {
     if (!graph.comments) return [];
     const byId = new Map(nodes.map(n => [n.id, n]));
@@ -334,25 +414,42 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
     : edges, [edges, connSet]);
 
   return (
-    <ReactFlow
-      nodes={allNodes} edges={displayEdges} nodeTypes={NODE_TYPES}
-      onNodesChange={onNodesChange}
-      onNodeClick={(_, n) => { setSelId(n.id); onSelectNode?.(n.id); }}
-      onPaneClick={() => { setSelId(null); onSelectNode?.(null); }}
-      onEdgeMouseEnter={(_, edge) => {
-        setHandleHighlight(edge.source, edge.sourceHandle, true);
-        setHandleHighlight(edge.target, edge.targetHandle, true);
-      }}
-      onEdgeMouseLeave={(_, edge) => {
-        setHandleHighlight(edge.source, edge.sourceHandle, false);
-        setHandleHighlight(edge.target, edge.targetHandle, false);
-      }}
-      fitView
-    >
-      <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#2a2f37" />
-      <Controls />
-      <MiniMap pannable zoomable maskColor="rgba(0,0,0,0.6)" />
-    </ReactFlow>
+    <>
+      <ReactFlow
+        nodes={allNodes} edges={displayEdges} nodeTypes={NODE_TYPES}
+        onNodesChange={onNodesChange}
+        onNodeClick={(_, n) => { setSelId(n.id); onSelectNode?.(n.id); closePopover(); }}
+        onPaneClick={() => { setSelId(null); onSelectNode?.(null); closePopover(); }}
+        onMoveStart={() => closePopover()}
+        onNodeDragStart={() => closePopover()}
+        onNodeMouseEnter={handleNodeMouseEnter}
+        onNodeMouseLeave={handleNodeMouseLeave}
+        onEdgeMouseEnter={(_, edge) => {
+          setHandleHighlight(edge.source, edge.sourceHandle, true);
+          setHandleHighlight(edge.target, edge.targetHandle, true);
+        }}
+        onEdgeMouseLeave={(_, edge) => {
+          setHandleHighlight(edge.source, edge.sourceHandle, false);
+          setHandleHighlight(edge.target, edge.targetHandle, false);
+        }}
+        fitView
+      >
+        <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="#2a2f37" />
+        <Controls />
+        <MiniMap pannable zoomable maskColor="rgba(0,0,0,0.6)" />
+      </ReactFlow>
+      {popover && (
+        <NodeExplainPopover
+          nodeType={popover.nodeType}
+          nodeId={popover.nodeId}
+          x={popover.x}
+          y={popover.y}
+          graphPath={basePath}
+          onClose={closePopover}
+          explainCache={explainCacheRef.current}
+        />
+      )}
+    </>
   );
 }
 

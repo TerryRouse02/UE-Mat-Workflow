@@ -1,0 +1,1373 @@
+// server/agent/tools.ts — tool definitions + dispatch for the material agent.
+// (compact_context is defined here but dispatched inside loop.ts — it needs the session.)
+// All tools catch internal throws and convert them to {content, isError:true}.
+
+import { mkdir, rename, writeFile, readdir, readFile, stat, unlink } from 'node:fs/promises';
+import { resolve, join, sep, dirname, relative } from 'node:path';
+import type { ToolDef } from './provider/types.js';
+import { validateGraph, materialStructureWarnings } from '../schema.js';
+import { loadGraph } from '../graph-loader.js';
+import { resolveMaterialFunctions } from '../mf-resolver.js';
+import { loadWorkMfIndex } from '../workmf-index.js';
+import { probeEnv } from '../crawl-env.js';
+import { applyPatch, changedNodeIds, type PatchOp } from './patch.js';
+import type { MemoryStore, MemoryScope } from './memory-store.js';
+import { fetchPublic, htmlToText, webSearch, WEB_TEXT_CAP, type WebDeps } from './web-tools.js';
+import { validateDbEditPatch, validateDbCreate, DB_EDIT_KEYS } from './db-edit.js';
+import * as QB from './query-bridge.js';
+
+// ---------------------------------------------------------------------------
+// ToolContext
+// ---------------------------------------------------------------------------
+
+export interface ToolContext {
+  repoRoot: string;
+  graphsRoot: string;            // resolve(repoRoot, 'graphs')
+  ueVersion: string;             // session version — all DB lookups use this
+  workMfIndexPath?: string;      // server-only; absent → work MFs unavailable
+  /**
+   * M2 checkpoint hook — called before any write to absPath.
+   * turnId identifies the LLM iteration so the HTTP server can group
+   * multiple writes in one assistant response under one undo step.
+   * Tools always supply a turnId (injected by the loop via callCtx);
+   * callers that do not need per-turn grouping may omit it.
+   */
+  beforeWrite?: (absPath: string, turnId: string) => Promise<void>;
+  /**
+   * M7b two-layer memory (session + longterm). Absent → the memory tools
+   * report themselves unavailable instead of failing silently.
+   */
+  memory?: MemoryStore;
+  /** Injectable network deps for web_search / web_fetch (tests). */
+  web?: WebDeps;
+  /** Injectable env probe for request_crawl (tests — the real probe needs a UE install). */
+  probeEnvFn?: typeof probeEnv;
+  /**
+   * Tail of the most recently finished crawl (read_crawl_log tool) — wired to
+   * the crawl runner's lastLog() by the HTTP server. Absent → tool unavailable.
+   */
+  getCrawlLog?: () => {
+    kind: string;
+    status: 'success' | 'error';
+    exitCode: number | null;
+    lines: string[];
+  } | null;
+}
+
+// ---------------------------------------------------------------------------
+// Reserved types not in DB
+// ---------------------------------------------------------------------------
+
+const RESERVED_TYPES = new Set([
+  'MaterialOutput',
+  'FunctionInput',
+  'FunctionOutput',
+  'MaterialFunctionCall',
+]);
+
+// ---------------------------------------------------------------------------
+// Path guard
+// ---------------------------------------------------------------------------
+
+function isInside(root: string, candidate: string): boolean {
+  const r = resolve(root);
+  const c = resolve(candidate);
+  return c === r || c.startsWith(r + sep);
+}
+
+/**
+ * Validate and resolve a graph path.
+ * - input must be relative
+ * - must end with '.matgraph.json'
+ * - resolved path must be inside graphsRoot
+ */
+function guardPath(input: unknown, graphsRoot: string): { abs: string } | { error: string } {
+  if (typeof input !== 'string') {
+    return { error: 'path must be a string' };
+  }
+  if (input.startsWith('/') || input.startsWith('\\')) {
+    return { error: 'path must be relative, not absolute' };
+  }
+  if (!input.endsWith('.matgraph.json')) {
+    return { error: 'path must end with ".matgraph.json"' };
+  }
+  const abs = resolve(graphsRoot, input);
+  if (!isInside(graphsRoot, abs)) {
+    return { error: 'path escapes graphs root (directory traversal rejected)' };
+  }
+  return { abs };
+}
+
+// ---------------------------------------------------------------------------
+// Version DB lookup (node type validation)
+// ---------------------------------------------------------------------------
+
+function loadVersionDb(repoRoot: string, version: string): Record<string, unknown> | null {
+  try {
+    return QB.loadNodesDb(repoRoot, version).nodes;
+  } catch {
+    return null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared validation + MF resolution used by write_graph, patch_graph, validate_graph
+// ---------------------------------------------------------------------------
+
+interface ValidationReport {
+  errors: string[];
+  warnings: string[];
+  unresolvedPins: string[];
+}
+
+async function runValidationGate(
+  graph: unknown,
+  graphDir: string,
+  ctx: ToolContext,
+): Promise<ValidationReport> {
+  const { errors, graph: validGraph } = validateGraph(graph);
+
+  if (!validGraph) {
+    return { errors, warnings: [], unresolvedPins: [] };
+  }
+
+  const structWarnings = materialStructureWarnings(validGraph);
+
+  // Check all node types exist in DB or are reserved. A DB that fails to load
+  // must fail the gate loudly — silently skipping this check would let invalid
+  // node types reach disk whenever the version DB is absent or unreadable.
+  const nodesMap = loadVersionDb(ctx.repoRoot, ctx.ueVersion);
+  if (nodesMap === null) {
+    errors.push(`node DB for ueVersion ${ctx.ueVersion} could not be loaded — cannot validate node types`);
+  } else {
+    const unknownTypes: string[] = [];
+    for (const n of validGraph.nodes) {
+      if (!RESERVED_TYPES.has(n.type) && !Object.prototype.hasOwnProperty.call(nodesMap, n.type)) {
+        unknownTypes.push(n.type);
+      }
+    }
+    if (unknownTypes.length > 0) {
+      errors.push(`unknown node types for ueVersion ${ctx.ueVersion}: ${unknownTypes.join(', ')}`);
+    }
+  }
+
+  if (errors.length > 0) {
+    return { errors, warnings: structWarnings, unresolvedPins: [] };
+  }
+
+  // MF resolution
+  const { index: workMfIndex } = ctx.workMfIndexPath
+    ? await loadWorkMfIndex(ctx.workMfIndexPath)
+    : { index: null };
+  const engineMfIndexPath = join(ctx.repoRoot, 'agent-pack', `enginemf-index-ue${ctx.ueVersion}.json`);
+  const { index: engineMfIndex } = await loadWorkMfIndex(engineMfIndexPath);
+
+  const resolved = await resolveMaterialFunctions(validGraph, graphDir, new Set(), {
+    workMfIndex,
+    engineMfIndex,
+  });
+
+  const unresolvedPins: string[] = [];
+  for (const w of resolved.warnings) {
+    if (w.includes('not in') || w.includes('not found') || w.includes('unresolved') || w.includes('missing')) {
+      unresolvedPins.push(w);
+    }
+  }
+
+  return {
+    errors,
+    warnings: [...structWarnings, ...resolved.warnings.filter(w => !unresolvedPins.includes(w))],
+    unresolvedPins,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Atomic write helper
+// ---------------------------------------------------------------------------
+
+async function atomicWrite(absPath: string, content: string): Promise<void> {
+  const tmpPath = absPath + '.tmp.' + process.pid + '.' + Date.now();
+  await mkdir(dirname(absPath), { recursive: true });
+  await writeFile(tmpPath, content, 'utf-8');
+  await rename(tmpPath, absPath);
+}
+
+// ---------------------------------------------------------------------------
+// Tool definitions
+// ---------------------------------------------------------------------------
+
+export const toolDefs: ToolDef[] = [
+  {
+    name: 'search_nodes',
+    description:
+      'Search the UE node DB for expressions matching the query terms. Returns name/category/description. ' +
+      'Verified nodes appear first; unverified entries include a ⚠ unverified marker but are never hidden. ' +
+      'Use this before get_node_signature to choose the right node type.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search terms (space-separated or a single phrase)' },
+        category: { type: 'string', description: 'Optional: filter by exact category name' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'get_node_signature',
+    description:
+      'Return the full DB entry for a node type: inputs, outputs, params, pinInfo. ' +
+      'On miss, returns an error with suggestions. Always call this before writing a connection.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Exact node type name (e.g. "Multiply", "Lerp")' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'get_mf_signature',
+    description:
+      'Return pin signature for a Material Function by UE asset path. ' +
+      '/Engine/... paths use the engine MF index; all others use the work MF index. ' +
+      'On miss, returns a crawl hint — NEVER invent pin names.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        assetPath: { type: 'string', description: 'UE asset path e.g. "/Engine/Functions/MF_Foo.MF_Foo"' },
+      },
+      required: ['assetPath'],
+    },
+  },
+  {
+    name: 'read_graph',
+    description:
+      'Read and validate an existing .matgraph.json. Returns the graph JSON plus any errors/warnings. ' +
+      'Call this before patch_graph to get the current on-disk state.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'write_graph',
+    description:
+      'Write a complete .matgraph.json. Validates before writing; never writes an invalid graph. ' +
+      'All node types must exist in the version DB or be reserved types. ' +
+      'Use for initial creation; use patch_graph for modifications.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
+        graph: { type: 'object', description: 'Complete matgraph object' },
+      },
+      required: ['path', 'graph'],
+    },
+  },
+  {
+    name: 'patch_graph',
+    description:
+      'Apply a list of patch ops to an existing .matgraph.json. Validates after applying; ' +
+      'never writes if validation fails. Returns diff lines on success.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
+        ops: {
+          type: 'array',
+          description: 'Ordered list of patch operations',
+          items: { type: 'object' },
+        },
+      },
+      required: ['path', 'ops'],
+    },
+  },
+  {
+    name: 'validate_graph',
+    description:
+      'Validate a graph (by path or inline object) and return errors, warnings, and unresolved MF pins. ' +
+      'Never writes anything.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Relative path to an existing .matgraph.json' },
+        graph: { type: 'object', description: 'Inline graph object (alternative to path)' },
+      },
+    },
+  },
+  {
+    name: 'get_graph_errors',
+    description:
+      'Load an existing .matgraph.json and return its current errors, warnings, and unresolved MF pins. ' +
+      'Use for debugging existing files.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'list_graphs',
+    description:
+      'List every .matgraph.json under graphs/ with its material name and type. ' +
+      'Use this FIRST when the user refers to an existing material and you do not know its path.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'search_mf',
+    description:
+      'Search Material Functions by keyword across the engine MF index and the project (work) MF index. ' +
+      'Returns asset paths with pin counts. Follow up with get_mf_signature for the full pin names.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search terms (space-separated), matched against path/name/category' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'list_examples',
+    description:
+      'List the shipped reference example projects (agent-pack/examples). ' +
+      'Each is a known-good .matgraph.json project to use as a pattern.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'read_example',
+    description:
+      'Read one shipped example project (all of its .matgraph.json files). ' +
+      'Use as a reference pattern before authoring a similar material.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Example folder name from list_examples (e.g. "01_basic_pbr")' },
+      },
+      required: ['name'],
+    },
+  },
+  {
+    name: 'read_memory',
+    description:
+      'Read your local memory notes. scope "session" = notes for THIS conversation; ' +
+      'scope "longterm" = user preferences and facts that persist across all conversations. ' +
+      'Both are also injected into your system prompt each turn.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: { type: 'string', enum: ['session', 'longterm'], description: 'Which memory layer to read' },
+      },
+      required: ['scope'],
+    },
+  },
+  {
+    name: 'update_memory',
+    description:
+      'Write your local memory notes. Use scope "longterm" for durable user preferences ' +
+      '(favorite UE version, naming style, brightness taste); scope "session" for working ' +
+      'notes about THIS conversation. op "append" adds a block; op "replace" rewrites the ' +
+      'whole file (use it to condense when the size cap is hit). Keep notes short.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: { type: 'string', enum: ['session', 'longterm'], description: 'Which memory layer to write' },
+        op: { type: 'string', enum: ['append', 'replace'], description: 'append a block or replace the file' },
+        content: { type: 'string', description: 'The note content (markdown, keep concise)' },
+      },
+      required: ['scope', 'op', 'content'],
+    },
+  },
+  {
+    name: 'compact_context',
+    description:
+      'Summarize the older turns of THIS conversation into session memory and trim them from the ' +
+      'context window, freeing room for long sessions. The most recent turns are always kept. ' +
+      'Call this when the user asks to compact/壓縮 the conversation, or when the history has grown ' +
+      'very long. The summary is auto-injected into your system prompt afterwards, so nothing ' +
+      'important is lost.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'rename_graph',
+    description:
+      'Rename/move a .matgraph.json within graphs/. Undoable. References from OTHER graphs ' +
+      '(MaterialFunctionCall relative paths) are NOT rewritten — check and patch them yourself ' +
+      'if the renamed file is a MaterialFunction used elsewhere.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Existing relative path within graphs/' },
+        to: { type: 'string', description: 'New relative path within graphs/, must not exist yet' },
+      },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    name: 'delete_graph',
+    description:
+      'Delete a .matgraph.json from graphs/. Undoable (the pre-image is checkpointed). ' +
+      'Confirm with the user before deleting anything you did not create this conversation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'export_to_clipboard',
+    description:
+      'Ask the viewer to copy the given graph to the user\'s clipboard as UE-pasteable T3D ' +
+      '(same as the header 導出 button). The graph must be valid. The copy happens in the ' +
+      'user\'s browser — tell the user to paste into UE\'s Material Editor with Ctrl+V. ' +
+      'Use after finishing a material when the user wants it in UE.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'request_crawl',
+    description:
+      'PROPOSE a metadata crawl of the user\'s UE project (their /Game Material Functions or ' +
+      'materials). This does NOT run anything: the user sees a confirmation card and must approve; ' +
+      'the crawl launches the UE editor and takes minutes. Use when search_mf/list cannot find ' +
+      'something the user says exists in their project. After calling this, END your turn and wait — ' +
+      'never assume the crawl ran.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['workmf', 'projectmat'], description: 'workmf = index the project\'s Material Functions; projectmat = dump project materials' },
+        contentRoot: { type: 'string', description: 'UE content root to crawl, default "/Game"' },
+      },
+      required: ['kind'],
+    },
+  },
+  {
+    name: 'propose_db_edit',
+    description:
+      'PROPOSE a change to the public node DB (agent-pack/nodes-ue<v>.json): fix an EXISTING ' +
+      'node entry (description/category/inputs/outputs/params/verified), or with create:true ADD ' +
+      'a missing public UE node (forced verified:false until an export crawl supplies its ' +
+      'metadata). This does NOT write anything: the user sees a confirmation card; on approval ' +
+      'the server applies it, regenerates the index, and runs the parity audit (rolls back on ' +
+      'failure). Proposing verified:true on an existing node = asking the user to attest they ' +
+      'checked it in UE. ONLY clean public Epic/UE data may be proposed — never project-specific ' +
+      'content. After calling this, END your turn and wait for the user.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        nodeName: { type: 'string', description: 'Exact node type name' },
+        patch: {
+          type: 'object',
+          description: `Fields to set. Allowed keys: ${DB_EDIT_KEYS.join(', ')}. inputs/outputs/params replace the whole list. With create:true, description/category/inputs/outputs are required.`,
+        },
+        rationale: { type: 'string', description: 'Why this is correct (cite the UE doc/source you verified against)' },
+        create: { type: 'boolean', description: 'true = add a NEW node (must not exist yet); default false = edit an existing one' },
+      },
+      required: ['nodeName', 'patch', 'rationale'],
+    },
+  },
+  {
+    name: 'read_crawl_log',
+    description:
+      'Read the log tail of the most recently FINISHED metadata crawl (success or failure). ' +
+      'Use to diagnose why a crawl failed or to verify what it found. Returns kind, status, ' +
+      'exit code, and the last log lines.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        lines: { type: 'number', description: 'How many trailing lines to return (default 60, max 200)' },
+      },
+    },
+  },
+  {
+    name: 'web_search',
+    description:
+      'Search the public web (DuckDuckGo). Returns {title, url, snippet} hits. Use when you need ' +
+      'knowledge newer or more specific than you have — UE release notes, node behavior details, ' +
+      'material techniques. Follow up with web_fetch to read a result.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'web_fetch',
+    description:
+      'Fetch a public http(s) URL and return its readable text (HTML stripped, capped). ' +
+      'Private/loopback addresses are blocked. Use for UE documentation and pages found via web_search.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Public http(s) URL' },
+      },
+      required: ['url'],
+    },
+  },
+];
+
+// ---------------------------------------------------------------------------
+// dispatchTool
+// ---------------------------------------------------------------------------
+
+export async function dispatchTool(
+  name: string,
+  input: unknown,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  try {
+    return await _dispatch(name, input, ctx);
+  } catch (e) {
+    return { content: (e instanceof Error ? e.message : String(e)), isError: true };
+  }
+}
+
+async function _dispatch(
+  name: string,
+  input: unknown,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const inp = (input ?? {}) as Record<string, unknown>;
+
+  switch (name) {
+    case 'search_nodes':    return toolSearchNodes(inp, ctx);
+    case 'get_node_signature': return toolGetNodeSignature(inp, ctx);
+    case 'get_mf_signature':   return toolGetMfSignature(inp, ctx);
+    case 'read_graph':      return toolReadGraph(inp, ctx);
+    case 'write_graph':     return toolWriteGraph(inp, ctx);
+    case 'patch_graph':     return toolPatchGraph(inp, ctx);
+    case 'validate_graph':  return toolValidateGraph(inp, ctx);
+    case 'get_graph_errors':return toolGetGraphErrors(inp, ctx);
+    case 'list_graphs':     return toolListGraphs(ctx);
+    case 'search_mf':       return toolSearchMf(inp, ctx);
+    case 'list_examples':   return toolListExamples(ctx);
+    case 'read_example':    return toolReadExample(inp, ctx);
+    case 'read_memory':     return toolReadMemory(inp, ctx);
+    case 'update_memory':   return toolUpdateMemory(inp, ctx);
+    case 'rename_graph':    return toolRenameGraph(inp, ctx);
+    case 'delete_graph':    return toolDeleteGraph(inp, ctx);
+    case 'export_to_clipboard': return toolExportToClipboard(inp, ctx);
+    case 'request_crawl':   return toolRequestCrawl(inp, ctx);
+    case 'propose_db_edit': return toolProposeDbEdit(inp, ctx);
+    case 'read_crawl_log':  return toolReadCrawlLog(inp, ctx);
+    case 'web_search':      return toolWebSearch(inp, ctx);
+    case 'web_fetch':       return toolWebFetch(inp, ctx);
+    case 'compact_context':
+      // Needs the live session/provider — the loop intercepts it before dispatch.
+      return { content: 'compact_context 只能由代理迴圈執行。', isError: true };
+    default:
+      return { content: `unknown tool: ${name}`, isError: true };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// list_graphs / search_mf / list_examples / read_example (M9 discovery tools)
+// ---------------------------------------------------------------------------
+
+const LIST_GRAPHS_CAP = 200;
+
+async function toolListGraphs(ctx: ToolContext): Promise<{ content: string; isError?: boolean }> {
+  const files: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (files.length >= LIST_GRAPHS_CAP) return;
+      if (e.name.startsWith('.')) continue;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) await walk(p);
+      else if (e.name.endsWith('.matgraph.json')) files.push(p);
+    }
+  }
+  await walk(ctx.graphsRoot);
+
+  if (files.length === 0) {
+    return { content: 'No .matgraph.json files under graphs/ yet.' };
+  }
+
+  const lines: string[] = [];
+  for (const abs of files.sort()) {
+    const rel = relative(ctx.graphsRoot, abs).split(sep).join('/');
+    let info = '';
+    try {
+      const g = JSON.parse(await readFile(abs, 'utf-8')) as { name?: unknown; type?: unknown; ueVersion?: unknown };
+      info = `  [${typeof g.type === 'string' ? g.type : '?'}]  ${typeof g.name === 'string' ? g.name : ''}  (ue${typeof g.ueVersion === 'string' ? g.ueVersion : '?'})`;
+    } catch {
+      info = '  [unparseable]';
+    }
+    lines.push(rel + info);
+  }
+  if (files.length >= LIST_GRAPHS_CAP) lines.push(`...capped at ${LIST_GRAPHS_CAP} files`);
+  return { content: lines.join('\n') };
+}
+
+async function toolSearchMf(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const query = String(inp.query ?? '');
+  const terms = query.trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    return { content: 'query must not be empty', isError: true };
+  }
+
+  const matches = QB.searchMf(ctx.repoRoot, terms, ctx.ueVersion, ctx.workMfIndexPath);
+  if (matches.length === 0) {
+    return { content: `No MF matches for: ${query}` };
+  }
+
+  const lines = matches.slice(0, SEARCH_LINE_CAP).map(m => m.line);
+  if (matches.length > SEARCH_LINE_CAP) {
+    lines.push(`...${matches.length - SEARCH_LINE_CAP} more, narrow your query`);
+  }
+  return { content: lines.join('\n') };
+}
+
+const EXAMPLE_NAME_RE = /^[A-Za-z0-9_-]+$/;
+const EXAMPLE_TOTAL_CHAR_CAP = 30_000;
+
+function examplesDir(ctx: ToolContext): string {
+  return join(ctx.repoRoot, 'agent-pack', 'examples');
+}
+
+async function listExampleNames(ctx: ToolContext): Promise<string[]> {
+  try {
+    const entries = await readdir(examplesDir(ctx), { withFileTypes: true });
+    return entries.filter(e => e.isDirectory()).map(e => e.name).sort();
+  } catch {
+    return [];
+  }
+}
+
+async function toolListExamples(ctx: ToolContext): Promise<{ content: string; isError?: boolean }> {
+  const names = await listExampleNames(ctx);
+  if (names.length === 0) {
+    return { content: 'No examples found in agent-pack/examples.' };
+  }
+  const lines: string[] = [];
+  for (const name of names) {
+    let files: string[] = [];
+    try {
+      files = (await readdir(join(examplesDir(ctx), name))).filter(f => f.endsWith('.matgraph.json'));
+    } catch { /* skip unreadable */ }
+    lines.push(`${name}: ${files.join(', ') || '(no matgraph files)'}`);
+  }
+  return { content: lines.join('\n') };
+}
+
+async function toolReadExample(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const name = String(inp.name ?? '');
+  if (!EXAMPLE_NAME_RE.test(name)) {
+    return { content: 'invalid example name (letters/digits/underscore/dash only)', isError: true };
+  }
+
+  const dir = join(examplesDir(ctx), name);
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    const names = await listExampleNames(ctx);
+    return {
+      content: `example "${name}" not found. Available: ${names.join(', ') || '(none)'}`,
+      isError: true,
+    };
+  }
+
+  const files = entries.filter(f => f.endsWith('.matgraph.json')).sort();
+  if (files.length === 0) {
+    return { content: `example "${name}" has no .matgraph.json files`, isError: true };
+  }
+
+  const parts: string[] = [];
+  let total = 0;
+  for (const f of files) {
+    const text = await readFile(join(dir, f), 'utf-8');
+    total += text.length;
+    if (total > EXAMPLE_TOTAL_CHAR_CAP) {
+      parts.push(`--- ${f} --- (omitted: example exceeds ${EXAMPLE_TOTAL_CHAR_CAP} chars)`);
+      continue;
+    }
+    parts.push(`--- ${f} ---\n${text}`);
+  }
+  return { content: parts.join('\n') };
+}
+
+// ---------------------------------------------------------------------------
+// read_memory / update_memory (M7b)
+// ---------------------------------------------------------------------------
+
+function parseScope(v: unknown): MemoryScope | null {
+  return v === 'session' || v === 'longterm' ? v : null;
+}
+
+async function toolReadMemory(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  if (!ctx.memory) return { content: 'memory store unavailable in this context', isError: true };
+  const scope = parseScope(inp.scope);
+  if (!scope) return { content: 'scope must be "session" or "longterm"', isError: true };
+  const content = await ctx.memory.read(scope);
+  return { content: content || '(empty)' };
+}
+
+async function toolUpdateMemory(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  if (!ctx.memory) return { content: 'memory store unavailable in this context', isError: true };
+  const scope = parseScope(inp.scope);
+  if (!scope) return { content: 'scope must be "session" or "longterm"', isError: true };
+  const op = inp.op;
+  if (op !== 'append' && op !== 'replace') {
+    return { content: 'op must be "append" or "replace"', isError: true };
+  }
+  const content = inp.content;
+  if (typeof content !== 'string') {
+    return { content: 'content must be a string', isError: true };
+  }
+
+  // Size-cap violations throw inside the store and surface as isError via
+  // dispatchTool's catch — the model then condenses with op:"replace".
+  if (op === 'append') await ctx.memory.append(scope, content);
+  else await ctx.memory.replace(scope, content);
+
+  return { content: JSON.stringify({ ok: true, scope, op }) };
+}
+
+// ---------------------------------------------------------------------------
+// search_nodes
+// ---------------------------------------------------------------------------
+
+const SEARCH_LINE_CAP = 40;
+
+async function toolSearchNodes(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const query = String(inp.query ?? '');
+  const category = inp.category != null ? String(inp.category) : undefined;
+
+  const terms = query.trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    return { content: 'query must not be empty', isError: true };
+  }
+
+  let matches = QB.searchNodes(ctx.repoRoot, ctx.ueVersion, terms, category ? { category } : undefined);
+
+  // Sort: verified first (stable within groups)
+  const verified = matches.filter(m => m.verified);
+  const unverified = matches.filter(m => !m.verified);
+  matches = [...verified, ...unverified];
+
+  if (matches.length === 0) {
+    return { content: `No matches for: ${query}` };
+  }
+
+  const lines: string[] = [];
+  const capped = matches.slice(0, SEARCH_LINE_CAP);
+  for (const m of capped) {
+    let line = m.line;
+    if (!m.verified) {
+      // Replace existing (unverified) marker with ⚠ marker
+      line = line.replace(' (unverified)', '') + '  ⚠ unverified';
+    }
+    lines.push(line);
+  }
+
+  if (matches.length > SEARCH_LINE_CAP) {
+    lines.push(`...${matches.length - SEARCH_LINE_CAP} more, narrow your query`);
+  }
+
+  return { content: lines.join('\n') };
+}
+
+// ---------------------------------------------------------------------------
+// get_node_signature
+// ---------------------------------------------------------------------------
+
+async function toolGetNodeSignature(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const name = String(inp.name ?? '');
+  if (!name) return { content: 'name is required', isError: true };
+
+  const { result, suggestions } = QB.getNodes(ctx.repoRoot, ctx.ueVersion, [name]);
+
+  if (name in result) {
+    return { content: JSON.stringify(result[name], null, 2) };
+  }
+
+  const sugg = suggestions[name] ?? [];
+  const msg = sugg.length > 0
+    ? `"${name}" not found. Did you mean: ${sugg.join(', ')}?`
+    : `"${name}" not found.`;
+  return { content: msg, isError: true };
+}
+
+// ---------------------------------------------------------------------------
+// get_mf_signature
+// ---------------------------------------------------------------------------
+
+async function toolGetMfSignature(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const assetPath = String(inp.assetPath ?? '');
+  if (!assetPath) return { content: 'assetPath is required', isError: true };
+
+  const mfResult = QB.getMf(ctx.repoRoot, assetPath, ctx.ueVersion, ctx.workMfIndexPath);
+
+  if (mfResult.found) {
+    return { content: JSON.stringify(mfResult.entry, null, 2) };
+  }
+
+  // Not found — give crawl hint, never invent pin names
+  const isEngine = assetPath.startsWith('/Engine/');
+  const crawlType = isEngine ? 'Engine MF crawl' : 'WorkMF crawl';
+  const msg = mfResult.reason === 'index-absent'
+    ? `MF index not found — run the ${crawlType} from the viewer's Config tab, then retry. NEVER invent pin names.`
+    : `"${assetPath}" not in the MF index — run the ${crawlType} from the viewer's Config tab, then retry. NEVER invent pin names.`;
+  return { content: msg, isError: true };
+}
+
+// ---------------------------------------------------------------------------
+// read_graph
+// ---------------------------------------------------------------------------
+
+async function toolReadGraph(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const guard = guardPath(inp.path, ctx.graphsRoot);
+  if ('error' in guard) return { content: guard.error, isError: true };
+
+  const loaded = await loadGraph(guard.abs);
+
+  if (!loaded.graph) {
+    return { content: JSON.stringify({ errors: loaded.errors }), isError: true };
+  }
+
+  const structWarnings = materialStructureWarnings(loaded.graph);
+
+  const { index: workMfIndex } = ctx.workMfIndexPath
+    ? await loadWorkMfIndex(ctx.workMfIndexPath)
+    : { index: null };
+  const engineMfIndexPath = join(ctx.repoRoot, 'agent-pack', `enginemf-index-ue${ctx.ueVersion}.json`);
+  const { index: engineMfIndex } = await loadWorkMfIndex(engineMfIndexPath);
+
+  const resolved = await resolveMaterialFunctions(loaded.graph, dirname(guard.abs), new Set(), {
+    workMfIndex,
+    engineMfIndex,
+  });
+
+  const unresolved = resolved.warnings.filter(
+    w => w.includes('not in') || w.includes('not found') || w.includes('unresolved') || w.includes('missing'),
+  );
+
+  return {
+    content: JSON.stringify({
+      graph: loaded.graph,
+      errors: loaded.errors,
+      warnings: [...structWarnings, ...resolved.warnings.filter(w => !unresolved.includes(w))],
+      unresolvedMfPins: unresolved,
+    }, null, 2),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// write_graph
+// ---------------------------------------------------------------------------
+
+async function toolWriteGraph(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const guard = guardPath(inp.path, ctx.graphsRoot);
+  if ('error' in guard) return { content: guard.error, isError: true };
+
+  const graph = inp.graph;
+  if (!graph || typeof graph !== 'object') {
+    return { content: 'graph must be an object', isError: true };
+  }
+
+  // Version check
+  const g = graph as Record<string, unknown>;
+  if (g.ueVersion !== ctx.ueVersion) {
+    return {
+      content: `graph.ueVersion "${g.ueVersion}" does not match session ueVersion "${ctx.ueVersion}"`,
+      isError: true,
+    };
+  }
+
+  const report = await runValidationGate(graph, dirname(guard.abs), ctx);
+
+  if (report.errors.length > 0) {
+    return {
+      content: JSON.stringify({ errors: report.errors, warnings: report.warnings }),
+      isError: true,
+    };
+  }
+
+  // Changed nodes vs the previous on-disk version (for the canvas highlight):
+  // new file → every node; overwrite → nodes that are new or differ from old.
+  let changed: string[];
+  const newNodes = Array.isArray(g.nodes) ? (g.nodes as Array<{ id?: unknown }>) : [];
+  try {
+    const old = JSON.parse(await readFile(guard.abs, 'utf-8')) as { nodes?: Array<{ id?: unknown }> };
+    const oldById = new Map((old.nodes ?? []).map(n => [String(n.id), JSON.stringify(n)]));
+    changed = newNodes
+      .filter(n => oldById.get(String(n.id)) !== JSON.stringify(n))
+      .map(n => String(n.id));
+  } catch {
+    changed = newNodes.map(n => String(n.id));
+  }
+
+  // Clean — write. The loop injects a callCtx wrapper that supplies the real
+  // per-iteration turnId; the empty string here is never seen by the outer hook.
+  await ctx.beforeWrite?.(guard.abs, '');
+  await atomicWrite(guard.abs, JSON.stringify(graph, null, 2) + '\n');
+
+  return {
+    content: JSON.stringify({
+      ok: true,
+      warnings: report.warnings,
+      unresolvedMfPins: report.unresolvedPins,
+      changedNodeIds: changed,
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// patch_graph
+// ---------------------------------------------------------------------------
+
+async function toolPatchGraph(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const guard = guardPath(inp.path, ctx.graphsRoot);
+  if ('error' in guard) return { content: guard.error, isError: true };
+
+  // File must exist
+  const loaded = await loadGraph(guard.abs);
+  if (!loaded.graph) {
+    return {
+      content: JSON.stringify({ errors: loaded.errors }),
+      isError: true,
+    };
+  }
+
+  const ops = inp.ops;
+  if (!Array.isArray(ops)) {
+    return { content: 'ops must be an array', isError: true };
+  }
+
+  // Apply patch
+  const patchResult = applyPatch(loaded.graph, ops as PatchOp[]);
+  if (!patchResult.ok) {
+    return {
+      content: JSON.stringify({ opIndex: patchResult.opIndex, applyError: patchResult.applyError }),
+      isError: true,
+    };
+  }
+
+  // Validate result
+  const report = await runValidationGate(patchResult.graph, dirname(guard.abs), ctx);
+
+  if (report.errors.length > 0) {
+    return {
+      content: JSON.stringify({ opIndex: null, validateErrors: report.errors }),
+      isError: true,
+    };
+  }
+
+  // Clean — write. The loop injects a callCtx wrapper that supplies the real
+  // per-iteration turnId; the empty string here is never seen by the outer hook.
+  await ctx.beforeWrite?.(guard.abs, '');
+  await atomicWrite(guard.abs, JSON.stringify(patchResult.graph, null, 2) + '\n');
+
+  return {
+    content: JSON.stringify({
+      ok: true,
+      diff: patchResult.diff,
+      warnings: report.warnings,
+      unresolvedMfPins: report.unresolvedPins,
+      changedNodeIds: changedNodeIds(ops as PatchOp[]),
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// validate_graph
+// ---------------------------------------------------------------------------
+
+async function toolValidateGraph(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  let graphData: unknown;
+  let graphDir: string;
+
+  if (inp.path != null) {
+    const guard = guardPath(inp.path, ctx.graphsRoot);
+    if ('error' in guard) return { content: guard.error, isError: true };
+    const loaded = await loadGraph(guard.abs);
+    graphData = loaded.graph ?? null;
+    graphDir = dirname(guard.abs);
+    if (!loaded.graph) {
+      return { content: JSON.stringify({ errors: loaded.errors }), isError: true };
+    }
+  } else if (inp.graph != null) {
+    graphData = inp.graph;
+    graphDir = ctx.graphsRoot;
+  } else {
+    return { content: 'provide either path or graph', isError: true };
+  }
+
+  const report = await runValidationGate(graphData, graphDir, ctx);
+
+  return {
+    content: JSON.stringify({
+      errors: report.errors,
+      warnings: report.warnings,
+      unresolvedMfPins: report.unresolvedPins,
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// get_graph_errors
+// ---------------------------------------------------------------------------
+
+async function toolGetGraphErrors(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const guard = guardPath(inp.path, ctx.graphsRoot);
+  if ('error' in guard) return { content: guard.error, isError: true };
+
+  const loaded = await loadGraph(guard.abs);
+  if (!loaded.graph) {
+    return {
+      content: JSON.stringify({ errors: loaded.errors }),
+      isError: true,
+    };
+  }
+
+  const report = await runValidationGate(loaded.graph, dirname(guard.abs), ctx);
+
+  return {
+    content: JSON.stringify({
+      errors: report.errors,
+      warnings: report.warnings,
+      unresolvedMfPins: report.unresolvedPins,
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// rename_graph / delete_graph — undoable file management
+// ---------------------------------------------------------------------------
+
+async function toolRenameGraph(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const from = guardPath(inp.from, ctx.graphsRoot);
+  if ('error' in from) return { content: `from: ${from.error}`, isError: true };
+  const to = guardPath(inp.to, ctx.graphsRoot);
+  if ('error' in to) return { content: `to: ${to.error}`, isError: true };
+
+  try {
+    await stat(from.abs);
+  } catch {
+    return { content: `rename_graph: source "${String(inp.from)}" does not exist`, isError: true };
+  }
+  let destExists = true;
+  try { await stat(to.abs); } catch { destExists = false; }
+  if (destExists) {
+    return { content: `rename_graph: target "${String(inp.to)}" already exists`, isError: true };
+  }
+
+  // Pre-images: source content (undo restores it) + absent target (undo deletes it).
+  await ctx.beforeWrite?.(from.abs, '');
+  await ctx.beforeWrite?.(to.abs, '');
+  await mkdir(dirname(to.abs), { recursive: true });
+  await rename(from.abs, to.abs);
+
+  return {
+    content: JSON.stringify({
+      ok: true,
+      from: inp.from,
+      to: inp.to,
+      diff: [`將 \`${String(inp.from)}\` 改名為 \`${String(inp.to)}\``],
+      warnings: ['references from other graphs (relative MaterialFunctionCall paths) are NOT rewritten'],
+    }),
+  };
+}
+
+async function toolDeleteGraph(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const guard = guardPath(inp.path, ctx.graphsRoot);
+  if ('error' in guard) return { content: guard.error, isError: true };
+
+  try {
+    await stat(guard.abs);
+  } catch {
+    return { content: `delete_graph: "${String(inp.path)}" does not exist`, isError: true };
+  }
+
+  await ctx.beforeWrite?.(guard.abs, '');
+  await unlink(guard.abs);
+
+  return {
+    content: JSON.stringify({
+      ok: true,
+      path: inp.path,
+      diff: [`刪除了 \`${String(inp.path)}\`（可用「還原」復原）`],
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// export_to_clipboard — validate, then let the loop signal the viewer.
+// The T3D build + clipboard write happen in the BROWSER (single source of
+// truth: web export/ueT3D.ts needs the rendered dagre positions anyway).
+// ---------------------------------------------------------------------------
+
+async function toolExportToClipboard(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const guard = guardPath(inp.path, ctx.graphsRoot);
+  if ('error' in guard) return { content: guard.error, isError: true };
+
+  const loaded = await loadGraph(guard.abs);
+  if (!loaded.graph) {
+    return {
+      content: JSON.stringify({ errors: loaded.errors, note: 'graph is invalid — fix it before exporting' }),
+      isError: true,
+    };
+  }
+
+  return {
+    content: JSON.stringify({
+      ok: true,
+      path: inp.path,
+      note: '已請求檢視器將此圖以 T3D 複製到剪貼簿（瀏覽器分頁需在前景）。請提醒使用者到 UE 材質編輯器按 Ctrl+V 貼上。',
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// request_crawl — a PROPOSAL only. The loop emits a crawl_proposal event; the
+// user approves via a chat card that calls the existing POST /api/crawl path.
+// The agent never gains the authority to spawn the UE editor itself.
+// ---------------------------------------------------------------------------
+
+async function toolRequestCrawl(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const kind = inp.kind;
+  if (kind !== 'workmf' && kind !== 'projectmat') {
+    return { content: 'request_crawl: kind must be "workmf" or "projectmat"', isError: true };
+  }
+  let contentRoot = '/Game';
+  if (inp.contentRoot != null) {
+    if (typeof inp.contentRoot !== 'string' || !inp.contentRoot.startsWith('/')) {
+      return { content: 'request_crawl: contentRoot must be a UE path starting with "/"', isError: true };
+    }
+    contentRoot = inp.contentRoot;
+  }
+
+  const env = await (ctx.probeEnvFn ?? probeEnv)(ctx.repoRoot);
+  if (!env.ready) {
+    const failing = Object.entries(env.checks)
+      .filter(([, c]) => !c.ok)
+      .map(([k, c]) => `${k}: ${c.detail}`);
+    return {
+      content: JSON.stringify({
+        ok: false,
+        envReady: false,
+        failing,
+        note: '爬取環境未就緒——請使用者先到 Config 分頁完成設定（ProjectPath/EngineRoot 等）。',
+      }),
+      isError: true,
+    };
+  }
+
+  return {
+    content: JSON.stringify({
+      ok: true,
+      kind,
+      contentRoot,
+      note:
+        '已向使用者送出爬取確認卡（爬取會啟動 UE 編輯器、需數分鐘）。請結束本輪並等待使用者確認與完成回報，' +
+        '絕不要假設爬取已執行或已完成。',
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// propose_db_edit — a PROPOSAL only (same model as request_crawl). The loop
+// emits db_edit_proposal; the user approves via a chat card that calls
+// POST /api/agent/db-edit. The agent never writes the public DB itself.
+// ---------------------------------------------------------------------------
+
+const RATIONALE_CAP = 600;
+
+async function toolProposeDbEdit(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const nodeName = inp.nodeName;
+  if (typeof nodeName !== 'string' || !nodeName.trim()) {
+    return { content: 'propose_db_edit: nodeName must be a non-empty string', isError: true };
+  }
+  const rationale = inp.rationale;
+  if (typeof rationale !== 'string' || !rationale.trim()) {
+    return { content: 'propose_db_edit: rationale is required —說明依據（UE 文件/來源）', isError: true };
+  }
+  const create = inp.create === true;
+  const v = create ? validateDbCreate(inp.patch) : validateDbEditPatch(inp.patch);
+  if (!v.ok) {
+    return { content: `propose_db_edit: ${v.error}`, isError: true };
+  }
+  const db = loadVersionDb(ctx.repoRoot, ctx.ueVersion);
+  if (!db) {
+    return { content: `propose_db_edit: 找不到 UE ${ctx.ueVersion} 的節點 DB`, isError: true };
+  }
+  if (create && nodeName in db) {
+    return {
+      content: `propose_db_edit: 節點「${nodeName}」已存在於 nodes-ue${ctx.ueVersion}.json — 請改用修改（不帶 create）`,
+      isError: true,
+    };
+  }
+  if (!create && !(nodeName in db)) {
+    return {
+      content: `propose_db_edit: 節點「${nodeName}」不存在於 nodes-ue${ctx.ueVersion}.json — 要補齊新節點請帶 create: true`,
+      isError: true,
+    };
+  }
+  return {
+    content: JSON.stringify({
+      ok: true,
+      nodeName,
+      ueVersion: ctx.ueVersion,
+      create,
+      patch: v.patch,
+      rationale: rationale.trim().slice(0, RATIONALE_CAP),
+      note:
+        (create
+          ? '已向使用者送出「新增節點」確認卡（強制 verified:false，提醒使用者之後執行節點導出爬取補齊 metadata 才能匯出到 UE）。'
+          : '已向使用者送出節點 DB 修改確認卡。') +
+        '請結束本輪等待使用者決定；絕不要假設修改已套用。獲准後伺服器會自動重生索引並跑 parity audit。',
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// read_crawl_log — log tail of the last finished crawl (diagnosis aid)
+// ---------------------------------------------------------------------------
+
+const CRAWL_LOG_DEFAULT_LINES = 60;
+const CRAWL_LOG_MAX_LINES = 200;
+const CRAWL_LOG_CHAR_CAP = 12_000;
+
+async function toolReadCrawlLog(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  if (!ctx.getCrawlLog) {
+    return { content: 'read_crawl_log: 此會話沒有爬取執行器（伺服器未掛載）。', isError: true };
+  }
+  const snap = ctx.getCrawlLog();
+  if (!snap) {
+    return { content: '尚無已完成的爬取紀錄。爬取需由使用者從 Config 分頁或確認卡啟動。' };
+  }
+  let n = CRAWL_LOG_DEFAULT_LINES;
+  if (typeof inp.lines === 'number' && Number.isFinite(inp.lines)) {
+    n = Math.max(1, Math.min(CRAWL_LOG_MAX_LINES, Math.floor(inp.lines)));
+  }
+  let tail = snap.lines.slice(-n).join('\n');
+  let truncated = false;
+  if (tail.length > CRAWL_LOG_CHAR_CAP) {
+    tail = tail.slice(-CRAWL_LOG_CHAR_CAP);
+    truncated = true;
+  }
+  return {
+    content: JSON.stringify({
+      ok: true,
+      kind: snap.kind,
+      status: snap.status,
+      exitCode: snap.exitCode,
+      truncated,
+      logTail: tail,
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// web_search / web_fetch — public-web access (SSRF-guarded, see web-tools.ts)
+// ---------------------------------------------------------------------------
+
+async function toolWebSearch(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const query = inp.query;
+  if (typeof query !== 'string' || !query.trim()) {
+    return { content: 'web_search: query must be a non-empty string', isError: true };
+  }
+  const r = await webSearch(query.trim(), ctx.web ?? {});
+  if (!r.ok) return { content: `web_search: ${r.error}`, isError: true };
+  return { content: JSON.stringify({ ok: true, results: r.results }) };
+}
+
+async function toolWebFetch(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const url = inp.url;
+  if (typeof url !== 'string' || !url.trim()) {
+    return { content: 'web_fetch: url must be a non-empty string', isError: true };
+  }
+  const r = await fetchPublic(url.trim(), ctx.web ?? {});
+  if (!r.ok) return { content: `web_fetch: ${r.error}`, isError: true };
+
+  const isHtml = r.contentType.includes('text/html') || /^\s*<(!doctype|html)/i.test(r.body);
+  let text = isHtml ? htmlToText(r.body) : r.body;
+  let truncated = r.truncatedBody;
+  if (text.length > WEB_TEXT_CAP) {
+    text = text.slice(0, WEB_TEXT_CAP);
+    truncated = true;
+  }
+  return {
+    content: JSON.stringify({ ok: true, url: r.finalUrl, status: r.status, truncated, text }),
+  };
+}

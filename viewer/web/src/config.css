@@ -137,9 +137,18 @@
 .run-result { border-radius:8px; padding:12px 13px; margin-top:11px; }
 .run-result.ok { background:rgba(78,196,110,.09); border:1px solid rgba(78,196,110,.3); }
 .run-result.err { background:rgba(224,89,78,.09); border:1px solid rgba(224,89,78,.3); }
-.run-result .rt { font-size:13px; font-weight:650; display:flex; align-items:center; gap:8px; }
+.run-result .errtop { display:flex; align-items:center; gap:9px; justify-content:space-between; }
+.run-result .rt { font-size:13px; font-weight:650; display:flex; align-items:center; gap:8px; flex:1; min-width:0; }
 .run-result.ok .rt { color:var(--ok); }
 .run-result.err .rt { color:#f0a59c; }
+.copylogbtn {
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  flex:0 0 auto; min-height:25px; max-width:150px;
+  padding:4px 8px; border-radius:6px; border:1px solid rgba(224,89,78,.28);
+  background:rgba(224,89,78,.11); color:#f0c0ba;
+  font:inherit; font-size:10.5px; white-space:nowrap; cursor:pointer;
+}
+.copylogbtn:hover { border-color:rgba(224,89,78,.45); color:var(--text); background:rgba(224,89,78,.16); }
 .run-result .cause { font-size:11.5px; color:var(--text-dim); margin-top:9px; line-height:1.5; }
 .run-result .fixpill {
   display:inline-flex; align-items:center; gap:6px;
@@ -183,3 +192,29 @@
 /* spin animation (shared with .spin in chrome.css; safe to redeclare) */
 @keyframes cfg-spin { to { transform:rotate(360deg); } }
 .cfg .spin { animation:cfg-spin 1s linear infinite; }
+
+/* ---------- §4 AI assistant section ---------- */
+.field .inp select {
+  all:unset; flex:1; min-width:0;
+  font-family:var(--font-mono); font-size:11px; color:var(--text); cursor:pointer;
+}
+.field .inp select option { background:var(--bg-panel); color:var(--text); }
+
+.ai-card {
+  border:1px solid var(--border); border-radius:8px;
+  background:var(--bg-panel-2); padding:9px 11px; margin-bottom:12px;
+}
+.ai-card .ai-card-head {
+  display:flex; align-items:center; gap:6px;
+  font-size:11.5px; font-weight:600; color:var(--ok);
+}
+.ai-card:not(.uncfg) .ai-card-head { margin-bottom:7px; }
+.ai-card.uncfg { border-style:dashed; }
+.ai-card.uncfg .ai-card-head { color:var(--text-dim); font-weight:500; }
+.ai-card .ai-row { display:flex; gap:8px; font-size:11px; padding:2px 0; align-items:baseline; }
+.ai-card .ai-row .k { color:var(--text-mute); flex:0 0 60px; }
+.ai-card .ai-row .v { color:var(--text-dim); font-family:var(--font-mono); font-size:10.5px; word-break:break-all; }
+.ai-test-row { display:flex; align-items:center; gap:9px; margin-top:9px; flex-wrap:wrap; }
+.ai-test-result { font-size:11px; line-height:1.5; flex:1 1 140px; }
+.ai-test-result.ok { color:var(--ok); }
+.ai-test-result.err { color:#f0a59c; }

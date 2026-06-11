@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { parseUET3D } from './export/ueT3D';
+import { useStore } from './store';
 import type { ExportMeta } from './export/export-meta-types';
 import type { ToastItem } from './Toast';
 import './import.css';
@@ -18,9 +19,13 @@ export interface ImportModalProps {
 // navigate to it. The textarea is used instead of navigator.clipboard.readText()
 // because browsers routinely block programmatic clipboard reads.
 export function ImportModal({ exportMeta, open, pushToast, onClose }: ImportModalProps) {
+  const { state, askAgent } = useStore();
   const [text, setText] = useState('');
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
+  // Post-import AI walkthrough — only offered in live mode with a server.
+  const [explain, setExplain] = useState(false);
+  const canExplain = state.connection === 'live';
 
   const doImport = async () => {
     if (busy) return;
@@ -53,6 +58,9 @@ export function ImportModal({ exportMeta, open, pushToast, onClose }: ImportModa
         : `Imported ${graph.nodes.length} nodes as "${finalName}".`;
       pushToast({ variant: warnings.length ? 'warning' : 'success', title: 'Imported from UE', message, detail: warnings });
       open(path);
+      if (explain && canExplain) {
+        askAgent(`我剛從 UE 匯入了 ${path}，請讀取它並用白話解說這張材質圖的結構、關鍵節點與預期視覺效果。`, true);
+      }
       onClose();
     } catch (e) {
       pushToast({ variant: 'error', title: 'Import failed', message: (e as Error).message });
@@ -80,6 +88,12 @@ export function ImportModal({ exportMeta, open, pushToast, onClose }: ImportModa
           <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Begin Object Class=/Script/UnrealEd.MaterialGraphNode ..." spellCheck={false} />
         </label>
         <div className="import-actions">
+          {canExplain && (
+            <label className="import-explain" title="導入成功後自動切到 Agent 分頁，請 AI 解說這張圖">
+              <input type="checkbox" checked={explain} onChange={e => setExplain(e.target.checked)} />
+              導入後請 AI 解說
+            </label>
+          )}
           <button className="import-cancel" onClick={onClose} disabled={busy}>取消</button>
           <button className="import-go" onClick={doImport} disabled={busy}>{busy ? '導入中…' : '導入'}</button>
         </div>

@@ -83,4 +83,5 @@
 }
 .tdot.run { background: var(--accent); animation: tdot-pulse 1s ease-in-out infinite; }
 .tdot.err { background: var(--error); }
+.tdot.new { background: var(--accent); }
 @keyframes tdot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }

@@ -4,7 +4,8 @@ export type IconName =
   | 'dot' | 'search' | 'material' | 'func' | 'folder' | 'caret' | 'caretDown'
   | 'plus' | 'minus' | 'frame' | 'refresh' | 'settings' | 'check' | 'warn' | 'x'
   | 'bolt' | 'clip' | 'download' | 'upload' | 'layers' | 'clock' | 'chip'
-  | 'zoomfit' | 'link' | 'hash' | 'branch' | 'eye' | 'history' | 'more';
+  | 'zoomfit' | 'link' | 'hash' | 'branch' | 'eye' | 'history' | 'more'
+  | 'send' | 'stop';
 
 const ICONS: Record<IconName, React.ReactNode> = {
   dot: <circle cx="12" cy="12" r="3" />,
@@ -36,6 +37,8 @@ const ICONS: Record<IconName, React.ReactNode> = {
   eye: <><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7-10-7-10-7z" /><circle cx="12" cy="12" r="3" /></>,
   history: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5M12 7v5l3 2" /></>,
   more: <><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></>,
+  send: <path d="M12 19V5M5 12l7-7 7 7" />,
+  stop: <rect x="6" y="6" width="12" height="12" rx="2" />,
 };
 
 export function Icon({

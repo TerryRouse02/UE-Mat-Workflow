@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import type { MatGraph, NodeSource } from './protocol';
+import { useStore } from './store';
 import { useDb } from './dbContext';
 import { pinColor, catColor } from './theme/colors';
 import { diagnoseGraph, isUnknownNodeType, type GraphIssue } from './graphDiagnostics';
@@ -316,6 +317,7 @@ export function Inspector({
   onRecrawlNode,
 }: InspectorProps) {
   const { db } = useDb();
+  const { state: storeState, askAgent } = useStore();
   const [inspMode, setInspMode] = useState<InspMode>('node');
 
   // Reset mode to 'node' when a node becomes selected (null → set transition).
@@ -386,6 +388,12 @@ export function Inspector({
       <div className="panel-head">
         <span className="h">檢視器 Inspector</span>
         <span className="grow" />
+        {node && storeState.connection === 'live' && (
+          <button className="iconbtn" title="請 AI 解說此節點（開啟 Agent 對話）"
+            onClick={() => askAgent(`請解說目前圖中的節點「${node.id}」（型別 ${node.type}）：它的作用、參數設定，以及接線是否合理。`, true)}>
+            <Icon name="chip" size={15} />
+          </button>
+        )}
         {node && (
           <button className="iconbtn" title="對準節點"
             onClick={() => node && onFocusNode?.(node.id)}>

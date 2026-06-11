@@ -16,7 +16,7 @@ break, and how to make the common changes.
 - **Stack:** TypeScript monorepo (pnpm workspaces). `viewer/server` = native Node http+ws.
   `viewer/web` = Vite + React + React Flow + dagre. `tools/node-t3d-metadata` = a UE editor
   commandlet + PowerShell (Windows `powershell` 5.1 or macOS `pwsh` 7). `agent-pack/` = the shipped data + agent rules.
-- **Build:** `pnpm build`  **Test:** `pnpm -r test` (216) + `node --test "tools/node-t3d-metadata/tests/**/*.test.js"` (17)  **Run:** `pnpm dev` (or `pnpm start`) → http://localhost:5790
+- **Build:** `pnpm build`  **Test:** `pnpm -r test` (630 node + 72 react) + `node --test "tools/node-t3d-metadata/tests/**/*.test.js"` (114)  **Run:** `pnpm dev` (or `pnpm start`) → http://localhost:5790
 - **Before committing public data, run the parity audit:** `node tools/node-t3d-metadata/audit-export-meta.js` (must exit 0).
 
 ## Mental model (data flow)
@@ -47,6 +47,8 @@ agent-pack/                 SHIPPED product data + agent rules (public, must sta
   nodes-ue5.7.index.json    generated minimal index (~12K tokens); safe to read whole; CI-gated
   nodes-ue5.7.export.json   per-node UE metadata for clipboard export (class paths, GUIDs)
   query.js                  zero-dep lookup CLI: node/mf/search queries against the DB and MF indexes
+  query-lib.js              the lookup logic behind query.js (CJS exports) — also consumed by
+                            viewer/server/agent (query-bridge.ts); the ONLY home for query logic
   enginemf-index-ue5.7.json official /Engine Material Function signatures (committed)
   workmf-index.json         the USER's own /Game MF signatures — GITIGNORED, never shipped
   SPEC.md / SPEC-DETAILS.md / CLAUDE.md / AGENTS.md / GEMINI.md / .cursorrules   authoring rules
@@ -67,9 +69,26 @@ Entry `index.ts` → `http-server.ts` (`startServer`). Binds **127.0.0.1** (base
 auto-tries 5790–5799). One WebSocket carries everything live.
 
 - `http-server.ts` — routes + WS. HTTP: `GET /api/env`, `GET /api/agent-pack/:file`
-  (filename allowlist), `GET /api/workmf`, `POST /api/config`, `POST /api/crawl`,
-  `POST /api/import`; static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
+  (filename allowlist), `GET /api/workmf`, `POST /api/config` (extended with optional `Llm`
+  object for AI config), `POST /api/crawl`, `POST /api/import`,
+  `POST /api/agent/chat` (SSE — agent conversation loop),
+  `GET /api/agent/status` (ProviderStatus — never contains apiKey),
+  `POST /api/agent/explain` (one-shot LLM node explanation; JSON response; sameOrigin; concurrent-safe),
+  `POST /api/agent/undo` (restore previous checkpoint turn; sameOrigin; 409 while streaming),
+  `POST /api/agent/regenerate` (rewind last user turn — files+history+transcript — and return its text for a client re-send; sameOrigin; 409 while streaming),
+  `POST /api/agent/db-edit` (apply a user-approved node-DB edit: validate → write → regen index → parity audit, rollback on failure; sameOrigin; single-flight),
+  `POST /api/agent/reset` (abort in-flight chat + clear session; sameOrigin),
+  `POST /api/agent/test` (verify the SAVED LLM config with one minimal request; sameOrigin),
+  `GET/POST /api/agent/sessions` + `GET/DELETE /api/agent/sessions/:id` (persistent sessions: list/create/replay/delete);
+  static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
   `listFiles`, crawl progress broadcast.
+- `server/agent/` — the built-in conversational material agent (providers, 23-tool loop,
+  checkpoints/undo, sessions, memory, compaction, web access, DB-edit apply). The design
+  contract + per-file map live in `viewer/AGENT_DESIGN.md` — read that before touching it.
+  Key invariant: the agent only PROPOSES crawls/DB edits; user-approved cards call the
+  state-changing endpoints. `contextTokens` (last round in+out) gates compaction and the
+  context ceiling; `totalTokens` is cumulative spend for display only.
+- `server/agent/explain.ts` — `explainNode()` one-shot LLM call (no tools); `buildGraphContext()` graph connection summary; `RESERVED_NODE_DESCRIPTIONS` built-in zh-TW descriptions for the four reserved node types.
 - `schema.ts` — `validateGraph` (the `.matgraph.json` contract). `graph-loader.ts` — read+parse+validate.
 - `mf-resolver.ts` — resolves `MaterialFunctionCall` pins from sibling `.matgraph.json`,
   the engine-MF index, or the work-MF index. `workmf-index.ts` / `workmf-types.ts` (node-free types).
@@ -88,10 +107,12 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   `import.meta.glob`) so snapshot/offline renders; **re-fetched at runtime** in live mode
   (`agentPackClient.ts`) so a crawl refreshes without a rebuild.
 - `Graph.tsx` + `layout.ts` — React Flow render; dagre auto-layout (no x/y in the JSON).
-- `Sidebar.tsx` — three tabs: **Files** (`FileList`), **Nodes** (`NodeLibrary` — DB + official-MF
-  + project-MF browsers), **Config** (`ConfigPanel` — set paths, env checklist, run crawls).
+  Hover (≈500ms) on a node opens `NodeExplainPopover`; pane-click / Escape closes it.
+- `Sidebar.tsx` — four tabs: **Files** (`FileList`), **Nodes** (`NodeLibrary`), **Config** (`ConfigPanel`), **Agent** (`AgentChat` — hidden in snapshot mode; in live mode it stays MOUNTED across tab switches via a display-toggled keep-alive wrapper so pending crawl reports / in-flight streams survive).
 - `Header.tsx` — export to UE (`export/ueT3D.ts`) + import from UE (`ImportModal`).
 - `crawlRequest.ts` — POST /api/crawl + the `CrawlKind` union (web side).
+- `web/src/agent/AgentChat.tsx` — 4th Sidebar tab: conversational material agent UI (M3+M4+M5).
+- `web/src/agent/NodeExplainPopover.tsx` — hover node explain popover; Layer 1 = DB description+pins (zero fetch); Layer 2 = 「深入解說」button → POST /api/agent/explain; hidden in snapshot mode.
 
 ## tools/node-t3d-metadata (Windows + macOS)
 
@@ -163,5 +184,7 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
 ## Read next
 
 - `agent-pack/SPEC.md` — the `.matgraph.json` contract (authoring side).
+- `viewer/AGENT_DESIGN.md` — the built-in conversational agent: module map, tool contract,
+  endpoints, eval corpus, and the feature snapshot (§12).
 - `tools/node-t3d-metadata/README.md` — the commandlet, the crawls, the Config-tab walkthrough.
 - `README.md` — the user-facing overview.

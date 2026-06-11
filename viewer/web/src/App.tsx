@@ -15,7 +15,7 @@ import { shouldConfirmOpen } from './largeGraphGate';
 import { graphToUET3D } from './export/ueT3D';
 import type { FileEntry } from './protocol';
 
-export type AppTab = 'files' | 'nodes' | 'config';
+export type AppTab = 'files' | 'nodes' | 'config' | 'agent';
 
 function srcToKind(src: string): 'workmf' | 'projectmat' | 'enginemf' | 'export' {
   if (src === 'workmf') return 'workmf';
@@ -25,17 +25,39 @@ function srcToKind(src: string): 'workmf' | 'projectmat' | 'enginemf' | 'export'
 }
 
 function Body() {
-  const { state, open, enterMF, startCrawl } = useStore();
+  const { state, open, enterMF, startCrawl, selectNode } = useStore();
   const { db, exportMeta, supported } = useDb();
 
   // ─── Lifted cross-cutting state ────────────────────────────────────────────
   const [tab, setTab] = useState<AppTab>('files');
+  const gotoConfig = () => setTab('config');
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [confirmFile, setConfirmFile] = useState<FileEntry | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   // Collapse either side panel to give the canvas more room.
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  // Agent-tab chat width, user-draggable via the panel edge. Deliberately NOT
+  // persisted — a session-local preference only.
+  const [agentW, setAgentW] = useState(430);
+  const [resizing, setResizing] = useState(false);
+  const startResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    setAgentW(startW => {
+      const move = (ev: MouseEvent) =>
+        setAgentW(Math.max(320, Math.min(800, startW + ev.clientX - startX)));
+      const up = () => {
+        setResizing(false);
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+      };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+      return startW;
+    });
+    setResizing(true);
+  }, []);
   // Two independent crawl scopes (separate UE content roots):
   //  • mfRoot  — "爬取專案 MF" (workmf) AND read by T3D export (mfContentRoot).
   //  • matRoot — "爬取專案母材質" (projectmat). Kept apart so crawling base
@@ -61,7 +83,8 @@ function Body() {
   useEffect(() => { if (engineMismatch) setBannerDismissed(false); }, [engineMismatch]);
 
   // ─── Per-graph state ────────────────────────────────────────────────────────
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Selection lives in the store so the agent chat can attach it as context.
+  const selectedNodeId = state.selectedNodeId;
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   // focusReq is tagged with path so a stale request never fires on a different graph.
@@ -85,7 +108,18 @@ function Body() {
   const closeToast = (id: number) => setToasts(ts => ts.filter(t => t.id !== id));
 
   // Reset per-graph view state on navigation.
-  useEffect(() => { setSelectedNodeId(null); setFocusReq(null); }, [current]);
+  useEffect(() => { selectNode(null); setFocusReq(null); }, [current, selectNode]);
+
+  // 問 AI / post-import explain: a fresh agentAsk switches to the Agent tab;
+  // AgentChat itself consumes the text (nonce-tracked there too).
+  const consumedAskNonce = useRef(0);
+  useEffect(() => {
+    const ask = state.agentAsk;
+    if (!ask || ask.nonce === consumedAskNonce.current) return;
+    consumedAskNonce.current = ask.nonce;
+    if (Date.now() - ask.ts > 15_000) return;
+    if (state.connection !== 'snapshot') setTab('agent');
+  }, [state.agentAsk, state.connection]);
 
   // Hot-reload notice
   const prevPayloadRef = useRef(payload);
@@ -128,6 +162,20 @@ function Body() {
     }
   }, [payload, supported, exportMeta, positions, mfRoot, pushToast]);
 
+  // Agent-requested clipboard export (export_to_clipboard tool): runs the same
+  // doExport as the header button, but only once the requested graph is the
+  // open one AND its nodes have rendered (T3D needs the dagre positions).
+  // nonce-consumed + 30s freshness so a stale request never re-fires later.
+  const consumedExportNonce = useRef(0);
+  useEffect(() => {
+    const req = state.agentExportReq;
+    if (!req || req.nonce === consumedExportNonce.current) return;
+    if (Date.now() - req.ts > 30_000) { consumedExportNonce.current = req.nonce; return; }
+    if (req.path !== current || !payload?.graph || Object.keys(positions).length === 0) return;
+    consumedExportNonce.current = req.nonce;
+    void doExport();
+  }, [state.agentExportReq, current, payload, positions, doExport]);
+
   // ─── Command handler ─────────────────────────────────────────────────────────
   const handleCmd = useCallback((id: string) => {
     switch (id) {
@@ -159,11 +207,20 @@ function Body() {
   const errs = current ? (state.errors[current] ?? []) : [];
   const warns = payload?.warnings ?? [];
 
+  // Agent diff highlight: only for the graph it targeted, and only while fresh —
+  // a stale entry must not re-pulse when the user reopens the file minutes later.
+  const hl = state.agentHighlight;
+  const agentHl = hl && hl.path === current && Date.now() - hl.ts < 15_000
+    ? { ids: hl.ids, nonce: hl.nonce }
+    : null;
+
   // Body grid left-panel width. Config is widest — it carries two content-root
   // inputs, the env checklist, and the crawl buttons; wider still while a crawl
-  // runs so the live log has room.
+  // runs so the live log has room. Agent gets extra room for chat bubbles,
+  // tool-step cards, and diff blocks.
   const leftW = tab === 'config' && state.crawl.status === 'running' ? 560
     : tab === 'config' ? 384
+    : tab === 'agent' ? agentW
     : 290;
 
   return (
@@ -181,18 +238,25 @@ function Body() {
         dismissed={bannerDismissed}
         onDismiss={() => setBannerDismissed(true)}
       />
-      <div className="body" style={{ '--left': (leftCollapsed ? 0 : leftW) + 'px', '--right': (rightCollapsed ? 0 : 320) + 'px' } as React.CSSProperties}>
+      <div className={'body' + (resizing ? ' resizing' : '')} style={{ '--left': (leftCollapsed ? 0 : leftW) + 'px', '--right': (rightCollapsed ? 0 : 320) + 'px' } as React.CSSProperties}>
         <div className="panel left">
           <Sidebar
             tab={tab}
             setTab={setTab}
-            onGotoConfig={() => setTab('config')}
+            onGotoConfig={gotoConfig}
             onLargeGraph={setConfirmFile}
             mfRoot={mfRoot}
             setMfRoot={setMfRoot}
             matRoot={matRoot}
             setMatRoot={setMatRoot}
           />
+          {tab === 'agent' && !leftCollapsed && (
+            <div
+              className={'panel-resizer' + (resizing ? ' active' : '')}
+              title="拖曳調整對話寬度"
+              onMouseDown={startResize}
+            />
+          )}
         </div>
         <main className="canvas-wrap">
           <button
@@ -227,7 +291,7 @@ function Body() {
             </div>
           )}
           {payload
-            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} />
+            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={selectNode} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} agentHighlight={agentHl} />
             : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
         <Inspector
