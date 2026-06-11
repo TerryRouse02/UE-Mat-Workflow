@@ -43,7 +43,11 @@
   flex:1; min-height:0; overflow-y:auto; scrollbar-gutter:stable;
   padding:14px 12px 18px; display:flex; flex-direction:column; gap:10px;
 }
-.agent-item { animation:agent-fade .18s ease both; }
+/* flex-shrink:0 — as flex children of the column list, items default to
+   shrink-to-fit; the cards' overflow:hidden zeroes their automatic minimum
+   size, so once the list overflows they compress into slivers instead of
+   scrolling (worse at high browser zoom = fewer CSS px of height). */
+.agent-item { flex-shrink:0; animation:agent-fade .18s ease both; }
 
 /* ---------- Bubbles ---------- */
 .agent-bubble { font-size:12.5px; line-height:1.6; white-space:pre-wrap; word-break:break-word; }
