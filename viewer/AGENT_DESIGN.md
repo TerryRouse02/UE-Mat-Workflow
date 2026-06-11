@@ -20,6 +20,11 @@
     `tests/agent-eval.test.ts`，27 個腳本化情境涵蓋生成／修圖／自修／undo／記憶／壓縮／探索／檢視器動作，見 §10。
 - Local-first 鐵律不變：零新 npm 依賴（Node 18+ 原生 fetch）、零額外部署、
   一鍵 `pnpm dev`。
+- **現況（2026-06-11 收尾）**：M0–M5 全數落地，並完成後續批次——持久會話＋兩層記憶＋
+  自動/手動壓縮（M7/M7b/M11-1）、思考串流、檔案管理／剪貼簿／爬取提案／DB 修改提案
+  ／公網存取／爬取 log 共 23 工具、視窗情境注入、畫布變更高亮、問 AI／匯入後解說入口、
+  系統回報卡＋爬取結果回流、斜槽快捷指令（11 個）、會話 Markdown 匯出、每輪用量顯示、
+  Agent 分頁 keep-alive＋注意力小點、聊天欄寬度拖曳。功能快照見 §12。
 
 ## 1. 整合點（已核實，含證據位置）
 
@@ -68,9 +73,11 @@ viewer/
 │     ├─ session-store.ts       # M7 會話落盤 → viewer/.agent-sessions/<id>.json
 │     ├─ memory-store.ts        # M7b 兩層記憶 → .agent-memory/longterm.md ＋ <id>.memory.md
 │     ├─ explain.ts             # hover「深入解說」一次性 LLM 路徑
+│     ├─ web-tools.ts           # web_search / web_fetch（SSRF 防護、可注入 fetch/lookup）
 │     └─ agent-types.ts         # node-free wire 型別（鏡像 web/src/agent/protocol.ts）
 └─ web/src/agent/
-   ├─ AgentChat.tsx             # 第四分頁：對話 UI（snapshot 模式隱藏）
+   ├─ AgentChat.tsx             # 第四分頁：對話 UI（snapshot 模式隱藏；live 模式 keep-alive 常駐）
+   ├─ transcript.ts             # 純 reducer：SSE 事件 → ChatItem 列表（live 與重播共用）＋ Markdown 匯出
    ├─ sse.ts                    # 瀏覽器側 SSE client（fetch + AbortController）
    ├─ protocol.ts               # 鏡像 agent-types.ts
    └─ NodeExplainPopover.tsx    # Graph hover 解說（DB-first 純前端層）
@@ -252,7 +259,7 @@ runAgent(userText, session):
     if no toolUses: break                      # 最終回覆
     for call in toolUses: results.push(dispatchTool(call, ctx))   # 寫入工具內含 validate
     messages.push(toolResults(results))
-    if tokensUsed > TOKEN_CEILING: emit limit; break   # 預設 300K 累計（in+out）；usage 缺失時以 chars/4 估算
+    if contextTokens > tokenCeiling: emit limit; break  # 比對當前上下文（最後一輪 in+out）；usage 缺失時以 chars/4 估算
 ```
 
 - 護欄：`MAX_ITERS`、`TOKEN_CEILING`、撞上限 graceful 收尾（emit `limit` 事件，回報而非沉默）。
@@ -266,9 +273,9 @@ runAgent(userText, session):
   undo 收 `{sessionId}`；reset 只「中止＋脫離」不刪檔。undo 棧不跨重啟（已記錄的限制）。
 - 記憶（M7b）：longterm（跨會話）＋ session（隨會話）兩層，僅經 read/update_memory 工具寫；
   每輪 user turn 重讀並注入 system prompt。刪會話連帶刪其 session 記憶，longterm 不動。
-- 壓縮（M11-1）：totalTokens 過 `COMPACT_THRESHOLD`（預設 150K）時，保留最後
-  `COMPACT_KEEP_TURNS`（4）輪、其餘以一次性無工具呼叫摘要進 session 記憶後裁剪歷史並
-  重估 totalTokens。切點只能是「純文字 user 訊息」（避免孤兒 tool_result）；摘要失敗一律
+- 壓縮（M11-1）：`contextTokens`（當前上下文，見 §3.4）過 `COMPACT_THRESHOLD`
+  （預設 150K）時，保留最後 `COMPACT_KEEP_TURNS`（4）輪、其餘以一次性無工具呼叫摘要
+  進 session 記憶後裁剪歷史並重估 contextTokens。切點只能是「純文字 user 訊息」（避免孤兒 tool_result）；摘要失敗一律
   安全 no-op。發 `compacted` SSE 事件。模型也可主動呼叫 `compact_context` 工具觸發同一
   條路徑（`compactNow`，loop 內攔截）。
 - 組態旋鈕（2026-06-11）：`Llm.maxIters`（0 = 不限制，HTTP 層換算成
@@ -343,12 +350,16 @@ interface AgentChatRequest {
 
 | 檔 / 元件 | 動作 |
 |---|---|
-| `Sidebar.tsx` | 第四分頁 `Agent`（現有 Files / Nodes / Config 之外）；**snapshot 模式隱藏**（比照 ConfigPanel 既有處理） |
-| `agent/AgentChat.tsx` | 對話 UI：敘事逐字、工具步驟行、diff 區塊、輸入框、停止（abort SSE）、undo 按鈕；`status.configured === false` 時引導去 Config；空狀態起手範例（對映現成 examples：發光材質≈`03_flashing_emissive`、雪地≈`04_snow`、基礎 PBR≈`01_basic_pbr`） |
+| `Sidebar.tsx` | 第四分頁 `Agent`；**snapshot 模式隱藏**。live 模式下 AgentChat 以 display-toggled **keep-alive** 包裹常駐（待回報爬取、進行中串流、未送出輸入跨分頁存活）；分頁標籤帶注意力小點（串流中脈衝 `run`、離開分頁期間完成回覆則常亮 `new`） |
+| `agent/AgentChat.tsx` | 對話 UI：敘事逐字、思考卡（live 自動捲動）、工具步驟行、diff 區塊、系統回報卡（摺疊）、爬取／DB 修改確認卡、每輪 token 用量行、輸入框（`/` 喚出快捷指令選單）、停止／還原／重新生成／新對話、會話列表切換刪除、⚡ 快捷指令（11 個：/validate /explain /export /compact /log /help /regen /undo /md /new /crawlmf）、Markdown 匯出；`status.configured === false` 引導去 Config；空狀態起手範例 |
+| `agent/transcript.ts` | 純 reducer（live SSE 與會話重播共用同一實作）：ChatItem 建構、（系統回報）前綴 → 摺疊卡、per-turn 用量、`transcriptToMarkdown` |
 | `agent/sse.ts` | fetch + ReadableStream 解析 SSE + AbortController |
-| `Graph.tsx` | hover 停留（≈500ms）→ `NodeExplainPopover`：**第一層純前端**（dbContext 已烤入節點描述/針腳，零請求零成本）；「深入解說」按鈕才呼叫 `/api/agent/explain` |
-| `ConfigPanel.tsx` | 新「AI 助手」區塊：provider 選單、baseUrl、model、apiKey（password input，永不回填）、儲存後顯示 status |
-| `store.tsx` | 最小接觸：`graph_written` 事件 → 開啟該圖（沿用既有 open 機制）；圖內容更新交給 watcher 既有管線 |
+| `Graph.tsx` | hover 停留（≈500ms）→ `NodeExplainPopover`（第一層純前端零請求；「深入解說」才呼叫 `/api/agent/explain`；平移/縮放/拖節點即關閉）；`agentHighlight` → 變更節點脈衝高亮＋fitView |
+| `Inspector.tsx` | 選中節點時的「問 AI」按鈕 → `askAgent`（切到 Agent 分頁直接送出解說請求） |
+| `ImportModal.tsx` | 「導入後請 AI 解說」勾選 → 匯入成功即 `askAgent` 自動開講 |
+| `App.tsx` | Agent 分頁欄寬拖曳（320–800px，不持久化）；`agentAsk` → 切分頁；`agentExportReq` → 重用導出路徑完成剪貼簿複製（需 dagre 座標已渲染） |
+| `ConfigPanel.tsx` | 「AI 助手」區塊：provider 選單、baseUrl、model、apiKey（password input，永不回填）、maxIters／contextLimit 下拉、測試連線、儲存後顯示 status |
+| `store.tsx` | agent 相關全域狀態：`selectedNodeId`（視窗情境）、`agentAsk`（問 AI 一次性請求）、`agentHighlight`／`agentExportReq`（nonce＋時效閘）、`agentActivity`（分頁小點）、`bumpMetadata`（DB 修改後重抓 agent-pack） |
 
 ## 9. 里程碑（嚴格依序，過驗收才往下）
 
@@ -389,6 +400,28 @@ interface AgentChatRequest {
 - ✗ 不在改狀態端點省略 `sameOrigin`；server 維持 loopback bind。
 - ✗ 不引入需額外部署的服務、不加 npm 依賴。
 - ✗ `apiKey` 永不進前端回應、bundle、HTML export、git。
+
+## 12. 功能快照（收尾，2026-06-11）
+
+使用者視角的完整能力清單（變更任何一項記得回來改這裡）：
+
+- **對話生圖**：白話描述 → 即時節點圖（watcher 重繪）＋白話 diff＋變更節點畫布高亮；
+  錯誤一律餵回模型自修，使用者只看最終成果。
+- **修改與回退**：patch 式修改、還原上一步（undo）、重新生成上一回覆（檔案＋歷史＋
+  transcript 一併回捲）。
+- **情境理解**：每則訊息附帶目前開啟的圖＋選取節點（［視窗情境］區塊）；Inspector
+  「問 AI」、匯入後自動解說、hover 節點兩層解說。
+- **提案—批准模型**（agent 永遠拿不到的權限）：爬取（request_crawl → 確認卡 →
+  既有 POST /api/crawl）；公開節點 DB 修改／verified 背書／create 補齊
+  （propose_db_edit → 確認卡 → POST /api/agent/db-edit，套用→重生索引→audit→失敗回滾）。
+- **爬取閉環**：批准的爬取完成/失敗自動以（系統回報）摺疊卡回灌對話；`read_crawl_log`
+  可隨時診斷最近一次爬取。
+- **拿進 UE**：export_to_clipboard → 瀏覽器重用導出路徑複製 T3D，提示 Ctrl+V。
+- **研究能力**：web_search（DuckDuckGo 零金鑰）＋ web_fetch（SSRF 防護），引用附來源。
+- **會話**：落盤持久＋列表切換刪除＋重播；兩層記憶；自動/手動壓縮（contextTokens 口徑）；
+  每輪 token 用量＋累計消費顯示；Markdown 匯出。
+- **快捷指令**：⚡ 選單或輸入 `/` 篩選執行（11 個，含 /crawlmf 直接爬取並回報）。
+- **體驗**：Agent 分頁 keep-alive＋注意力小點、欄寬拖曳、思考程度旋鈕（off/low/medium/high）。
 
 ---
 *v0.2 · 2026-06-10 · 分支 `feat/material-agent` · 對齊記錄見 session（verified 覆蓋

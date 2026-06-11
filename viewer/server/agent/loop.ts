@@ -9,7 +9,9 @@
 //
 // Invariants:
 //   - MAX_ITERS = 8 hard ceiling.
-//   - TOKEN_CEILING = 300_000 cumulative input+output tokens.
+//   - The context ceiling (default TOKEN_CEILING = 300_000) compares
+//     session.contextTokens — the LAST provider round's input+output, i.e. the
+//     real context size. totalTokens (cumulative spend) is display-only.
 //     When usage data is absent, fall back to chars/4 estimation.
 //   - Loop emits a graceful 'limit' event rather than crashing on ceiling hit.
 //   - Raw validation errors never reach the user directly; they go to
@@ -30,16 +32,16 @@ import { buildSystemPrompt } from './prompt.js';
 export const MAX_ITERS = 8;
 
 /**
- * Cumulative token ceiling across a session.
+ * Default context-size ceiling (compared against session.contextTokens).
  * When usage is absent (some compat providers skip it), we estimate via chars/4.
  */
 export const TOKEN_CEILING = 300_000;
 
 /**
- * Compaction (M11-1): when the session's token total crosses this mark at the
- * start of a user turn, old turns are summarized into session memory and
- * trimmed from the history so long conversations keep headroom instead of
- * dying at TOKEN_CEILING.
+ * Compaction (M11-1): when the CURRENT context (session.contextTokens) crosses
+ * this mark at the start of a user turn, old turns are summarized into session
+ * memory and trimmed from the history so long conversations keep headroom
+ * instead of dying at the ceiling.
  */
 export const COMPACT_THRESHOLD = 150_000;
 /** Most recent user turns kept verbatim by compaction. */

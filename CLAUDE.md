@@ -77,9 +77,17 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   `POST /api/agent/undo` (restore previous checkpoint turn; sameOrigin; 409 while streaming),
   `POST /api/agent/regenerate` (rewind last user turn — files+history+transcript — and return its text for a client re-send; sameOrigin; 409 while streaming),
   `POST /api/agent/db-edit` (apply a user-approved node-DB edit: validate → write → regen index → parity audit, rollback on failure; sameOrigin; single-flight),
-  `POST /api/agent/reset` (abort in-flight chat + clear session; sameOrigin);
+  `POST /api/agent/reset` (abort in-flight chat + clear session; sameOrigin),
+  `POST /api/agent/test` (verify the SAVED LLM config with one minimal request; sameOrigin),
+  `GET/POST /api/agent/sessions` + `GET/DELETE /api/agent/sessions/:id` (persistent sessions: list/create/replay/delete);
   static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
   `listFiles`, crawl progress broadcast.
+- `server/agent/` — the built-in conversational material agent (providers, 23-tool loop,
+  checkpoints/undo, sessions, memory, compaction, web access, DB-edit apply). The design
+  contract + per-file map live in `viewer/AGENT_DESIGN.md` — read that before touching it.
+  Key invariant: the agent only PROPOSES crawls/DB edits; user-approved cards call the
+  state-changing endpoints. `contextTokens` (last round in+out) gates compaction and the
+  context ceiling; `totalTokens` is cumulative spend for display only.
 - `server/agent/explain.ts` — `explainNode()` one-shot LLM call (no tools); `buildGraphContext()` graph connection summary; `RESERVED_NODE_DESCRIPTIONS` built-in zh-TW descriptions for the four reserved node types.
 - `schema.ts` — `validateGraph` (the `.matgraph.json` contract). `graph-loader.ts` — read+parse+validate.
 - `mf-resolver.ts` — resolves `MaterialFunctionCall` pins from sibling `.matgraph.json`,
@@ -176,5 +184,7 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
 ## Read next
 
 - `agent-pack/SPEC.md` — the `.matgraph.json` contract (authoring side).
+- `viewer/AGENT_DESIGN.md` — the built-in conversational agent: module map, tool contract,
+  endpoints, eval corpus, and the feature snapshot (§12).
 - `tools/node-t3d-metadata/README.md` — the commandlet, the crawls, the Config-tab walkthrough.
 - `README.md` — the user-facing overview.
