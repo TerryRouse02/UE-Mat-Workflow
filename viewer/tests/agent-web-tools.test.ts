@@ -189,3 +189,199 @@ describe('fetchPublic external cancellation', () => {
     expect(called).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Pluggable search backends (Tavily / Brave / SearXNG) + proxy + lite fallback
+// ---------------------------------------------------------------------------
+
+import { parseDuckDuckGoLite, proxyFetch, type WebSearchConfig } from '../server/agent/web-tools.js';
+import { createServer } from 'node:http';
+
+type Captured = { url?: string; init?: RequestInit };
+
+function jsonFetch(payload: unknown, capture?: Captured): typeof fetch {
+  return (async (url: RequestInfo | URL, init?: RequestInit) => {
+    if (capture) { capture.url = String(url); capture.init = init; }
+    return new Response(JSON.stringify(payload), { status: 200, headers: { 'content-type': 'application/json' } });
+  }) as typeof fetch;
+}
+
+function routedFetch(routes: Array<[RegExp, () => Response]>): typeof fetch {
+  return (async (url: RequestInfo | URL) => {
+    for (const [re, mk] of routes) if (re.test(String(url))) return mk();
+    return new Response('not found', { status: 404 });
+  }) as typeof fetch;
+}
+
+describe('guardPublicUrl opts', () => {
+  it('skipDnsResolve keeps hostname/IP-literal checks but skips resolution', async () => {
+    const failingLookup: LookupFn = async () => { throw new Error('no dns'); };
+    expect(await guardPublicUrl('https://example.com/', failingLookup, { skipDnsResolve: true })).toBeNull();
+    expect(await guardPublicUrl('http://127.0.0.1/', failingLookup, { skipDnsResolve: true })).toMatch(/blocked/);
+    expect(await guardPublicUrl('http://localhost/', failingLookup, { skipDnsResolve: true })).toMatch(/blocked/);
+  });
+
+  it('allowPrivate waives host checks but never the protocol check', async () => {
+    expect(await guardPublicUrl('http://192.168.1.10:8888/search', undefined, { allowPrivate: true })).toBeNull();
+    expect(await guardPublicUrl('file:///etc/passwd', undefined, { allowPrivate: true })).toMatch(/only http\/https/);
+  });
+});
+
+describe('htmlToText boilerplate + structure markers', () => {
+  it('drops nav/footer/aside and keeps headings/list markers', () => {
+    const html = `<nav><a href="/">Home</a> | <a href="/docs">Docs</a></nav>
+      <h2>Roughness</h2><ul><li>low = shiny</li></ul>
+      <footer>© 2026 Site footer junk</footer>`;
+    const text = htmlToText(html);
+    expect(text).not.toContain('Home');
+    expect(text).not.toContain('footer junk');
+    expect(text).toContain('## Roughness');
+    expect(text).toContain('- low = shiny');
+  });
+});
+
+const LITE_SAMPLE = `
+<table>
+  <tr><td><a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fdoc" class='result-link'>Lite Doc Title</a></td></tr>
+  <tr><td class='result-snippet'>Lite doc snippet text.</td></tr>
+</table>`;
+
+describe('DuckDuckGo lite fallback', () => {
+  it('parseDuckDuckGoLite unwraps redirects and pairs snippets', () => {
+    const hits = parseDuckDuckGoLite(LITE_SAMPLE);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].url).toBe('https://example.com/doc');
+    expect(hits[0].title).toBe('Lite Doc Title');
+    expect(hits[0].snippet).toContain('snippet text');
+  });
+
+  it('webSearch falls back to the lite endpoint when the html one is blocked', async () => {
+    const fetchFn = routedFetch([
+      [/html\.duckduckgo\.com/, () => new Response('rate limited', { status: 403 })],
+      [/lite\.duckduckgo\.com/, () => new Response(LITE_SAMPLE, { status: 200 })],
+    ]);
+    const r = await webSearch('ue', { fetchFn, lookupFn: publicLookup });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.backend).toBe('duckduckgo-lite');
+      expect(r.results[0].title).toBe('Lite Doc Title');
+    }
+  });
+});
+
+describe('search backends', () => {
+  it('tavily: POSTs the query with the key and clips long snippets', async () => {
+    const cap: Captured = {};
+    const long = 'x'.repeat(600);
+    const fetchFn = jsonFetch({ results: [{ title: 'T', url: 'https://e.com/a', content: long }] }, cap);
+    const config: WebSearchConfig = { backend: 'tavily', tavilyApiKey: 'tvly-k' };
+    const r = await webSearch('fresnel', { fetchFn, lookupFn: publicLookup, config });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.backend).toBe('tavily');
+      expect(r.results[0].snippet.length).toBeLessThanOrEqual(401);
+    }
+    expect(cap.url).toContain('api.tavily.com');
+    expect(cap.init?.method).toBe('POST');
+    expect(String(cap.init?.body)).toContain('fresnel');
+    expect((cap.init?.headers as Record<string, string>).authorization).toContain('tvly-k');
+  });
+
+  it('brave: GET with subscription token; description HTML is stripped', async () => {
+    const cap: Captured = {};
+    const fetchFn = jsonFetch({ web: { results: [{ title: 'B', url: 'https://e.com/b', description: '<strong>desc</strong> here' }] } }, cap);
+    const config: WebSearchConfig = { backend: 'brave', braveApiKey: 'BSAkey' };
+    const r = await webSearch('roughness', { fetchFn, lookupFn: publicLookup, config });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.results[0].snippet).toBe('desc here');
+    expect(cap.url).toContain('api.search.brave.com');
+    expect((cap.init?.headers as Record<string, string>)['x-subscription-token']).toBe('BSAkey');
+  });
+
+  it('searxng: a private LAN base is allowed (user config, not model input)', async () => {
+    const cap: Captured = {};
+    const fetchFn = jsonFetch({ results: [{ title: 'S', url: 'https://e.com/s', content: 'c' }] }, cap);
+    const config: WebSearchConfig = { backend: 'searxng', searxngBaseUrl: 'http://192.168.1.10:8888/' };
+    const r = await webSearch('lerp', { fetchFn, lookupFn: privateLookup, config });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.backend).toBe('searxng');
+    expect(cap.url).toBe('http://192.168.1.10:8888/search?q=lerp&format=json');
+  });
+
+  it('auto precedence: a configured tavily key wins over DDG', async () => {
+    const fetchFn = jsonFetch({ results: [{ title: 'T', url: 'https://e.com', content: 'c' }] });
+    const r = await webSearch('q', { fetchFn, lookupFn: publicLookup, config: { tavilyApiKey: 'k' } });
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.backend).toBe('tavily');
+  });
+
+  it('failed configured backend falls back to DDG with an explanatory note', async () => {
+    const fetchFn = routedFetch([
+      [/api\.tavily\.com/, () => new Response('{"error":"quota"}', { status: 429 })],
+      [/html\.duckduckgo\.com/, () => new Response(DDG_SAMPLE, { status: 200 })],
+    ]);
+    const r = await webSearch('q', { fetchFn, lookupFn: publicLookup, config: { backend: 'tavily', tavilyApiKey: 'k' } });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.backend).toBe('duckduckgo');
+      expect(r.note).toContain('tavily');
+    }
+  });
+
+  it('explicit backend without its key reports a config-pointing error after DDG also fails', async () => {
+    const fetchFn = routedFetch([]); // everything 404s → DDG fallback fails too
+    const r = await webSearch('q', { fetchFn, lookupFn: publicLookup, config: { backend: 'brave' } });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('not configured');
+  });
+});
+
+describe('proxy transport', () => {
+  it('routes http targets through the configured proxy as absolute-URI requests', async () => {
+    const seen: { url?: string; host?: string } = {};
+    const proxy = createServer((req, res) => {
+      seen.url = req.url;
+      seen.host = String(req.headers.host);
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('PROXIED');
+    });
+    await new Promise<void>(r => proxy.listen(0, '127.0.0.1', () => r()));
+    const port = (proxy.address() as { port: number }).port;
+    try {
+      const r = await fetchPublic('http://example.com/page', { config: { proxyUrl: `http://127.0.0.1:${port}` } });
+      expect(r.ok).toBe(true);
+      if (r.ok) expect(r.body).toBe('PROXIED');
+      expect(seen.url).toBe('http://example.com/page');
+      expect(seen.host).toBe('example.com');
+    } finally {
+      await new Promise(r => proxy.close(() => r(null)));
+    }
+  });
+
+  it('proxy mode still blocks loopback/private targets at the URL level', async () => {
+    const r = await fetchPublic('http://127.0.0.1:9999/secret', { config: { proxyUrl: 'http://127.0.0.1:1' } });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).toContain('blocked');
+  });
+
+  it('proxyFetch rejects non-http proxy URLs', async () => {
+    await expect(proxyFetch('socks5://127.0.0.1:1080')('http://example.com/')).rejects.toThrow(/http:\/\//);
+  });
+});
+
+describe('DDG bot-detection handling', () => {
+  it('202 challenge on both endpoints yields the rate-limit guidance, with a browser UA sent', async () => {
+    const uas: string[] = [];
+    const fetchFn = (async (_url: RequestInfo | URL, init?: RequestInit) => {
+      uas.push((init?.headers as Record<string, string>)['user-agent'] ?? '');
+      return new Response('challenge', { status: 202 });
+    }) as typeof fetch;
+    const r = await webSearch('q', { fetchFn, lookupFn: publicLookup });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error).toContain('202');
+      expect(r.error).toContain('Tavily');
+    }
+    expect(uas.every(ua => ua.startsWith('Mozilla/5.0'))).toBe(true);
+  });
+});

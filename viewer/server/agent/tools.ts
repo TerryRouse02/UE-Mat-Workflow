@@ -606,9 +606,11 @@ export const toolDefs: ToolDef[] = [
   {
     name: 'web_search',
     description:
-      'Search the public web (DuckDuckGo). Returns {title, url, snippet} hits. Use when you need ' +
-      'knowledge newer or more specific than you have — UE release notes, node behavior details, ' +
-      'material techniques. Follow up with web_fetch to read a result.',
+      'Search the public web. Returns {title, url, snippet} hits plus the backend used ' +
+      '(user-configurable: Tavily / Brave / SearXNG, DuckDuckGo as the zero-key default with ' +
+      'automatic fallback). Use when you need knowledge newer or more specific than you have — ' +
+      'UE release notes, node behavior details, material techniques. ' +
+      'Follow up with web_fetch to read a result.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -620,12 +622,15 @@ export const toolDefs: ToolDef[] = [
   {
     name: 'web_fetch',
     description:
-      'Fetch a public http(s) URL and return its readable text (HTML stripped, capped). ' +
-      'Private/loopback addresses are blocked. Use for UE documentation and pages found via web_search.',
+      'Fetch a public http(s) URL and return its readable text (HTML stripped, headings/lists kept ' +
+      'as markdown markers, boilerplate nav/footer removed). Private/loopback addresses are blocked. ' +
+      'Long pages are windowed: the result reports totalChars and nextOffset — call again with ' +
+      'offset=nextOffset to read the next window. Use for UE documentation and pages found via web_search.',
     inputSchema: {
       type: 'object',
       properties: {
         url: { type: 'string', description: 'Public http(s) URL' },
+        offset: { type: 'number', description: 'Character offset into the extracted text (from a previous call\'s nextOffset). Default 0.' },
       },
       required: ['url'],
     },
@@ -1510,7 +1515,7 @@ async function toolWebSearch(
   }
   const r = await webSearch(query.trim(), ctx.web ?? {});
   if (!r.ok) return { content: `web_search: ${r.error}`, isError: true };
-  return { content: JSON.stringify({ ok: true, results: r.results }) };
+  return { content: JSON.stringify({ ok: true, backend: r.backend, ...(r.note ? { note: r.note } : {}), results: r.results }) };
 }
 
 async function toolWebFetch(
@@ -1521,17 +1526,28 @@ async function toolWebFetch(
   if (typeof url !== 'string' || !url.trim()) {
     return { content: 'web_fetch: url must be a non-empty string', isError: true };
   }
+  const offset = typeof inp.offset === 'number' && Number.isFinite(inp.offset) && inp.offset > 0
+    ? Math.floor(inp.offset)
+    : 0;
   const r = await fetchPublic(url.trim(), ctx.web ?? {});
   if (!r.ok) return { content: `web_fetch: ${r.error}`, isError: true };
 
   const isHtml = r.contentType.includes('text/html') || /^\s*<(!doctype|html)/i.test(r.body);
-  let text = isHtml ? htmlToText(r.body) : r.body;
-  let truncated = r.truncatedBody;
-  if (text.length > WEB_TEXT_CAP) {
-    text = text.slice(0, WEB_TEXT_CAP);
-    truncated = true;
-  }
+  const full = isHtml ? htmlToText(r.body) : r.body;
+  // Windowed view: each call re-fetches and slices (no cache to invalidate);
+  // nextOffset lets the model walk a long page in WEB_TEXT_CAP chunks.
+  const text = full.slice(offset, offset + WEB_TEXT_CAP);
+  const truncated = r.truncatedBody || offset + text.length < full.length;
   return {
-    content: JSON.stringify({ ok: true, url: r.finalUrl, status: r.status, truncated, text }),
+    content: JSON.stringify({
+      ok: true,
+      url: r.finalUrl,
+      status: r.status,
+      totalChars: full.length,
+      offset,
+      truncated,
+      ...(offset + text.length < full.length ? { nextOffset: offset + text.length } : {}),
+      text,
+    }),
   };
 }

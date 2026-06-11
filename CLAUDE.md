@@ -79,6 +79,7 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   `POST /api/agent/db-edit` (apply a user-approved node-DB edit: validate → write → regen index → parity audit, rollback on failure; sameOrigin; single-flight),
   `POST /api/agent/reset` (abort in-flight chat + clear session; sameOrigin),
   `POST /api/agent/test` (verify the SAVED LLM config with one minimal request; sameOrigin),
+  `POST /api/agent/web-test` (one real search with the SAVED Web config; sameOrigin),
   `GET/POST /api/agent/sessions` + `GET/DELETE /api/agent/sessions/:id` (persistent sessions: list/create/replay/delete);
   static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
   `listFiles`, crawl progress broadcast.
@@ -96,6 +97,11 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   against the DB (`agent/pin-validate.ts`, mirroring web `validate.ts` semantics — keep
   the two in sync). Off-topic fence: `report_off_topic` strikes (persisted per session)
   escalate remind → refuse → `session_closed` + server-side session deletion.
+  Web tools: pluggable search backends (Tavily/Brave/SearXNG via `Web` config section,
+  DDG zero-key fallback), optional http proxy (`Web.proxyUrl`), and a per-turn 🌐 switch
+  (`AgentChatRequest.webSearch`; off = web tools stripped from the tool list). The
+  user-configured SearXNG base / proxy are trust-boundary exceptions to the SSRF guard;
+  model-chosen URLs stay fully guarded.
 - `server/agent/explain.ts` — `explainNode()` one-shot LLM call (no tools); `buildGraphContext()` graph connection summary; `RESERVED_NODE_DESCRIPTIONS` built-in zh-TW descriptions for the four reserved node types.
 - `schema.ts` — `validateGraph` (the `.matgraph.json` contract). `graph-loader.ts` — read+parse+validate.
 - `mf-resolver.ts` — resolves `MaterialFunctionCall` pins from sibling `.matgraph.json`,

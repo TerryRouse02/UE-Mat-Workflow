@@ -86,4 +86,13 @@ export interface ProviderStatus {
   maxIters?: number;
   /** Mirrors LLMConfig.contextLimit (tokens) so the Config form can seed itself. */
   contextLimit?: number;
+  // ── Web search settings (local.config.json `Web`) — keys are never echoed ──
+  /** Stored backend choice ('auto' when unset). */
+  webSearchBackend?: string;
+  hasTavilyKey?: boolean;
+  hasBraveKey?: boolean;
+  /** User-entered, not secret (like baseUrl). */
+  searxngBaseUrl?: string;
+  /** User-entered local proxy, not secret. */
+  webProxyUrl?: string;
 }

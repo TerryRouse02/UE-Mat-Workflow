@@ -947,3 +947,39 @@ describe('report_off_topic via dispatch', () => {
     expect(r.content).toContain('代理迴圈');
   });
 });
+
+// ---------------------------------------------------------------------------
+// web_fetch windowed pagination (offset / nextOffset)
+// ---------------------------------------------------------------------------
+
+describe('web_fetch offset pagination', () => {
+  const publicLookup = async () => [{ address: '93.184.216.34' }];
+  // > WEB_TEXT_CAP (15K) of plain text so the first window truncates.
+  const LONG_TEXT = 'A'.repeat(20_000);
+  const fetchFn = (async () => new Response(LONG_TEXT, {
+    status: 200, headers: { 'content-type': 'text/plain' },
+  })) as typeof fetch;
+
+  it('first window reports totalChars and nextOffset; second window continues there', async () => {
+    const first = await dispatchTool('web_fetch', { url: 'https://example.com/long' }, { ...ctx, web: { fetchFn, lookupFn: publicLookup } });
+    expect(first.isError).toBeUndefined();
+    const p1 = JSON.parse(first.content);
+    expect(p1.totalChars).toBe(20_000);
+    expect(p1.text.length).toBe(15_000);
+    expect(p1.truncated).toBe(true);
+    expect(p1.nextOffset).toBe(15_000);
+
+    const second = await dispatchTool('web_fetch', { url: 'https://example.com/long', offset: p1.nextOffset }, { ...ctx, web: { fetchFn, lookupFn: publicLookup } });
+    const p2 = JSON.parse(second.content);
+    expect(p2.offset).toBe(15_000);
+    expect(p2.text.length).toBe(5_000);
+    expect(p2.nextOffset).toBeUndefined();
+  });
+
+  it('web_search result carries the backend name', async () => {
+    const tavilyFetch = (async () => new Response(JSON.stringify({ results: [{ title: 'T', url: 'https://e.com', content: 'c' }] }), { status: 200 })) as typeof fetch;
+    const r = await dispatchTool('web_search', { query: 'q' }, { ...ctx, web: { fetchFn: tavilyFetch, lookupFn: publicLookup, config: { tavilyApiKey: 'k' } } });
+    expect(r.isError).toBeUndefined();
+    expect(JSON.parse(r.content).backend).toBe('tavily');
+  });
+});

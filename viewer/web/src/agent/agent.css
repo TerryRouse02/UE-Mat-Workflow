@@ -223,6 +223,23 @@
 .agent-think select:hover { border-color:var(--border-strong); color:var(--text); }
 .agent-think select:disabled { opacity:.5; cursor:not-allowed; }
 .agent-think select option { background:var(--bg-panel); color:var(--text); }
+/* Active (non-off) thinking level reads as "engaged", not gray. */
+.agent-think select.on { color:var(--accent); border-color:var(--accent-dim); background:var(--accent-ghost); }
+
+/* Thinking knob + 🌐 toggle sit together on the left; hint text keeps the right. */
+.agent-input-ctrls { display:inline-flex; align-items:center; gap:6px; }
+
+/* ---------- 🌐 per-turn web-search toggle (beside the thinking knob) ---------- */
+.agent-web-toggle {
+  all:unset; cursor:pointer;
+  display:inline-flex; align-items:center; gap:3px;
+  font-family:inherit; font-size:10px; color:var(--text-mute);
+  border:1px solid var(--border); border-radius:5px; padding:1px 6px;
+  background:var(--bg-panel-2);
+}
+.agent-web-toggle:hover { border-color:var(--border-strong); color:var(--text); }
+.agent-web-toggle.on { color:var(--accent); border-color:var(--accent-dim); background:var(--accent-ghost); }
+.agent-web-toggle:disabled { opacity:.4; cursor:not-allowed; }
 
 /* ---------- Session bar (M7) ---------- */
 .agent-sessbar {

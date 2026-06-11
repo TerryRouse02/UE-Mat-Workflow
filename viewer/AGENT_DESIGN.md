@@ -190,8 +190,8 @@ MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 | `request_crawl` | `{kind,contentRoot?}` | 只「提案」爬取：loop 發 `crawl_proposal`，使用者按卡片確認才走既有 POST /api/crawl | kind 限 workmf/projectmat；probeEnv 不綠直接報錯；agent 永遠拿不到拉起 UE 的權限 |
 | `propose_db_edit` | `{nodeName,patch,rationale,create?}` | 只「提案」修改公開節點 DB：既有 entry 修正／verified 背書，或 `create:true` 補齊缺漏節點（強制 verified:false，待 export 爬取補 metadata）。loop 發 `db_edit_proposal`，使用者按卡片核准才走 POST /api/agent/db-edit（套用→重生索引→audit，失敗回滾） | patch 鍵 allowlist（description/category/verified/inputs/outputs/params）；create 需完整 entry 且節點不得已存在；verified:true 提案＝請使用者背書；只准乾淨 Epic/公開資料 |
 | `read_crawl_log` | `{lines?}` | 最近一次「已完成」爬取的 log 尾段（kind/status/exitCode＋行） | 唯讀；上限 200 行／12K 字；由 http-server 掛 runner.lastLog() |
-| `web_search` | `{query}` | DuckDuckGo HTML 端點搜尋（零金鑰、best-effort） | 走 fetchPublic 同套 SSRF 防護 |
-| `web_fetch` | `{url}` | 抓公網頁面轉純文字（HTML 剝離、15K 字上限） | SSRF 防護：僅 http(s)、封私網/loopback/link-local、DNS 全位址檢查、redirect 逐跳重檢（web-tools.ts） |
+| `web_search` | `{query}` | 可插拔後端搜尋（2026-06-11）：Tavily／Brave／SearXNG（Config 分頁配置，`Web` 區塊）＋DuckDuckGo 零金鑰保底（html→lite 雙端點）；`auto` 依「有金鑰者優先」；配置後端失敗自動退 DDG 並附 note；回傳含 `backend` | 走 fetchPublic 同套 SSRF 防護；SearXNG base 屬使用者配置 → allowPrivate（LAN 實例合法）；金鑰存 local.config.json 永不回顯 |
+| `web_fetch` | `{url, offset?}` | 抓公網頁面轉純文字（正文抽取：剝 nav/footer/aside、標題→`#` 列表→`-`）；長頁分窗：回 `totalChars`/`nextOffset`，帶 offset 續讀（每窗 15K 字） | SSRF 防護：僅 http(s)、封私網/loopback/link-local、DNS 全位址檢查、redirect 逐跳重檢（web-tools.ts）；配置 `Web.proxyUrl` 時全部流量走使用者 http 代理（CONNECT 隧道＋顯式 TLS），目標 DNS 由代理解析、本地改做主機名/IP 字面檢查 |
 | `read_example` | `{name}` | 整個範例專案的 matgraph 檔 | 名稱 allowlist regex；30K 字上限 |
 | `read_memory` | `{scope}` | session / longterm 記憶內容 | 路徑寫死無穿越面 |
 | `update_memory` | `{scope, op: append\|replace, content}` | `{ok}` | 8K 字上限，超限響亮報錯要求 replace 精煉 |
@@ -280,6 +280,10 @@ runAgent(userText, session):
   「0 = 不限制」的語意收在 **loop 內**（caller 直接傳 0，不可自行換算）；不限制模式仍受
   token 天花板＋**連續失敗熔斷**約束：同檔連續 3 次寫入驗證失敗、或連續 2 次壓縮失敗 →
   emit `limit(kind:'failures')` 白話收尾（誠實 > 自信的錯）。
+- 🌐 開關（2026-06-11）：`AgentChatRequest.webSearch`（缺席＝開）。**開**＝prompt 規則 11
+  升級為「回覆前自判時效性、主動查證再答」；**關**＝`web_search`/`web_fetch` 從該輪
+  toolDefs 移除（模型根本看不到）＋dispatch 層拒絕流浪呼叫（雙保險），prompt 換成
+  「聯網已關閉」說明。前端 🌐 鈕與思考旋鈕並列、localStorage 持久。
 - 主題圍欄（2026-06-11）：離題判定在模型（語意問題只能由 LLM 判），**升級執法在 server**——
   模型對無關訊息呼叫 `report_off_topic`（loop 攔截），`session.offTopicStrikes` 累加並落盤：
   第 1 次 tool_result 指示友善提醒、第 2 次指示拒答＋警告、第 3 次（`OFF_TOPIC_LIMIT`）loop
@@ -340,9 +344,10 @@ get_signature 再連線；MF 必查 `get_mf_signature`；改圖前先 `read_grap
 | `/api/agent/reset` | POST | 清空 session | `sameOrigin` |
 | `/api/agent/status` | GET | `ProviderStatus`（永不含 apiKey） | 同 `/api/env` |
 | `/api/agent/test` | POST | 用「已儲存」設定發最小請求驗證連線；錯誤翻白話（2026-06-11） | `sameOrigin`；30s 上限 |
+| `/api/agent/web-test` | POST | 用「已儲存」`Web` 設定實搜一次（回 backend＋筆數或錯誤） | `sameOrigin` |
 | `/api/agent/sessions` | GET / POST | 會話列表／新建（M7） | POST 過 `sameOrigin` |
 | `/api/agent/sessions/:id` | GET / DELETE | 轉錄重播／刪除（連帶 checkpoints＋session 記憶） | id regex；DELETE 過 `sameOrigin`、串流中 409 |
-| `/api/config` | POST（擴充） | 新收 `Llm` 物件；`baseUrl: ''` 表清除（兩個 provider 都收 baseUrl） | 既有守衛 |
+| `/api/config` | POST（擴充） | 新收 `Llm` 物件；`baseUrl: ''` 表清除（兩個 provider 都收 baseUrl）。再擴充收 `Web` 物件（searchBackend／tavilyApiKey／braveApiKey／searxngBaseUrl／proxyUrl，金鑰空字串＝清除、缺席＝保留，金鑰永不回顯） | 既有守衛 |
 
 ### Wire 型別（agent-types.ts ↔ web/src/agent/protocol.ts，鏡像）
 
@@ -448,7 +453,9 @@ interface AgentChatRequest {
 - **爬取閉環**：批准的爬取完成/失敗自動以（系統回報）摺疊卡回灌對話；`read_crawl_log`
   可隨時診斷最近一次爬取。
 - **拿進 UE**：export_to_clipboard → 瀏覽器重用導出路徑複製 T3D，提示 Ctrl+V。
-- **研究能力**：web_search（DuckDuckGo 零金鑰）＋ web_fetch（SSRF 防護），引用附來源。
+- **研究能力**：web_search 可插拔後端（Tavily／Brave／SearXNG＋DDG 保底、失敗自動退級）＋
+  web_fetch（SSRF 防護、正文抽取、長頁 offset 分窗），引用附來源；可配 http 代理；
+  輸入框旁 🌐 開關（默認開＝回覆前自判要不要查網路；關＝該輪完全不聯網）。
 - **會話**：落盤持久＋列表切換刪除＋重播；兩層記憶；自動/手動壓縮（contextTokens 口徑）；
   每輪 token 用量＋累計消費顯示；Markdown 匯出。
 - **快捷指令**：⚡ 選單或輸入 `/` 篩選執行（11 個，含 /crawlmf 直接爬取並回報）。

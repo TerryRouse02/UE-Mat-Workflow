@@ -97,7 +97,10 @@ What it can do:
   automatically so the agent can resume or diagnose failures (`read_crawl_log`).
 - **Ship to UE** — ask for the clipboard and it copies the graph as paste-ready T3D (same path as
   the header export button); paste into UE's Material Editor with Ctrl+V.
-- **Research** — zero-key web search + SSRF-guarded page fetch for knowledge newer than the model.
+- **Research** — web search with pluggable backends (Tavily / Brave / SearXNG, zero-key DuckDuckGo
+  fallback) + SSRF-guarded page fetch with long-page paging, optional http proxy support, and a 🌐
+  toggle next to the input box (default on: the agent checks whether an answer needs fresh sources
+  before replying; off: it never touches the network).
 - **Stay long-lived** — persistent sessions (switch / replay / delete), two-layer memory, automatic
   context compaction, per-turn token usage, and one-click Markdown export of the conversation.
 - **Stay on topic** — the agent only talks UE materials / shaders / game dev. Unrelated messages

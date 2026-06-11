@@ -36,11 +36,22 @@ export interface AgentChatRequest {
   selectedNodeId?: string;
   thinking?: AgentThinkingLevel;
   /**
+   * Per-turn 🌐 switch. Absent/true = web tools available (the prompt tells
+   * the model to self-check timeliness before answering); false = web_search/
+   * web_fetch removed from the tool list and refused at dispatch.
+   */
+  webSearch?: boolean;
+  /**
    * Persistent session to continue (M7). Absent → the server's current
    * session (created on demand). The web UI always sends an explicit id.
    */
   sessionId?: string;
 }
+
+/** Response from POST /api/agent/web-test — runs one search with the saved Web config. */
+export type AgentWebTestResponse =
+  | { ok: true; backend: string; results: number }
+  | { ok: false; error: string };
 
 /** Response from POST /api/agent/undo */
 export type AgentUndoResponse =

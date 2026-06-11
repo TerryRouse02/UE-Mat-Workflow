@@ -11,14 +11,24 @@
 //     between check and fetch cannot reach a private address (TOCTOU closed;
 //     native fetch exposes no lookup hook, hence the hand-rolled client).
 //
-// web_search uses DuckDuckGo's HTML endpoint (no API key). It is best-effort:
-// a layout change upstream degrades into a clear tool error, never a crash.
+// Trust-boundary exceptions (both USER-configured, never model-controlled):
+//  - proxyUrl: all traffic tunnels through the user's proxy, which resolves
+//    target DNS itself — local DNS pinning is skipped (it may be unavailable
+//    or poisoned in proxied environments); hostname/IP-literal checks remain.
+//  - searxngBaseUrl: a self-hosted SearXNG often lives on the LAN; requests
+//    to the user-configured base run with allowPrivate.
+//
+// web_search is pluggable: Tavily / Brave / SearXNG (configured in the Config
+// tab, stored in local.config.json `Web`) with DuckDuckGo as the zero-key
+// default and automatic fallback. All backends are best-effort: an upstream
+// failure degrades into a clear tool error (or a DDG fallback), never a crash.
 
 import { lookup } from 'node:dns/promises';
 import { lookup as dnsLookupCb } from 'node:dns';
 import { isIP } from 'node:net';
-import { request as httpRequest } from 'node:http';
+import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
+import { connect as tlsConnect } from 'node:tls';
 import { Readable } from 'node:stream';
 
 export const WEB_TEXT_CAP = 15_000;
@@ -26,15 +36,29 @@ const MAX_REDIRECTS = 4;
 const FETCH_TIMEOUT_MS = 15_000;
 const MAX_BODY_BYTES = 1_500_000;
 const SEARCH_RESULT_CAP = 8;
+/** Per-result snippet cap — Tavily "content" can run to thousands of chars. */
+const SNIPPET_CAP = 400;
 
 export type FetchFn = typeof globalThis.fetch;
 export type LookupFn = (hostname: string, opts: { all: true }) => Promise<Array<{ address: string }>>;
+
+/** Search/proxy settings from local.config.json `Web` — user-configured, server-side only. */
+export interface WebSearchConfig {
+  backend?: 'auto' | 'duckduckgo' | 'tavily' | 'brave' | 'searxng';
+  tavilyApiKey?: string;
+  braveApiKey?: string;
+  searxngBaseUrl?: string;
+  /** http:// CONNECT proxy (e.g. a local Clash/V2Ray port) for ALL web-tool traffic. */
+  proxyUrl?: string;
+}
 
 export interface WebDeps {
   fetchFn?: FetchFn;
   lookupFn?: LookupFn;
   /** External cancellation (user pressed stop) — aborts the in-flight fetch. */
   signal?: AbortSignal;
+  /** Backend/proxy settings (read fresh per request by the http layer). */
+  config?: WebSearchConfig;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,8 +85,23 @@ export function isPrivateIp(ip: string): boolean {
   );
 }
 
+export interface GuardOpts {
+  /**
+   * Skip the local DNS-resolution step (hostname/IP-literal checks remain).
+   * Used when a user-configured proxy carries the traffic: the proxy resolves
+   * the target itself, and local DNS may be unavailable or poisoned.
+   */
+  skipDnsResolve?: boolean;
+  /**
+   * Allow private/loopback targets entirely (protocol check remains). ONLY for
+   * URLs derived from user configuration (e.g. a LAN SearXNG base) — never for
+   * model-chosen URLs.
+   */
+  allowPrivate?: boolean;
+}
+
 /** Returns an error string when the URL must not be fetched, null when OK. */
-export async function guardPublicUrl(raw: string, lookupFn?: LookupFn): Promise<string | null> {
+export async function guardPublicUrl(raw: string, lookupFn?: LookupFn, opts?: GuardOpts): Promise<string | null> {
   let u: URL;
   try {
     u = new URL(raw);
@@ -72,6 +111,7 @@ export async function guardPublicUrl(raw: string, lookupFn?: LookupFn): Promise<
   if (u.protocol !== 'http:' && u.protocol !== 'https:') {
     return `only http/https URLs are allowed (got ${u.protocol})`;
   }
+  if (opts?.allowPrivate) return null;
   const host = u.hostname.replace(/^\[|\]$/g, '');
   if (host === 'localhost' || host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) {
     return 'loopback/private hosts are blocked';
@@ -79,6 +119,7 @@ export async function guardPublicUrl(raw: string, lookupFn?: LookupFn): Promise<
   if (isIP(host)) {
     return isPrivateIp(host) ? 'loopback/private addresses are blocked' : null;
   }
+  if (opts?.skipDnsResolve) return null;
   const doLookup = lookupFn ?? (lookup as unknown as LookupFn);
   let addrs: Array<{ address: string }>;
   try {
@@ -125,38 +166,135 @@ export function guardedLookup(hostname: string, options: Record<string, unknown>
   });
 }
 
+// Shape a node IncomingMessage into the minimal Response surface fetchPublic
+// uses: status, headers.get, body as a web ReadableStream.
+function toFetchResponse(res: IncomingMessage): Response {
+  return {
+    ok: (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300,
+    status: res.statusCode ?? 0,
+    headers: {
+      get: (name: string) => {
+        const v = res.headers[name.toLowerCase()];
+        return Array.isArray(v) ? v.join(', ') : v ?? null;
+      },
+    },
+    body: Readable.toWeb(res) as unknown as ReadableStream<Uint8Array>,
+  } as unknown as Response;
+}
+
 // Minimal fetch-shaped client over node:http(s) so we can inject the guarded
-// lookup (global fetch has no such hook). Only the surface fetchPublic uses:
-// status, headers.get, body as a web ReadableStream; never follows redirects.
-const pinnedFetch: FetchFn = ((input: string | URL, init?: RequestInit): Promise<Response> => {
-  return new Promise((resolvePromise, rejectPromise) => {
-    const u = new URL(String(input));
-    const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(
-      u,
-      {
-        method: init?.method ?? 'GET',
-        headers: init?.headers as Record<string, string> | undefined,
-        lookup: guardedLookup as unknown as import('node:net').LookupFunction,
-        signal: init?.signal ?? undefined,
-      },
-      (res) => {
-        resolvePromise({
-          ok: (res.statusCode ?? 0) >= 200 && (res.statusCode ?? 0) < 300,
-          status: res.statusCode ?? 0,
-          headers: {
-            get: (name: string) => {
-              const v = res.headers[name.toLowerCase()];
-              return Array.isArray(v) ? v.join(', ') : v ?? null;
-            },
+// lookup (global fetch has no such hook). Never follows redirects.
+function makeNodeFetch(guardLookup: boolean): FetchFn {
+  return ((input: string | URL, init?: RequestInit): Promise<Response> => {
+    return new Promise((resolvePromise, rejectPromise) => {
+      const u = new URL(String(input));
+      const req = (u.protocol === 'https:' ? httpsRequest : httpRequest)(
+        u,
+        {
+          method: init?.method ?? 'GET',
+          headers: init?.headers as Record<string, string> | undefined,
+          ...(guardLookup ? { lookup: guardedLookup as unknown as import('node:net').LookupFunction } : {}),
+          signal: init?.signal ?? undefined,
+        },
+        (res) => resolvePromise(toFetchResponse(res)),
+      );
+      req.on('error', rejectPromise);
+      if (init?.body) req.write(init.body);
+      req.end();
+    });
+  }) as FetchFn;
+}
+
+/** Default transport: connect-time address validation (TOCTOU-safe). */
+const pinnedFetch = makeNodeFetch(true);
+/** allowPrivate transport — user-configured bases (LAN SearXNG) resolve freely. */
+const plainFetch = makeNodeFetch(false);
+
+/**
+ * fetch-shaped client that tunnels through a USER-CONFIGURED http:// proxy
+ * (e.g. a local Clash/V2Ray port — the proxy address itself may be loopback,
+ * that is the point). http targets go as absolute-URI requests; https targets
+ * via CONNECT + TLS over the tunnel. Target DNS resolves at the proxy, so the
+ * guarded lookup does not apply here — guardPublicUrl's hostname checks still
+ * ran before this is called (with skipDnsResolve).
+ */
+export function proxyFetch(proxyUrl: string): FetchFn {
+  return ((input: string | URL, init?: RequestInit): Promise<Response> => {
+    return new Promise((resolvePromise, rejectPromise) => {
+      let proxy: URL;
+      try {
+        proxy = new URL(proxyUrl);
+      } catch {
+        rejectPromise(new Error(`invalid proxy URL: ${proxyUrl}`));
+        return;
+      }
+      if (proxy.protocol !== 'http:') {
+        rejectPromise(new Error('only http:// proxies are supported'));
+        return;
+      }
+      const proxyPort = Number(proxy.port || 80);
+      const target = new URL(String(input));
+      const headers = init?.headers as Record<string, string> | undefined;
+
+      if (target.protocol === 'http:') {
+        // Plain http: absolute-URI request through the proxy.
+        const req = httpRequest(
+          {
+            host: proxy.hostname,
+            port: proxyPort,
+            method: init?.method ?? 'GET',
+            path: target.toString(),
+            headers: { ...(headers ?? {}), host: target.host },
+            signal: init?.signal ?? undefined,
           },
-          body: Readable.toWeb(res) as unknown as ReadableStream<Uint8Array>,
-        } as unknown as Response);
-      },
-    );
-    req.on('error', rejectPromise);
-    req.end();
-  });
-}) as FetchFn;
+          (res) => resolvePromise(toFetchResponse(res)),
+        );
+        req.on('error', rejectPromise);
+        if (init?.body) req.write(init.body);
+        req.end();
+        return;
+      }
+
+      // https: CONNECT tunnel, then TLS over the established socket.
+      const targetPort = Number(target.port || 443);
+      const connectReq = httpRequest({
+        host: proxy.hostname,
+        port: proxyPort,
+        method: 'CONNECT',
+        path: `${target.hostname}:${targetPort}`,
+        signal: init?.signal ?? undefined,
+      });
+      connectReq.on('connect', (res, socket) => {
+        if (res.statusCode !== 200) {
+          socket.destroy();
+          rejectPromise(new Error(`proxy CONNECT failed: HTTP ${res.statusCode}`));
+          return;
+        }
+        // Explicit TLS over the established tunnel — https.request would
+        // otherwise open its own TCP connection (or send cleartext).
+        const tlsSocket = tlsConnect({ socket, servername: target.hostname });
+        tlsSocket.on('error', rejectPromise);
+        const req = httpsRequest(
+          {
+            host: target.hostname,
+            port: targetPort,
+            method: init?.method ?? 'GET',
+            path: target.pathname + target.search,
+            headers,
+            createConnection: () => tlsSocket,
+            signal: init?.signal ?? undefined,
+          },
+          (res2) => resolvePromise(toFetchResponse(res2)),
+        );
+        req.on('error', rejectPromise);
+        if (init?.body) req.write(init.body);
+        req.end();
+      });
+      connectReq.on('error', rejectPromise);
+      connectReq.end();
+    });
+  }) as FetchFn;
+}
 
 // ---------------------------------------------------------------------------
 // Capped, redirect-checked fetch
@@ -166,14 +304,30 @@ export type FetchPublicResult =
   | { ok: true; finalUrl: string; status: number; contentType: string; body: string; truncatedBody: boolean }
   | { ok: false; error: string };
 
-export async function fetchPublic(rawUrl: string, deps: WebDeps = {}): Promise<FetchPublicResult> {
-  // Default transport is the pinned client (connect-time address validation);
-  // tests inject a plain fetchFn and keep working unchanged.
-  const fetchFn = deps.fetchFn ?? pinnedFetch;
+export interface FetchPublicOpts {
+  method?: string;
+  body?: string;
+  headers?: Record<string, string>;
+  /** See GuardOpts.allowPrivate — user-configured bases (SearXNG) only. */
+  allowPrivate?: boolean;
+}
+
+export async function fetchPublic(rawUrl: string, deps: WebDeps = {}, opts: FetchPublicOpts = {}): Promise<FetchPublicResult> {
+  // Default transport: the user's proxy when configured (it resolves target
+  // DNS itself), else the pinned client (connect-time address validation) —
+  // or the unpinned one for user-configured private bases, where the guarded
+  // lookup would wrongly block a LAN hostname. Tests inject a plain fetchFn
+  // and keep working unchanged.
+  const viaProxy = !deps.fetchFn && !!deps.config?.proxyUrl;
+  const fetchFn = deps.fetchFn
+    ?? (viaProxy ? proxyFetch(deps.config!.proxyUrl!) : (opts.allowPrivate ? plainFetch : pinnedFetch));
   let url = rawUrl;
 
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
-    const guardErr = await guardPublicUrl(url, deps.lookupFn);
+    const guardErr = await guardPublicUrl(url, deps.lookupFn, {
+      skipDnsResolve: viaProxy,
+      allowPrivate: opts.allowPrivate,
+    });
     if (guardErr) return { ok: false, error: guardErr };
 
     if (deps.signal?.aborted) return { ok: false, error: 'fetch cancelled' };
@@ -183,11 +337,14 @@ export async function fetchPublic(rawUrl: string, deps: WebDeps = {}): Promise<F
     const timer = setTimeout(() => ctrl.abort(), FETCH_TIMEOUT_MS);
     try {
       const res = await fetchFn(url, {
+        method: opts.method ?? 'GET',
+        body: opts.body,
         redirect: 'manual',
         signal: ctrl.signal,
         headers: {
           'user-agent': 'ue-mat-workflow-agent/1.0 (+local material viewer)',
           accept: 'text/html,application/json;q=0.9,text/plain;q=0.8,*/*;q=0.5',
+          ...(opts.headers ?? {}),
         },
       });
 
@@ -259,6 +416,14 @@ export function htmlToText(html: string): string {
   s = s.replace(/<style[\s\S]*?<\/style>/gi, ' ');
   s = s.replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ');
   s = s.replace(/<!--[\s\S]*?-->/g, ' ');
+  // Boilerplate blocks (site nav, footers, sidebars, embeds) are token noise
+  // for the model \u2014 drop them wholesale. <header> is kept: article headers
+  // often wrap the page title. Lazy match is a heuristic: nested same-name
+  // tags lose the tail, which is acceptable for chrome regions.
+  s = s.replace(/<(nav|footer|aside|form|svg|iframe)[\s\S]*?<\/\1>/gi, ' ');
+  // Headings/list items become markdown-ish markers so structure survives.
+  s = s.replace(/<h([1-6])[^>]*>/gi, (_, n: string) => `\n${'#'.repeat(Number(n))} `);
+  s = s.replace(/<li[^>]*>/gi, '\n- ');
   // Block-level closers become line breaks so structure survives the strip.
   s = s.replace(/<\/(p|div|li|tr|h[1-6]|section|article|blockquote|pre)>/gi, '\n');
   s = s.replace(/<(br|hr)\s*\/?>/gi, '\n');
@@ -332,16 +497,161 @@ function resolveDdgRedirect(href: string): string | null {
   return null;
 }
 
-export async function webSearch(query: string, deps: WebDeps = {}): Promise<
-  { ok: true; results: SearchHit[] } | { ok: false; error: string }
-> {
-  const url = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-  const r = await fetchPublic(url, deps);
-  if (!r.ok) return r;
-  if (r.status !== 200) return { ok: false, error: `search endpoint returned HTTP ${r.status}` };
-  const results = parseDuckDuckGoHtml(r.body);
+/**
+ * Parse lite.duckduckgo.com/lite results (table layout: result-link anchors,
+ * result-snippet cells). The fallback endpoint when the html one is blocked
+ * or changes layout.
+ */
+export function parseDuckDuckGoLite(html: string): SearchHit[] {
+  const hits: SearchHit[] = [];
+  const anchorRe = /class=['"]result-link['"][^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>|href="([^"]+)"[^>]*class=['"]result-link['"][^>]*>([\s\S]*?)<\/a>/g;
+  const snippetRe = /class=['"]result-snippet['"][^>]*>([\s\S]*?)<\/td>/g;
+  const snippets: string[] = [];
+  for (let m = snippetRe.exec(html); m; m = snippetRe.exec(html)) {
+    snippets.push(htmlToText(m[1]));
+  }
+  let i = 0;
+  for (let m = anchorRe.exec(html); m && hits.length < SEARCH_RESULT_CAP; m = anchorRe.exec(html), i++) {
+    const url = resolveDdgRedirect(decodeEntities(m[1] ?? m[3]));
+    if (!url) continue;
+    hits.push({ title: htmlToText(m[2] ?? m[4]), url, snippet: snippets[i] ?? '' });
+  }
+  return hits;
+}
+
+export type WebSearchResult =
+  | { ok: true; backend: string; results: SearchHit[]; note?: string }
+  | { ok: false; error: string };
+
+const clip = (s: string): string => (s.length > SNIPPET_CAP ? `${s.slice(0, SNIPPET_CAP)}…` : s);
+
+// DDG's html/lite endpoints bot-detect aggressively: a distinctive tool UA gets
+// flagged after a couple of requests and every call then returns an HTTP 202
+// challenge page. A mainstream browser UA raises that threshold considerably.
+const DDG_HEADERS = {
+  'user-agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'accept-language': 'en-US,en;q=0.9,zh-TW;q=0.8',
+};
+
+const DDG_RATE_LIMITED =
+  'DuckDuckGo 偵測到自動化流量，暫時拒絕服務（HTTP 202）。請過幾分鐘再試；' +
+  '常用建議：到 Config → AI 助手配置 Tavily／Brave／SearXNG 搜尋後端，比 DDG 爬取穩定得多。';
+
+async function searchDuckDuckGo(query: string, deps: WebDeps): Promise<WebSearchResult> {
+  const r = await fetchPublic(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`, deps, { headers: DDG_HEADERS });
+  if (r.ok && r.status === 200) {
+    const results = parseDuckDuckGoHtml(r.body);
+    if (results.length > 0) return { ok: true, backend: 'duckduckgo', results };
+  }
+  // html endpoint failed / rate-limited / layout changed → try the lite endpoint.
+  const r2 = await fetchPublic(`https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`, deps, { headers: DDG_HEADERS });
+  if (!r2.ok) return { ok: false, error: r.ok ? r2.error : `${(r as { error: string }).error}; lite fallback: ${r2.error}` };
+  if (r2.status !== 200) {
+    if (r2.status === 202 || (r.ok && r.status === 202)) return { ok: false, error: DDG_RATE_LIMITED };
+    return { ok: false, error: `search endpoints returned HTTP ${r.ok ? r.status : '?'} / ${r2.status} — DuckDuckGo 可能暫時限流，稍後再試` };
+  }
+  const results = parseDuckDuckGoLite(r2.body);
   if (results.length === 0) {
+    // A 200 challenge page also parses to zero results — distinguish the
+    // anomaly page (the html endpoint already said 202) from a true no-hit.
+    if (r.ok && r.status === 202) return { ok: false, error: DDG_RATE_LIMITED };
     return { ok: false, error: 'no results parsed — the query found nothing or the search page layout changed' };
   }
-  return { ok: true, results };
+  return { ok: true, backend: 'duckduckgo-lite', results };
+}
+
+async function searchTavily(query: string, deps: WebDeps): Promise<WebSearchResult> {
+  const key = deps.config?.tavilyApiKey;
+  if (!key) return { ok: false, error: 'tavily: API key not configured（Config 分頁 → 網路搜尋）' };
+  const r = await fetchPublic('https://api.tavily.com/search', deps, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
+    // api_key in the body keeps older API versions working alongside the Bearer header.
+    body: JSON.stringify({ api_key: key, query, max_results: SEARCH_RESULT_CAP }),
+  });
+  if (!r.ok) return r;
+  if (r.status !== 200) return { ok: false, error: `tavily returned HTTP ${r.status}: ${r.body.slice(0, 200)}` };
+  try {
+    const json = JSON.parse(r.body) as { results?: Array<{ title?: string; url?: string; content?: string }> };
+    const results = (json.results ?? [])
+      .filter(x => typeof x.url === 'string')
+      .slice(0, SEARCH_RESULT_CAP)
+      .map(x => ({ title: x.title ?? '', url: x.url!, snippet: clip(x.content ?? '') }));
+    if (results.length === 0) return { ok: false, error: 'tavily: no results' };
+    return { ok: true, backend: 'tavily', results };
+  } catch {
+    return { ok: false, error: 'tavily: unparseable response' };
+  }
+}
+
+async function searchBrave(query: string, deps: WebDeps): Promise<WebSearchResult> {
+  const key = deps.config?.braveApiKey;
+  if (!key) return { ok: false, error: 'brave: API key not configured（Config 分頁 → 網路搜尋）' };
+  const url = `https://api.search.brave.com/res/v1/web/search?q=${encodeURIComponent(query)}&count=${SEARCH_RESULT_CAP}`;
+  const r = await fetchPublic(url, deps, {
+    headers: { accept: 'application/json', 'x-subscription-token': key },
+  });
+  if (!r.ok) return r;
+  if (r.status !== 200) return { ok: false, error: `brave returned HTTP ${r.status}: ${r.body.slice(0, 200)}` };
+  try {
+    const json = JSON.parse(r.body) as { web?: { results?: Array<{ title?: string; url?: string; description?: string }> } };
+    const results = (json.web?.results ?? [])
+      .filter(x => typeof x.url === 'string')
+      .slice(0, SEARCH_RESULT_CAP)
+      .map(x => ({ title: htmlToText(x.title ?? ''), url: x.url!, snippet: clip(htmlToText(x.description ?? '')) }));
+    if (results.length === 0) return { ok: false, error: 'brave: no results' };
+    return { ok: true, backend: 'brave', results };
+  } catch {
+    return { ok: false, error: 'brave: unparseable response' };
+  }
+}
+
+async function searchSearxng(query: string, deps: WebDeps): Promise<WebSearchResult> {
+  const base = deps.config?.searxngBaseUrl?.replace(/\/+$/, '');
+  if (!base) return { ok: false, error: 'searxng: baseUrl not configured（Config 分頁 → 網路搜尋）' };
+  const url = `${base}/search?q=${encodeURIComponent(query)}&format=json`;
+  // The base is user configuration — a self-hosted instance on the LAN is the
+  // normal case, so the private-address guard is waived for this call.
+  const r = await fetchPublic(url, deps, { allowPrivate: true });
+  if (!r.ok) return r;
+  if (r.status === 403) return { ok: false, error: 'searxng returned 403 — 該實例未開放 JSON API（settings.yml 需啟用 formats: json）' };
+  if (r.status !== 200) return { ok: false, error: `searxng returned HTTP ${r.status}` };
+  try {
+    const json = JSON.parse(r.body) as { results?: Array<{ title?: string; url?: string; content?: string }> };
+    const results = (json.results ?? [])
+      .filter(x => typeof x.url === 'string')
+      .slice(0, SEARCH_RESULT_CAP)
+      .map(x => ({ title: x.title ?? '', url: x.url!, snippet: clip(x.content ?? '') }));
+    if (results.length === 0) return { ok: false, error: 'searxng: no results' };
+    return { ok: true, backend: 'searxng', results };
+  } catch {
+    return { ok: false, error: 'searxng: unparseable response（實例需開啟 JSON 格式）' };
+  }
+}
+
+/** 'auto' precedence: whichever key-based backend is configured wins; DDG is the zero-config floor. */
+function resolveBackend(cfg: WebSearchConfig | undefined): 'duckduckgo' | 'tavily' | 'brave' | 'searxng' {
+  if (cfg?.backend && cfg.backend !== 'auto') return cfg.backend;
+  if (cfg?.tavilyApiKey) return 'tavily';
+  if (cfg?.braveApiKey) return 'brave';
+  if (cfg?.searxngBaseUrl) return 'searxng';
+  return 'duckduckgo';
+}
+
+const BACKEND_FNS: Record<string, (q: string, d: WebDeps) => Promise<WebSearchResult>> = {
+  duckduckgo: searchDuckDuckGo,
+  tavily: searchTavily,
+  brave: searchBrave,
+  searxng: searchSearxng,
+};
+
+export async function webSearch(query: string, deps: WebDeps = {}): Promise<WebSearchResult> {
+  const backend = resolveBackend(deps.config);
+  const r = await BACKEND_FNS[backend](query, deps);
+  if (r.ok || backend === 'duckduckgo') return r;
+  // Configured backend failed (key revoked, quota, instance down…) — degrade
+  // to the zero-key default instead of leaving the model searchless, and say so.
+  const fb = await searchDuckDuckGo(query, deps);
+  if (fb.ok) return { ...fb, note: `${backend} 後端失敗（${r.error}），本次已改用 DuckDuckGo` };
+  return r; // the configured backend's error is the more actionable one
 }

@@ -58,6 +58,8 @@ const THINKING_LABELS: Record<AgentThinkingLevel, string> = {
   off: '關', low: '低', medium: '中', high: '高',
 };
 const THINKING_STORAGE_KEY = 'agent-thinking-level';
+/** 🌐 switch persistence — anything but 'off' means on (default on). */
+const WEB_SEARCH_STORAGE_KEY = 'agent-web-search';
 
 // ─── Quick commands (⚡ menu / slash input) ──────────────────────────────────
 
@@ -333,6 +335,11 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       return v === 'low' || v === 'medium' || v === 'high' ? v : 'off';
     } catch { return 'off'; }
   });
+  // 🌐 per-turn web-tools switch. Default ON: the prompt makes the model judge
+  // timeliness before answering. OFF removes web_search/web_fetch server-side.
+  const [webOn, setWebOn] = useState<boolean>(() => {
+    try { return localStorage.getItem(WEB_SEARCH_STORAGE_KEY) !== 'off'; } catch { return true; }
+  });
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -466,6 +473,14 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     try { localStorage.setItem(THINKING_STORAGE_KEY, v); } catch { /* private mode etc. */ }
   }, []);
 
+  const toggleWeb = useCallback(() => {
+    setWebOn(prev => {
+      const next = !prev;
+      try { localStorage.setItem(WEB_SEARCH_STORAGE_KEY, next ? 'on' : 'off'); } catch { /* private mode etc. */ }
+      return next;
+    });
+  }, []);
+
   // Abort any in-flight stream on real unmount (e.g. switching into snapshot
   // mode — the Sidebar keep-alive normally keeps this mounted): otherwise the
   // fetch keeps streaming and its handlers setState on an unmounted component.
@@ -550,6 +565,8 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           graphPath: currentPath ?? undefined,
           selectedNodeId: selectedNodeId ?? undefined,
           thinking: thinking !== 'off' ? thinking : undefined,
+          // Absent = on (the default); only the off state is sent explicitly.
+          webSearch: webOn ? undefined : false,
           sessionId: sid ?? undefined,
         },
         ac.signal,
@@ -588,7 +605,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       // deletion and re-add the dead session; the local filter already removed it).
       if (!sessionClosed) void fetchSessions();
     }
-  }, [streaming, currentPath, selectedNodeId, open, thinking, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
+  }, [streaming, currentPath, selectedNodeId, open, thinking, webOn, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
 
   // Agent-tab attention cue: pulse while streaming; if a reply finishes while
   // another tab is visible, leave a steady dot until the user opens the tab.
@@ -1038,18 +1055,33 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           )}
         </div>
         <div className="agent-input-hint">
-          <label className="agent-think" title="模型思考程度：越高越深思但越慢、越耗 token">
-            思考
-            <select
-              value={thinking}
+          <span className="agent-input-ctrls">
+            <label className="agent-think" title="模型思考程度：越高越深思但越慢、越耗 token">
+              思考
+              <select
+                className={thinking !== 'off' ? 'on' : ''}
+                value={thinking}
+                disabled={streaming}
+                onChange={e => changeThinking(e.target.value as AgentThinkingLevel)}
+              >
+                {(Object.keys(THINKING_LABELS) as AgentThinkingLevel[]).map(lv => (
+                  <option key={lv} value={lv}>{THINKING_LABELS[lv]}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className={'agent-web-toggle' + (webOn ? ' on' : '')}
               disabled={streaming}
-              onChange={e => changeThinking(e.target.value as AgentThinkingLevel)}
+              onClick={toggleWeb}
+              aria-pressed={webOn}
+              title={webOn
+                ? '聯網搜尋：開——回覆前自判是否需要查網路佐證。點擊關閉（agent 將完全不連網）'
+                : '聯網搜尋：關——web_search／web_fetch 已停用，agent 不會連網。點擊開啟'}
             >
-              {(Object.keys(THINKING_LABELS) as AgentThinkingLevel[]).map(lv => (
-                <option key={lv} value={lv}>{THINKING_LABELS[lv]}</option>
-              ))}
-            </select>
-          </label>
+              <Icon name="globe" size={11} /> 聯網搜尋：{webOn ? '開' : '關'}
+            </button>
+          </span>
           <span>Enter 送出 · Shift+Enter 換行</span>
           {streaming && <span className="responding">回應中…</span>}
         </div>

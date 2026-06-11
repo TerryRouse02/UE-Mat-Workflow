@@ -152,6 +152,9 @@ interface Ctx {
   saveAgentConfig(llm: {
     provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
     maxIters?: number; contextLimit?: number;
+  }, web?: {
+    searchBackend?: string; tavilyApiKey?: string; braveApiKey?: string;
+    searxngBaseUrl?: string; proxyUrl?: string;
   }): Promise<{ ok: boolean; error?: string }>;
   /** Pulse the given nodes on the canvas once the graph at path is open (agent diff highlight). */
   highlightNodes(path: string, ids: string[]): void;
@@ -284,12 +287,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const saveAgentConfig = useCallback(async (llm: {
     provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
     maxIters?: number; contextLimit?: number;
+  }, web?: {
+    searchBackend?: string; tavilyApiKey?: string; braveApiKey?: string;
+    searxngBaseUrl?: string; proxyUrl?: string;
   }) => {
     try {
       const r = await fetch('/api/config', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ Llm: llm }),
+        body: JSON.stringify(web ? { Llm: llm, Web: web } : { Llm: llm }),
       });
       if (!r.ok) {
         const e = (await r.json().catch(() => ({}))) as { error?: string };

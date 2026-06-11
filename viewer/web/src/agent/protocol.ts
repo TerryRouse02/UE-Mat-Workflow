@@ -39,11 +39,22 @@ export interface AgentChatRequest {
   selectedNodeId?: string;
   thinking?: AgentThinkingLevel;
   /**
+   * Per-turn 🌐 switch. Absent/true = web tools available (the prompt tells
+   * the model to self-check timeliness before answering); false = web_search/
+   * web_fetch removed from the tool list and refused at dispatch.
+   */
+  webSearch?: boolean;
+  /**
    * Persistent session to continue (M7). Absent → the server's current
    * session (created on demand). The web UI always sends an explicit id.
    */
   sessionId?: string;
 }
+
+/** Response from POST /api/agent/web-test — mirrored from server/agent/agent-types.ts */
+export type AgentWebTestResponse =
+  | { ok: true; backend: string; results: number }
+  | { ok: false; error: string };
 
 /**
  * Shape returned by GET /api/agent/status.
@@ -60,6 +71,15 @@ export interface ProviderStatus {
   maxIters?: number;
   /** Model context window in tokens (drives compaction + token ceiling). Absent → defaults. */
   contextLimit?: number;
+  // ── Web search settings (local.config.json `Web`) — keys are never echoed ──
+  /** Stored backend choice ('auto' when unset). */
+  webSearchBackend?: string;
+  hasTavilyKey?: boolean;
+  hasBraveKey?: boolean;
+  /** User-entered, not secret (like baseUrl). */
+  searxngBaseUrl?: string;
+  /** User-entered local proxy, not secret. */
+  webProxyUrl?: string;
 }
 
 /** Response from POST /api/agent/undo — mirrored from server/agent/agent-types.ts */

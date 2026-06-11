@@ -29,6 +29,12 @@ function memorySection(memory: PromptMemory | undefined): string {
   return out;
 }
 
+/** Per-turn toggles that change rule wording. */
+export interface PromptOpts {
+  /** 🌐 switch — false swaps the web-research rule for an offline notice. */
+  webTools?: boolean;
+}
+
 /**
  * Build the system prompt for the given session.
  * Reads agent-pack/SPEC.md at call time.
@@ -36,14 +42,25 @@ function memorySection(memory: PromptMemory | undefined): string {
  * @param repoRoot  absolute path to the repo root
  * @param ueVersion e.g. "5.7"
  * @param memory    optional two-layer memory content to inject (M7b)
+ * @param opts      per-turn toggles (web on/off)
  */
-export async function buildSystemPrompt(repoRoot: string, ueVersion: string, memory?: PromptMemory): Promise<string> {
+export async function buildSystemPrompt(repoRoot: string, ueVersion: string, memory?: PromptMemory, opts?: PromptOpts): Promise<string> {
   let spec: string;
   try {
     spec = await readFile(join(repoRoot, 'agent-pack', 'SPEC.md'), 'utf-8');
   } catch {
     spec = '(SPEC.md not found — proceed with caution)';
   }
+
+  const webOn = opts?.webTools !== false;
+  const webRule = webOn
+    ? `11. **回覆前自判要不要查網路**：涉及「可能比你的知識新」的內容——新版 UE 行為、
+   節點細節變動、版本差異、最新材質技法——**先 web_search 找來源、web_fetch 讀內文，
+   再下結論**；不要用過時知識自信作答。引用網路資訊時附上來源網址。
+   優先信任本地 node DB 與 SPEC，網路內容僅作補充參考；與本地 DB 衝突時以 DB 為準並說明。`
+    : `11. **聯網已關閉**：使用者已關閉網路搜尋（輸入框旁的 🌐 開關）。不要呼叫
+   web_search／web_fetch。僅以本地 node DB、SPEC 與既有知識回答；可能過時或不確定的
+   內容要明確說「這部分可能需要查證，可開啟 🌐 後再問我」。`;
 
   return `你是一個友善、耐心的 UE 材質助手，專門幫助**完全不懂材質**的使用者設計 Unreal Engine 材質。
 
@@ -76,9 +93,7 @@ export async function buildSystemPrompt(repoRoot: string, ueVersion: string, mem
    絕不假設爬取已執行；使用者回報完成後再重新 search_mf。
 10. **做完材質、使用者想拿進 UE** → 用 export_to_clipboard 把圖複製到剪貼簿，
    並提醒使用者到 UE 材質編輯器按 Ctrl+V 貼上。圖必須先通過驗證。
-11. **知識不確定或可能過時**（新版 UE 行為、節點細節、材質技法）→ 先 web_search 找來源，
-   再 web_fetch 讀內文。引用網路資訊時附上來源網址。優先信任本地 node DB 與 SPEC，
-   網路內容僅作補充參考。
+${webRule}
 12. **rename_graph / delete_graph 是可還原的檔案管理**：刪除非本次對話建立的檔案前，
    必須先向使用者確認；rename 不會自動改寫其他圖的相對引用，改名 MF 後要自己檢查並修補引用。
 13. **建立 vs 修改，嚴格分流**：使用者說「建立／做一個／新增／幫我做」→ 一律建立**新的**

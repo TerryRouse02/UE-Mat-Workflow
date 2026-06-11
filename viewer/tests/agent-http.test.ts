@@ -8,6 +8,7 @@ import { describe, it, expect, afterEach } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, symlinkSync } from 'node:fs';
 import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { createServer as createHttpServer } from 'node:http';
 import { resolve, join, dirname } from 'node:path';
 import { startServer } from '../server/http-server.js';
 import type { Provider, StreamEvent, ChatRequest, LLMConfig } from '../server/agent/provider/types.js';
@@ -1740,4 +1741,114 @@ describe('off-topic fence — session closed and deleted on the 3rd strike', () 
       await server.close();
     }
   }, 15000);
+});
+
+// ---------------------------------------------------------------------------
+// Web search config (POST /api/config Web section) + /api/agent/web-test + 🌐
+// ---------------------------------------------------------------------------
+
+describe('Web config + web-test endpoint', () => {
+  it('round-trips the Web section, reports it in status (keys never echoed), rejects bad proxy', async () => {
+    const root = makeTmpRoot();
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    try {
+      const save = await fetch(`http://localhost:${server.port}/api/config`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ Web: { searchBackend: 'tavily', tavilyApiKey: 'tvly-secret', proxyUrl: 'http://127.0.0.1:7890' } }),
+      });
+      expect(save.status).toBe(200);
+      expect(JSON.stringify(await save.json())).not.toContain('tvly-secret');
+
+      const stored = JSON.parse(readFileSync(resolve(root, 'tools', 'node-t3d-metadata', 'local.config.json'), 'utf-8'));
+      expect(stored.Web.searchBackend).toBe('tavily');
+      expect(stored.Web.tavilyApiKey).toBe('tvly-secret');
+
+      const status = await (await fetch(`http://localhost:${server.port}/api/agent/status`)).json() as Record<string, unknown>;
+      expect(status.webSearchBackend).toBe('tavily');
+      expect(status.hasTavilyKey).toBe(true);
+      expect(status.webProxyUrl).toBe('http://127.0.0.1:7890');
+      expect(JSON.stringify(status)).not.toContain('tvly-secret');
+
+      // Empty string clears the key; 'auto' clears the backend choice.
+      await fetch(`http://localhost:${server.port}/api/config`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ Web: { searchBackend: 'auto', tavilyApiKey: '' } }),
+      });
+      const stored2 = JSON.parse(readFileSync(resolve(root, 'tools', 'node-t3d-metadata', 'local.config.json'), 'utf-8'));
+      expect(stored2.Web?.tavilyApiKey).toBeUndefined();
+      expect(stored2.Web?.searchBackend).toBeUndefined();
+
+      const bad = await fetch(`http://localhost:${server.port}/api/config`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ Web: { proxyUrl: 'socks5://127.0.0.1:1080' } }),
+      });
+      expect(bad.status).toBe(400);
+    } finally {
+      await server.close();
+    }
+  }, 10000);
+
+  it('POST /api/agent/web-test runs a real search against the configured backend', async () => {
+    // Local SearXNG stand-in — a user-configured loopback base is the allowed-private case.
+    const searx = createHttpServer((req, res) => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ results: [{ title: 'Hit', url: 'https://e.com/x', content: 'snippet' }] }));
+    });
+    await new Promise<void>(r => searx.listen(0, '127.0.0.1', () => r()));
+    const sport = (searx.address() as { port: number }).port;
+
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Web: { searchBackend: 'searxng', searxngBaseUrl: `http://127.0.0.1:${sport}` } });
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    try {
+      const r = await fetch(`http://localhost:${server.port}/api/agent/web-test`, { method: 'POST' });
+      expect(r.status).toBe(200);
+      const body = await r.json() as { ok: boolean; backend?: string; results?: number };
+      expect(body.ok).toBe(true);
+      expect(body.backend).toBe('searxng');
+      expect(body.results).toBe(1);
+    } finally {
+      await server.close();
+      await new Promise(r => searx.close(() => r(null)));
+    }
+  }, 10000);
+});
+
+describe('🌐 chat switch (AgentChatRequest.webSearch)', () => {
+  it('webSearch:false strips the web tools from the provider request; default keeps them', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test', apiKey: 'sk-x' } });
+
+    const seenTools: string[][] = [];
+    const capturing: Provider = {
+      async *stream(req: ChatRequest) {
+        seenTools.push((req.tools ?? []).map(t => t.name));
+        yield { type: 'text_delta', text: 'ok' } as StreamEvent;
+        yield { type: 'done', stopReason: 'end' } as StreamEvent;
+      },
+    };
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: () => capturing });
+    try {
+      const chat = async (body: Record<string, unknown>) => {
+        const r = await fetch(`http://localhost:${server.port}/api/agent/chat`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        expect(r.status).toBe(200);
+        await parseSseResponse(r);
+      };
+      await chat({ text: '查資料', webSearch: false });
+      expect(seenTools[0]).not.toContain('web_search');
+      expect(seenTools[0]).not.toContain('web_fetch');
+
+      await chat({ text: '再查一次' });
+      expect(seenTools[1]).toContain('web_search');
+    } finally {
+      await server.close();
+    }
+  }, 10000);
 });

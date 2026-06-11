@@ -181,7 +181,16 @@ export interface RunAgentOptions {
   compactThreshold?: number;
   /** Override COMPACT_KEEP_TURNS. */
   compactKeepTurns?: number;
+  /**
+   * Per-turn 🌐 switch (AgentChatRequest.webSearch; absent = true). false
+   * removes web_search/web_fetch from the tool list the provider sees AND
+   * refuses any stray call at dispatch — the model cannot reach the public
+   * web this turn.
+   */
+  webToolsEnabled?: boolean;
 }
+
+const WEB_TOOL_NAMES = new Set(['web_search', 'web_fetch']);
 
 export async function runAgent(
   userText: string,
@@ -201,6 +210,8 @@ export async function runAgent(
     : (options?.maxIters ?? MAX_ITERS);
   const tokenCeiling = options?.tokenCeiling ?? TOKEN_CEILING;
   const maxTokens = options?.maxTokens ?? 8192;
+  const webEnabled = options?.webToolsEnabled !== false;
+  const turnToolDefs = webEnabled ? toolDefs : toolDefs.filter(t => !WEB_TOOL_NAMES.has(t.name));
 
   // Compaction runs BEFORE the memory read so the freshly-written summary is
   // part of this turn's system prompt.
@@ -216,7 +227,7 @@ export async function runAgent(
   const memory = ctx.memory
     ? { longterm: await ctx.memory.read('longterm'), session: await ctx.memory.read('session') }
     : undefined;
-  const system = await buildSystemPrompt(ctx.repoRoot, session.ueVersion, memory);
+  const system = await buildSystemPrompt(ctx.repoRoot, session.ueVersion, memory, { webTools: webEnabled });
 
   // Append the new user message. If the previous turn ended with tool_results
   // (iter/cost ceiling or abort), the last message is already user-role —
@@ -284,7 +295,7 @@ export async function runAgent(
       model,
       messages: session.messages,
       system,
-      tools: toolDefs,
+      tools: turnToolDefs,
       maxTokens,
       thinking: options?.thinking,
       signal,
@@ -383,7 +394,11 @@ export async function runAgent(
           })()
         : call.name === 'report_off_topic'
           ? offTopicStrike(session)
-          : await dispatchTool(call.name, call.input, turnCtx);
+          : (!webEnabled && WEB_TOOL_NAMES.has(call.name))
+            // The tool was not offered this turn — a stray call (hallucinated
+            // or replayed from history) must not reach the network.
+            ? { content: '聯網功能已由使用者關閉（輸入框旁的 🌐 開關）。請基於本地節點 DB 與既有知識回答，不確定的部分明確說明。', isError: true }
+            : await dispatchTool(call.name, call.input, turnCtx);
 
       if (call.name === 'report_off_topic' && session.offTopicStrikes >= OFF_TOPIC_LIMIT) {
         offTopicClosed = true;

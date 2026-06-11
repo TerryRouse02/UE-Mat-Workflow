@@ -1860,3 +1860,53 @@ describe('off-topic fence (report_off_topic)', () => {
     expect(session.offTopicStrikes).toBe(0);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 🌐 webToolsEnabled — false removes web tools from the provider's view AND
+// refuses stray calls at dispatch.
+// ---------------------------------------------------------------------------
+
+describe('web tools switch (webToolsEnabled)', () => {
+  class CapturingProvider extends FakeProvider {
+    toolNames: string[] = [];
+    systems: string[] = [];
+    override stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
+      this.toolNames = (req.tools ?? []).map(t => t.name);
+      if (req.system) this.systems.push(req.system);
+      return super.stream(req);
+    }
+  }
+
+  it('default: web tools offered; prompt carries the self-check duty', async () => {
+    const provider = new CapturingProvider([
+      [{ type: 'text_delta', text: 'ok' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    await runAndCollect('你好', session, provider, ctx);
+    expect(provider.toolNames).toContain('web_search');
+    expect(provider.toolNames).toContain('web_fetch');
+    expect(provider.systems[0]).toContain('回覆前自判要不要查網路');
+  });
+
+  it('off: tools filtered, prompt swapped, stray call refused without network', async () => {
+    const provider = new CapturingProvider([
+      [
+        { type: 'tool_use', id: 'w1', name: 'web_search', input: { query: 'ue' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [{ type: 'text_delta', text: '了解。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const events = await runAndCollect('查一下', session, provider, ctx, undefined, { webToolsEnabled: false });
+
+    expect(provider.toolNames).not.toContain('web_search');
+    expect(provider.toolNames).not.toContain('web_fetch');
+    expect(provider.toolNames).toContain('search_nodes');
+    expect(provider.systems[0]).toContain('聯網已關閉');
+
+    // The stray call got an explanatory error tool_result, loop continued.
+    const lastToolResultMsg = session.messages.filter(m => m.role === 'user' && m.content.some(b => b.type === 'tool_result')).at(-1);
+    const tr = lastToolResultMsg?.content.find(b => b.type === 'tool_result') as { content: string; isError?: boolean };
+    expect(tr.isError).toBe(true);
+    expect(tr.content).toContain('聯網功能已由使用者關閉');
+    expect(events.at(-1)?.type).toBe('done');
+  });
+});

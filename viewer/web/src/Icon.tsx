@@ -5,7 +5,7 @@ export type IconName =
   | 'plus' | 'minus' | 'frame' | 'refresh' | 'settings' | 'check' | 'warn' | 'x'
   | 'bolt' | 'clip' | 'download' | 'upload' | 'layers' | 'clock' | 'chip'
   | 'zoomfit' | 'link' | 'hash' | 'branch' | 'eye' | 'history' | 'more'
-  | 'send' | 'stop';
+  | 'send' | 'stop' | 'globe';
 
 const ICONS: Record<IconName, React.ReactNode> = {
   dot: <circle cx="12" cy="12" r="3" />,
@@ -39,6 +39,7 @@ const ICONS: Record<IconName, React.ReactNode> = {
   more: <><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></>,
   send: <path d="M12 19V5M5 12l7-7 7 7" />,
   stop: <rect x="6" y="6" width="12" height="12" rx="2" />,
+  globe: <><circle cx="12" cy="12" r="9" /><path d="M3 12h18" /><path d="M12 3a14 14 0 0 1 0 18 14 14 0 0 1 0-18z" /></>,
 };
 
 export function Icon({

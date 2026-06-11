@@ -20,7 +20,8 @@ import { runAgent, createSession, estimateMessagesTokens, VIEW_CONTEXT_PREFIX, t
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
-import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentRegenerateResponse, AgentTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse, AgentDbEditRequest, AgentDbEditResponse } from './agent/agent-types.js';
+import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentRegenerateResponse, AgentTestResponse, AgentWebTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse, AgentDbEditRequest, AgentDbEditResponse } from './agent/agent-types.js';
+import { webSearch, type WebSearchConfig } from './agent/web-tools.js';
 import { applyDbEdit } from './agent/db-edit.js';
 import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/session-store.js';
 import { createMemoryStore } from './agent/memory-store.js';
@@ -439,6 +440,59 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       } catch (e) { sendJson(res, 400, { error: (e as Error).message }); return; }
     }
 
+    // ── Web extension (search backend / API keys / proxy) ──────────────────────
+    // Same merge contract as Llm: keys clear on explicit empty string, absent
+    // fields keep the stored value, and nothing is ever echoed back.
+    const bodyWeb = (body as Record<string, unknown>).Web;
+    if (bodyWeb !== undefined && bodyWeb !== null && typeof bodyWeb === 'object') {
+      const webIn = bodyWeb as Record<string, unknown>;
+      try {
+        const prevWeb = existing.Web;
+        const webConfig: Record<string, unknown> =
+          prevWeb && typeof prevWeb === 'object' ? { ...(prevWeb as Record<string, unknown>) } : {};
+
+        if (webIn.searchBackend !== undefined) {
+          const v = cleanConfigField(webIn.searchBackend) ?? '';
+          if (v === '' || v === 'auto') delete webConfig.searchBackend;
+          else if (['duckduckgo', 'tavily', 'brave', 'searxng'].includes(v)) webConfig.searchBackend = v;
+          else throw new Error('Web.searchBackend must be auto/duckduckgo/tavily/brave/searxng');
+        }
+        for (const keyField of ['tavilyApiKey', 'braveApiKey'] as const) {
+          if (keyField in webIn) {
+            if (webIn[keyField] === '' || webIn[keyField] === null) delete webConfig[keyField];
+            else {
+              const v = cleanConfigField(webIn[keyField]);
+              if (v !== null) webConfig[keyField] = v;
+            }
+          }
+        }
+        if (webIn.searxngBaseUrl !== undefined) {
+          const v = cleanConfigField(webIn.searxngBaseUrl) ?? '';
+          if (v === '') delete webConfig.searxngBaseUrl;
+          else {
+            const u = new URL(v); // throws on garbage
+            if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error('Web.searxngBaseUrl must be http(s)');
+            webConfig.searxngBaseUrl = v;
+          }
+        }
+        if (webIn.proxyUrl !== undefined) {
+          const v = cleanConfigField(webIn.proxyUrl) ?? '';
+          if (v === '') delete webConfig.proxyUrl;
+          else {
+            const u = new URL(v);
+            if (u.protocol !== 'http:') throw new Error('Web.proxyUrl must be an http:// CONNECT proxy (e.g. http://127.0.0.1:7890)');
+            webConfig.proxyUrl = v;
+          }
+        }
+
+        if (Object.keys(webConfig).length > 0) merged.Web = webConfig;
+        else delete merged.Web;
+      } catch (e) {
+        sendJson(res, 400, { error: (e as Error).message.startsWith('Web.') ? (e as Error).message : `invalid Web config: ${(e as Error).message}` });
+        return;
+      }
+    }
+
     try {
       await mkdir(dirname(localConfigPath), { recursive: true });
       await writeFile(localConfigPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
@@ -546,6 +600,29 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }
 
+  /** Read the `Web` section (search backend / keys / proxy) fresh per request. */
+  async function readWebConfig(): Promise<WebSearchConfig | undefined> {
+    try {
+      const raw = JSON.parse(await readFile(localConfigPath, 'utf-8')) as Record<string, unknown>;
+      const w = raw.Web as Record<string, unknown> | undefined;
+      if (!w || typeof w !== 'object') return undefined;
+      const str = (v: unknown): string | undefined =>
+        typeof v === 'string' && v.trim() !== '' ? v.trim() : undefined;
+      const backend = str(w.searchBackend);
+      return {
+        backend: backend === 'auto' || backend === 'duckduckgo' || backend === 'tavily' || backend === 'brave' || backend === 'searxng'
+          ? backend
+          : undefined,
+        tavilyApiKey: str(w.tavilyApiKey),
+        braveApiKey: str(w.braveApiKey),
+        searxngBaseUrl: str(w.searxngBaseUrl),
+        proxyUrl: str(w.proxyUrl),
+      };
+    } catch {
+      return undefined;
+    }
+  }
+
   /** GET /api/agent/status — returns ProviderStatus (never contains apiKey). */
   async function handleAgentStatus(res: import('node:http').ServerResponse) {
     const config = await readLlmConfig();
@@ -560,7 +637,29 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           contextLimit: config.contextLimit,
         }
       : { configured: false };
+    const web = await readWebConfig();
+    if (web) {
+      status.webSearchBackend = web.backend ?? 'auto';
+      status.hasTavilyKey = web.tavilyApiKey !== undefined;
+      status.hasBraveKey = web.braveApiKey !== undefined;
+      status.searxngBaseUrl = web.searxngBaseUrl;
+      status.webProxyUrl = web.proxyUrl;
+    }
     sendJson(res, 200, status);
+  }
+
+  /** POST /api/agent/web-test — one real search with the SAVED Web config. */
+  async function handleAgentWebTest(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    const config = await readWebConfig();
+    try {
+      const r = await webSearch('Unreal Engine material editor', { config });
+      sendJson(res, 200, (r.ok
+        ? { ok: true, backend: r.backend, results: r.results.length }
+        : { ok: false, error: r.error }) satisfies AgentWebTestResponse);
+    } catch (e) {
+      sendJson(res, 200, { ok: false, error: (e as Error)?.message ?? 'unknown error' } satisfies AgentWebTestResponse);
+    }
   }
 
   /** Map raw provider/transport errors to actionable zh-TW guidance (key never echoed). */
@@ -1183,8 +1282,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       getCrawlLog: () => runner.lastLog(),
       viewport,
       sessionCreatedPaths: active.createdPaths,
-      // Lets web_fetch/web_search abort promptly when the user stops the turn.
-      web: { signal: ac.signal },
+      // signal lets web_fetch/web_search abort promptly on stop; config carries
+      // the user's search backend / proxy settings (read fresh per request).
+      web: { signal: ac.signal, config: await readWebConfig() },
     };
 
     // Allowlist the per-turn thinking level from the request body.
@@ -1211,6 +1311,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           // Context window drives both knobs: compact at half, hard-stop at the window.
           compactThreshold: llmConfig.contextLimit !== undefined ? Math.floor(llmConfig.contextLimit / 2) : undefined,
           tokenCeiling: llmConfig.contextLimit,
+          // 🌐 switch: absent = on (the loop removes the web tools when false).
+          webToolsEnabled: body.webSearch !== false,
         },
       );
     } catch (e) {
@@ -1347,6 +1449,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'POST' && urlPath === '/api/agent/test') {
       try { await handleAgentTest(req, res); }
       catch (e) { console.error('agent test handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/agent/web-test') {
+      try { await handleAgentWebTest(req, res); }
+      catch (e) { console.error('agent web-test handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/undo') {

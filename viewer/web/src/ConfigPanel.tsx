@@ -531,8 +531,21 @@ interface AiSectionProps {
   saveAgentConfig: (llm: {
     provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
     maxIters?: number; contextLimit?: number;
+  }, web?: {
+    searchBackend?: string; tavilyApiKey?: string; braveApiKey?: string;
+    searxngBaseUrl?: string; proxyUrl?: string;
   }) => Promise<{ ok: boolean; error?: string }>;
 }
+
+// web_search backend choices — 'auto' picks the first configured key backend,
+// DDG when none. Stored value '' (auto) clears the field server-side.
+const SEARCH_BACKEND_OPTIONS = [
+  { value: 'auto',       label: '自動（有金鑰用金鑰後端，否則 DuckDuckGo）' },
+  { value: 'duckduckgo', label: 'DuckDuckGo（免金鑰，品質一般）' },
+  { value: 'tavily',     label: 'Tavily（為 AI 設計，免費 1000 次/月）' },
+  { value: 'brave',      label: 'Brave Search（免費 2000 次/月）' },
+  { value: 'searxng',    label: 'SearXNG（自架/公共實例，填 Base URL）' },
+];
 
 // 最大迭代次數 choices — value is what gets stored (0 = unlimited).
 const MAX_ITERS_OPTIONS = [
@@ -561,11 +574,20 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
   const [maxTokens, setMaxTokens] = useState('');
   const [maxIters, setMaxIters] = useState('8');
   const [contextLimit, setContextLimit] = useState('');
+  // 網路搜尋 (Web section). API keys follow the apiKey contract: never
+  // pre-filled, empty = keep the stored key.
+  const [searchBackend, setSearchBackend] = useState('auto');
+  const [tavilyKey, setTavilyKey] = useState('');
+  const [braveKey, setBraveKey] = useState('');
+  const [searxngBaseUrl, setSearxngBaseUrl] = useState('');
+  const [proxyUrl, setProxyUrl] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [status, setStatus] = useState<ProviderStatus | null>(null);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
+  const [webTesting, setWebTesting] = useState(false);
+  const [webTestResult, setWebTestResult] = useState<{ ok: boolean; text: string } | null>(null);
 
   // Fetch current provider status on mount; seed the form from the saved config
   // ONCE so the user edits what is stored instead of a blank form (key excluded).
@@ -592,6 +614,12 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
             setContextLimit(String(s.contextLimit));
           }
         }
+        // Web fields seed independently of Llm (the effect runs once on mount).
+        if (s.webSearchBackend && SEARCH_BACKEND_OPTIONS.some(o => o.value === s.webSearchBackend)) {
+          setSearchBackend(s.webSearchBackend);
+        }
+        setSearxngBaseUrl(v => v || (s.searxngBaseUrl ?? ''));
+        setProxyUrl(v => v || (s.webProxyUrl ?? ''));
       } catch { /* ignore */ }
     })();
   }, []);
@@ -619,11 +647,22 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
     const mt = parseInt(maxTokens.trim(), 10);
     if (!isNaN(mt) && mt > 0) llm.maxTokens = mt;
 
-    const r = await saveAgentConfig(llm);
+    // Web section: backend/URLs always sent (empty clears); keys only when typed.
+    const web: { searchBackend?: string; tavilyApiKey?: string; braveApiKey?: string; searxngBaseUrl?: string; proxyUrl?: string } = {
+      searchBackend,
+      searxngBaseUrl: searxngBaseUrl.trim(),
+      proxyUrl: proxyUrl.trim(),
+    };
+    if (tavilyKey) web.tavilyApiKey = tavilyKey;
+    if (braveKey) web.braveApiKey = braveKey;
+
+    const r = await saveAgentConfig(llm, web);
     setSaving(false);
     if (r.ok) {
       setMsg({ ok: true, text: '已儲存 AI 助手設定。' });
       setApiKey(''); // Clear after save to avoid accidental re-submission.
+      setTavilyKey('');
+      setBraveKey('');
       // Refresh status after save.
       try {
         const s = await fetch('/api/agent/status', { cache: 'no-store' });
@@ -631,6 +670,26 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
       } catch { /* ignore */ }
     } else {
       setMsg({ ok: false, text: r.error ?? '儲存失敗' });
+    }
+  };
+
+  const onWebTest = async () => {
+    setWebTesting(true);
+    setWebTestResult(null);
+    try {
+      const r = await fetch('/api/agent/web-test', { method: 'POST', cache: 'no-store' });
+      if (!r.ok) {
+        setWebTestResult({ ok: false, text: `測試請求失敗（HTTP ${r.status}）` });
+        return;
+      }
+      const body = await r.json() as import('./agent/protocol').AgentWebTestResponse;
+      setWebTestResult(body.ok
+        ? { ok: true, text: `搜尋正常 — ${body.backend} 回傳 ${body.results} 筆結果` }
+        : { ok: false, text: body.error });
+    } catch {
+      setWebTestResult({ ok: false, text: '測試請求失敗' });
+    } finally {
+      setWebTesting(false);
     }
   };
 
@@ -688,6 +747,18 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
               <div className="ai-row">
                 <span className="k">上下文</span>
                 <span className="v">{status.contextLimit >= 1_000_000 ? `${status.contextLimit / 1_000_000}M` : `${Math.round(status.contextLimit / 1000)}K`} tokens</span>
+              </div>
+            )}
+            {status.webSearchBackend && (
+              <div className="ai-row">
+                <span className="k">搜尋後端</span>
+                <span className="v">
+                  {status.webSearchBackend}
+                  {status.hasTavilyKey ? ' · tavily✓' : ''}
+                  {status.hasBraveKey ? ' · brave✓' : ''}
+                  {status.searxngBaseUrl ? ' · searxng✓' : ''}
+                  {status.webProxyUrl ? ' · 代理✓' : ''}
+                </span>
               </div>
             )}
             <div className="ai-test-row">
@@ -801,6 +872,93 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
             ))}
           </select>
         </div>
+      </div>
+
+      {/* ── 網路搜尋（web_search 後端 / 代理）── */}
+      <div className="field">
+        <label>
+          搜尋後端{' '}
+          <span style={{ color: 'var(--text-mute)' }}>— agent 查網路時用的搜尋服務</span>
+        </label>
+        <div className="inp">
+          <select value={searchBackend} onChange={e => setSearchBackend(e.target.value)}>
+            {SEARCH_BACKEND_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {(searchBackend === 'auto' || searchBackend === 'tavily') && (
+        <div className="field">
+          <label>Tavily API Key <span style={{ color: 'var(--text-mute)' }}>— tavily.com 免費註冊；不填保留現有金鑰</span></label>
+          <div className="inp">
+            <input
+              type="password"
+              value={tavilyKey}
+              onChange={e => setTavilyKey(e.target.value)}
+              autoComplete="off"
+              placeholder={status?.hasTavilyKey ? '已儲存（不填保留）' : 'tvly-…'}
+            />
+          </div>
+        </div>
+      )}
+
+      {(searchBackend === 'auto' || searchBackend === 'brave') && (
+        <div className="field">
+          <label>Brave API Key <span style={{ color: 'var(--text-mute)' }}>— brave.com/search/api；不填保留現有金鑰</span></label>
+          <div className="inp">
+            <input
+              type="password"
+              value={braveKey}
+              onChange={e => setBraveKey(e.target.value)}
+              autoComplete="off"
+              placeholder={status?.hasBraveKey ? '已儲存（不填保留）' : 'BSA…'}
+            />
+          </div>
+        </div>
+      )}
+
+      {(searchBackend === 'auto' || searchBackend === 'searxng') && (
+        <div className="field">
+          <label>SearXNG Base URL <span style={{ color: 'var(--text-mute)' }}>— 自架或可達的實例（需開放 JSON API）</span></label>
+          <div className="inp">
+            <input
+              value={searxngBaseUrl}
+              onChange={e => setSearxngBaseUrl(e.target.value)}
+              spellCheck={false}
+              placeholder="http://192.168.1.10:8888"
+            />
+          </div>
+        </div>
+      )}
+
+      <div className="field">
+        <label>網路代理 <span style={{ color: 'var(--text-mute)' }}>— 選填；web 工具走此 http 代理（如 Clash 本機埠）</span></label>
+        <div className="inp">
+          <input
+            value={proxyUrl}
+            onChange={e => setProxyUrl(e.target.value)}
+            spellCheck={false}
+            placeholder="http://127.0.0.1:7890"
+          />
+        </div>
+      </div>
+
+      <div className="ai-test-row">
+        <button
+          className="btn sm"
+          disabled={webTesting}
+          onClick={() => void onWebTest()}
+          title="以「已儲存」的搜尋設定實際搜一次——改動後請先儲存再測試"
+        >
+          {webTesting
+            ? <><Icon name="refresh" size={12} className="spin" /> 搜尋中…</>
+            : <><Icon name="globe" size={12} /> 測試搜尋</>}
+        </button>
+        {webTestResult && (
+          <span className={'ai-test-result ' + (webTestResult.ok ? 'ok' : 'err')}>{webTestResult.text}</span>
+        )}
       </div>
 
       <button
