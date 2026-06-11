@@ -169,6 +169,22 @@ describe('write_graph', () => {
     expect(calls[0]).toMatch(/test_mat\.matgraph\.json$/);
     expect(calls[0]).toMatch(/graphs/);
   });
+
+  it('reports changedNodeIds: all ids on a fresh file, only the differing ones on overwrite', async () => {
+    const path = 'hl/fresh.matgraph.json';
+    const r1 = await dispatchTool('write_graph', { path, graph: VALID_GRAPH }, ctx);
+    expect(JSON.parse(r1.content).changedNodeIds.sort()).toEqual(['OUT', 'mul', 'tex']);
+
+    // Overwrite with one param changed on `tex` — mul/OUT are identical.
+    const modified = {
+      ...VALID_GRAPH,
+      nodes: VALID_GRAPH.nodes.map(n =>
+        n.id === 'tex' ? { ...n, params: { ...n.params, ParameterName: 'AlbedoMap' } } : n,
+      ),
+    };
+    const r2 = await dispatchTool('write_graph', { path, graph: modified }, ctx);
+    expect(JSON.parse(r2.content).changedNodeIds).toEqual(['tex']);
+  });
 });
 
 // ---------------------------------------------------------------------------

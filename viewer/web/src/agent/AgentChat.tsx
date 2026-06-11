@@ -117,6 +117,14 @@ function NoticeItem({ item }: { item: NoticeLine }) {
 /** Collapsible reasoning card — live 思考中… while streaming, 思考過程 after. */
 function ThinkingView({ item, live, onToggle }: { item: ThinkingItem; live: boolean; onToggle: () => void }) {
   const open = !item.collapsed;
+  // While streaming, keep the inner scroller pinned to the newest text — the
+  // box is height-capped (max-height) so without this the tail streams out
+  // of view. Once live ends the user scrolls freely.
+  const textRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = textRef.current;
+    if (live && open && el) el.scrollTop = el.scrollHeight;
+  }, [item.text, live, open]);
   return (
     <div className={'agent-thinking agent-item' + (open ? ' open' : '')}>
       <button type="button" className="agent-thinking-head" onClick={onToggle}>
@@ -125,7 +133,7 @@ function ThinkingView({ item, live, onToggle }: { item: ThinkingItem; live: bool
           ? <><Icon name="refresh" size={11} className="spin" /><span className="live">思考中…</span></>
           : <><Icon name="bolt" size={11} /><span>思考過程 · {item.text.length} 字</span></>}
       </button>
-      {open && <div className="agent-thinking-text">{item.text}</div>}
+      {open && <div className="agent-thinking-text" ref={textRef}>{item.text}</div>}
     </div>
   );
 }
@@ -158,7 +166,7 @@ export interface AgentChatProps {
 }
 
 export function AgentChat({ onGotoConfig }: AgentChatProps) {
-  const { state, open } = useStore();
+  const { state, open, highlightNodes } = useStore();
   const { connection, currentPath } = state;
 
   const [status, setStatus] = useState<ProviderStatus | null>(null);
@@ -382,7 +390,10 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
         ac.signal,
       )) {
         // Side effects stay here; item building lives in the shared reducer.
-        if (event.type === 'graph_written') open(event.path);
+        if (event.type === 'graph_written') {
+          open(event.path);
+          if (event.changedNodeIds?.length) highlightNodes(event.path, event.changedNodeIds);
+        }
         if (event.type === 'usage') setUsage(prev => accumulateUsage(prev, event));
         setItems(prev => applyAgentEvent(prev, event, flags));
       }
@@ -399,7 +410,7 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
       // Refresh titles/timestamps after the turn lands on disk.
       void fetchSessions();
     }
-  }, [streaming, currentPath, open, thinking, sessionId, fetchSessions]);
+  }, [streaming, currentPath, open, thinking, sessionId, fetchSessions, highlightNodes]);
 
   // Hidden in snapshot mode.
   if (connection === 'snapshot') return null;

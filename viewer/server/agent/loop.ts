@@ -305,17 +305,21 @@ export async function runAgent(
         const inp = call.input as Record<string, unknown>;
         const path = typeof inp.path === 'string' ? inp.path : undefined;
 
+        let changedNodeIds: string[] | undefined;
         try {
           const parsed = JSON.parse(result.content) as Record<string, unknown>;
           if (parsed.ok && Array.isArray(parsed.diff) && parsed.diff.length > 0) {
             emit({ type: 'diff', lines: parsed.diff as string[] });
+          }
+          if (Array.isArray(parsed.changedNodeIds) && parsed.changedNodeIds.length > 0) {
+            changedNodeIds = (parsed.changedNodeIds as unknown[]).map(String);
           }
         } catch {
           // Non-JSON result — ignore diff extraction.
         }
 
         if (path) {
-          emit({ type: 'graph_written', path });
+          emit({ type: 'graph_written', path, changedNodeIds });
         }
       }
 

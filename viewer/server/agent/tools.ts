@@ -9,7 +9,7 @@ import { validateGraph, materialStructureWarnings } from '../schema.js';
 import { loadGraph } from '../graph-loader.js';
 import { resolveMaterialFunctions } from '../mf-resolver.js';
 import { loadWorkMfIndex } from '../workmf-index.js';
-import { applyPatch, type PatchOp } from './patch.js';
+import { applyPatch, changedNodeIds, type PatchOp } from './patch.js';
 import type { MemoryStore, MemoryScope } from './memory-store.js';
 import * as QB from './query-bridge.js';
 
@@ -780,6 +780,20 @@ async function toolWriteGraph(
     };
   }
 
+  // Changed nodes vs the previous on-disk version (for the canvas highlight):
+  // new file → every node; overwrite → nodes that are new or differ from old.
+  let changed: string[];
+  const newNodes = Array.isArray(g.nodes) ? (g.nodes as Array<{ id?: unknown }>) : [];
+  try {
+    const old = JSON.parse(await readFile(guard.abs, 'utf-8')) as { nodes?: Array<{ id?: unknown }> };
+    const oldById = new Map((old.nodes ?? []).map(n => [String(n.id), JSON.stringify(n)]));
+    changed = newNodes
+      .filter(n => oldById.get(String(n.id)) !== JSON.stringify(n))
+      .map(n => String(n.id));
+  } catch {
+    changed = newNodes.map(n => String(n.id));
+  }
+
   // Clean — write. The loop injects a callCtx wrapper that supplies the real
   // per-iteration turnId; the empty string here is never seen by the outer hook.
   await ctx.beforeWrite?.(guard.abs, '');
@@ -790,6 +804,7 @@ async function toolWriteGraph(
       ok: true,
       warnings: report.warnings,
       unresolvedMfPins: report.unresolvedPins,
+      changedNodeIds: changed,
     }),
   };
 }
@@ -849,6 +864,7 @@ async function toolPatchGraph(
       diff: patchResult.diff,
       warnings: report.warnings,
       unresolvedMfPins: report.unresolvedPins,
+      changedNodeIds: changedNodeIds(ops as PatchOp[]),
     }),
   };
 }

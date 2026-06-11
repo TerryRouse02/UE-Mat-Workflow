@@ -97,6 +97,35 @@ export function applyPatch(graph: MatGraph, ops: PatchOp[]): ApplyResult {
   return { ok: true, graph: g, diff };
 }
 
+/**
+ * Node ids touched by a successfully-applied op list — drives the viewer's
+ * post-write canvas highlight. Removed nodes are gone (nothing to point at)
+ * and setDescription touches no node. connect/disconnect endpoints are
+ * "nodeId:pin" — applyConnect/applyDisconnect validated the ':' already.
+ */
+export function changedNodeIds(ops: PatchOp[]): string[] {
+  const ids = new Set<string>();
+  for (const op of ops) {
+    switch (op.op) {
+      case 'addNode':
+      case 'setParam':
+        ids.add(op.id);
+        break;
+      case 'renameNode':
+        ids.add(op.newId);
+        break;
+      case 'connect':
+      case 'disconnect':
+        ids.add(op.from.slice(0, op.from.indexOf(':')));
+        ids.add(op.to.slice(0, op.to.indexOf(':')));
+        break;
+      default:
+        break;
+    }
+  }
+  return [...ids];
+}
+
 // Applies a single op to graph in place. Returns null on success, error string on failure.
 function applyOp(g: MatGraph, op: PatchOp, diff: string[], why: string): string | null {
   switch (op.op) {

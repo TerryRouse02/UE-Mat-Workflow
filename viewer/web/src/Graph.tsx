@@ -43,6 +43,8 @@ export interface GraphProps {
   onPositions?: (p: Record<string, { x: number; y: number }>) => void;
   /** Centre + highlight a node (from a debug-panel click); nonce re-triggers it. */
   focus?: { id: string; nonce: number } | null;
+  /** Agent diff highlight: pulse these nodes + fit the view to them; nonce re-triggers. */
+  agentHighlight?: { ids: string[]; nonce: number } | null;
 }
 
 function inferPinsFromConnections(
@@ -104,7 +106,7 @@ interface PopoverSlot {
 
 const HOVER_DELAY_MS = 500;
 
-function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPositions, focus }: GraphProps) {
+function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPositions, focus, agentHighlight }: GraphProps) {
   const { graph, derivedPins } = payload;
 
   const rf = useReactFlow();
@@ -324,6 +326,27 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
     rf.setCenter(px + w / 2, py + h / 2, { zoom: 1.1, duration: 400 });
     setSelId(focus.id);
   }, [focus, rf]);
+
+  // Agent diff highlight: pulse the nodes the agent just wrote and fit the view
+  // to them. Waits for nodesInitialized so the fit lands on measured nodes (the
+  // graph usually just re-opened). The pulse class self-clears after ~4s so the
+  // canvas returns to normal without user interaction.
+  useEffect(() => {
+    if (!agentHighlight || !nodesInitialized) return;
+    const idSet = new Set(agentHighlight.ids);
+    setNodes(ns => ns.map(n => (idSet.has(n.id) ? { ...n, className: 'agent-changed' } : n)));
+    const present = agentHighlight.ids.filter(id => rf.getNode(id));
+    if (present.length > 0) {
+      rf.fitView({ nodes: present.map(id => ({ id })), padding: 0.35, duration: 400, maxZoom: 1.1 });
+    }
+    const t = setTimeout(() => {
+      setNodes(ns => ns.map(n => (n.className === 'agent-changed' ? { ...n, className: undefined } : n)));
+    }, 4000);
+    return () => clearTimeout(t);
+    // initialLayout.nodes is a dep on purpose: the watcher pushes the updated
+    // graph ~300ms after graph_written, and the layout-reset effect above wipes
+    // classNames — this re-applies the pulse on the fresh node set.
+  }, [agentHighlight, nodesInitialized, rf, setNodes, initialLayout.nodes]);
 
   const commentNodes: Node[] = useMemo(() => {
     if (!graph.comments) return [];

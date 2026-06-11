@@ -12,7 +12,7 @@ export type AgentSseEvent =
   | { type: 'tool_start'; name: string; summary: string }            // human-readable step line
   | { type: 'tool_end'; name: string; ok: boolean; summary?: string }
   | { type: 'diff'; lines: string[] }                                // plain-language diff (after successful write)
-  | { type: 'graph_written'; path: string }                          // UI can auto-open this file
+  | { type: 'graph_written'; path: string; changedNodeIds?: string[] } // UI auto-opens + highlights the changed nodes
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
   | { type: 'compacted'; message: string }                           // old turns summarized into session memory
   | { type: 'limit'; kind: 'iters' | 'cost'; message: string }

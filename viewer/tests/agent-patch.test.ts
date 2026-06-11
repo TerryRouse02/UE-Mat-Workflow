@@ -2,7 +2,7 @@
 // cascade remove, rename rewrite, apply-error cases, why-suffix, immutability.
 
 import { describe, it, expect } from 'vitest';
-import { applyPatch } from '../server/agent/patch.js';
+import { applyPatch, changedNodeIds } from '../server/agent/patch.js';
 import type { MatGraph, PatchOp } from '../server/agent/patch.js';
 
 // ---------------------------------------------------------------------------
@@ -465,5 +465,26 @@ describe('unknown op guard', () => {
       expect(r.opIndex).toBe(0);
       expect(r.applyError).toMatch(/unknown op "frobnicate"/);
     }
+  });
+});
+
+describe('changedNodeIds (canvas diff highlight)', () => {
+  it('collects ids per op kind, deduped; removeNode/setDescription contribute none', () => {
+    const ops: PatchOp[] = [
+      { op: 'addNode', id: 'glow', type: 'Multiply' },
+      { op: 'setParam', id: 'glow', key: 'ConstA', value: 2 },
+      { op: 'renameNode', id: 'old', newId: 'fresh' },
+      { op: 'connect', from: 'color:Output', to: 'glow:A' },
+      { op: 'disconnect', from: 'noise:Output', to: 'base:Color' },
+      { op: 'removeNode', id: 'gone' },
+      { op: 'setDescription', value: 'x' },
+    ];
+    expect(changedNodeIds(ops).sort()).toEqual(
+      ['base', 'color', 'fresh', 'glow', 'noise'].sort(),
+    );
+  });
+
+  it('returns empty for an op list with nothing to highlight', () => {
+    expect(changedNodeIds([{ op: 'removeNode', id: 'a' }])).toEqual([]);
   });
 });

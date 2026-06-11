@@ -30,6 +30,9 @@ interface State {
   // index for the Nodes tab (kept separate from metadataVersion: workmf is NOT a
   // public agent-pack file, so it must not trigger the agent-pack re-fetch).
   workMfVersion: number;
+  // Nodes the agent just wrote/modified — the Graph pulses them once the file
+  // opens. ts gates staleness (an old highlight never re-fires on later mounts).
+  agentHighlight: { path: string; ids: string[]; nonce: number; ts: number } | null;
 }
 
 type Action =
@@ -44,6 +47,7 @@ type Action =
   | { type: 'wsClosed' }
   | { type: 'snapshot' }
   | { type: 'setEnv'; env: EnvStatus }
+  | { type: 'agentHighlight'; path: string; ids: string[] }
   | { type: 'crawlReset' }
   | CrawlAction;
 
@@ -53,6 +57,7 @@ const initial: State = {
   files: [], currentPath: null, breadcrumb: [], graphs: {}, errors: {},
   connection: 'reconnecting', lastUpdate: null,
   env: null, crawl: idleCrawl, metadataVersion: 0, workMfVersion: 0,
+  agentHighlight: null,
 };
 
 function reducer(s: State, a: Action): State {
@@ -75,6 +80,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, breadcrumb: s.breadcrumb.slice(0, a.toIndex + 1) };
     case 'setEnv':
       return { ...s, env: a.env };
+    case 'agentHighlight':
+      return { ...s, agentHighlight: { path: a.path, ids: a.ids, nonce: (s.agentHighlight?.nonce ?? 0) + 1, ts: Date.now() } };
     case 'crawlReset':
       return { ...s, crawl: idleCrawl };
     case 'crawlStarted':
@@ -115,6 +122,8 @@ interface Ctx {
     provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number;
     maxIters?: number; contextLimit?: number;
   }): Promise<{ ok: boolean; error?: string }>;
+  /** Pulse the given nodes on the canvas once the graph at path is open (agent diff highlight). */
+  highlightNodes(path: string, ids: string[]): void;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -252,7 +261,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig]);
+  const highlightNodes = useCallback((path: string, ids: string[]) => {
+    if (ids.length > 0) dispatch({ type: 'agentHighlight', path, ids });
+  }, []);
+
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

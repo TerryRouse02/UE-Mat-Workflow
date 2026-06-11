@@ -160,6 +160,13 @@ function Body() {
   const errs = current ? (state.errors[current] ?? []) : [];
   const warns = payload?.warnings ?? [];
 
+  // Agent diff highlight: only for the graph it targeted, and only while fresh —
+  // a stale entry must not re-pulse when the user reopens the file minutes later.
+  const hl = state.agentHighlight;
+  const agentHl = hl && hl.path === current && Date.now() - hl.ts < 15_000
+    ? { ids: hl.ids, nonce: hl.nonce }
+    : null;
+
   // Body grid left-panel width. Config is widest — it carries two content-root
   // inputs, the env checklist, and the crawl buttons; wider still while a crawl
   // runs so the live log has room. Agent gets extra room for chat bubbles,
@@ -230,7 +237,7 @@ function Body() {
             </div>
           )}
           {payload
-            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} />
+            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} agentHighlight={agentHl} />
             : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
         <Inspector
