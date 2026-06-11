@@ -162,9 +162,11 @@ function Body() {
 
   // Body grid left-panel width. Config is widest — it carries two content-root
   // inputs, the env checklist, and the crawl buttons; wider still while a crawl
-  // runs so the live log has room.
+  // runs so the live log has room. Agent gets extra room for chat bubbles,
+  // tool-step cards, and diff blocks.
   const leftW = tab === 'config' && state.crawl.status === 'running' ? 560
     : tab === 'config' ? 384
+    : tab === 'agent' ? 430
     : 290;
 
   return (
