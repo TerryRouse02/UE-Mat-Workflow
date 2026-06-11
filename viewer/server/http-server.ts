@@ -20,7 +20,8 @@ import { runAgent, createSession, type AgentLoopSession } from './agent/loop.js'
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
-import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentTestResponse, AgentExplainRequest, AgentExplainResponse } from './agent/agent-types.js';
+import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse } from './agent/agent-types.js';
+import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/session-store.js';
 import { explainNode, buildGraphContext, RESERVED_NODE_DESCRIPTIONS } from './agent/explain.js';
 import type { LLMConfig, ProviderStatus } from './agent/provider/types.js';
 
@@ -105,19 +106,92 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   const localConfigPath = resolve(opts.repoRoot, 'tools', 'node-t3d-metadata', 'local.config.json');
   const runner = createCrawlRunner(opts.repoRoot);
 
-  // ─── Agent state ───────────────────────────────────────────────────────────
-  // Single active session (MVP). Null when no chat has been started yet.
-  let agentSession: AgentLoopSession | null = null;
+  // ─── Agent state (M7: persistent multi-session) ────────────────────────────
+  // Sessions persist under viewer/.agent-sessions/ and are resumed on demand.
+  // The runtime cache pairs the loop session with its checkpoint store and the
+  // replayable transcript. Chat stays single-flight ACROSS sessions.
+  const sessionStore = createSessionStore(resolve(opts.repoRoot, 'viewer'));
+  interface ActiveSession {
+    loop: AgentLoopSession;
+    checkpoint: ReturnType<typeof createCheckpointStore>;
+    transcript: AgentTranscriptEntry[];
+    title: string;
+    createdAt: string;
+  }
+  const activeSessions = new Map<string, ActiveSession>();
+  // The session an id-less chat/undo/reset request applies to. The web UI
+  // always sends explicit session ids; this pointer keeps the legacy flow
+  // (and the M3/M4 tests) working.
+  let currentSessionId: string | null = null;
   // True while a chat is actively streaming. Guards the 409 single-flight.
   let agentStreaming = false;
   // AbortController for the currently-streaming chat (if any).
-  // Referenced inside handleAgentChat (set and cleared); stored here so future
-  // M4 /api/agent/reset can call it.
   const agentAbortRef = { current: null as AbortController | null };
-  // Checkpoint store for the current session (created alongside the session).
-  let agentCheckpoint: ReturnType<typeof createCheckpointStore> | null = null;
   // Provider factory — default pickProvider, overridable for tests.
   const makeProvider = opts.providerFactory ?? pickProvider;
+
+  function newAgentSessionId(): string {
+    return `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  function defaultUeVersion(): string {
+    const versions = discoverVersions(opts.repoRoot);
+    return versions.length > 0 ? versions[versions.length - 1] : '5.7';
+  }
+
+  function createActiveSession(id: string, ueVersion: string, graphPath?: string): ActiveSession {
+    const active: ActiveSession = {
+      loop: createSession(id, ueVersion, graphPath),
+      checkpoint: createCheckpointStore(resolve(opts.repoRoot, 'viewer'), id),
+      transcript: [],
+      title: '',
+      createdAt: new Date().toISOString(),
+    };
+    activeSessions.set(id, active);
+    return active;
+  }
+
+  /** Runtime cache first, then disk. Returns null for unknown/invalid ids. */
+  async function resumeSession(id: string): Promise<ActiveSession | null> {
+    const cached = activeSessions.get(id);
+    if (cached) return cached;
+    const persisted = await sessionStore.load(id);
+    if (!persisted) return null;
+    const loop = createSession(persisted.id, persisted.ueVersion);
+    loop.messages = persisted.messages;
+    loop.totalTokens = persisted.totalTokens;
+    loop.turnSeq = persisted.turnSeq;
+    const active: ActiveSession = {
+      loop,
+      // NOTE: the checkpoint turn stack is in-memory — undo history does not
+      // survive a server restart (pre-images on disk are simply orphaned).
+      checkpoint: createCheckpointStore(resolve(opts.repoRoot, 'viewer'), id),
+      transcript: persisted.transcript,
+      title: persisted.title,
+      createdAt: persisted.createdAt,
+    };
+    activeSessions.set(id, active);
+    return active;
+  }
+
+  /** Best-effort persist; a failed save must never break the chat stream. */
+  async function persistSession(active: ActiveSession): Promise<void> {
+    try {
+      await sessionStore.save({
+        id: active.loop.id,
+        title: active.title,
+        createdAt: active.createdAt,
+        updatedAt: new Date().toISOString(),
+        ueVersion: active.loop.ueVersion,
+        totalTokens: Math.round(active.loop.totalTokens),
+        turnSeq: active.loop.turnSeq,
+        messages: active.loop.messages,
+        transcript: active.transcript,
+      });
+    } catch (e) {
+      console.error('agent session persist failed:', e);
+    }
+  }
 
   const sendJson = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
     res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' });
@@ -487,7 +561,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }
 
-  /** POST /api/agent/undo — restore the previous checkpoint turn. */
+  /** POST /api/agent/undo — restore the previous checkpoint turn (body may carry sessionId). */
   async function handleAgentUndo(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
 
@@ -497,14 +571,26 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
 
-    // No session or empty checkpoint → {ok:false, reason:'nothing-to-undo'}.
-    if (!agentCheckpoint) {
+    // Optional body { sessionId } — absent falls back to the current session.
+    let sessionId = currentSessionId;
+    try {
+      const raw = await readBody(req);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { sessionId?: unknown };
+        if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
+          sessionId = parsed.sessionId;
+        }
+      }
+    } catch { /* empty/invalid body → current session */ }
+
+    const active = sessionId ? await resumeSession(sessionId) : null;
+    if (!active) {
       const body: AgentUndoResponse = { ok: false, reason: 'nothing-to-undo' };
       sendJson(res, 200, body);
       return;
     }
 
-    const restored = await agentCheckpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'));
+    const restored = await active.checkpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'));
 
     if (restored === null) {
       const body: AgentUndoResponse = { ok: false, reason: 'nothing-to-undo' };
@@ -521,7 +607,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     sendJson(res, 200, body);
   }
 
-  /** POST /api/agent/reset — abort any in-flight chat and clear the session. */
+  /** POST /api/agent/reset — abort any in-flight chat and detach the current session. */
   async function handleAgentReset(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
 
@@ -535,21 +621,81 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // several seconds with a real LLM provider.
     agentStreaming = false;
 
-    // Remove the old checkpoint directory from disk (stale pre-images are dead weight).
-    if (agentCheckpoint) {
+    // Drop the current session's undo history (stale pre-images are dead
+    // weight) and detach it. The session FILE persists — reset means "start
+    // clean", not "destroy history"; deletion is DELETE /api/agent/sessions/:id.
+    const active = currentSessionId ? activeSessions.get(currentSessionId) : null;
+    if (active) {
       try {
-        await rm(agentCheckpoint.sessionDir, { recursive: true, force: true });
+        await rm(active.checkpoint.sessionDir, { recursive: true, force: true });
       } catch {
         // Non-fatal — directory may already be gone.
       }
+      activeSessions.delete(active.loop.id);
     }
-
-    // Clear session and checkpoint.
-    agentSession = null;
-    agentCheckpoint = null;
+    currentSessionId = null;
 
     const body: AgentResetResponse = { ok: true };
     sendJson(res, 200, body);
+  }
+
+  // ─── M7 session endpoints ───────────────────────────────────────────────────
+
+  /** GET /api/agent/sessions — list persisted sessions, newest first. */
+  async function handleAgentSessionsList(res: import('node:http').ServerResponse) {
+    const sessions = await sessionStore.list();
+    sendJson(res, 200, { sessions } satisfies AgentSessionsListResponse);
+  }
+
+  /** POST /api/agent/sessions — create a fresh persistent session. */
+  async function handleAgentSessionsCreate(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    let ueVersion: string | undefined;
+    try {
+      const raw = await readBody(req);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { ueVersion?: unknown };
+        if (typeof parsed.ueVersion === 'string' && parsed.ueVersion.trim()) ueVersion = parsed.ueVersion.trim();
+      }
+    } catch { /* empty body is fine */ }
+
+    const id = newAgentSessionId();
+    const active = createActiveSession(id, ueVersion ?? defaultUeVersion());
+    currentSessionId = id;
+    await persistSession(active);
+    sendJson(res, 200, { id } satisfies AgentSessionCreateResponse);
+  }
+
+  /** GET /api/agent/sessions/:id — replayable transcript + meta. */
+  async function handleAgentSessionDetail(id: string, res: import('node:http').ServerResponse) {
+    const active = await resumeSession(id);
+    if (!active) { sendJson(res, 404, { error: '找不到指定的會話。' }); return; }
+    sendJson(res, 200, {
+      id: active.loop.id,
+      title: active.title,
+      ueVersion: active.loop.ueVersion,
+      totalTokens: Math.round(active.loop.totalTokens),
+      transcript: active.transcript,
+    } satisfies AgentSessionDetail);
+  }
+
+  /** DELETE /api/agent/sessions/:id — remove the session file + checkpoints. */
+  async function handleAgentSessionDelete(id: string, req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    if (agentStreaming && currentSessionId === id) {
+      sendJson(res, 409, { error: '對話進行中，無法刪除。請先停止。' });
+      return;
+    }
+    const active = activeSessions.get(id);
+    activeSessions.delete(id);
+    if (currentSessionId === id) currentSessionId = null;
+    await sessionStore.remove(id);
+    try {
+      const cpDir = active?.checkpoint.sessionDir
+        ?? resolve(opts.repoRoot, 'viewer', '.agent-checkpoints', id);
+      await rm(cpDir, { recursive: true, force: true });
+    } catch { /* non-fatal */ }
+    sendJson(res, 200, { ok: true });
   }
 
   /** POST /api/agent/explain — one-shot LLM node explanation (JSON, not SSE). */
@@ -687,18 +833,39 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
 
-    // Create or reuse session.
-    if (!agentSession) {
-      const versions = discoverVersions(opts.repoRoot);
-      const defaultVersion = versions.length > 0 ? versions[versions.length - 1] : '5.7';
-      const ueVersion = body.ueVersion ?? defaultVersion;
-      const sessionId = `session-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      agentSession = createSession(sessionId, ueVersion, body.graphPath ?? undefined);
-      agentCheckpoint = createCheckpointStore(resolve(opts.repoRoot, 'viewer'), sessionId);
+    // Resolve the target session (M7): explicit sessionId binds exactly; an
+    // id-less request continues the current session or creates a fresh one —
+    // so a reloaded UI that binds explicitly can never inherit stale context.
+    let active: ActiveSession;
+    if (typeof body.sessionId === 'string' && body.sessionId) {
+      if (!SESSION_ID_RE.test(body.sessionId)) {
+        agentStreaming = false;
+        sendJson(res, 400, { error: 'invalid sessionId' });
+        return;
+      }
+      const resumed = await resumeSession(body.sessionId);
+      if (!resumed) {
+        agentStreaming = false;
+        sendJson(res, 404, { error: '找不到指定的會話，請重新整理會話列表。' });
+        return;
+      }
+      active = resumed;
+    } else {
+      const current = currentSessionId ? await resumeSession(currentSessionId) : null;
+      active = current ?? createActiveSession(
+        newAgentSessionId(),
+        body.ueVersion ?? defaultUeVersion(),
+        body.graphPath ?? undefined,
+      );
     }
+    currentSessionId = active.loop.id;
 
-    const session = agentSession;
-    const checkpointStore = agentCheckpoint!;
+    const session = active.loop;
+    const checkpointStore = active.checkpoint;
+
+    // Transcript: record the user message and derive a title from the first one.
+    appendTranscript(active.transcript, { kind: 'user', text: body.text });
+    if (!active.title) active.title = body.text.trim().slice(0, 30);
 
     // Build provider.
     let provider: import('./agent/provider/types.js').Provider;
@@ -739,6 +906,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       if (res.writableEnded) return;
       const out = event.type === 'error' ? { ...event, message: withToolHint(event.message) } : event;
       res.write(`data: ${JSON.stringify(out)}\n\n`);
+      // Mirror every emitted event into the replayable transcript (text and
+      // thinking deltas coalesce inside appendTranscript).
+      appendTranscript(active.transcript, { kind: 'event', event: out });
     };
 
     const ctx = {
@@ -786,6 +956,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         agentAbortRef.current = null;
       }
       if (!res.writableEnded) res.end();
+      // Persist the turn (messages + transcript + meta). Best-effort: an
+      // aborted turn is still saved — synthetic tool_results keep it legal.
+      await persistSession(active);
     }
   }
 
@@ -849,6 +1022,34 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       try { await handleAgentStatus(res); }
       catch (e) { console.error('agent status handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
+    }
+    if (urlPath === '/api/agent/sessions') {
+      if (req.method === 'GET') {
+        try { await handleAgentSessionsList(res); }
+        catch (e) { console.error('agent sessions list error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+        return;
+      }
+      if (req.method === 'POST') {
+        try { await handleAgentSessionsCreate(req, res); }
+        catch (e) { console.error('agent sessions create error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+        return;
+      }
+    }
+    {
+      const m = urlPath.match(/^\/api\/agent\/sessions\/([A-Za-z0-9_-]{1,64})$/);
+      if (m) {
+        const sid = m[1];
+        if (req.method === 'GET') {
+          try { await handleAgentSessionDetail(sid, res); }
+          catch (e) { console.error('agent session detail error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+          return;
+        }
+        if (req.method === 'DELETE') {
+          try { await handleAgentSessionDelete(sid, req, res); }
+          catch (e) { console.error('agent session delete error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+          return;
+        }
+      }
     }
     if (req.method === 'POST' && urlPath === '/api/agent/test') {
       try { await handleAgentTest(req, res); }

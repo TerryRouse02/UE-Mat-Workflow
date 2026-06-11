@@ -1,86 +1,44 @@
 // web/src/agent/AgentChat.tsx — 4th Sidebar tab: conversational material agent UI.
 //
-// Scope (M3+M4+polish): streamed narrative text + grouped tool steps
-// (collapsible 執行過程 card) + diff blocks (collapsible 變更摘要) + cumulative
-// usage display + input box with stop/undo/reset + unconfigured-state guidance
-// + empty-state example prompts. NodeExplainPopover (M5) is NOT implemented here.
+// Scope (M3+M4+M7): streamed narrative text + grouped tool steps + diff blocks
+// + thinking cards + cumulative usage + persistent sessions (list / switch /
+// delete / replay) + input box with stop/undo + unconfigured-state guidance +
+// empty-state example prompts. NodeExplainPopover (M5) is NOT implemented here.
 //
 // Hidden when connection === 'snapshot' (same as ConfigPanel).
 //
-// Grouping rules:
-//   - Consecutive tool steps merge into ONE ToolGroup item; any text/diff/notice
-//     item in between starts a new group. Groups stay expanded while any step is
-//     still running and auto-collapse when the turn's 'done' event arrives.
-//   - Diff blocks arrive expanded; sending the NEXT user message collapses all
-//     previous diff blocks (and tool groups) so long conversations stay readable.
-//   - A diff item does NOT touch needsNewBubble — the preceding tool_start
-//     already set it, so the next text event opens a fresh assistant bubble.
+// Item-building rules live in transcript.ts (pure reducer) — the live SSE
+// stream and persisted-transcript replay share ONE implementation. This file
+// keeps only the side effects: fetches, the SSE pump, opening written graphs.
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useStore } from '../store';
 import { Icon } from '../Icon';
 import { streamChat } from './sse';
-import type { AgentSseEvent, AgentThinkingLevel, ProviderStatus, AgentUndoResponse, AgentResetResponse } from './protocol';
+import { relTimeMinutes } from '../timeUtils';
+import type {
+  AgentThinkingLevel,
+  ProviderStatus,
+  AgentUndoResponse,
+  AgentSessionMeta,
+  AgentSessionsListResponse,
+  AgentSessionCreateResponse,
+  AgentSessionDetail,
+} from './protocol';
+import {
+  type ChatItem,
+  type ToolGroup,
+  type NoticeLine,
+  type DiffBlock,
+  type ThinkingItem,
+  type UsageTotal,
+  newTurnFlags,
+  startUserTurn,
+  applyAgentEvent,
+  accumulateUsage,
+  reduceTranscript,
+} from './transcript';
 import './agent.css';
-
-// ─── Message model ────────────────────────────────────────────────────────────
-
-type MsgRole = 'user' | 'assistant';
-
-interface TextBubble {
-  kind: 'text';
-  role: MsgRole;
-  text: string;
-}
-
-interface ToolStep {
-  name: string;
-  summary: string;
-  ok?: boolean;
-  endSummary?: string;
-  done: boolean;
-}
-
-/** Consecutive tool steps grouped into one collapsible 執行過程 card. */
-interface ToolGroup {
-  kind: 'tools';
-  steps: ToolStep[];
-  collapsed: boolean;
-}
-
-interface NoticeLine {
-  kind: 'notice';
-  variant: 'limit' | 'error' | 'info';
-  message: string;
-}
-
-/** Plain-language diff lines emitted after a successful write_graph/patch_graph. */
-interface DiffBlock {
-  kind: 'diff';
-  lines: string[];
-  collapsed: boolean;
-}
-
-/** Model reasoning stream (thinking SSE events) — collapsed by default. */
-interface ThinkingItem {
-  kind: 'thinking';
-  text: string;
-  collapsed: boolean;
-}
-
-type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem;
-
-const THINKING_LABELS: Record<AgentThinkingLevel, string> = {
-  off: '關', low: '低', medium: '中', high: '高',
-};
-const THINKING_STORAGE_KEY = 'agent-thinking-level';
-
-/** Cumulative token usage across the whole conversation. */
-interface UsageTotal {
-  input: number;
-  output: number;
-  estimated: boolean;
-}
 
 // ─── Example prompts ─────────────────────────────────────────────────────────
 
@@ -90,11 +48,21 @@ const EXAMPLE_PROMPTS = [
   '建立一個基礎 PBR 材質，有金屬感和反光',
 ];
 
+const THINKING_LABELS: Record<AgentThinkingLevel, string> = {
+  off: '關', low: '低', medium: '中', high: '高',
+};
+const THINKING_STORAGE_KEY = 'agent-thinking-level';
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtTokens(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
   return String(Math.round(n));
+}
+
+function sessionLabel(s: AgentSessionMeta): string {
+  const title = s.title || '（未命名）';
+  return s.updatedAt ? `${title} · ${relTimeMinutes(s.updatedAt)}` : title;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -197,6 +165,8 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
   const [statusLoading, setStatusLoading] = useState(true);
   const [items, setItems] = useState<ChatItem[]>([]);
   const [usage, setUsage] = useState<UsageTotal | null>(null);
+  const [sessions, setSessions] = useState<AgentSessionMeta[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   // Per-turn reasoning effort; persisted so the choice survives reloads.
@@ -225,6 +195,78 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
   }, []);
 
   useEffect(() => { void fetchStatus(); }, [fetchStatus]);
+
+  // ── Session management (M7) ────────────────────────────────────────────────
+
+  const fetchSessions = useCallback(async (): Promise<AgentSessionMeta[]> => {
+    try {
+      const r = await fetch('/api/agent/sessions', { cache: 'no-store' });
+      if (!r.ok) return [];
+      const body = await r.json() as AgentSessionsListResponse;
+      setSessions(body.sessions);
+      return body.sessions;
+    } catch {
+      return [];
+    }
+  }, []);
+
+  const loadSession = useCallback(async (id: string) => {
+    try {
+      const r = await fetch(`/api/agent/sessions/${id}`, { cache: 'no-store' });
+      if (!r.ok) return;
+      const detail = await r.json() as AgentSessionDetail;
+      const { items: reduced, usage: total } = reduceTranscript(detail.transcript);
+      setItems(reduced);
+      setUsage(total);
+      setSessionId(id);
+    } catch { /* keep the current view */ }
+  }, []);
+
+  // On mount: list sessions and restore the most recent one — a page reload
+  // continues the conversation instead of silently inheriting it server-side.
+  useEffect(() => {
+    void (async () => {
+      const list = await fetchSessions();
+      if (list.length > 0) await loadSession(list[0].id);
+    })();
+  }, [fetchSessions, loadSession]);
+
+  const handleNewSession = useCallback(async () => {
+    if (streaming) return;
+    try {
+      const r = await fetch('/api/agent/sessions', { method: 'POST', cache: 'no-store' });
+      if (!r.ok) throw new Error(String(r.status));
+      const { id } = await r.json() as AgentSessionCreateResponse;
+      setSessionId(id);
+      setSessions(prev => [
+        { id, title: '', createdAt: '', updatedAt: '', ueVersion: '', totalTokens: 0, turns: 0 },
+        ...prev,
+      ]);
+    } catch {
+      // Endpoint unavailable — still clear the view; the next send creates implicitly.
+      setSessionId(null);
+    }
+    setItems([]);
+    setUsage(null);
+  }, [streaming]);
+
+  const handleDeleteSession = useCallback(async () => {
+    if (streaming || !sessionId) return;
+    if (!window.confirm('刪除此對話？已寫入的圖檔不受影響。')) return;
+    try {
+      await fetch(`/api/agent/sessions/${sessionId}`, { method: 'DELETE', cache: 'no-store' });
+    } catch { /* best-effort */ }
+    const list = await fetchSessions();
+    if (list.length > 0) {
+      await loadSession(list[0].id);
+    } else {
+      setSessionId(null);
+      setItems([]);
+      setUsage(null);
+    }
+  }, [streaming, sessionId, fetchSessions, loadSession]);
+
+  // ── View helpers ───────────────────────────────────────────────────────────
 
   // Auto-scroll to bottom when items change — but only when the user is already
   // near the bottom, so scrolling up to re-read is never yanked away.
@@ -263,7 +305,12 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
   const handleUndo = useCallback(async () => {
     if (streaming) return;
     try {
-      const r = await fetch('/api/agent/undo', { method: 'POST', cache: 'no-store' });
+      const r = await fetch('/api/agent/undo', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(sessionId ? { sessionId } : {}),
+        cache: 'no-store',
+      });
       if (!r.ok) {
         setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: `還原請求失敗（HTTP ${r.status}）` }]);
         return;
@@ -281,24 +328,7 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
     } catch {
       setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '還原請求失敗' }]);
     }
-  }, [streaming]);
-
-  const handleReset = useCallback(async () => {
-    if (streaming) return;
-    try {
-      const r = await fetch('/api/agent/reset', { method: 'POST', cache: 'no-store' });
-      if (!r.ok) {
-        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: `重設請求失敗（HTTP ${r.status}）` }]);
-        return;
-      }
-      await r.json() as AgentResetResponse;
-      // Clear local conversation history and usage on success.
-      setItems([]);
-      setUsage(null);
-    } catch {
-      setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '重設請求失敗' }]);
-    }
-  }, [streaming]);
+  }, [streaming, sessionId]);
 
   const handleSend = useCallback(async (text: string) => {
     if (!text.trim() || streaming) return;
@@ -307,145 +337,28 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
     setInput('');
     setStreaming(true);
 
-    // Collapse previous-turn diff blocks and tool groups, then add the user bubble.
-    setItems(prev => [
-      ...prev.map(it =>
-        it.kind === 'diff' || it.kind === 'tools' ? { ...it, collapsed: true } : it,
-      ),
-      { kind: 'text', role: 'user', text: userText },
-    ]);
+    // Ensure a persistent session exists; fall back to the server's implicit
+    // session when the endpoint is unavailable.
+    let sid = sessionId;
+    if (!sid) {
+      try {
+        const r = await fetch('/api/agent/sessions', { method: 'POST', cache: 'no-store' });
+        if (r.ok) {
+          sid = ((await r.json()) as AgentSessionCreateResponse).id;
+          setSessionId(sid);
+          setSessions(prev => [
+            { id: sid!, title: userText.slice(0, 30), createdAt: '', updatedAt: '', ueVersion: '', totalTokens: 0, turns: 0 },
+            ...prev,
+          ]);
+        }
+      } catch { /* implicit session */ }
+    }
+
+    setItems(prev => startUserTurn(prev, userText));
 
     const ac = new AbortController();
     abortRef.current = ac;
-
-    // Per-send mutable state captured by the event handler below.
-    // needsNewBubble: whether the next text event opens a fresh assistant bubble
-    // (true after a tool_start resets the text run).
-    let needsNewBubble = true;
-    // Paths already announced via graph_written this turn (dedup the notice).
-    const announcedWrites = new Set<string>();
-
-    const handleEvent = (event: AgentSseEvent) => {
-      switch (event.type) {
-        case 'text': {
-          if (needsNewBubble) {
-            needsNewBubble = false;
-            setItems(prev => [...prev, { kind: 'text', role: 'assistant', text: event.text }]);
-          } else {
-            setItems(prev => {
-              const last = prev[prev.length - 1];
-              if (last?.kind === 'text' && last.role === 'assistant') {
-                const updated = [...prev];
-                updated[updated.length - 1] = { ...last, text: last.text + event.text };
-                return updated;
-              }
-              // Fallback: no assistant bubble at tail — create one.
-              return [...prev, { kind: 'text', role: 'assistant', text: event.text }];
-            });
-          }
-          break;
-        }
-
-        case 'thinking': {
-          // Reasoning stream — append to a trailing thinking card or open one
-          // (collapsed by default; the header shows live progress).
-          setItems(prev => {
-            const last = prev[prev.length - 1];
-            if (last?.kind === 'thinking') {
-              const updated = [...prev];
-              updated[updated.length - 1] = { ...last, text: last.text + event.text };
-              return updated;
-            }
-            return [...prev, { kind: 'thinking', text: event.text, collapsed: true }];
-          });
-          break;
-        }
-
-        case 'tool_start': {
-          // Mark that the next text run needs a fresh bubble.
-          needsNewBubble = true;
-          const step: ToolStep = { name: event.name, summary: event.summary, done: false };
-          setItems(prev => {
-            const last = prev[prev.length - 1];
-            if (last?.kind === 'tools') {
-              // Merge into the trailing group (consecutive tool steps).
-              const updated = [...prev];
-              updated[updated.length - 1] = { ...last, steps: [...last.steps, step] };
-              return updated;
-            }
-            return [...prev, { kind: 'tools', steps: [step], collapsed: false }];
-          });
-          break;
-        }
-
-        case 'tool_end': {
-          setItems(prev => {
-            // Find the last group containing an unfinished step with this name.
-            const copy = [...prev];
-            for (let i = copy.length - 1; i >= 0; i--) {
-              const item = copy[i];
-              if (item.kind !== 'tools') continue;
-              for (let j = item.steps.length - 1; j >= 0; j--) {
-                const s = item.steps[j];
-                if (s.name === event.name && !s.done) {
-                  const steps = [...item.steps];
-                  steps[j] = { ...s, done: true, ok: event.ok, endSummary: event.summary };
-                  copy[i] = { ...item, steps };
-                  return copy;
-                }
-              }
-            }
-            return prev;
-          });
-          break;
-        }
-
-        case 'usage': {
-          setUsage(prev => ({
-            input: (prev?.input ?? 0) + event.inputTokens,
-            output: (prev?.output ?? 0) + event.outputTokens,
-            estimated: (prev?.estimated ?? false) || event.estimated,
-          }));
-          break;
-        }
-
-        case 'limit': {
-          setItems(prev => [...prev, { kind: 'notice', variant: 'limit', message: event.message }]);
-          break;
-        }
-
-        case 'error': {
-          setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: event.message }]);
-          break;
-        }
-
-        case 'diff': {
-          // Dedicated DiffBlock item; needsNewBubble untouched (see header note).
-          setItems(prev => [...prev, { kind: 'diff', lines: event.lines, collapsed: false }]);
-          break;
-        }
-
-        case 'graph_written': {
-          // Open the written graph via the existing mechanism + announce once.
-          open(event.path);
-          if (!announcedWrites.has(event.path)) {
-            announcedWrites.add(event.path);
-            setItems(prev => [...prev, { kind: 'notice', variant: 'info', message: `已開啟圖形：${event.path}` }]);
-          }
-          break;
-        }
-
-        case 'done': {
-          // Turn finished — auto-collapse all tool groups; diffs stay open
-          // until the next user message so the result remains in view.
-          setItems(prev => prev.map(it => (it.kind === 'tools' ? { ...it, collapsed: true } : it)));
-          break;
-        }
-
-        default:
-          break;
-      }
-    };
+    const flags = newTurnFlags();
 
     try {
       for await (const event of streamChat(
@@ -453,10 +366,14 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
           text: userText,
           graphPath: currentPath ?? undefined,
           thinking: thinking !== 'off' ? thinking : undefined,
+          sessionId: sid ?? undefined,
         },
         ac.signal,
       )) {
-        handleEvent(event);
+        // Side effects stay here; item building lives in the shared reducer.
+        if (event.type === 'graph_written') open(event.path);
+        if (event.type === 'usage') setUsage(prev => accumulateUsage(prev, event));
+        setItems(prev => applyAgentEvent(prev, event, flags));
       }
     } catch (e: unknown) {
       if ((e as Error)?.name === 'AbortError') {
@@ -468,8 +385,10 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
       abortRef.current = null;
       setStreaming(false);
       inputRef.current?.focus();
+      // Refresh titles/timestamps after the turn lands on disk.
+      void fetchSessions();
     }
-  }, [streaming, currentPath, open, thinking]);
+  }, [streaming, currentPath, open, thinking, sessionId, fetchSessions]);
 
   // Hidden in snapshot mode.
   if (connection === 'snapshot') return null;
@@ -507,6 +426,7 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
 
   const usageTotal = usage ? usage.input + usage.output : 0;
   const lastIndex = items.length - 1;
+  const currentInList = sessionId !== null && sessions.some(s => s.id === sessionId);
 
   return (
     <div className="agent-panel">
@@ -534,12 +454,35 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
             </button>
             <button
               className="agent-bar-btn"
-              onClick={() => void handleReset()}
-              title="清空對話，開始新的會話"
+              onClick={() => void handleNewSession()}
+              title="開始新的對話（目前對話保留在歷史）"
             >
               <Icon name="plus" size={11} /> 新對話
             </button>
           </>
+        )}
+      </div>
+
+      {/* Session bar (M7): switch / delete persisted conversations */}
+      <div className="agent-sessbar">
+        <Icon name="clock" size={11} style={{ color: 'var(--text-mute)', flex: '0 0 auto' }} />
+        <select
+          className="agent-sess-sel"
+          value={sessionId ?? ''}
+          disabled={streaming}
+          onChange={e => { if (e.target.value) void loadSession(e.target.value); }}
+          title="切換歷史對話"
+        >
+          {sessionId === null && <option value="">（新對話）</option>}
+          {sessionId !== null && !currentInList && <option value={sessionId}>（目前對話）</option>}
+          {sessions.map(s => (
+            <option key={s.id} value={s.id}>{sessionLabel(s)}</option>
+          ))}
+        </select>
+        {sessionId !== null && !streaming && (
+          <button className="agent-bar-btn" onClick={() => void handleDeleteSession()} title="刪除此對話">
+            <Icon name="x" size={11} /> 刪除
+          </button>
         )}
       </div>
 

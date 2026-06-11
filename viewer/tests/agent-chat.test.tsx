@@ -670,3 +670,165 @@ describe('AgentChat thinking', () => {
     expect(container.textContent).toContain('先分析需求');
   });
 });
+
+// ---------------------------------------------------------------------------
+// M7: persistent sessions — list / auto-restore / switch / new conversation
+// ---------------------------------------------------------------------------
+
+describe('AgentChat sessions (M7)', () => {
+  /** Fetch mock with method-aware session endpoints. */
+  function mockSessionFetch(opts: {
+    sessions: Array<{ id: string; title: string }>;
+    details: Record<string, unknown[]>;   // id → transcript
+    onCreate?: () => string;
+  }) {
+    global.fetch = vi.fn().mockImplementation((url: string, init?: RequestInit) => {
+      const ok = (body: unknown) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) });
+      if (url === '/api/agent/status') {
+        return ok({ configured: true, provider: 'anthropic', model: 'test' });
+      }
+      if (url === '/api/agent/sessions' && (!init || init.method === undefined || init.method === 'GET')) {
+        return ok({
+          sessions: opts.sessions.map(s => ({
+            ...s, createdAt: '', updatedAt: '2026-06-11T00:00:00Z', ueVersion: '5.7', totalTokens: 0, turns: 1,
+          })),
+        });
+      }
+      if (url === '/api/agent/sessions' && init?.method === 'POST') {
+        const id = opts.onCreate ? opts.onCreate() : 'session-new';
+        return ok({ id });
+      }
+      const m = /^\/api\/agent\/sessions\/([^/]+)$/.exec(url);
+      if (m && (!init?.method || init.method === 'GET')) {
+        const transcript = opts.details[m[1]];
+        if (!transcript) return Promise.resolve({ ok: false, status: 404, json: () => Promise.resolve({ error: 'nf' }) });
+        return ok({ id: m[1], title: '', ueVersion: '5.7', totalTokens: 5, transcript });
+      }
+      if (m && init?.method === 'DELETE') return ok({ ok: true });
+      return Promise.reject(new Error('unexpected fetch: ' + url));
+    });
+  }
+
+  it('mount restores the newest session and replays its transcript (bubbles + tool card + diff)', async () => {
+    mockSessionFetch({
+      sessions: [{ id: 'session-recent', title: '做個發光材質' }],
+      details: {
+        'session-recent': [
+          { kind: 'user', text: '做個發光材質' },
+          { kind: 'event', event: { type: 'tool_start', name: 'write_graph', summary: '寫入圖形：p/glow.matgraph.json' } },
+          { kind: 'event', event: { type: 'tool_end', name: 'write_graph', ok: true, summary: '圖形已寫入' } },
+          { kind: 'event', event: { type: 'diff', lines: ['加入了 `Multiply` 節點「`m1`」'] } },
+          { kind: 'event', event: { type: 'text', text: '發光材質完成！' } },
+          { kind: 'event', event: { type: 'usage', inputTokens: 100, outputTokens: 50, estimated: false } },
+          { kind: 'event', event: { type: 'done' } },
+        ],
+      },
+    });
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 80)); });
+
+    // Replayed conversation: user + assistant bubbles, collapsed tool group, diff.
+    expect(container.querySelector('.agent-bubble.user')?.textContent).toContain('做個發光材質');
+    expect(container.textContent).toContain('發光材質完成！');
+    expect(container.textContent).toContain('執行過程 · 1 步');
+    expect(container.querySelector('.agent-diff')).toBeTruthy();
+    expect(container.textContent).toContain('加入了 `Multiply` 節點');
+    // Usage restored from the transcript.
+    expect(container.textContent).toContain('150 tokens');
+    // The session select shows the restored session.
+    const sel = container.querySelector('.agent-sess-sel') as HTMLSelectElement;
+    expect(sel).toBeTruthy();
+    expect(sel.value).toBe('session-recent');
+  });
+
+  it('switching the session select replays the chosen transcript', async () => {
+    mockSessionFetch({
+      sessions: [
+        { id: 'session-a', title: 'A 對話' },
+        { id: 'session-b', title: 'B 對話' },
+      ],
+      details: {
+        'session-a': [
+          { kind: 'user', text: 'A 的問題' },
+          { kind: 'event', event: { type: 'text', text: 'A 的回答' } },
+          { kind: 'event', event: { type: 'done' } },
+        ],
+        'session-b': [
+          { kind: 'user', text: 'B 的問題' },
+          { kind: 'event', event: { type: 'text', text: 'B 的回答' } },
+          { kind: 'event', event: { type: 'done' } },
+        ],
+      },
+    });
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 80)); });
+
+    // Newest (first) session loads on mount.
+    expect(container.textContent).toContain('A 的回答');
+
+    const sel = container.querySelector('.agent-sess-sel') as HTMLSelectElement;
+    await act(async () => { fireEvent.change(sel, { target: { value: 'session-b' } }); });
+    await waitFor(() => {
+      expect(container.textContent).toContain('B 的回答');
+      expect(container.textContent).not.toContain('A 的回答');
+    }, { timeout: 2000 });
+  });
+
+  it('新對話 creates a session via POST and clears the view', async () => {
+    let created = 0;
+    mockSessionFetch({
+      sessions: [{ id: 'session-old', title: '舊對話' }],
+      details: {
+        'session-old': [
+          { kind: 'user', text: '舊內容' },
+          { kind: 'event', event: { type: 'text', text: '舊回覆' } },
+          { kind: 'event', event: { type: 'done' } },
+        ],
+      },
+      onCreate: () => { created++; return `session-created-${created}`; },
+    });
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 80)); });
+    expect(container.textContent).toContain('舊回覆');
+
+    const newBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent?.includes('新對話'));
+    await act(async () => { fireEvent.click(newBtn!); });
+
+    await waitFor(() => {
+      expect(created).toBe(1);
+      // View cleared → empty state shows; old content gone.
+      expect(container.textContent).toContain('開始對話，生成 UE 材質');
+      expect(container.textContent).not.toContain('舊回覆');
+    }, { timeout: 2000 });
+  });
+
+  it('send includes the bound sessionId in the chat request', async () => {
+    mockSessionFetch({
+      sessions: [{ id: 'session-bind', title: '綁定測試' }],
+      details: { 'session-bind': [] },
+    });
+
+    let capturedSessionId: unknown = 'unset';
+    _streamChatImpl = async function* (...args: unknown[]) {
+      capturedSessionId = (args[0] as { sessionId?: unknown }).sessionId;
+      yield { type: 'text', text: '好。' } as AgentSseEvent;
+      yield { type: 'done' } as AgentSseEvent;
+    };
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 80)); });
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: '測試綁定' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+
+    await waitFor(() => {
+      expect(capturedSessionId).toBe('session-bind');
+    }, { timeout: 2000 });
+  });
+});

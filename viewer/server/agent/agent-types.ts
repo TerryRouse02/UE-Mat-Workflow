@@ -27,6 +27,11 @@ export interface AgentChatRequest {
   ueVersion?: string;
   graphPath?: string;
   thinking?: AgentThinkingLevel;
+  /**
+   * Persistent session to continue (M7). Absent → the server's current
+   * session (created on demand). The web UI always sends an explicit id.
+   */
+  sessionId?: string;
 }
 
 /** Response from POST /api/agent/undo */
@@ -48,6 +53,50 @@ export interface AgentResetResponse {
 export type AgentTestResponse =
   | { ok: true; model: string }
   | { ok: false; error: string };
+
+// ---------------------------------------------------------------------------
+// M7: persistent sessions — GET/POST /api/agent/sessions, GET/DELETE .../:id
+// ---------------------------------------------------------------------------
+
+/** One session row in GET /api/agent/sessions (sorted by updatedAt desc). */
+export interface AgentSessionMeta {
+  id: string;
+  title: string;
+  createdAt: string;   // ISO timestamp
+  updatedAt: string;   // ISO timestamp
+  ueVersion: string;
+  totalTokens: number;
+  /** Completed user turns. */
+  turns: number;
+}
+
+/**
+ * Replayable conversation log: the user's messages plus every SSE event the
+ * turn emitted (consecutive text/thinking events are coalesced on persist).
+ * The provider-neutral message history stays server-side and is never sent.
+ */
+export type AgentTranscriptEntry =
+  | { kind: 'user'; text: string }
+  | { kind: 'event'; event: AgentSseEvent };
+
+/** Response from GET /api/agent/sessions/:id */
+export interface AgentSessionDetail {
+  id: string;
+  title: string;
+  ueVersion: string;
+  totalTokens: number;
+  transcript: AgentTranscriptEntry[];
+}
+
+/** Response from GET /api/agent/sessions */
+export interface AgentSessionsListResponse {
+  sessions: AgentSessionMeta[];
+}
+
+/** Response from POST /api/agent/sessions */
+export interface AgentSessionCreateResponse {
+  id: string;
+}
 
 // ---------------------------------------------------------------------------
 // M5: POST /api/agent/explain — one-shot LLM node explanation

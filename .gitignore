@@ -55,6 +55,8 @@ tools/node-t3d-metadata/local.config.json
 
 # Agent checkpoint snapshots — pre-image files for undo; never committed.
 viewer/.agent-checkpoints/
+viewer/.agent-sessions/
+viewer/.agent-memory/
 
 # Locally-built macOS plugin binary (D2: Mac plugin stays local; Win64 stays committed)
 tools/node-t3d-metadata/compiled/**/Binaries/Mac/
