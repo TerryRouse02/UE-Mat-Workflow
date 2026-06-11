@@ -1,5 +1,5 @@
 import { createServer, type Server, type IncomingMessage } from 'node:http';
-import { readFile, readdir, mkdir, writeFile, access } from 'node:fs/promises';
+import { readFile, readdir, mkdir, writeFile, access, rm } from 'node:fs/promises';
 import { resolve, join, extname, relative, dirname } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { watchGraphs } from './watcher.js';
@@ -20,7 +20,7 @@ import { runAgent, createSession, type AgentLoopSession } from './agent/loop.js'
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions } from './agent/query-bridge.js';
-import type { AgentSseEvent, AgentChatRequest } from './agent/agent-types.js';
+import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse } from './agent/agent-types.js';
 import type { LLMConfig, ProviderStatus } from './agent/provider/types.js';
 
 export interface ServerOpts {
@@ -408,6 +408,71 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     sendJson(res, 200, status);
   }
 
+  /** POST /api/agent/undo — restore the previous checkpoint turn. */
+  async function handleAgentUndo(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+
+    // 409 if an agent is actively streaming — cannot undo while writing.
+    if (agentStreaming) {
+      sendJson(res, 409, { error: '對話進行中，無法還原。請等待完成後再試。' });
+      return;
+    }
+
+    // No session or empty checkpoint → {ok:false, reason:'nothing-to-undo'}.
+    if (!agentCheckpoint) {
+      const body: AgentUndoResponse = { ok: false, reason: 'nothing-to-undo' };
+      sendJson(res, 200, body);
+      return;
+    }
+
+    const restored = await agentCheckpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'));
+
+    if (restored === null) {
+      const body: AgentUndoResponse = { ok: false, reason: 'nothing-to-undo' };
+      sendJson(res, 200, body);
+      return;
+    }
+
+    // Filter out SKIPPED entries, convert abs paths to graphsRoot-relative.
+    const relPaths = restored
+      .filter(p => !p.startsWith('!SKIPPED:'))
+      .map(p => relative(resolve(opts.repoRoot, 'graphs'), p));
+
+    const body: AgentUndoResponse = { ok: true, restored: relPaths };
+    sendJson(res, 200, body);
+  }
+
+  /** POST /api/agent/reset — abort any in-flight chat and clear the session. */
+  async function handleAgentReset(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+
+    // Abort any in-flight streaming chat.
+    agentAbortRef.current?.abort();
+    agentAbortRef.current = null;
+    // Clear the streaming flag immediately so the next POST /api/agent/chat on
+    // this server instance does not receive a spurious 409.  The flag is also
+    // cleared in handleAgentChat's finally block, but that fires only after the
+    // aborted generator fully unwinds — which is asynchronous and can take
+    // several seconds with a real LLM provider.
+    agentStreaming = false;
+
+    // Remove the old checkpoint directory from disk (stale pre-images are dead weight).
+    if (agentCheckpoint) {
+      try {
+        await rm(agentCheckpoint.sessionDir, { recursive: true, force: true });
+      } catch {
+        // Non-fatal — directory may already be gone.
+      }
+    }
+
+    // Clear session and checkpoint.
+    agentSession = null;
+    agentCheckpoint = null;
+
+    const body: AgentResetResponse = { ok: true };
+    sendJson(res, 200, body);
+  }
+
   /** POST /api/agent/chat — SSE stream of AgentSseEvents. */
   async function handleAgentChat(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
@@ -533,8 +598,16 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       emit({ type: 'error', message: toolRejected ? msg : `對話發生錯誤：${msg}` });
       emit({ type: 'done' });
     } finally {
-      agentStreaming = false;
-      agentAbortRef.current = null;
+      // Ownership check: a reset may abort this run and hand the lock to a
+      // NEWER chat while this generator is still unwinding (the abort only
+      // takes effect at the next event boundary). Clearing the shared flags
+      // unconditionally here would break the newer run's single-flight lock
+      // and null out its abort controller — only the run that still owns the
+      // abort ref may clear them.
+      if (agentAbortRef.current === ac) {
+        agentStreaming = false;
+        agentAbortRef.current = null;
+      }
       if (!res.writableEnded) res.end();
     }
   }
@@ -593,6 +666,16 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'GET' && urlPath === '/api/agent/status') {
       try { await handleAgentStatus(res); }
       catch (e) { console.error('agent status handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/agent/undo') {
+      try { await handleAgentUndo(req, res); }
+      catch (e) { console.error('agent undo handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/agent/reset') {
+      try { await handleAgentReset(req, res); }
+      catch (e) { console.error('agent reset handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (!opts.webDist) { res.writeHead(404); res.end(); return; }

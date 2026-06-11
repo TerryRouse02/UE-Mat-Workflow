@@ -1,17 +1,26 @@
 // web/src/agent/AgentChat.tsx — 4th Sidebar tab: conversational material agent UI.
 //
-// Scope (M3): streamed narrative text + tool step lines (tool_start/tool_end) +
-// input box + stop button + unconfigured-state guidance + empty-state example prompts.
-// Diff blocks (M4) and NodeExplainPopover (M5) are NOT implemented here.
+// Scope (M3+M4): streamed narrative text + tool step lines (tool_start/tool_end) +
+// diff blocks (plain-language change list) + input box + stop/undo/reset buttons +
+// unconfigured-state guidance + empty-state example prompts.
+// NodeExplainPopover (M5) is NOT implemented here.
 //
 // Hidden when connection === 'snapshot' (same as ConfigPanel).
+//
+// Bubble-grouping note for diff events:
+//   A diff block is inserted as its own ChatItem (kind:'diff'). It does NOT
+//   call setNeedsNewBubble(true) — diff events come from the server AFTER a
+//   successful tool write, between tool_end and the next text run. The
+//   subsequent text event will open a new bubble only if needsNewBubble is
+//   still true from the preceding tool_start (which it is), so grouping is
+//   naturally correct without special handling.
 
 import { useEffect, useRef, useState, useCallback } from 'react';
 import React from 'react';
 import { useStore } from '../store';
 import { Icon } from '../Icon';
 import { streamChat } from './sse';
-import type { AgentSseEvent, ProviderStatus } from './protocol';
+import type { AgentSseEvent, ProviderStatus, AgentUndoResponse, AgentResetResponse } from './protocol';
 
 // ─── Message model ────────────────────────────────────────────────────────────
 
@@ -34,11 +43,17 @@ interface ToolLine {
 
 interface NoticeLine {
   kind: 'notice';
-  variant: 'limit' | 'error';
+  variant: 'limit' | 'error' | 'info';
   message: string;
 }
 
-type ChatItem = TextBubble | ToolLine | NoticeLine;
+/** Plain-language diff lines emitted after a successful write_graph/patch_graph. */
+interface DiffBlock {
+  kind: 'diff';
+  lines: string[];
+}
+
+type ChatItem = TextBubble | ToolLine | NoticeLine | DiffBlock;
 
 // ─── Example prompts ─────────────────────────────────────────────────────────
 
@@ -70,10 +85,28 @@ function ToolStepLine({ item }: { item: ToolLine }) {
 }
 
 function NoticeItem({ item }: { item: NoticeLine }) {
+  const iconName = item.variant === 'error' ? 'warn' : item.variant === 'info' ? 'check' : 'hash';
   return (
     <div className={'agent-notice ' + item.variant}>
-      <Icon name={item.variant === 'error' ? 'warn' : 'hash'} size={12} />
+      <Icon name={iconName} size={12} />
       <span>{item.message}</span>
+    </div>
+  );
+}
+
+/** Compact block listing plain-language diff lines after a successful write. */
+function DiffBlockView({ item }: { item: DiffBlock }) {
+  return (
+    <div className="agent-diff">
+      <div className="agent-diff-header">
+        <Icon name="hash" size={11} />
+        <span>變更摘要</span>
+      </div>
+      <ul className="agent-diff-lines">
+        {item.lines.map((line, i) => (
+          <li key={i} className="agent-diff-line">{line}</li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -123,6 +156,45 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
   const handleStop = useCallback(() => {
     abortRef.current?.abort();
   }, []);
+
+  const handleUndo = useCallback(async () => {
+    if (streaming) return;
+    try {
+      const r = await fetch('/api/agent/undo', { method: 'POST', cache: 'no-store' });
+      if (!r.ok) {
+        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: `還原請求失敗（HTTP ${r.status}）` }]);
+        return;
+      }
+      const body = await r.json() as AgentUndoResponse;
+      if (body.ok) {
+        const count = body.restored.length;
+        setItems(prev => [...prev, {
+          kind: 'notice', variant: 'info',
+          message: `已還原上一步（${count} 個檔案）`,
+        }]);
+      } else {
+        setItems(prev => [...prev, { kind: 'notice', variant: 'info', message: '沒有可還原的步驟' }]);
+      }
+    } catch {
+      setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '還原請求失敗' }]);
+    }
+  }, [streaming]);
+
+  const handleReset = useCallback(async () => {
+    if (streaming) return;
+    try {
+      const r = await fetch('/api/agent/reset', { method: 'POST', cache: 'no-store' });
+      if (!r.ok) {
+        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: `重設請求失敗（HTTP ${r.status}）` }]);
+        return;
+      }
+      await r.json() as AgentResetResponse;
+      // Clear local conversation history on success.
+      setItems([]);
+    } catch {
+      setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '重設請求失敗' }]);
+    }
+  }, [streaming]);
 
   const handleSend = useCallback(async (text: string) => {
     if (!text.trim() || streaming) return;
@@ -234,6 +306,14 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
         break;
       }
 
+      case 'diff': {
+        // Diff block: insert as a dedicated DiffBlock item. Does NOT touch
+        // needsNewBubble — the preceding tool_start already set it to true, so
+        // the next text event will naturally open a fresh assistant bubble.
+        setItemsFn(prev => [...prev, { kind: 'diff', lines: event.lines }]);
+        break;
+      }
+
       case 'graph_written': {
         // Open the written graph via existing mechanism.
         open(event.path);
@@ -324,6 +404,9 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
           if (item.kind === 'notice') {
             return <NoticeItem key={i} item={item} />;
           }
+          if (item.kind === 'diff') {
+            return <DiffBlockView key={i} item={item} />;
+          }
           return null;
         })}
       </div>
@@ -351,13 +434,33 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
               <Icon name="x" size={12} /> 停止
             </button>
           ) : (
-            <button
-              className="btn primary sm"
-              disabled={!input.trim()}
-              onClick={() => void handleSend(input)}
-            >
-              <Icon name="check" size={12} /> 送出
-            </button>
+            <>
+              <button
+                className="btn primary sm"
+                disabled={!input.trim()}
+                onClick={() => void handleSend(input)}
+              >
+                <Icon name="check" size={12} /> 送出
+              </button>
+              <button
+                className="btn sm"
+                disabled={streaming}
+                onClick={() => void handleUndo()}
+                title="還原上一步"
+                aria-label="還原上一步"
+              >
+                <Icon name="refresh" size={12} /> 還原
+              </button>
+              <button
+                className="btn sm"
+                disabled={streaming}
+                onClick={() => void handleReset()}
+                title="新對話"
+                aria-label="新對話"
+              >
+                <Icon name="x" size={12} /> 新對話
+              </button>
+            </>
           )}
         </div>
       </div>

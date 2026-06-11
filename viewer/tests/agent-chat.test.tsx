@@ -97,6 +97,24 @@ function mockFetchStatus(status: { configured: boolean; provider?: string; model
   });
 }
 
+/**
+ * Multi-endpoint fetch mock for M4 tests.
+ * Handlers is a map of URL → response factory.
+ */
+function mockFetchMulti(handlers: Record<string, () => Promise<unknown>>) {
+  global.fetch = vi.fn().mockImplementation((url: string) => {
+    const handler = handlers[url];
+    if (handler) {
+      return handler().then(body => ({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(body),
+      }));
+    }
+    return Promise.reject(new Error('unexpected fetch: ' + url));
+  });
+}
+
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
@@ -334,5 +352,197 @@ describe('Sidebar Agent tab', () => {
     // In snapshot mode the agent tab is not rendered, so no agent-panel.
     expect(container.querySelector('.agent-panel')).toBeNull();
     __setConnection('live');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// M4: diff event rendering, undo/reset buttons
+// ---------------------------------------------------------------------------
+
+describe('AgentChat M4', () => {
+  it('renders a diff block when a diff event arrives', async () => {
+    mockFetchStatus({ configured: true, provider: 'anthropic', model: 'test' });
+    mockStreamChat([
+      { type: 'diff', lines: ['加入了 Multiply 節點「n1」', '將「n1」的 Value 改為 0.5'] },
+      { type: 'done' },
+    ]);
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: '修改材質' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('.agent-diff')).toBeTruthy();
+      expect(container.textContent).toContain('加入了 Multiply 節點');
+      expect(container.textContent).toContain('將「n1」的 Value 改為 0.5');
+    }, { timeout: 2000 });
+  });
+
+  it('diff block does not break bubble grouping: text after diff opens a new assistant bubble', async () => {
+    mockFetchStatus({ configured: true, provider: 'anthropic', model: 'test' });
+    mockStreamChat([
+      { type: 'text', text: '我來修改圖' },
+      { type: 'tool_start', name: 'patch_graph', summary: '套用修改' },
+      { type: 'tool_end', name: 'patch_graph', ok: true },
+      { type: 'diff', lines: ['加入了節點「n2」'] },
+      { type: 'text', text: '修改完成！' },
+      { type: 'done' },
+    ]);
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: '開始' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+
+    await waitFor(() => {
+      const bubbles = container.querySelectorAll('.agent-bubble.assistant');
+      // Two assistant bubbles: before tool_start and after diff.
+      expect(bubbles.length).toBe(2);
+      const first = bubbles[0].textContent ?? '';
+      const second = bubbles[1].textContent ?? '';
+      expect(first).toContain('我來修改圖');
+      expect(first).not.toContain('修改完成');
+      expect(second).toContain('修改完成');
+      expect(second).not.toContain('我來修改圖');
+
+      // The diff block must be rendered as a .agent-diff element (not swallowed by
+      // a bubble) and must contain the diff line text.  Without the 'diff' case in
+      // handleSseEvent the DiffBlock item is never added, so this assertion would fail
+      // even though the bubble-split assertions above would still pass.
+      const diffEl = container.querySelector('.agent-diff');
+      expect(diffEl).toBeTruthy();
+      expect(diffEl!.textContent).toContain('加入了節點「n2」');
+    }, { timeout: 2000 });
+  });
+
+  it('undo button click on success shows 「已還原上一步」notice', async () => {
+    mockFetchMulti({
+      '/api/agent/status': () => Promise.resolve({ configured: true, provider: 'anthropic', model: 'test' }),
+      '/api/agent/undo': () => Promise.resolve({ ok: true, restored: ['some/graph.matgraph.json'] }),
+    });
+    mockStreamChat([]);
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    const undoBtn = Array.from(container.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('還原'));
+    expect(undoBtn).toBeTruthy();
+
+    await act(async () => { fireEvent.click(undoBtn!); });
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('已還原上一步');
+    }, { timeout: 2000 });
+  });
+
+  it('undo button click on nothing-to-undo shows 「沒有可還原的步驟」notice', async () => {
+    mockFetchMulti({
+      '/api/agent/status': () => Promise.resolve({ configured: true, provider: 'anthropic', model: 'test' }),
+      '/api/agent/undo': () => Promise.resolve({ ok: false, reason: 'nothing-to-undo' }),
+    });
+    mockStreamChat([]);
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    const undoBtn = Array.from(container.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('還原'));
+    expect(undoBtn).toBeTruthy();
+
+    await act(async () => { fireEvent.click(undoBtn!); });
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('沒有可還原的步驟');
+    }, { timeout: 2000 });
+  });
+
+  it('undo and reset buttons are disabled while streaming', async () => {
+    mockFetchStatus({ configured: true, provider: 'anthropic', model: 'test' });
+
+    // Stream that keeps going so we can observe the disabled state.
+    let streamResolve: (() => void) | null = null;
+    mockStreamChatAbortable(async function* () {
+      yield { type: 'text', text: '...' } as AgentSseEvent;
+      await new Promise<void>(r => { streamResolve = r; setTimeout(r, 5000); });
+      yield { type: 'done' } as AgentSseEvent;
+    });
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    // Start streaming.
+    act(() => {
+      fireEvent.change(textarea, { target: { value: '開始' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+
+    // Wait for streaming to begin.
+    await waitFor(() => {
+      expect(container.textContent).toContain('...');
+    }, { timeout: 2000 });
+
+    // While streaming, undo and reset buttons should not be visible
+    // (they are replaced by the 停止 button during streaming).
+    const undoBtn = Array.from(container.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('還原'));
+    const resetBtn = Array.from(container.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('新對話'));
+    // During streaming, 停止 button replaces undo/reset.
+    expect(undoBtn).toBeFalsy();
+    expect(resetBtn).toBeFalsy();
+
+    // Clean up: resolve the stall.
+    streamResolve?.();
+    await waitFor(() => {
+      expect(textarea.disabled).toBe(false);
+    }, { timeout: 3000 });
+  });
+
+  it('reset button click clears the conversation', async () => {
+    mockFetchMulti({
+      '/api/agent/status': () => Promise.resolve({ configured: true, provider: 'anthropic', model: 'test' }),
+      '/api/agent/reset': () => Promise.resolve({ ok: true }),
+    });
+    mockStreamChat([
+      { type: 'text', text: '已建立材質。' },
+      { type: 'done' },
+    ]);
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    // Send a message first so there are items in the conversation.
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: '建立材質' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('已建立材質');
+    }, { timeout: 2000 });
+
+    // Click reset.
+    const resetBtn = Array.from(container.querySelectorAll('button'))
+      .find(b => b.textContent?.includes('新對話'));
+    expect(resetBtn).toBeTruthy();
+
+    await act(async () => { fireEvent.click(resetBtn!); });
+
+    // After reset, conversation should be cleared (shows empty state prompts).
+    await waitFor(() => {
+      expect(container.textContent).toContain('開始對話，生成 UE 材質');
+    }, { timeout: 2000 });
   });
 });

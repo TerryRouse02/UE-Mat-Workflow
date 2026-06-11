@@ -10,7 +10,7 @@
 // The .agent-checkpoints/ directory must be listed in the root .gitignore.
 
 import { mkdir, readFile, readdir, writeFile, rename, rm, unlink } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { join, dirname, resolve } from 'node:path';
 import { existsSync } from 'node:fs';
 
 /** Sentinel written when the target file did not exist before write. */
@@ -31,8 +31,13 @@ export interface CheckpointStore {
    * Undo the last recorded turn: restore all snapshotted files to their
    * pre-image, then remove the turn directory from the stack.
    * Returns the list of restored abs paths, or null if there are no turns.
+   *
+   * @param allowedRoot If provided, snapshot entries whose resolved target path
+   *   lies outside this directory are NOT restored (loud skip — they are still
+   *   removed from the snapshot and reported in the return value with a
+   *   `!SKIPPED:` prefix).  Backward-compatible: pass undefined to restore all.
    */
-  undoLastTurn(): Promise<string[] | null>;
+  undoLastTurn(allowedRoot?: string): Promise<string[] | null>;
 
   /** Stack of turn IDs from oldest to newest. */
   turnIds(): string[];
@@ -87,7 +92,7 @@ export function createCheckpointStore(viewerRoot: string, sessionId: string): Ch
     await writeFile(snapshotFilePath, content, 'utf-8');
   }
 
-  async function undoLastTurn(): Promise<string[] | null> {
+  async function undoLastTurn(allowedRoot?: string): Promise<string[] | null> {
     if (turns.length === 0) return null;
 
     const turnId = turns[turns.length - 1];
@@ -103,12 +108,32 @@ export function createCheckpointStore(viewerRoot: string, sessionId: string): Ch
       return [];
     }
 
+    // Normalize the allowed root once for cheap prefix checks.
+    const normAllowedRoot = allowedRoot ? resolve(allowedRoot) + '/' : null;
+
     const restored: string[] = [];
 
     for (const entry of entries) {
       const snapshotPath = join(turnDir, entry);
       // The filename IS the base64url-encoded abs path (no slot prefix).
       const absPath = Buffer.from(entry, 'base64url').toString('utf-8');
+
+      // Defense-in-depth (§7): if an allowedRoot is specified and the decoded
+      // target lies outside it, skip restoration and report loudly.
+      if (normAllowedRoot) {
+        const normTarget = resolve(absPath);
+        const inside = normTarget === normAllowedRoot.slice(0, -1) ||
+                       normTarget.startsWith(normAllowedRoot);
+        if (!inside) {
+          console.warn(
+            `[checkpoint] undoLastTurn: skipping out-of-root path "${absPath}" ` +
+            `(allowed root: "${allowedRoot}")`,
+          );
+          // Still pop the snapshot entry (don't re-try next undo) but mark skipped.
+          restored.push('!SKIPPED:' + absPath);
+          continue;
+        }
+      }
 
       const content = await readFile(snapshotPath, 'utf-8');
 

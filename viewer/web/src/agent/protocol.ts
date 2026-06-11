@@ -36,3 +36,15 @@ export interface ProviderStatus {
   provider?: string;
   model?: string;
 }
+
+/** Response from POST /api/agent/undo — mirrored from server/agent/agent-types.ts */
+export type AgentUndoResponse =
+  | { ok: true; restored: string[] }        // paths relative to graphsRoot
+  | { ok: false; reason: 'nothing-to-undo' };
+  // NOTE: the streaming-conflict case is returned as HTTP 409 { error: string }
+  // (not as AgentUndoResponse), so 'streaming' is not a valid reason variant here.
+
+/** Response from POST /api/agent/reset — mirrored from server/agent/agent-types.ts */
+export interface AgentResetResponse {
+  ok: true;
+}

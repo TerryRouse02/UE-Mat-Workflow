@@ -72,7 +72,9 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   (filename allowlist), `GET /api/workmf`, `POST /api/config` (extended with optional `Llm`
   object for AI config), `POST /api/crawl`, `POST /api/import`,
   `POST /api/agent/chat` (SSE — agent conversation loop),
-  `GET /api/agent/status` (ProviderStatus — never contains apiKey);
+  `GET /api/agent/status` (ProviderStatus — never contains apiKey),
+  `POST /api/agent/undo` (restore previous checkpoint turn; sameOrigin; 409 while streaming),
+  `POST /api/agent/reset` (abort in-flight chat + clear session; sameOrigin);
   static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
   `listFiles`, crawl progress broadcast.
 - `schema.ts` — `validateGraph` (the `.matgraph.json` contract). `graph-loader.ts` — read+parse+validate.

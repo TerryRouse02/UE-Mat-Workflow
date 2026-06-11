@@ -4,7 +4,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
 import { runAgent, createSession, MAX_ITERS, TOKEN_CEILING, type AgentLoopSession, type EmitFn, type RunAgentOptions } from '../server/agent/loop.js';
 import { createCheckpointStore } from '../server/agent/checkpoint.js';
 import type { Provider, StreamEvent, ChatRequest } from '../server/agent/provider/types.js';
@@ -581,6 +581,51 @@ describe('checkpoint and undo', () => {
     // No more turns
     const result = await store.undoLastTurn();
     expect(result).toBeNull();
+  });
+
+  it('undoLastTurn with allowedRoot skips entries outside the root', async () => {
+    // Regression test: the allowedRoot confinement guard must block restoration
+    // of snapshot entries whose decoded paths lie outside the allowed directory.
+    const viewerRoot = join(tmpDir, 'viewer');
+    const store = createCheckpointStore(viewerRoot, 'sess-confinement');
+
+    // Set up an "allowed" directory and an "outside" path.
+    const allowedRoot = join(tmpDir, 'graphs');
+    await mkdir(allowedRoot, { recursive: true });
+
+    // An outside path (sibling of tmpDir, not inside allowedRoot).
+    const outsidePath = join(tmpDir, 'tools', 'should-not-be-touched.txt');
+    await mkdir(dirname(outsidePath), { recursive: true });
+    await writeFile(outsidePath, 'original', 'utf-8');
+
+    // A safe path inside allowedRoot.
+    const safePath = join(allowedRoot, 'safe.matgraph.json');
+    await writeFile(safePath, '{"v":1}', 'utf-8');
+
+    // Snapshot both paths in the same turn.
+    await store.snapshotFile('turn-1', outsidePath);  // will be skipped
+    await store.snapshotFile('turn-1', safePath);     // will be restored
+
+    // Overwrite both files to simulate agent writes.
+    await writeFile(outsidePath, 'ROGUE_REPLACEMENT', 'utf-8');
+    await writeFile(safePath, '{"v":2}', 'utf-8');
+
+    // Undo with allowedRoot — only safePath should be restored.
+    const restored = await store.undoLastTurn(allowedRoot);
+    expect(restored).not.toBeNull();
+
+    // safePath must be restored to {"v":1}.
+    const safeContent = JSON.parse(await readFile(safePath, 'utf-8'));
+    expect(safeContent.v).toBe(1);
+
+    // outsidePath must NOT have been restored — still holds ROGUE_REPLACEMENT.
+    const outsideContent = await readFile(outsidePath, 'utf-8');
+    expect(outsideContent).toBe('ROGUE_REPLACEMENT');
+
+    // The return value must contain both: safePath as a normal entry and
+    // outsidePath marked with the !SKIPPED: prefix.
+    expect(restored!.some(p => p === safePath)).toBe(true);
+    expect(restored!.some(p => p === '!SKIPPED:' + outsidePath)).toBe(true);
   });
 });
 
