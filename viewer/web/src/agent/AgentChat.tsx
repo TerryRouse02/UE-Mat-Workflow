@@ -195,7 +195,7 @@ export interface AgentChatProps {
 
 export function AgentChat({ onGotoConfig }: AgentChatProps) {
   const { state, open, highlightNodes, requestAgentExport, startCrawl } = useStore();
-  const { connection, currentPath } = state;
+  const { connection, currentPath, selectedNodeId } = state;
 
   const [status, setStatus] = useState<ProviderStatus | null>(null);
   const [statusLoading, setStatusLoading] = useState(true);
@@ -412,6 +412,7 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
         {
           text: userText,
           graphPath: currentPath ?? undefined,
+          selectedNodeId: selectedNodeId ?? undefined,
           thinking: thinking !== 'off' ? thinking : undefined,
           sessionId: sid ?? undefined,
         },
@@ -442,7 +443,25 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
       // Refresh titles/timestamps after the turn lands on disk.
       void fetchSessions();
     }
-  }, [streaming, currentPath, open, thinking, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
+  }, [streaming, currentPath, selectedNodeId, open, thinking, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
+
+  // 問 AI / post-import explain: consume the store's one-shot ask request.
+  // Waits for the provider status so an unconfigured agent silently drops it
+  // (the guidance panel is already on screen). send=true submits immediately;
+  // send=false (or mid-stream) prefills the input instead.
+  const consumedAskNonce = useRef(0);
+  useEffect(() => {
+    const ask = state.agentAsk;
+    if (!ask || ask.nonce === consumedAskNonce.current || statusLoading) return;
+    consumedAskNonce.current = ask.nonce;
+    if (Date.now() - ask.ts > 15_000 || !status?.configured) return;
+    if (ask.send && !streaming) {
+      void handleSend(ask.text);
+    } else {
+      setInput(ask.text);
+      inputRef.current?.focus();
+    }
+  }, [state.agentAsk, statusLoading, status, streaming, handleSend]);
 
   // Regenerate: rewind the last user turn server-side (files + history +
   // transcript), reload the trimmed view, then re-send the same text through

@@ -32,6 +32,9 @@ export interface AgentChatRequest {
   text: string;
   ueVersion?: string;
   graphPath?: string;
+  /** Canvas node the user has selected — joined with graphPath into the
+      ［視窗情境］ context block appended to the user message. */
+  selectedNodeId?: string;
   thinking?: AgentThinkingLevel;
   /**
    * Persistent session to continue (M7). Absent → the server's current

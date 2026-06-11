@@ -37,6 +37,13 @@ interface State {
   // the graph is open and rendered (T3D needs the dagre positions). ts gates
   // staleness like agentHighlight.
   agentExportReq: { path: string; nonce: number; ts: number } | null;
+  // Currently selected canvas node (lifted from App so the agent chat can
+  // attach it as viewport context on every message).
+  selectedNodeId: string | null;
+  // One-shot "say this to the agent" request (問 AI button, post-import
+  // explain). App switches to the Agent tab; AgentChat consumes the text —
+  // send=true submits immediately, send=false prefills the input.
+  agentAsk: { text: string; send: boolean; nonce: number; ts: number } | null;
 }
 
 type Action =
@@ -53,6 +60,8 @@ type Action =
   | { type: 'setEnv'; env: EnvStatus }
   | { type: 'agentHighlight'; path: string; ids: string[] }
   | { type: 'agentExportReq'; path: string }
+  | { type: 'selectNode'; id: string | null }
+  | { type: 'agentAsk'; text: string; send: boolean }
   | { type: 'crawlReset' }
   | CrawlAction;
 
@@ -63,6 +72,7 @@ const initial: State = {
   connection: 'reconnecting', lastUpdate: null,
   env: null, crawl: idleCrawl, metadataVersion: 0, workMfVersion: 0,
   agentHighlight: null, agentExportReq: null,
+  selectedNodeId: null, agentAsk: null,
 };
 
 function reducer(s: State, a: Action): State {
@@ -89,6 +99,10 @@ function reducer(s: State, a: Action): State {
       return { ...s, agentHighlight: { path: a.path, ids: a.ids, nonce: (s.agentHighlight?.nonce ?? 0) + 1, ts: Date.now() } };
     case 'agentExportReq':
       return { ...s, agentExportReq: { path: a.path, nonce: (s.agentExportReq?.nonce ?? 0) + 1, ts: Date.now() } };
+    case 'selectNode':
+      return { ...s, selectedNodeId: a.id };
+    case 'agentAsk':
+      return { ...s, agentAsk: { text: a.text, send: a.send, nonce: (s.agentAsk?.nonce ?? 0) + 1, ts: Date.now() } };
     case 'crawlReset':
       return { ...s, crawl: idleCrawl };
     case 'crawlStarted':
@@ -133,6 +147,10 @@ interface Ctx {
   highlightNodes(path: string, ids: string[]): void;
   /** Ask App to export the graph at path to the UE clipboard once it is rendered. */
   requestAgentExport(path: string): void;
+  /** Select (or clear) the canvas node shown in the Inspector / sent as agent context. */
+  selectNode(id: string | null): void;
+  /** Hand a message to the agent chat: send=true submits it, send=false prefills the input. */
+  askAgent(text: string, send: boolean): void;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -278,7 +296,15 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'agentExportReq', path });
   }, []);
 
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport]);
+  const selectNode = useCallback((id: string | null) => {
+    dispatch({ type: 'selectNode', id });
+  }, []);
+
+  const askAgent = useCallback((text: string, send: boolean) => {
+    dispatch({ type: 'agentAsk', text, send });
+  }, []);
+
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

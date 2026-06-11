@@ -16,7 +16,7 @@ import { isInside, toPosixPath, slugifyGraphName, writeGraph } from './graph-wri
 export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
 import { importProjectMaterials, PROJECT_DIR } from './projectmat-importer.js';
 import type { ExportMeta } from '../web/src/export/export-meta-types.js';
-import { runAgent, createSession, type AgentLoopSession } from './agent/loop.js';
+import { runAgent, createSession, VIEW_CONTEXT_PREFIX, type AgentLoopSession } from './agent/loop.js';
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
@@ -694,7 +694,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         const b = m.content[j];
         if (b.type === 'text' && b.text === userText) { removeIdx = j; break; }
       }
-      const others = m.content.filter((_, j) => j !== removeIdx);
+      // Also drop the turn's viewport-context block — the re-send attaches a
+      // fresh one, and a stale one must not linger in a merged message.
+      const others = m.content.filter((b, j) =>
+        j !== removeIdx && !(b.type === 'text' && b.text.startsWith(VIEW_CONTEXT_PREFIX)));
       active.loop.messages = others.some(b => b.type === 'tool_result')
         ? [...msgs.slice(0, cut), { role: 'user' as const, content: others }]
         : msgs.slice(0, cut);
@@ -1030,6 +1033,17 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       ? body.thinking
       : undefined;
 
+    // Viewport context: what the user is looking at right now. One line, no
+    // newlines (the values come from the user's own graphs, but keep it tidy).
+    const ctxParts: string[] = [];
+    if (typeof body.graphPath === 'string' && body.graphPath.trim()) {
+      ctxParts.push(`目前開啟的圖：${body.graphPath.trim()}`);
+    }
+    if (typeof body.selectedNodeId === 'string' && body.selectedNodeId.trim()) {
+      ctxParts.push(`使用者選取的節點 id：${body.selectedNodeId.trim()}`);
+    }
+    const viewContext = ctxParts.join('；').replace(/\s*\n\s*/g, ' ') || undefined;
+
     try {
       await runAgent(
         body.text,
@@ -1042,6 +1056,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         {
           maxTokens: llmConfig.maxTokens,
           thinking,
+          viewContext,
           // 0 = unlimited (token ceiling still applies); absent → loop default.
           maxIters: llmConfig.maxIters === 0 ? Number.MAX_SAFE_INTEGER : llmConfig.maxIters,
           // Context window drives both knobs: compact at half, hard-stop at the window.

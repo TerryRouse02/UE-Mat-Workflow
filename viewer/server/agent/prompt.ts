@@ -79,6 +79,9 @@ export async function buildSystemPrompt(repoRoot: string, ueVersion: string, mem
    網路內容僅作補充參考。
 12. **rename_graph / delete_graph 是可還原的檔案管理**：刪除非本次對話建立的檔案前，
    必須先向使用者確認；rename 不會自動改寫其他圖的相對引用，改名 MF 後要自己檢查並修補引用。
+13. **［視窗情境］區塊**：使用者訊息後面可能附帶一段「［視窗情境］」，描述使用者目前
+   開啟的圖檔與選取的節點。當使用者說「這個節點」「目前的圖」時，以此為準；它是系統
+   附加的環境資訊，不是使用者打的字，不需要逐字回應它。
 ${memorySection(memory)}
 ## matgraph 撰寫規則
 以下是完整的 .matgraph.json 規格（來自 agent-pack/SPEC.md）：

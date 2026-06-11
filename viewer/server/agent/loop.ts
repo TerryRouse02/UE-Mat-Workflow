@@ -45,6 +45,13 @@ export const COMPACT_THRESHOLD = 150_000;
 /** Most recent user turns kept verbatim by compaction. */
 export const COMPACT_KEEP_TURNS = 4;
 
+/**
+ * Marker prefix for the viewport-context text block appended after the user's
+ * message (open graph + selected node). Regenerate strips blocks carrying this
+ * prefix so a rewound turn never leaves stale context in a merged message.
+ */
+export const VIEW_CONTEXT_PREFIX = '［視窗情境］';
+
 // ---------------------------------------------------------------------------
 // Session type (server-side only)
 // ---------------------------------------------------------------------------
@@ -109,6 +116,12 @@ export interface RunAgentOptions {
   compactThreshold?: number;
   /** Override COMPACT_KEEP_TURNS. */
   compactKeepTurns?: number;
+  /**
+   * What the user is currently looking at (open graph, selected node) — sent
+   * by the web UI per message. Appended as a separate VIEW_CONTEXT_PREFIX text
+   * block so the model can resolve「目前的圖」「這個節點」.
+   */
+  viewContext?: string;
 }
 
 export async function runAgent(
@@ -153,6 +166,15 @@ export async function runAgent(
     session.messages.push({
       role: 'user',
       content: [{ type: 'text', text: userText }],
+    });
+  }
+  // Viewport context rides as its own marked block (after the user text) so it
+  // never contaminates the transcript text and regenerate can strip it cleanly.
+  const viewContext = options?.viewContext?.trim();
+  if (viewContext) {
+    session.messages.at(-1)!.content.push({
+      type: 'text',
+      text: `${VIEW_CONTEXT_PREFIX}${viewContext.slice(0, 500)}`,
     });
   }
 

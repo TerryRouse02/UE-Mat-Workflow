@@ -25,7 +25,7 @@ function srcToKind(src: string): 'workmf' | 'projectmat' | 'enginemf' | 'export'
 }
 
 function Body() {
-  const { state, open, enterMF, startCrawl } = useStore();
+  const { state, open, enterMF, startCrawl, selectNode } = useStore();
   const { db, exportMeta, supported } = useDb();
 
   // ─── Lifted cross-cutting state ────────────────────────────────────────────
@@ -62,7 +62,8 @@ function Body() {
   useEffect(() => { if (engineMismatch) setBannerDismissed(false); }, [engineMismatch]);
 
   // ─── Per-graph state ────────────────────────────────────────────────────────
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  // Selection lives in the store so the agent chat can attach it as context.
+  const selectedNodeId = state.selectedNodeId;
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [positions, setPositions] = useState<Record<string, { x: number; y: number }>>({});
   // focusReq is tagged with path so a stale request never fires on a different graph.
@@ -86,7 +87,18 @@ function Body() {
   const closeToast = (id: number) => setToasts(ts => ts.filter(t => t.id !== id));
 
   // Reset per-graph view state on navigation.
-  useEffect(() => { setSelectedNodeId(null); setFocusReq(null); }, [current]);
+  useEffect(() => { selectNode(null); setFocusReq(null); }, [current, selectNode]);
+
+  // 問 AI / post-import explain: a fresh agentAsk switches to the Agent tab;
+  // AgentChat itself consumes the text (nonce-tracked there too).
+  const consumedAskNonce = useRef(0);
+  useEffect(() => {
+    const ask = state.agentAsk;
+    if (!ask || ask.nonce === consumedAskNonce.current) return;
+    consumedAskNonce.current = ask.nonce;
+    if (Date.now() - ask.ts > 15_000) return;
+    if (state.connection !== 'snapshot') setTab('agent');
+  }, [state.agentAsk, state.connection]);
 
   // Hot-reload notice
   const prevPayloadRef = useRef(payload);
@@ -251,7 +263,7 @@ function Body() {
             </div>
           )}
           {payload
-            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={setSelectedNodeId} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} agentHighlight={agentHl} />
+            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={selectNode} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} agentHighlight={agentHl} />
             : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
         <Inspector

@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
-import { runAgent, createSession, MAX_ITERS, TOKEN_CEILING, type AgentLoopSession, type EmitFn, type RunAgentOptions } from '../server/agent/loop.js';
+import { runAgent, createSession, MAX_ITERS, TOKEN_CEILING, VIEW_CONTEXT_PREFIX, type AgentLoopSession, type EmitFn, type RunAgentOptions } from '../server/agent/loop.js';
 import { createCheckpointStore } from '../server/agent/checkpoint.js';
 import type { Provider, StreamEvent, ChatRequest } from '../server/agent/provider/types.js';
 import type { ToolContext } from '../server/agent/tools.js';
@@ -1609,5 +1609,38 @@ describe('viewer-action event fan-out', () => {
     expect(written).toEqual([{ type: 'graph_written', path: 'new.matgraph.json' }]);
     const diff = events.filter(e => e.type === 'diff').flatMap(e => (e as { lines: string[] }).lines);
     expect(diff.join('')).toContain('改名');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Viewport context block (options.viewContext)
+// ---------------------------------------------------------------------------
+
+describe('viewport context block', () => {
+  it('appends a VIEW_CONTEXT_PREFIX text block after the user text', async () => {
+    const provider = new FakeProvider([
+      [
+        { type: 'text_delta', text: '了解。' },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ]);
+    await runAndCollect('這個節點是做什麼的？', session, provider, ctx, undefined, {
+      viewContext: '目前開啟的圖：demo/a.matgraph.json；使用者選取的節點 id：mul',
+    });
+    const first = session.messages[0];
+    expect(first.role).toBe('user');
+    const texts = first.content.filter(b => b.type === 'text') as { type: 'text'; text: string }[];
+    expect(texts).toHaveLength(2);
+    expect(texts[0].text).toBe('這個節點是做什麼的？');
+    expect(texts[1].text.startsWith(VIEW_CONTEXT_PREFIX)).toBe(true);
+    expect(texts[1].text).toContain('demo/a.matgraph.json');
+    expect(texts[1].text).toContain('mul');
+  });
+
+  it('no viewContext → single text block, and empty/whitespace context is dropped', async () => {
+    const provider = new FakeProvider([]);
+    await runAndCollect('你好', session, provider, ctx, undefined, { viewContext: '   ' });
+    const texts = session.messages[0].content.filter(b => b.type === 'text');
+    expect(texts).toHaveLength(1);
   });
 });
