@@ -44,6 +44,9 @@ interface State {
   // explain). App switches to the Agent tab; AgentChat consumes the text —
   // send=true submits immediately, send=false prefills the input.
   agentAsk: { text: string; send: boolean; nonce: number; ts: number } | null;
+  // Agent-tab attention cue: busy = a reply is streaming; unseen = a reply
+  // finished while another tab was active (cleared when the tab is opened).
+  agentActivity: 'idle' | 'busy' | 'unseen';
 }
 
 type Action =
@@ -63,6 +66,7 @@ type Action =
   | { type: 'selectNode'; id: string | null }
   | { type: 'metadataBumped' }
   | { type: 'agentAsk'; text: string; send: boolean }
+  | { type: 'agentActivity'; value: 'idle' | 'busy' | 'unseen' }
   | { type: 'crawlReset' }
   | CrawlAction;
 
@@ -73,7 +77,7 @@ const initial: State = {
   connection: 'reconnecting', lastUpdate: null,
   env: null, crawl: idleCrawl, metadataVersion: 0, workMfVersion: 0,
   agentHighlight: null, agentExportReq: null,
-  selectedNodeId: null, agentAsk: null,
+  selectedNodeId: null, agentAsk: null, agentActivity: 'idle',
 };
 
 function reducer(s: State, a: Action): State {
@@ -107,6 +111,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, metadataVersion: s.metadataVersion + 1 };
     case 'agentAsk':
       return { ...s, agentAsk: { text: a.text, send: a.send, nonce: (s.agentAsk?.nonce ?? 0) + 1, ts: Date.now() } };
+    case 'agentActivity':
+      return s.agentActivity === a.value ? s : { ...s, agentActivity: a.value };
     case 'crawlReset':
       return { ...s, crawl: idleCrawl };
     case 'crawlStarted':
@@ -157,6 +163,8 @@ interface Ctx {
   askAgent(text: string, send: boolean): void;
   /** Re-fetch the agent-pack data after a server-side DB edit (approved db_edit_proposal). */
   bumpMetadata(): void;
+  /** Agent-tab attention cue, driven by AgentChat (busy/unseen/idle). */
+  setAgentActivity(value: 'idle' | 'busy' | 'unseen'): void;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -314,7 +322,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'metadataBumped' });
   }, []);
 
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata]);
+  const setAgentActivity = useCallback((value: 'idle' | 'busy' | 'unseen') => {
+    dispatch({ type: 'agentActivity', value });
+  }, []);
+
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

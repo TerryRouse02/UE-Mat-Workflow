@@ -18,7 +18,8 @@ import { applyAgentEvent, newTurnFlags, startUserTurn, transcriptToMarkdown } fr
 // ---------------------------------------------------------------------------
 
 vi.mock('../web/src/store.tsx', () => {
-  const makeState = (connection: string) => ({
+  const idleCrawl = { status: 'idle', kind: null, jobId: null, logs: [], exitCode: null };
+  const makeState = (connection: string, crawl: unknown) => ({
     state: {
       connection,
       currentPath: null,
@@ -28,9 +29,14 @@ vi.mock('../web/src/store.tsx', () => {
       errors: {},
       lastUpdate: null,
       env: null,
-      crawl: { status: 'idle', kind: null, jobId: null, logs: [], exitCode: null },
+      crawl,
       metadataVersion: 0,
       workMfVersion: 0,
+      agentHighlight: null,
+      agentExportReq: null,
+      selectedNodeId: null,
+      agentAsk: null,
+      agentActivity: 'idle',
     },
     open: vi.fn(),
     enterMF: vi.fn(),
@@ -41,15 +47,23 @@ vi.mock('../web/src/store.tsx', () => {
     refreshEnv: vi.fn(),
     saveConfig: vi.fn(),
     saveAgentConfig: vi.fn(),
+    highlightNodes: vi.fn(),
+    requestAgentExport: vi.fn(),
+    selectNode: vi.fn(),
+    askAgent: vi.fn(),
+    bumpMetadata: vi.fn(),
+    setAgentActivity: vi.fn(),
   });
 
-  // Default: live connection
+  // Default: live connection, idle crawl
   let _connection = 'live';
+  let _crawl: unknown = idleCrawl;
 
   return {
-    useStore: () => makeState(_connection),
+    useStore: () => makeState(_connection, _crawl),
     StoreProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
     __setConnection: (c: string) => { _connection = c; },
+    __setCrawl: (c: unknown) => { _crawl = c ?? idleCrawl; },
   };
 });
 
@@ -952,5 +966,82 @@ describe('transcript reducer — per-turn usage + db-edit proposal + markdown', 
     expect(md).toContain('- 新增節點 glow');
     expect(md).toContain('完成了。');
     expect(md).toContain('本輪');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Keep-alive + crawl-result report (the「爬完沒回報」bug fix)
+// ---------------------------------------------------------------------------
+
+describe('AgentChat keep-alive + crawl report', () => {
+  afterEach(async () => {
+    const { __setCrawl } = await import('../web/src/store.tsx') as any;
+    __setCrawl(null);
+  });
+
+  it('Sidebar keeps AgentChat mounted (hidden) on other tabs in live mode', async () => {
+    const { __setConnection } = await import('../web/src/store.tsx') as any;
+    __setConnection('live');
+    mockFetchStatus({ configured: true, provider: 'anthropic', model: 'test' });
+
+    const props = {
+      tab: 'files' as const, setTab: vi.fn(), onGotoConfig: vi.fn(), onLargeGraph: vi.fn(),
+      mfRoot: '/Game', setMfRoot: vi.fn(), matRoot: '/Game', setMatRoot: vi.fn(),
+    };
+    const { container, rerender } = render(<Sidebar {...props} />);
+    const wrap = container.querySelector('.agent-keepalive') as HTMLElement;
+    expect(wrap).toBeTruthy();
+    expect(wrap.style.display).toBe('none');
+    expect(container.querySelector('.agent-panel')).toBeTruthy(); // mounted while hidden
+
+    rerender(<Sidebar {...props} tab="agent" />);
+    expect((container.querySelector('.agent-keepalive') as HTMLElement).style.display).toBe('flex');
+  });
+
+  it('an approved crawl reports its outcome back into the conversation when it finishes', async () => {
+    const { __setConnection, __setCrawl } = await import('../web/src/store.tsx') as any;
+    __setConnection('live');
+    mockFetchStatus({ configured: true, provider: 'anthropic', model: 'test' });
+    mockStreamChat([
+      { type: 'crawl_proposal', kind: 'workmf', contentRoot: '/Game' },
+      { type: 'done' },
+    ]);
+
+    const { container, rerender } = render(<AgentChat onGotoConfig={() => {}} active={true} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    // User asks → agent proposes a crawl → card appears.
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: '我專案有個 MF 你去接' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+    await waitFor(() => {
+      expect(container.querySelector('.agent-crawl-approve')).toBeTruthy();
+    }, { timeout: 2000 });
+
+    // Approve (arms the pending report), then the crawl finishes while the
+    // user may be on another tab — the component stays mounted either way.
+    await act(async () => {
+      fireEvent.click(container.querySelector('.agent-crawl-approve') as HTMLElement);
+    });
+
+    let captured: { text?: string } | null = null;
+    _streamChatImpl = ((req: { text?: string }) => {
+      captured = req;
+      return makeEventStream([{ type: 'done' } as AgentSseEvent]);
+    }) as typeof _streamChatImpl;
+
+    await act(async () => {
+      __setCrawl({ status: 'success', kind: 'workmf', jobId: 'j1', logs: ['Wrote work-MF index: 12 function(s)'], exitCode: 0 });
+      rerender(<AgentChat onGotoConfig={() => {}} active={false} />);
+      await new Promise(r => setTimeout(r, 50));
+    });
+
+    await waitFor(() => {
+      expect(captured?.text).toContain('系統回報');
+      expect(captured?.text).toContain('workmf 爬取已完成');
+      expect(captured?.text).toContain('Wrote work-MF index');
+    }, { timeout: 2000 });
   });
 });

@@ -32,6 +32,9 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
     crawlStatus === 'running' ? 'run' : crawlStatus === 'error' ? 'err' : null;
   // Agent tab is hidden in snapshot mode (same as ConfigPanel behaviour).
   const isSnapshot = state.connection === 'snapshot';
+  // Pulse while the agent streams; steady dot when a reply finished off-tab.
+  const agentCue: 'run' | 'new' | null =
+    state.agentActivity === 'busy' ? 'run' : state.agentActivity === 'unseen' ? 'new' : null;
 
   return (
     <div className="sidebar">
@@ -73,6 +76,7 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
             onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setTab('agent')}
           >
             <Icon name="chip" size={14} /> Agent
+            {agentCue && <span className={'tdot ' + agentCue} />}
           </div>
         )}
       </div>
@@ -84,8 +88,13 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
         {tab === 'config' && (
           <ConfigPanel mfRoot={mfRoot} setMfRoot={setMfRoot} matRoot={matRoot} setMatRoot={setMatRoot} />
         )}
-        {tab === 'agent' && !isSnapshot && (
-          <AgentChat onGotoConfig={onGotoConfig} />
+        {/* AgentChat stays MOUNTED across tab switches (hidden, never unmounted):
+            the pending crawl-report, an in-flight stream, and unsent input must
+            survive the user watching crawl progress in the Config tab. */}
+        {!isSnapshot && (
+          <div className="agent-keepalive" style={{ display: tab === 'agent' ? 'flex' : 'none' }}>
+            <AgentChat onGotoConfig={onGotoConfig} active={tab === 'agent'} />
+          </div>
         )}
       </div>
     </div>

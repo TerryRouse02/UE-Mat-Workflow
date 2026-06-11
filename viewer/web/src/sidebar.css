@@ -6,3 +6,5 @@
    closes the comment early and silently eats the .sidebar rule below.) */
 .sidebar { display: flex; flex-direction: column; height: 100%; background: var(--bg-panel); color: var(--text); }
 .sidebar-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+/* Keep-alive wrapper for AgentChat — display toggled inline by Sidebar.tsx */
+.agent-keepalive { flex: 1; min-height: 0; flex-direction: column; }

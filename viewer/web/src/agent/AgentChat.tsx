@@ -256,10 +256,16 @@ function DiffBlockView({ item, onToggle }: { item: DiffBlock; onToggle: () => vo
 
 export interface AgentChatProps {
   onGotoConfig(): void;
+  /**
+   * Whether the Agent tab is the visible one. The component stays MOUNTED
+   * while hidden (Sidebar keep-alive) so the crawl-report loop and in-flight
+   * streams survive tab switches; active only drives scroll + the unseen cue.
+   */
+  active?: boolean;
 }
 
-export function AgentChat({ onGotoConfig }: AgentChatProps) {
-  const { state, open, highlightNodes, requestAgentExport, startCrawl, bumpMetadata } = useStore();
+export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
+  const { state, open, highlightNodes, requestAgentExport, startCrawl, bumpMetadata, setAgentActivity } = useStore();
   const { connection, currentPath, selectedNodeId } = state;
 
   const [status, setStatus] = useState<ProviderStatus | null>(null);
@@ -509,6 +515,26 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
       void fetchSessions();
     }
   }, [streaming, currentPath, selectedNodeId, open, thinking, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
+
+  // Agent-tab attention cue: pulse while streaming; if a reply finishes while
+  // another tab is visible, leave a steady dot until the user opens the tab.
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (streaming) setAgentActivity('busy');
+    else if (wasStreamingRef.current) setAgentActivity(active ? 'idle' : 'unseen');
+    wasStreamingRef.current = streaming;
+  }, [streaming, active, setAgentActivity]);
+  const prevActiveRef = useRef(active);
+  useEffect(() => {
+    if (active && state.agentActivity === 'unseen') setAgentActivity('idle');
+    if (active && !prevActiveRef.current) {
+      // Heights are zero while the panel is display:none, so any pinned-bottom
+      // scroll done off-tab landed at 0 — re-pin once when the tab opens.
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    }
+    prevActiveRef.current = active;
+  }, [active, state.agentActivity, setAgentActivity]);
 
   // Crawl-result feedback loop: a crawl approved from an agent proposal card
   // reports its outcome (status + log tail) back into the conversation once it

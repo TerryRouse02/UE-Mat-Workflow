@@ -100,7 +100,7 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   (`agentPackClient.ts`) so a crawl refreshes without a rebuild.
 - `Graph.tsx` + `layout.ts` — React Flow render; dagre auto-layout (no x/y in the JSON).
   Hover (≈500ms) on a node opens `NodeExplainPopover`; pane-click / Escape closes it.
-- `Sidebar.tsx` — four tabs: **Files** (`FileList`), **Nodes** (`NodeLibrary`), **Config** (`ConfigPanel`), **Agent** (`AgentChat` — hidden in snapshot mode).
+- `Sidebar.tsx` — four tabs: **Files** (`FileList`), **Nodes** (`NodeLibrary`), **Config** (`ConfigPanel`), **Agent** (`AgentChat` — hidden in snapshot mode; in live mode it stays MOUNTED across tab switches via a display-toggled keep-alive wrapper so pending crawl reports / in-flight streams survive).
 - `Header.tsx` — export to UE (`export/ueT3D.ts`) + import from UE (`ImportModal`).
 - `crawlRequest.ts` — POST /api/crawl + the `CrawlKind` union (web side).
 - `web/src/agent/AgentChat.tsx` — 4th Sidebar tab: conversational material agent UI (M3+M4+M5).
