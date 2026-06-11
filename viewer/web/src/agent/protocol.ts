@@ -68,6 +68,15 @@ export interface AgentResetResponse {
 }
 
 /**
+ * Response from POST /api/agent/regenerate — mirrored from server/agent/agent-types.ts.
+ * Rewinds the last user turn (files + history + transcript) and returns the user
+ * text so the client re-sends it through the normal chat flow.
+ */
+export type AgentRegenerateResponse =
+  | { ok: true; text: string }
+  | { ok: false; reason: 'nothing-to-regenerate' };
+
+/**
  * Response from POST /api/agent/test — mirrored from server/agent/agent-types.ts.
  * Verifies the SAVED LLM config by sending one minimal request. Never contains the apiKey.
  */

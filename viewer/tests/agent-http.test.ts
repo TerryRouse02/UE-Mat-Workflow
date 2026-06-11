@@ -22,6 +22,8 @@ class FakeProvider implements Provider {
   private callCount = 0;
   // Expose the last AbortSignal so tests can verify client-disconnect abort.
   lastSignal: AbortSignal | undefined;
+  // Expose the last full request so tests can inspect the message history sent.
+  lastRequest: ChatRequest | undefined;
   aborted = false;
 
   constructor(turns: StreamEvent[][]) {
@@ -30,6 +32,7 @@ class FakeProvider implements Provider {
 
   async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
     this.lastSignal = req.signal;
+    this.lastRequest = req;
     const turn = this.turns[this.callCount++] ?? [
       { type: 'text_delta', text: '完成。' },
       { type: 'done', stopReason: 'end' },
@@ -848,6 +851,84 @@ describe('POST /api/agent/undo', () => {
       await server.close();
     }
   }, 15000);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/agent/regenerate — rewind the last user turn for a re-send
+// ---------------------------------------------------------------------------
+
+describe('POST /api/agent/regenerate', () => {
+  it('rewinds the last turn (transcript + history) and the re-sent turn gets a fresh take', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test-model', apiKey: 'sk-x' } });
+    const { factory, provider } = makeFactory([
+      [{ type: 'text_delta', text: '第一版回覆。' }, { type: 'done', stopReason: 'end' }],
+      [{ type: 'text_delta', text: '第二版回覆。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: factory });
+    try {
+      const base = `http://localhost:${server.port}`;
+      const { id } = await (await fetch(`${base}/api/agent/sessions`, { method: 'POST' })).json() as { id: string };
+
+      // Turn 1.
+      await parseSseResponse(await fetch(`${base}/api/agent/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '做個發光材質', sessionId: id }),
+      }));
+
+      // Regenerate returns the user text and trims the turn everywhere.
+      const rr = await fetch(`${base}/api/agent/regenerate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: id }),
+      });
+      expect(rr.status).toBe(200);
+      const body = await rr.json() as { ok: boolean; text?: string };
+      expect(body).toEqual({ ok: true, text: '做個發光材質' });
+
+      const detail1 = await (await fetch(`${base}/api/agent/sessions/${id}`)).json() as { transcript: unknown[] };
+      expect(detail1.transcript).toHaveLength(0);
+
+      // Re-send: the provider sees the user text exactly once in the history
+      // (the rewound first take is gone), and the new take streams back.
+      const events = await parseSseResponse(await fetch(`${base}/api/agent/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: body.text, sessionId: id }),
+      }));
+      const allText = events.filter(e => e.type === 'text').map(e => (e as { text: string }).text).join('');
+      expect(allText).toContain('第二版回覆');
+      expect(allText).not.toContain('第一版回覆');
+      const lastReq = provider.lastRequest!;
+      const flat = JSON.stringify(lastReq.messages);
+      expect(flat.split('做個發光材質').length - 1).toBe(1);
+      expect(flat).not.toContain('第一版回覆');
+
+      const detail2 = await (await fetch(`${base}/api/agent/sessions/${id}`)).json() as { transcript: Array<{ kind: string }> };
+      expect(detail2.transcript.filter(e => e.kind === 'user')).toHaveLength(1);
+    } finally {
+      await server.close();
+    }
+  }, 15000);
+
+  it('reports nothing-to-regenerate on a fresh session', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test-model', apiKey: 'sk-x' } });
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    try {
+      const base = `http://localhost:${server.port}`;
+      const { id } = await (await fetch(`${base}/api/agent/sessions`, { method: 'POST' })).json() as { id: string };
+      const rr = await fetch(`${base}/api/agent/regenerate`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId: id }),
+      });
+      expect(await rr.json()).toEqual({ ok: false, reason: 'nothing-to-regenerate' });
+    } finally {
+      await server.close();
+    }
+  }, 5000);
 });
 
 // ---------------------------------------------------------------------------

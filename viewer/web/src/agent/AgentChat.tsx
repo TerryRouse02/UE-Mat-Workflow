@@ -20,6 +20,7 @@ import type {
   AgentThinkingLevel,
   ProviderStatus,
   AgentUndoResponse,
+  AgentRegenerateResponse,
   AgentSessionMeta,
   AgentSessionsListResponse,
   AgentSessionCreateResponse,
@@ -412,6 +413,34 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
     }
   }, [streaming, currentPath, open, thinking, sessionId, fetchSessions, highlightNodes]);
 
+  // Regenerate: rewind the last user turn server-side (files + history +
+  // transcript), reload the trimmed view, then re-send the same text through
+  // the normal chat flow — "try a different take" without retyping.
+  const handleRegenerate = useCallback(async () => {
+    if (streaming || !sessionId) return;
+    try {
+      const r = await fetch('/api/agent/regenerate', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ sessionId }),
+        cache: 'no-store',
+      });
+      if (!r.ok) {
+        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: `重新生成請求失敗（HTTP ${r.status}）` }]);
+        return;
+      }
+      const body = await r.json() as AgentRegenerateResponse;
+      if (!body.ok) {
+        setItems(prev => [...prev, { kind: 'notice', variant: 'info', message: '沒有可重新生成的回覆' }]);
+        return;
+      }
+      await loadSession(sessionId);
+      await handleSend(body.text);
+    } catch {
+      setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '重新生成請求失敗' }]);
+    }
+  }, [streaming, sessionId, loadSession, handleSend]);
+
   // Hidden in snapshot mode.
   if (connection === 'snapshot') return null;
 
@@ -490,6 +519,15 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
         )}
         {!streaming && (
           <>
+            {items.length > 0 && sessionId !== null && (
+              <button
+                className="agent-bar-btn"
+                onClick={() => void handleRegenerate()}
+                title="還原上一輪的檔案變更並重新生成回覆"
+              >
+                <Icon name="refresh" size={11} /> 重新生成
+              </button>
+            )}
             <button
               className="agent-bar-btn"
               onClick={() => void handleUndo()}

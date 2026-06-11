@@ -20,7 +20,7 @@ import { runAgent, createSession, type AgentLoopSession } from './agent/loop.js'
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
-import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse } from './agent/agent-types.js';
+import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentRegenerateResponse, AgentTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse } from './agent/agent-types.js';
 import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/session-store.js';
 import { createMemoryStore } from './agent/memory-store.js';
 import { explainNode, buildGraphContext, RESERVED_NODE_DESCRIPTIONS } from './agent/explain.js';
@@ -635,6 +635,76 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     sendJson(res, 200, body);
   }
 
+  /**
+   * POST /api/agent/regenerate — rewind the last user turn so the client can
+   * re-send it: restore that turn's file writes (checkpoint undo), trim the
+   * turn from the message history and the transcript, return the user text.
+   * turnSeq is NOT decremented — checkpoint turn ids must stay monotonic.
+   */
+  async function handleAgentRegenerate(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    if (agentStreaming) {
+      sendJson(res, 409, { error: '對話進行中，無法重新生成。請等待完成或停止後再試。' });
+      return;
+    }
+
+    let sessionId = currentSessionId;
+    try {
+      const raw = await readBody(req);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { sessionId?: unknown };
+        if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
+          sessionId = parsed.sessionId;
+        }
+      }
+    } catch { /* empty/invalid body → current session */ }
+
+    const active = sessionId ? await resumeSession(sessionId) : null;
+    const lastUserIdx = active
+      ? active.transcript.map(e => e.kind).lastIndexOf('user')
+      : -1;
+    if (!active || lastUserIdx === -1) {
+      sendJson(res, 200, { ok: false, reason: 'nothing-to-regenerate' } satisfies AgentRegenerateResponse);
+      return;
+    }
+    const userText = (active.transcript[lastUserIdx] as { kind: 'user'; text: string }).text;
+
+    // Restore the files this turn wrote (no-op when it wrote nothing).
+    await active.checkpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'));
+
+    // Trim the message history back to before this user turn. The turn began
+    // either as its own text-only user message, or as a text block appended to
+    // a tool_results user message (the merged shape runAgent creates when the
+    // previous turn ended on a ceiling/abort) — in the merged case keep the
+    // tool_results so the preceding assistant tool_use stays answered.
+    const msgs = active.loop.messages;
+    let cut = -1;
+    for (let i = msgs.length - 1; i >= 0; i--) {
+      const m = msgs[i];
+      if (m.role === 'user' && m.content.some(b => b.type === 'text' && b.text === userText)) {
+        cut = i;
+        break;
+      }
+    }
+    if (cut !== -1) {
+      const m = msgs[cut];
+      // Remove only the LAST matching text block (identical re-sends stay intact).
+      let removeIdx = -1;
+      for (let j = m.content.length - 1; j >= 0; j--) {
+        const b = m.content[j];
+        if (b.type === 'text' && b.text === userText) { removeIdx = j; break; }
+      }
+      const others = m.content.filter((_, j) => j !== removeIdx);
+      active.loop.messages = others.some(b => b.type === 'tool_result')
+        ? [...msgs.slice(0, cut), { role: 'user' as const, content: others }]
+        : msgs.slice(0, cut);
+    }
+
+    active.transcript = active.transcript.slice(0, lastUserIdx);
+    await persistSession(active);
+    sendJson(res, 200, { ok: true, text: userText } satisfies AgentRegenerateResponse);
+  }
+
   /** POST /api/agent/reset — abort any in-flight chat and detach the current session. */
   async function handleAgentReset(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
@@ -1101,6 +1171,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'POST' && urlPath === '/api/agent/undo') {
       try { await handleAgentUndo(req, res); }
       catch (e) { console.error('agent undo handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/agent/regenerate') {
+      try { await handleAgentRegenerate(req, res); }
+      catch (e) { console.error('agent regenerate handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/reset') {

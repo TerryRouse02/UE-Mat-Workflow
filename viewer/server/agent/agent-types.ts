@@ -48,6 +48,16 @@ export interface AgentResetResponse {
 }
 
 /**
+ * Response from POST /api/agent/regenerate — rewinds the last user turn:
+ * restores that turn's file writes (checkpoint undo), trims it from the
+ * message history and transcript, and returns the user text so the client
+ * can re-send it through the normal chat flow.
+ */
+export type AgentRegenerateResponse =
+  | { ok: true; text: string }
+  | { ok: false; reason: 'nothing-to-regenerate' };
+
+/**
  * Response from POST /api/agent/test — verifies the SAVED LLM config by
  * sending one minimal request. Never contains the apiKey.
  */
