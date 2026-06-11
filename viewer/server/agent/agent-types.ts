@@ -36,6 +36,14 @@ export interface AgentResetResponse {
   ok: true;
 }
 
+/**
+ * Response from POST /api/agent/test — verifies the SAVED LLM config by
+ * sending one minimal request. Never contains the apiKey.
+ */
+export type AgentTestResponse =
+  | { ok: true; model: string }
+  | { ok: false; error: string };
+
 // ---------------------------------------------------------------------------
 // M5: POST /api/agent/explain — one-shot LLM node explanation
 // ---------------------------------------------------------------------------

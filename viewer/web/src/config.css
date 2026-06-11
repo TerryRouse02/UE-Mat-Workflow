@@ -183,3 +183,29 @@
 /* spin animation (shared with .spin in chrome.css; safe to redeclare) */
 @keyframes cfg-spin { to { transform:rotate(360deg); } }
 .cfg .spin { animation:cfg-spin 1s linear infinite; }
+
+/* ---------- §4 AI assistant section ---------- */
+.field .inp select {
+  all:unset; flex:1; min-width:0;
+  font-family:var(--font-mono); font-size:11px; color:var(--text); cursor:pointer;
+}
+.field .inp select option { background:var(--bg-panel); color:var(--text); }
+
+.ai-card {
+  border:1px solid var(--border); border-radius:8px;
+  background:var(--bg-panel-2); padding:9px 11px; margin-bottom:12px;
+}
+.ai-card .ai-card-head {
+  display:flex; align-items:center; gap:6px;
+  font-size:11.5px; font-weight:600; color:var(--ok);
+}
+.ai-card:not(.uncfg) .ai-card-head { margin-bottom:7px; }
+.ai-card.uncfg { border-style:dashed; }
+.ai-card.uncfg .ai-card-head { color:var(--text-dim); font-weight:500; }
+.ai-card .ai-row { display:flex; gap:8px; font-size:11px; padding:2px 0; align-items:baseline; }
+.ai-card .ai-row .k { color:var(--text-mute); flex:0 0 60px; }
+.ai-card .ai-row .v { color:var(--text-dim); font-family:var(--font-mono); font-size:10.5px; word-break:break-all; }
+.ai-test-row { display:flex; align-items:center; gap:9px; margin-top:9px; flex-wrap:wrap; }
+.ai-test-result { font-size:11px; line-height:1.5; flex:1 1 140px; }
+.ai-test-result.ok { color:var(--ok); }
+.ai-test-result.err { color:#f0a59c; }

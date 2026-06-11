@@ -20,7 +20,7 @@ import { runAgent, createSession, type AgentLoopSession } from './agent/loop.js'
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
-import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentExplainRequest, AgentExplainResponse } from './agent/agent-types.js';
+import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentTestResponse, AgentExplainRequest, AgentExplainResponse } from './agent/agent-types.js';
 import { explainNode, buildGraphContext, RESERVED_NODE_DESCRIPTIONS } from './agent/explain.js';
 import type { LLMConfig, ProviderStatus } from './agent/provider/types.js';
 
@@ -259,10 +259,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           llmConfig.provider = llmIn.provider;
         }
 
-        // baseUrl
+        // baseUrl — an explicit empty string clears the stored value (a stored
+        // '' would otherwise short-circuit the adapters' `?? DEFAULT_BASE`).
         if (llmIn.baseUrl !== undefined) {
           const v = cleanConfigField(llmIn.baseUrl);
-          if (v !== null) llmConfig.baseUrl = v; else delete llmConfig.baseUrl;
+          if (v !== null && v !== '') llmConfig.baseUrl = v; else delete llmConfig.baseUrl;
         }
 
         // model
@@ -390,7 +391,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       if (typeof llm.model !== 'string' || !llm.model.trim()) return null;
       return {
         provider: llm.provider,
-        baseUrl: typeof llm.baseUrl === 'string' ? llm.baseUrl : undefined,
+        baseUrl: typeof llm.baseUrl === 'string' && llm.baseUrl.trim() !== '' ? llm.baseUrl : undefined,
         apiKey: typeof llm.apiKey === 'string' ? llm.apiKey : undefined,
         model: llm.model.trim(),
         maxTokens: typeof llm.maxTokens === 'number' && llm.maxTokens > 0 ? Math.floor(llm.maxTokens) : undefined,
@@ -404,9 +405,86 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   async function handleAgentStatus(res: import('node:http').ServerResponse) {
     const config = await readLlmConfig();
     const status: ProviderStatus = config
-      ? { configured: true, provider: config.provider, model: config.model }
+      ? {
+          configured: true,
+          provider: config.provider,
+          model: config.model,
+          baseUrl: config.baseUrl,
+          hasApiKey: config.apiKey !== undefined,
+        }
       : { configured: false };
     sendJson(res, 200, status);
+  }
+
+  /** Map raw provider/transport errors to actionable zh-TW guidance (key never echoed). */
+  function friendlyTestError(raw: string, timedOut = false): string {
+    const trimmed = raw.length > 300 ? raw.slice(0, 300) + '…' : raw;
+    if (timedOut) return '連線逾時（30 秒）— 請檢查 Base URL 與網路連線。';
+    if (/HTTP 40[13]/.test(raw)) return `API Key 無效或沒有權限（${trimmed}）`;
+    if (/HTTP 404/.test(raw)) return `找不到模型或 API 路徑 — 請檢查 Model 名稱與 Base URL（${trimmed}）`;
+    if (/HTTP 429/.test(raw)) return `請求過於頻繁或額度不足（${trimmed}）`;
+    if (/HTTP 5\d\d/.test(raw)) return `伺服器端錯誤，稍後再試（${trimmed}）`;
+    if (/fetch failed|ECONNREFUSED|ENOTFOUND|EAI_AGAIN|socket|network/i.test(raw)) {
+      return `無法連線到伺服器 — 請檢查 Base URL 與網路（${trimmed}）`;
+    }
+    return `測試失敗：${trimmed}`;
+  }
+
+  /** POST /api/agent/test — verify the SAVED LLM config with one minimal request. */
+  async function handleAgentTest(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+
+    const config = await readLlmConfig();
+    if (!config) {
+      sendJson(res, 200, {
+        ok: false,
+        error: '尚未設定 LLM 提供商 — 請先填寫並儲存下方欄位。',
+      } satisfies AgentTestResponse);
+      return;
+    }
+
+    let provider: import('./agent/provider/types.js').Provider;
+    try {
+      provider = makeProvider(config);
+    } catch (e) {
+      sendJson(res, 200, {
+        ok: false,
+        error: `無法建立 LLM 提供商：${(e as Error).message}`,
+      } satisfies AgentTestResponse);
+      return;
+    }
+
+    // Abort on client disconnect or after a hard 30 s ceiling.
+    const ac = new AbortController();
+    req.on('close', () => ac.abort());
+    const timer = setTimeout(() => ac.abort(), 30_000);
+
+    try {
+      let errMsg: string | null = null;
+      for await (const ev of provider.stream({
+        model: config.model,
+        messages: [{ role: 'user', content: [{ type: 'text', text: '測試連線，請只回覆「OK」。' }] }],
+        maxTokens: 16,
+        signal: ac.signal,
+      })) {
+        if (ev.type === 'error') { errMsg = ev.message; break; }
+        if (ev.type === 'done') break;
+      }
+      if (errMsg !== null) {
+        sendJson(res, 200, { ok: false, error: friendlyTestError(errMsg) } satisfies AgentTestResponse);
+      } else {
+        // Stream completed (any text/done) — the endpoint, key, and model all work.
+        sendJson(res, 200, { ok: true, model: config.model } satisfies AgentTestResponse);
+      }
+    } catch (e) {
+      const msg = (e as Error)?.message ?? String(e);
+      sendJson(res, 200, {
+        ok: false,
+        error: friendlyTestError(msg, ac.signal.aborted),
+      } satisfies AgentTestResponse);
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /** POST /api/agent/undo — restore the previous checkpoint turn. */
@@ -765,6 +843,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'GET' && urlPath === '/api/agent/status') {
       try { await handleAgentStatus(res); }
       catch (e) { console.error('agent status handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/agent/test') {
+      try { await handleAgentTest(req, res); }
+      catch (e) { console.error('agent test handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/undo') {

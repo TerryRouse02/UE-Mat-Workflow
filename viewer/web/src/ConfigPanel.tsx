@@ -509,13 +509,25 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [status, setStatus] = useState<ProviderStatus | null>(null);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null);
 
-  // Fetch current provider status on mount.
+  // Fetch current provider status on mount; seed the form from the saved config
+  // ONCE so the user edits what is stored instead of a blank form (key excluded).
+  const seededRef = useRef(false);
   useEffect(() => {
     void (async () => {
       try {
         const r = await fetch('/api/agent/status', { cache: 'no-store' });
-        if (r.ok) setStatus(await r.json() as ProviderStatus);
+        if (!r.ok) return;
+        const s = await r.json() as ProviderStatus;
+        setStatus(s);
+        if (!seededRef.current && s.configured) {
+          seededRef.current = true;
+          if (s.provider === 'anthropic' || s.provider === 'openai-compatible') setProvider(s.provider);
+          setModel(m => m || (s.model ?? ''));
+          setBaseUrl(b => b || (s.baseUrl ?? ''));
+        }
       } catch { /* ignore */ }
     })();
   }, []);
@@ -523,11 +535,14 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
   const onSave = async () => {
     setSaving(true);
     setMsg(null);
+    setTestResult(null);
     const llm: { provider: string; baseUrl?: string; apiKey?: string; model: string; maxTokens?: number } = {
       provider,
       model: model.trim(),
+      // Always sent (both providers accept a custom endpoint / relay);
+      // an empty string clears the stored value → adapters fall back to the default.
+      baseUrl: baseUrl.trim(),
     };
-    if (provider === 'openai-compatible' && baseUrl.trim()) llm.baseUrl = baseUrl.trim();
     // Only send apiKey if the user typed something; empty = leave stored key intact.
     if (apiKey) llm.apiKey = apiKey;
     const mt = parseInt(maxTokens.trim(), 10);
@@ -548,6 +563,26 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
     }
   };
 
+  const onTest = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await fetch('/api/agent/test', { method: 'POST', cache: 'no-store' });
+      if (!r.ok) {
+        setTestResult({ ok: false, text: `測試請求失敗（HTTP ${r.status}）` });
+        return;
+      }
+      const body = await r.json() as import('./agent/protocol').AgentTestResponse;
+      setTestResult(body.ok
+        ? { ok: true, text: `連線成功 — ${body.model} 回應正常` }
+        : { ok: false, text: body.error });
+    } catch {
+      setTestResult({ ok: false, text: '測試請求失敗' });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <div className="cfg-sec">
       <div className="sech">
@@ -556,11 +591,39 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
         <span className="secd">對話式材質生成</span>
       </div>
 
-      {status?.configured && (
-        <div style={{ fontSize: 11, marginBottom: 10, color: 'var(--ok)', display: 'flex', gap: 5, alignItems: 'center' }}>
-          <Icon name="check" size={11} /> 已設定：{status.provider} · {status.model}
-        </div>
-      )}
+      {/* Saved-config status card. The key itself is never echoed — only whether one is stored. */}
+      <div className={'ai-card' + (status?.configured ? '' : ' uncfg')}>
+        {status?.configured ? (
+          <>
+            <div className="ai-card-head">
+              <Icon name="check" size={12} /> 已設定
+            </div>
+            <div className="ai-row"><span className="k">Provider</span><span className="v">{status.provider}</span></div>
+            <div className="ai-row"><span className="k">Model</span><span className="v">{status.model}</span></div>
+            {status.baseUrl && (
+              <div className="ai-row"><span className="k">Base URL</span><span className="v">{status.baseUrl}</span></div>
+            )}
+            <div className="ai-row">
+              <span className="k">API Key</span>
+              <span className="v">{status.hasApiKey ? '已儲存（不會顯示）' : '未設定'}</span>
+            </div>
+            <div className="ai-test-row">
+              <button className="btn sm" disabled={testing} onClick={() => void onTest()}>
+                {testing
+                  ? <><Icon name="refresh" size={12} className="spin" /> 測試中…</>
+                  : <><Icon name="bolt" size={12} /> 測試連線</>}
+              </button>
+              {testResult && (
+                <span className={'ai-test-result ' + (testResult.ok ? 'ok' : 'err')}>{testResult.text}</span>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="ai-card-head">
+            <Icon name="warn" size={12} /> 尚未設定 — 填寫下方欄位並儲存
+          </div>
+        )}
+      </div>
 
       <div className="field">
         <label>Provider</label>
@@ -568,27 +631,29 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
           <select
             value={provider}
             onChange={e => setProvider(e.target.value as 'anthropic' | 'openai-compatible')}
-            style={{ background: 'var(--surface)', color: 'var(--text)', border: 'none', flex: 1, fontSize: 12, padding: '0 4px' }}
           >
             <option value="anthropic">Anthropic (Claude)</option>
-            <option value="openai-compatible">OpenAI-compatible (OpenAI / DeepSeek / …)</option>
+            <option value="openai-compatible">OpenAI-compatible (OpenAI / DeepSeek / Ollama / …)</option>
           </select>
         </div>
       </div>
 
-      {provider === 'openai-compatible' && (
-        <div className="field">
-          <label>Base URL <span style={{ color: 'var(--text-mute)' }}>— 例如 https://api.openai.com/v1</span></label>
-          <div className="inp">
-            <input
-              value={baseUrl}
-              onChange={e => setBaseUrl(e.target.value)}
-              spellCheck={false}
-              placeholder="https://api.openai.com/v1"
-            />
-          </div>
+      <div className="field">
+        <label>
+          Base URL{' '}
+          <span style={{ color: 'var(--text-mute)' }}>
+            {provider === 'anthropic' ? '— 選填，中轉/代理用；留空走官方 API' : '— 例如 https://api.openai.com/v1'}
+          </span>
+        </label>
+        <div className="inp">
+          <input
+            value={baseUrl}
+            onChange={e => setBaseUrl(e.target.value)}
+            spellCheck={false}
+            placeholder={provider === 'anthropic' ? 'https://api.anthropic.com' : 'https://api.openai.com/v1'}
+          />
         </div>
-      )}
+      </div>
 
       <div className="field">
         <label>Model</label>

@@ -159,13 +159,17 @@ describe('GET /api/agent/status', () => {
     try {
       const r = await fetch(`http://localhost:${server.port}/api/agent/status`);
       expect(r.status).toBe(200);
-      const body = await r.json() as { configured: boolean; provider?: string; model?: string; apiKey?: unknown; baseUrl?: unknown };
+      const body = await r.json() as { configured: boolean; provider?: string; model?: string; apiKey?: unknown; baseUrl?: unknown; hasApiKey?: boolean };
       expect(body.configured).toBe(true);
       expect(body.provider).toBe('anthropic');
       expect(body.model).toBe('claude-opus-4-8');
-      // apiKey and baseUrl must NEVER appear in the response (§3.3 leak guard)
+      // apiKey must NEVER appear in the response (§3.3 leak guard).
+      // baseUrl is user-entered (not secret) and is reported when stored —
+      // here none is stored, so it must be absent.
       expect(body.apiKey).toBeUndefined();
       expect(body.baseUrl).toBeUndefined();
+      // The status DOES report whether a key is stored (boolean only).
+      expect(body.hasApiKey).toBe(true);
     } finally {
       await server.close();
     }
@@ -1162,4 +1166,179 @@ describe('aborted run unwinding does not steal the new run\'s lock', () => {
       try { await server.close(); } catch { /* already closed */ }
     }
   }, 20000);
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/agent/status — baseUrl + hasApiKey reporting (config UI status card)
+// ---------------------------------------------------------------------------
+
+describe('GET /api/agent/status — baseUrl and hasApiKey', () => {
+  it('reports stored baseUrl and hasApiKey:true without ever echoing the key', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, {
+      Llm: { provider: 'openai-compatible', model: 'deepseek-chat', baseUrl: 'https://api.deepseek.com/v1', apiKey: 'sk-status-secret' },
+    });
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    try {
+      const r = await fetch(`http://localhost:${server.port}/api/agent/status`);
+      const raw = await r.text();
+      // Leak guard: the raw response body must not contain the key anywhere.
+      expect(raw).not.toContain('sk-status-secret');
+      const body = JSON.parse(raw) as { configured: boolean; baseUrl?: string; hasApiKey?: boolean };
+      expect(body.configured).toBe(true);
+      expect(body.baseUrl).toBe('https://api.deepseek.com/v1');
+      expect(body.hasApiKey).toBe(true);
+    } finally {
+      await server.close();
+    }
+  }, 5000);
+
+  it('reports hasApiKey:false for a keyless config (local Ollama)', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, {
+      Llm: { provider: 'openai-compatible', model: 'llama3', baseUrl: 'http://localhost:11434/v1' },
+    });
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    try {
+      const r = await fetch(`http://localhost:${server.port}/api/agent/status`);
+      const body = await r.json() as { configured: boolean; hasApiKey?: boolean };
+      expect(body.configured).toBe(true);
+      expect(body.hasApiKey).toBe(false);
+    } finally {
+      await server.close();
+    }
+  }, 5000);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/config — Llm.baseUrl clearing semantics
+// ---------------------------------------------------------------------------
+
+describe('POST /api/config Llm baseUrl clearing', () => {
+  it('an explicit empty baseUrl string removes the stored value', async () => {
+    const root = makeTmpRoot();
+    const configPath = resolve(root, 'tools', 'node-t3d-metadata', 'local.config.json');
+    writeLocalConfig(root, {
+      Llm: { provider: 'anthropic', model: 'claude-opus-4-8', baseUrl: 'https://relay.example.com', apiKey: 'sk-keep' },
+    });
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    try {
+      const r = await fetch(`http://localhost:${server.port}/api/config`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ Llm: { provider: 'anthropic', model: 'claude-opus-4-8', baseUrl: '' } }),
+      });
+      expect(r.status).toBe(200);
+      const saved = JSON.parse(readFileSync(configPath, 'utf-8')) as Record<string, unknown>;
+      const llm = saved.Llm as Record<string, unknown>;
+      // A stored '' would short-circuit the adapters' `?? DEFAULT_BASE` fallback.
+      expect(llm.baseUrl).toBeUndefined();
+      expect(llm.apiKey).toBe('sk-keep');
+    } finally {
+      await server.close();
+    }
+  }, 5000);
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/agent/test — saved-config connectivity check
+// ---------------------------------------------------------------------------
+
+describe('POST /api/agent/test', () => {
+  it('returns ok:false with zh-TW guidance when no config is saved', async () => {
+    const root = makeTmpRoot();
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    try {
+      const r = await fetch(`http://localhost:${server.port}/api/agent/test`, { method: 'POST' });
+      expect(r.status).toBe(200);
+      const body = await r.json() as { ok: boolean; error?: string };
+      expect(body.ok).toBe(false);
+      expect(body.error).toContain('尚未設定');
+    } finally {
+      await server.close();
+    }
+  }, 5000);
+
+  it('returns ok:true with the model name when the provider responds', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, {
+      Llm: { provider: 'anthropic', model: 'claude-opus-4-8', apiKey: 'sk-test-secret' },
+    });
+    const { factory } = makeFactory([
+      [
+        { type: 'text_delta', text: 'OK' },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ]);
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: factory });
+    try {
+      const r = await fetch(`http://localhost:${server.port}/api/agent/test`, { method: 'POST' });
+      expect(r.status).toBe(200);
+      const raw = await r.text();
+      // Leak guard: the key must never appear in the test response.
+      expect(raw).not.toContain('sk-test-secret');
+      const body = JSON.parse(raw) as { ok: boolean; model?: string };
+      expect(body.ok).toBe(true);
+      expect(body.model).toBe('claude-opus-4-8');
+    } finally {
+      await server.close();
+    }
+  }, 5000);
+
+  it('maps an HTTP 401 provider error to API-Key guidance (key never echoed)', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, {
+      Llm: { provider: 'anthropic', model: 'claude-opus-4-8', apiKey: 'sk-bad-secret' },
+    });
+    const { factory } = makeFactory([
+      [{ type: 'error', message: 'HTTP 401: {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}' }],
+    ]);
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: factory });
+    try {
+      const r = await fetch(`http://localhost:${server.port}/api/agent/test`, { method: 'POST' });
+      const raw = await r.text();
+      expect(raw).not.toContain('sk-bad-secret');
+      const body = JSON.parse(raw) as { ok: boolean; error?: string };
+      expect(body.ok).toBe(false);
+      expect(body.error).toContain('API Key 無效');
+    } finally {
+      await server.close();
+    }
+  }, 5000);
+
+  it('maps a connection failure (thrown fetch error) to network guidance', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, {
+      Llm: { provider: 'openai-compatible', model: 'llama3', baseUrl: 'http://localhost:11434/v1' },
+    });
+    const throwingProvider: Provider = {
+      // eslint-disable-next-line require-yield
+      async *stream(): AsyncGenerator<StreamEvent> {
+        throw new TypeError('fetch failed');
+      },
+    };
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: () => throwingProvider });
+    try {
+      const r = await fetch(`http://localhost:${server.port}/api/agent/test`, { method: 'POST' });
+      const body = await r.json() as { ok: boolean; error?: string };
+      expect(body.ok).toBe(false);
+      expect(body.error).toContain('無法連線');
+    } finally {
+      await server.close();
+    }
+  }, 5000);
+
+  it('refuses cross-origin requests', async () => {
+    const root = makeTmpRoot();
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    try {
+      const r = await fetch(`http://localhost:${server.port}/api/agent/test`, {
+        method: 'POST',
+        headers: { origin: 'http://evil.example.com' },
+      });
+      expect(r.status).toBe(403);
+    } finally {
+      await server.close();
+    }
+  }, 5000);
 });

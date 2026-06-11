@@ -30,11 +30,14 @@ export interface AgentChatRequest {
 /**
  * Shape returned by GET /api/agent/status.
  * apiKey must NEVER appear here — mirrored from server/agent/provider/types.ts.
+ * hasApiKey only reports whether a key is stored; baseUrl is user-entered, not secret.
  */
 export interface ProviderStatus {
   configured: boolean;
   provider?: string;
   model?: string;
+  baseUrl?: string;
+  hasApiKey?: boolean;
 }
 
 /** Response from POST /api/agent/undo — mirrored from server/agent/agent-types.ts */
@@ -48,6 +51,14 @@ export type AgentUndoResponse =
 export interface AgentResetResponse {
   ok: true;
 }
+
+/**
+ * Response from POST /api/agent/test — mirrored from server/agent/agent-types.ts.
+ * Verifies the SAVED LLM config by sending one minimal request. Never contains the apiKey.
+ */
+export type AgentTestResponse =
+  | { ok: true; model: string }
+  | { ok: false; error: string };
 
 // ---------------------------------------------------------------------------
 // M5: POST /api/agent/explain — one-shot LLM node explanation

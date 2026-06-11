@@ -48,4 +48,11 @@ export interface LLMConfig {
 }
 
 // Shape returned by GET /api/agent/status — apiKey must never appear here.
-export interface ProviderStatus { configured: boolean; provider?: string; model?: string }
+// hasApiKey only reports whether a key is stored; baseUrl is user-entered, not secret.
+export interface ProviderStatus {
+  configured: boolean;
+  provider?: string;
+  model?: string;
+  baseUrl?: string;
+  hasApiKey?: boolean;
+}
