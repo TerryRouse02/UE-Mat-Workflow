@@ -73,7 +73,15 @@ export interface DbEditProposal {
   resolved: boolean;
 }
 
-export type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem | CrawlProposal | DbEditProposal;
+/** Per-turn token usage line appended when a turn's done event arrives. */
+export interface TurnUsage {
+  kind: 'turnUsage';
+  input: number;
+  output: number;
+  estimated: boolean;
+}
+
+export type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem | CrawlProposal | DbEditProposal | TurnUsage;
 
 /** Cumulative token usage across the whole conversation. */
 export interface UsageTotal {
@@ -89,10 +97,12 @@ export interface TurnFlags {
   needsNewBubble: boolean;
   /** graph_written paths already announced this turn (dedup the notice). */
   announced: Set<string>;
+  /** Token usage accumulated this turn — flushed into a TurnUsage item on done. */
+  usage: { input: number; output: number; estimated: boolean } | null;
 }
 
 export function newTurnFlags(): TurnFlags {
-  return { needsNewBubble: true, announced: new Set() };
+  return { needsNewBubble: true, announced: new Set(), usage: null };
 }
 
 /** Start a user turn: collapse previous-turn cards and add the user bubble.
@@ -232,12 +242,29 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
         resolved: false,
       }];
 
-    case 'done':
+    case 'done': {
       // Turn finished — auto-collapse tool groups; diffs stay open until the
-      // next user message so the result remains in view.
-      return items.map(it => (it.kind === 'tools' ? { ...it, collapsed: true } : it));
+      // next user message so the result remains in view. Flush the turn's
+      // accumulated token usage as a subtle per-turn line.
+      const collapsed = items.map(it => (it.kind === 'tools' ? { ...it, collapsed: true } : it));
+      if (flags.usage) {
+        const u = flags.usage;
+        flags.usage = null;
+        return [...collapsed, { kind: 'turnUsage', ...u }];
+      }
+      return collapsed;
+    }
 
     case 'usage':
+      // Tracked twice on purpose: accumulateUsage drives the session total in
+      // the status bar; this drives the per-turn line flushed at done.
+      flags.usage = {
+        input: (flags.usage?.input ?? 0) + event.inputTokens,
+        output: (flags.usage?.output ?? 0) + event.outputTokens,
+        estimated: (flags.usage?.estimated ?? false) || event.estimated,
+      };
+      return items;
+
     default:
       return items;
   }
@@ -261,4 +288,79 @@ export function reduceTranscript(transcript: AgentTranscriptEntry[]): { items: C
   // Replayed proposals are history, never actionable again.
   items = items.map(it => (it.kind === 'crawlProposal' || it.kind === 'dbEditProposal' ? { ...it, resolved: true } : it));
   return { items, usage };
+}
+
+// ─── Markdown export ─────────────────────────────────────────────────────────
+
+function fmtTok(n: number): string {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}K` : String(Math.round(n));
+}
+
+/** Render the chat items as a shareable GitHub-flavored Markdown document. */
+export function transcriptToMarkdown(
+  items: ChatItem[],
+  meta: { title?: string; provider?: string; model?: string },
+): string {
+  const out: string[] = [];
+  out.push(`# ${meta.title?.trim() || 'UE 材質 Agent 對話'}`);
+  const sub: string[] = [];
+  if (meta.provider) sub.push(meta.provider);
+  if (meta.model) sub.push(meta.model);
+  sub.push(new Date().toISOString().slice(0, 16).replace('T', ' '));
+  out.push(`> ${sub.join(' · ')}`);
+  out.push('');
+
+  for (const it of items) {
+    switch (it.kind) {
+      case 'text':
+        if (it.role === 'user') {
+          out.push(`## 🧑 ${it.text}`);
+        } else {
+          out.push(it.text);
+        }
+        out.push('');
+        break;
+      case 'thinking':
+        out.push('<details><summary>思考過程</summary>');
+        out.push('');
+        out.push(it.text);
+        out.push('');
+        out.push('</details>');
+        out.push('');
+        break;
+      case 'tools':
+        out.push('<details><summary>執行過程 · ' + it.steps.length + ' 步</summary>');
+        out.push('');
+        for (const s of it.steps) {
+          const mark = !s.done ? '…' : s.ok === false ? '✗' : '✓';
+          out.push(`- ${mark} ${s.done ? (s.endSummary ?? s.summary) : s.summary}`);
+        }
+        out.push('');
+        out.push('</details>');
+        out.push('');
+        break;
+      case 'diff':
+        out.push('**變更摘要**');
+        for (const line of it.lines) out.push(`- ${line}`);
+        out.push('');
+        break;
+      case 'notice':
+        out.push(`> ${it.variant === 'error' ? '⚠' : 'ℹ'} ${it.message}`);
+        out.push('');
+        break;
+      case 'crawlProposal':
+        out.push(`> 🔄 爬取提案：${it.crawlKind}（${it.contentRoot}）`);
+        out.push('');
+        break;
+      case 'dbEditProposal':
+        out.push(`> 🛠 節點 DB 修改提案：${it.nodeName}（${Object.keys(it.patch).join('、')}）`);
+        out.push('');
+        break;
+      case 'turnUsage':
+        out.push(`> _本輪 ${fmtTok(it.input + it.output)} tokens（輸入 ${fmtTok(it.input)}／輸出 ${fmtTok(it.output)}${it.estimated ? '，估算' : ''}）_`);
+        out.push('');
+        break;
+    }
+  }
+  return out.join('\n');
 }

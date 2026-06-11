@@ -11,7 +11,7 @@ import type { AgentSseEvent } from '../web/src/agent/protocol.js';
 // Since AgentChat calls useStore, we need to mock the store module.
 import { AgentChat } from '../web/src/agent/AgentChat.js';
 import { Sidebar } from '../web/src/Sidebar.js';
-import { applyAgentEvent, newTurnFlags, startUserTurn } from '../web/src/agent/transcript.js';
+import { applyAgentEvent, newTurnFlags, startUserTurn, transcriptToMarkdown } from '../web/src/agent/transcript.js';
 
 // ---------------------------------------------------------------------------
 // Mock the store module
@@ -907,5 +907,50 @@ describe('transcript reducer — viewer-action events', () => {
     let items = applyAgentEvent([], { type: 'crawl_proposal', kind: 'projectmat', contentRoot: '/Game' }, flags);
     items = startUserTurn(items, '先不要爬');
     expect(items[0]).toMatchObject({ kind: 'crawlProposal', resolved: true });
+  });
+});
+
+describe('transcript reducer — per-turn usage + db-edit proposal + markdown', () => {
+  it('flushes accumulated usage into a turnUsage item on done', () => {
+    const flags = newTurnFlags();
+    let items = startUserTurn([], '做個材質');
+    items = applyAgentEvent(items, { type: 'usage', inputTokens: 1000, outputTokens: 200, estimated: false }, flags);
+    items = applyAgentEvent(items, { type: 'usage', inputTokens: 500, outputTokens: 100, estimated: false }, flags);
+    items = applyAgentEvent(items, { type: 'text', text: '好了。' }, flags);
+    items = applyAgentEvent(items, { type: 'done' }, flags);
+    const tu = items.find(it => it.kind === 'turnUsage');
+    expect(tu).toMatchObject({ kind: 'turnUsage', input: 1500, output: 300, estimated: false });
+    // The next turn starts clean — no double flush.
+    const items2 = applyAgentEvent(items, { type: 'done' }, flags);
+    expect(items2.filter(it => it.kind === 'turnUsage')).toHaveLength(1);
+  });
+
+  it('db_edit_proposal becomes an actionable card, deactivated by the next user turn', () => {
+    const flags = newTurnFlags();
+    let items = applyAgentEvent([], {
+      type: 'db_edit_proposal', nodeName: 'Multiply', ueVersion: '5.7',
+      patch: { verified: true }, rationale: '依文件查證',
+    }, flags);
+    expect(items.at(-1)).toMatchObject({ kind: 'dbEditProposal', nodeName: 'Multiply', resolved: false });
+    items = startUserTurn(items, '先不要');
+    expect(items.find(it => it.kind === 'dbEditProposal')).toMatchObject({ resolved: true });
+  });
+
+  it('transcriptToMarkdown renders user/assistant/tools/diff/usage lines', () => {
+    const flags = newTurnFlags();
+    let items = startUserTurn([], '做個發光材質');
+    items = applyAgentEvent(items, { type: 'tool_start', name: 'write_graph', summary: '寫入圖形：demo/a.matgraph.json' }, flags);
+    items = applyAgentEvent(items, { type: 'tool_end', name: 'write_graph', ok: true, summary: '圖形已寫入' }, flags);
+    items = applyAgentEvent(items, { type: 'diff', lines: ['新增節點 glow'] }, flags);
+    items = applyAgentEvent(items, { type: 'text', text: '完成了。' }, flags);
+    items = applyAgentEvent(items, { type: 'usage', inputTokens: 800, outputTokens: 150, estimated: false }, flags);
+    items = applyAgentEvent(items, { type: 'done' }, flags);
+    const md = transcriptToMarkdown(items, { title: '測試對話', provider: 'anthropic', model: 'm' });
+    expect(md).toContain('# 測試對話');
+    expect(md).toContain('## 🧑 做個發光材質');
+    expect(md).toContain('圖形已寫入');
+    expect(md).toContain('- 新增節點 glow');
+    expect(md).toContain('完成了。');
+    expect(md).toContain('本輪');
   });
 });

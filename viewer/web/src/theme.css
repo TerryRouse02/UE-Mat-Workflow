@@ -32,7 +32,11 @@ body { margin: 0; background: var(--bg-app); color: var(--text);
 .mono { font-family: var(--font-mono); }
 .body { display: grid; grid-template-columns: var(--left,272px) 1fr var(--right,320px); grid-template-rows: minmax(0, 1fr); flex: 1; min-height: 0; overflow: hidden; transition: grid-template-columns .2s ease; }
 .panel { background: var(--bg-panel); min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
-.panel.left { border-right: 1px solid var(--border); transition: width .2s ease; }
+.panel.left { position: relative; border-right: 1px solid var(--border); transition: width .2s ease; }
+/* Agent-tab chat width drag handle (session-local, not persisted) */
+.panel-resizer { position: absolute; top: 0; bottom: 0; right: -3px; width: 6px; cursor: col-resize; z-index: 7; }
+.panel-resizer:hover, .panel-resizer.active { background: var(--accent); opacity: .35; }
+.body.resizing { transition: none; user-select: none; }
 .panel.right { border-left: 1px solid var(--border); }
 .panel-head { display: flex; align-items: center; gap: 8px; padding: 11px 13px; flex: 0 0 auto; border-bottom: 1px solid var(--hairline); }
 .panel-head .h { font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--text-dim); }

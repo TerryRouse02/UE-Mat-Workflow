@@ -37,6 +37,27 @@ function Body() {
   // Collapse either side panel to give the canvas more room.
   const [leftCollapsed, setLeftCollapsed] = useState(false);
   const [rightCollapsed, setRightCollapsed] = useState(false);
+  // Agent-tab chat width, user-draggable via the panel edge. Deliberately NOT
+  // persisted — a session-local preference only.
+  const [agentW, setAgentW] = useState(430);
+  const [resizing, setResizing] = useState(false);
+  const startResize = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    setAgentW(startW => {
+      const move = (ev: MouseEvent) =>
+        setAgentW(Math.max(320, Math.min(800, startW + ev.clientX - startX)));
+      const up = () => {
+        setResizing(false);
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+      };
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+      return startW;
+    });
+    setResizing(true);
+  }, []);
   // Two independent crawl scopes (separate UE content roots):
   //  • mfRoot  — "爬取專案 MF" (workmf) AND read by T3D export (mfContentRoot).
   //  • matRoot — "爬取專案母材質" (projectmat). Kept apart so crawling base
@@ -199,7 +220,7 @@ function Body() {
   // tool-step cards, and diff blocks.
   const leftW = tab === 'config' && state.crawl.status === 'running' ? 560
     : tab === 'config' ? 384
-    : tab === 'agent' ? 430
+    : tab === 'agent' ? agentW
     : 290;
 
   return (
@@ -217,7 +238,7 @@ function Body() {
         dismissed={bannerDismissed}
         onDismiss={() => setBannerDismissed(true)}
       />
-      <div className="body" style={{ '--left': (leftCollapsed ? 0 : leftW) + 'px', '--right': (rightCollapsed ? 0 : 320) + 'px' } as React.CSSProperties}>
+      <div className={'body' + (resizing ? ' resizing' : '')} style={{ '--left': (leftCollapsed ? 0 : leftW) + 'px', '--right': (rightCollapsed ? 0 : 320) + 'px' } as React.CSSProperties}>
         <div className="panel left">
           <Sidebar
             tab={tab}
@@ -229,6 +250,13 @@ function Body() {
             matRoot={matRoot}
             setMatRoot={setMatRoot}
           />
+          {tab === 'agent' && !leftCollapsed && (
+            <div
+              className={'panel-resizer' + (resizing ? ' active' : '')}
+              title="拖曳調整對話寬度"
+              onMouseDown={startResize}
+            />
+          )}
         </div>
         <main className="canvas-wrap">
           <button

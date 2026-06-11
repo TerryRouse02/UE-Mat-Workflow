@@ -41,6 +41,7 @@ import {
   applyAgentEvent,
   accumulateUsage,
   reduceTranscript,
+  transcriptToMarkdown,
 } from './transcript';
 import './agent.css';
 
@@ -574,6 +575,31 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
     }
   }, [streaming, sessionId, loadSession, handleSend]);
 
+  // Download the conversation as a Markdown file (pure client-side).
+  const downloadMarkdown = useCallback(() => {
+    const title = sessions.find(s => s.id === sessionId)?.title || undefined;
+    const md = transcriptToMarkdown(items, { title, provider: status?.provider, model: status?.model });
+    const blob = new Blob([md], { type: 'text/markdown;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `agent-${sessionId ?? 'session'}-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }, [items, sessions, sessionId, status]);
+
+  // ── Quick commands (⚡) — canned prompts + local actions ───────────────────
+  const [quickOpen, setQuickOpen] = useState(false);
+  useEffect(() => {
+    if (!quickOpen) return;
+    const close = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement | null)?.closest('.agent-quick')) setQuickOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setQuickOpen(false); };
+    window.addEventListener('mousedown', close);
+    window.addEventListener('keydown', esc);
+    return () => { window.removeEventListener('mousedown', close); window.removeEventListener('keydown', esc); };
+  }, [quickOpen]);
+
   // Hidden in snapshot mode.
   if (connection === 'snapshot') return null;
 
@@ -751,6 +777,13 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
               />
             );
           }
+          if (item.kind === 'turnUsage') {
+            return (
+              <div key={i} className="agent-turn-usage agent-item">
+                本輪 {fmtTokens(item.input + item.output)} tokens（輸入 {fmtTokens(item.input)}／輸出 {fmtTokens(item.output)}{item.estimated ? '，估算' : ''}）
+              </div>
+            );
+          }
           if (item.kind === 'dbEditProposal') {
             return (
               <DbEditProposalView
@@ -787,6 +820,57 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
       {/* Input area */}
       <div className="agent-input-wrap">
         <div className="agent-inputbox">
+          <div className="agent-quick">
+            <button
+              className="agent-quick-btn"
+              title="快捷指令"
+              aria-label="快捷指令"
+              onClick={() => setQuickOpen(o => !o)}
+            >
+              <Icon name="bolt" size={13} />
+            </button>
+            {quickOpen && (
+              <div className="agent-quick-menu">
+                {[
+                  { label: '驗證並修正目前的圖', text: '請驗證目前開啟的圖，有問題就修正。' },
+                  { label: '解說目前的圖', text: '請讀取目前開啟的圖，用白話解說它的結構與效果。' },
+                  { label: '複製目前的圖到剪貼簿', text: '請把目前開啟的圖複製到剪貼簿。' },
+                  { label: '壓縮對話上下文', text: '請使用 compact_context 工具壓縮對話歷史。' },
+                ].map(q => (
+                  <button
+                    key={q.label}
+                    className="agent-quick-item"
+                    disabled={streaming}
+                    onClick={() => { setQuickOpen(false); void handleSend(q.text); }}
+                  >
+                    {q.label}
+                  </button>
+                ))}
+                <div className="agent-quick-sep" />
+                <button
+                  className="agent-quick-item"
+                  disabled={streaming || !sessionId || items.length === 0}
+                  onClick={() => { setQuickOpen(false); void handleRegenerate(); }}
+                >
+                  重新生成上一回覆
+                </button>
+                <button
+                  className="agent-quick-item"
+                  disabled={streaming}
+                  onClick={() => { setQuickOpen(false); void handleUndo(); }}
+                >
+                  還原上一步
+                </button>
+                <button
+                  className="agent-quick-item"
+                  disabled={items.length === 0}
+                  onClick={() => { setQuickOpen(false); downloadMarkdown(); }}
+                >
+                  匯出對話 Markdown
+                </button>
+              </div>
+            )}
+          </div>
           <textarea
             ref={inputRef}
             className="agent-input"
