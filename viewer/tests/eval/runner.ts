@@ -20,6 +20,7 @@ import { tmpdir } from 'node:os';
 import { join, dirname, relative, resolve } from 'node:path';
 import { runAgent, createSession, type AgentLoopSession } from '../../server/agent/loop.js';
 import { createCheckpointStore, type CheckpointStore } from '../../server/agent/checkpoint.js';
+import { createMemoryStore, type MemoryStore } from '../../server/agent/memory-store.js';
 import { dispatchTool, type ToolContext } from '../../server/agent/tools.js';
 import type { Provider, StreamEvent, ChatRequest, ContentBlock } from '../../server/agent/provider/types.js';
 import type { AgentSseEvent } from '../../server/agent/agent-types.js';
@@ -78,6 +79,7 @@ export async function runScenario(scenario: Scenario): Promise<void> {
     await mkdir(graphsRoot, { recursive: true });
 
     const store = createCheckpointStore(join(tmp, 'viewer'), 'eval-session');
+    const memory = createMemoryStore(join(tmp, 'viewer'), 'eval-session');
     const ctx: ToolContext = {
       repoRoot: REPO_ROOT,
       graphsRoot,
@@ -86,6 +88,7 @@ export async function runScenario(scenario: Scenario): Promise<void> {
       beforeWrite: async (absPath, turnId) => {
         await store.snapshotFile(turnId || 'turn-0', absPath);
       },
+      memory,
     };
 
     // Seed files (pre-existing user graphs).
@@ -103,7 +106,7 @@ export async function runScenario(scenario: Scenario): Promise<void> {
       const step = scenario.steps[i];
       const where = `${scenario.name} step ${i + 1} (${step.kind})`;
       if (step.kind === 'chat') {
-        await runChatStep(step, where, scenario, session, ctx);
+        await runChatStep(step, where, scenario, session, ctx, memory);
       } else {
         await runUndoStep(step, where, store, ctx);
       }
@@ -125,6 +128,7 @@ async function runChatStep(
   scenario: Scenario,
   session: AgentLoopSession,
   ctx: ToolContext,
+  memory: MemoryStore,
 ): Promise<void> {
   const provider = new ScriptedProvider(step.turns);
   const events: AgentSseEvent[] = [];
@@ -214,6 +218,20 @@ async function runChatStep(
       .filter((e) => e.type === 'graph_written')
       .map((e) => (e as { type: 'graph_written'; path: string }).path);
     expect(paths, `${where}: graph_written paths`).toEqual(exp.graphWritten);
+  }
+
+  // --- Memory expectations (M7b/M11-1 coverage) ---
+  if (exp.sessionMemoryIncludes) {
+    const mem = await memory.read('session');
+    for (const want of exp.sessionMemoryIncludes) {
+      expect(mem, `${where}: session memory must include "${want}"`).toContain(want);
+    }
+  }
+  if (exp.longtermMemoryIncludes) {
+    const mem = await memory.read('longterm');
+    for (const want of exp.longtermMemoryIncludes) {
+      expect(mem, `${where}: longterm memory must include "${want}"`).toContain(want);
+    }
   }
 }
 

@@ -15,8 +15,9 @@
   所以閉環驗證是地基、接地迴圈（即時圖＋白話 diff＋undo）才是價值。
 - **MVP = M0–M5**。範圍外（觀察/後做）：真實材質渲染預覽、UE 貼入 T3D debug、
   第三方 native adapter、JSON-in-text 工具降級解析。
-  - 評測語料已落地（2026-06-11）：`tests/eval/`（情境 DSL＋fixtures＋runner）＋
-    `tests/agent-eval.test.ts`，15 個腳本化情境涵蓋生成／修圖／自修／undo，見 §10。
+  - 評測語料已落地（2026-06-11）：`tests/eval/`（情境 DSL＋fixtures＋runner，含
+    memory／compact／discovery 類別與 sessionMemoryIncludes 期望）＋
+    `tests/agent-eval.test.ts`，21 個腳本化情境涵蓋生成／修圖／自修／undo／記憶／壓縮／探索，見 §10。
 - Local-first 鐵律不變：零新 npm 依賴（Node 18+ 原生 fetch）、零額外部署、
   一鍵 `pnpm dev`。
 
@@ -58,7 +59,7 @@ viewer/
 │     ├─ provider/openai.ts     # OpenAI-compatible adapter（可配 baseUrl）
 │     ├─ provider/index.ts      # pickProvider(config)
 │     ├─ loop.ts                # agent loop（閉環＋護欄）
-│     ├─ tools.ts               # 14 個 tool 定義 + dispatch（2026-06-11 起含探索/記憶工具）
+│     ├─ tools.ts               # 15 個 tool 定義 + dispatch（2026-06-11 起含探索/記憶/壓縮工具）
 │     ├─ patch.ts               # patch_graph 領域操作集（純函式）
 │     ├─ query-bridge.ts        # createRequire 載入 agent-pack/query-lib.js 的型別殼
 │     ├─ prompt.ts              # 新手人格 system prompt（runtime 讀 SPEC.md）
@@ -286,6 +287,7 @@ get_signature 再連線；MF 必查 `get_mf_signature`；改圖前先 `read_grap
 | `/api/agent/chat` | POST → `text/event-stream` | 對話 loop，串 AgentSseEvent | `sameOrigin` |
 | `/api/agent/explain` | POST（JSON 回應，非串流） | hover「深入解說」一次性 LLM | `sameOrigin` |
 | `/api/agent/undo` | POST | 還原上一 turn 的 pre-image | `sameOrigin`；限 `graphs/` |
+| `/api/agent/regenerate` | POST | 回捲最後一輪（檔案＋history＋transcript）並回傳 user 文字供前端重送 | `sameOrigin`；串流中 409；turnSeq 不回退 |
 | `/api/agent/reset` | POST | 清空 session | `sameOrigin` |
 | `/api/agent/status` | GET | `ProviderStatus`（永不含 apiKey） | 同 `/api/env` |
 | `/api/agent/test` | POST | 用「已儲存」設定發最小請求驗證連線；錯誤翻白話（2026-06-11） | `sameOrigin`；30s 上限 |
@@ -302,7 +304,7 @@ type AgentSseEvent =
   | { type: 'tool_start'; name: string; summary: string }            // 使用者可讀的步驟行
   | { type: 'tool_end'; name: string; ok: boolean; summary?: string }
   | { type: 'diff'; lines: string[] }                                // 白話 diff（成功寫入後）
-  | { type: 'graph_written'; path: string }                          // UI 可自動開啟該檔
+  | { type: 'graph_written'; path: string; changedNodeIds?: string[] } // UI 自動開啟＋畫布脈衝高亮變更節點
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
   | { type: 'compacted'; message: string }                           // 壓縮通知（2026-06-11）
   | { type: 'limit'; kind: 'iters' | 'cost'; message: string }

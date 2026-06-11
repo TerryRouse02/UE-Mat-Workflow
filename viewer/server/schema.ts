@@ -64,8 +64,68 @@ export function validateGraph(input: unknown): ValidationResult {
 // agent-authored and reverse-imported materials are held to the convention visibly.
 export function materialStructureWarnings(graph: MatGraph): string[] {
   if (graph.type !== 'Material') return [];
+  const warnings: string[] = [];
   const outs = graph.nodes.filter(n => n.type === 'MaterialOutput');
-  if (outs.length === 1) return [];
-  if (outs.length === 0) return ['A Material must have exactly one MaterialOutput node — found none.'];
-  return [`A Material must have exactly one MaterialOutput node — found ${outs.length} (${outs.map(n => n.id).join(', ')}).`];
+  if (outs.length === 0) warnings.push('A Material must have exactly one MaterialOutput node — found none.');
+  else if (outs.length > 1) {
+    warnings.push(`A Material must have exactly one MaterialOutput node — found ${outs.length} (${outs.map(n => n.id).join(', ')}).`);
+  }
+  warnings.push(...semanticLintWarnings(graph));
+  return warnings;
+}
+
+// ---------------------------------------------------------------------------
+// Semantic lint — common UE material mistakes surfaced as warnings.
+// Deliberately DB-free and limited to connections that land DIRECTLY on a
+// MaterialOutput pin: precise, cheap, zero false positives from indirection.
+// ---------------------------------------------------------------------------
+
+const TEXTURE_SAMPLE_TYPES = new Set(['TextureSample', 'TextureSampleParameter2D']);
+/** MaterialOutput pins that take a scalar — a full vector here is usually a mistake. */
+const SCALAR_OUTPUT_PINS = new Set([
+  'Metallic', 'Roughness', 'Specular', 'Opacity', 'OpacityMask', 'AmbientOcclusion', 'Anisotropy',
+]);
+const COLOR_OUTPUT_PINS = new Set(['BaseColor', 'EmissiveColor']);
+
+function semanticLintWarnings(graph: MatGraph): string[] {
+  const out: string[] = [];
+  const byId = new Map(graph.nodes.map(n => [n.id, n]));
+  const outputIds = new Set(graph.nodes.filter(n => n.type === 'MaterialOutput').map(n => n.id));
+
+  for (const c of graph.connections) {
+    const ti = c.to.indexOf(':');
+    const fi = c.from.indexOf(':');
+    if (ti < 0 || fi < 0) continue; // malformed ends are validateGraph's job
+    const toId = c.to.slice(0, ti);
+    if (!outputIds.has(toId)) continue;
+    const toPin = c.to.slice(ti + 1);
+    const src = byId.get(c.from.slice(0, fi));
+    if (!src) continue;
+    const sampler = typeof src.params?.SamplerType === 'string' ? src.params.SamplerType : undefined;
+
+    // Normal map sampled as color → broken lighting.
+    if (toPin === 'Normal' && TEXTURE_SAMPLE_TYPES.has(src.type) && sampler !== 'Normal') {
+      out.push(
+        `"${src.id}" feeds the Normal output but its SamplerType is ${sampler ? `"${sampler}"` : 'unset (defaults to Color)'} — ` +
+        'normal maps need SamplerType "Normal" or lighting will be wrong.',
+      );
+    }
+
+    // Normal-decoded data used as a color.
+    if (COLOR_OUTPUT_PINS.has(toPin) && TEXTURE_SAMPLE_TYPES.has(src.type) && sampler === 'Normal') {
+      out.push(
+        `"${src.id}" has SamplerType "Normal" but feeds the ${toPin} output — ` +
+        'normal-decoded data is not a color; use SamplerType "Color".',
+      );
+    }
+
+    // Vector constant into a scalar output pin.
+    if (SCALAR_OUTPUT_PINS.has(toPin) && (src.type === 'Constant3Vector' || src.type === 'Constant4Vector')) {
+      out.push(
+        `"${src.id}" (${src.type}) feeds the scalar ${toPin} output — ` +
+        `use a Constant, or a single channel like "${src.id}:R", instead of a vector.`,
+      );
+    }
+  }
+  return out;
 }

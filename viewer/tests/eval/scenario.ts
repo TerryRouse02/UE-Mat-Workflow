@@ -52,6 +52,10 @@ export interface ChatExpect {
   graphWritten?: string[];
   /** Expected limit event kind. Absent → the runner asserts NO limit event. */
   limit?: 'iters' | 'cost';
+  /** Substrings that must appear in session memory after the step. */
+  sessionMemoryIncludes?: string[];
+  /** Substrings that must appear in longterm memory after the step. */
+  longtermMemoryIncludes?: string[];
   /**
    * Expected provider.stream() call count. Defaults to turns.length — a
    * scripted scenario must consume exactly its script unless a limit stops it.
