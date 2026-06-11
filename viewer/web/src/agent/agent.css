@@ -280,6 +280,28 @@
 .agent-quick-item:hover:not(:disabled) { background:var(--bg-elev); }
 .agent-quick-item:disabled { opacity:.4; cursor:not-allowed; }
 .agent-quick-sep { height:1px; margin:4px 6px; background:var(--hairline); }
+.agent-quick-item { display:flex; align-items:center; gap:8px; }
+.agent-quick-cmd {
+  flex:0 0 auto; padding:1px 5px; border-radius:4px;
+  background:var(--bg-elev); color:var(--accent);
+  font-family:var(--font-mono); font-size:10.5px;
+}
+.agent-quick-empty { padding:6px 10px; font-size:11.5px; color:var(--text-mute); }
 
 /* Per-turn token usage line */
 .agent-turn-usage { font-size:10.5px; color:var(--text-mute); text-align:right; padding:0 2px; }
+
+/* System-report card (crawl outcome) — compact, collapsed by default */
+.agent-sysreport { border:1px solid var(--hairline); border-radius:8px; background:var(--bg-canvas); }
+.agent-sysreport-head {
+  display:flex; align-items:center; gap:6px; width:100%; padding:6px 9px;
+  border:none; background:transparent; cursor:pointer; text-align:left;
+  color:var(--text-dim); font-size:11px; font-family:var(--font-sans);
+}
+.agent-sysreport-head .caret { transition:transform .12s ease; }
+.agent-sysreport.open .agent-sysreport-head .caret { transform:rotate(90deg); }
+.agent-sysreport-detail {
+  margin:0; padding:4px 10px 8px 26px; max-height:180px; overflow:auto;
+  font-family:var(--font-mono); font-size:10.5px; line-height:1.5;
+  color:var(--text-mute); white-space:pre-wrap; word-break:break-all;
+}

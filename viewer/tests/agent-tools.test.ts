@@ -629,6 +629,28 @@ describe('propose_db_edit', () => {
     expect(parsed.note).toContain('結束本輪');
   });
 
+  it('create:true proposes a NEW provisional node; rejects existing names and incomplete entries', async () => {
+    const entry = {
+      category: 'Math',
+      description: 'A public UE expression missing from the DB.',
+      inputs: [{ name: 'A', type: 'Float1|2|3|4' }],
+      outputs: [{ name: 'Result', type: 'matchInput' }],
+    };
+    const r = await dispatchTool('propose_db_edit', { nodeName: 'BrandNewNode', patch: entry, rationale: 'UE 5.7 docs', create: true }, ctx);
+    expect(r.isError).toBeUndefined();
+    const parsed = JSON.parse(r.content);
+    expect(parsed).toMatchObject({ ok: true, create: true, nodeName: 'BrandNewNode' });
+    expect(parsed.patch.verified).toBe(false); // forced provisional
+    expect(parsed.note).toContain('verified:false');
+
+    const dup = await dispatchTool('propose_db_edit', { nodeName: 'Multiply', patch: entry, rationale: 'r', create: true }, ctx);
+    expect(dup.isError).toBe(true);
+    expect(dup.content).toContain('已存在');
+
+    const partial = await dispatchTool('propose_db_edit', { nodeName: 'AnotherNew', patch: { description: 'only' }, rationale: 'r', create: true }, ctx);
+    expect(partial.isError).toBe(true);
+  });
+
   it('rejects unknown nodes, missing rationale, and disallowed patch keys', async () => {
     const unknown = await dispatchTool('propose_db_edit', { nodeName: 'NotANode', patch: { description: 'x' }, rationale: 'r' }, ctx);
     expect(unknown.isError).toBe(true);

@@ -420,6 +420,8 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
         onNodesChange={onNodesChange}
         onNodeClick={(_, n) => { setSelId(n.id); onSelectNode?.(n.id); closePopover(); }}
         onPaneClick={() => { setSelId(null); onSelectNode?.(null); closePopover(); }}
+        onMoveStart={() => closePopover()}
+        onNodeDragStart={() => closePopover()}
         onNodeMouseEnter={handleNodeMouseEnter}
         onNodeMouseLeave={handleNodeMouseLeave}
         onEdgeMouseEnter={(_, edge) => {

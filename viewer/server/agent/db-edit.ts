@@ -70,6 +70,27 @@ export function validateDbEditPatch(raw: unknown): { ok: true; patch: DbEditPatc
   return { ok: true, patch: p as DbEditPatch };
 }
 
+/**
+ * Shape-validate a NEW-node proposal (the 補齊 path). On top of the patch
+ * rules, a creation must carry the complete authoring entry — and is forced
+ * to verified:false: the parity audit only tolerates missing export metadata
+ * for provisional entries, and a fresh node has none until the next export
+ * crawl on a UE host.
+ */
+export function validateDbCreate(raw: unknown): { ok: true; patch: DbEditPatch } | { ok: false; error: string } {
+  const v = validateDbEditPatch(raw);
+  if (!v.ok) return v;
+  for (const required of ['description', 'category', 'inputs', 'outputs'] as const) {
+    if (!(required in v.patch)) {
+      return { ok: false, error: `creating a node requires "${required}"` };
+    }
+  }
+  if (v.patch.verified === true) {
+    return { ok: false, error: 'a NEW node must be verified:false — export metadata does not exist until the next export crawl' };
+  }
+  return { ok: true, patch: { ...v.patch, verified: false } };
+}
+
 // ---------------------------------------------------------------------------
 // Apply (endpoint side)
 // ---------------------------------------------------------------------------
@@ -107,9 +128,12 @@ export async function applyDbEdit(
   nodeName: string,
   patch: DbEditPatch,
   runScript: RunScript = realRunScript,
+  /** true = add a NEW provisional node (verified:false enforced) instead of editing. */
+  create = false,
 ): Promise<ApplyResult> {
   if (!/^\d+\.\d+$/.test(ueVersion)) return { ok: false, error: `invalid ueVersion: ${ueVersion}` };
-  const v = validateDbEditPatch(patch);
+  if (!/^[A-Za-z0-9_]{1,80}$/.test(nodeName)) return { ok: false, error: `invalid nodeName: ${nodeName}` };
+  const v = create ? validateDbCreate(patch) : validateDbEditPatch(patch);
   if (!v.ok) return { ok: false, error: v.error };
 
   const dbPath = join(repoRoot, 'agent-pack', `nodes-ue${ueVersion}.json`);
@@ -133,9 +157,14 @@ export async function applyDbEdit(
     return { ok: false, error: 'node DB is not valid JSON — refusing to touch it' };
   }
   const node = db.nodes?.[nodeName];
-  if (!node) return { ok: false, error: `node "${nodeName}" not found in nodes-ue${ueVersion}.json` };
-
-  for (const [k, val] of Object.entries(v.patch)) node[k] = val;
+  if (create) {
+    if (node) return { ok: false, error: `node "${nodeName}" already exists in nodes-ue${ueVersion}.json — use an edit, not a create` };
+    if (!db.nodes) return { ok: false, error: 'node DB has no "nodes" object — refusing to touch it' };
+    db.nodes[nodeName] = { ...v.patch } as Record<string, unknown>;
+  } else {
+    if (!node) return { ok: false, error: `node "${nodeName}" not found in nodes-ue${ueVersion}.json` };
+    for (const [k, val] of Object.entries(v.patch)) node[k] = val;
+  }
 
   const rollback = async () => {
     try {

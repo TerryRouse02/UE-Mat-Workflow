@@ -1665,6 +1665,7 @@ describe('db_edit_proposal viewer event', () => {
       type: 'db_edit_proposal',
       nodeName: 'Multiply',
       ueVersion: '5.7',
+      create: false,
       patch: { verified: true },
       rationale: '依 UE 5.7 文件查證',
     }]);

@@ -67,10 +67,30 @@ export interface DbEditProposal {
   kind: 'dbEditProposal';
   nodeName: string;
   ueVersion: string;
+  /** true = the proposal ADDS a new provisional node (補齊). */
+  create: boolean;
   patch: Record<string, unknown>;
   rationale: string;
   /** Set once the user acts (or on replay — proposals never persist as actionable). */
   resolved: boolean;
+}
+
+/**
+ * Messages the UI sends on the user's behalf (crawl-outcome reports) start
+ * with this marker. They still travel as ordinary user messages to the model,
+ * but render as a collapsed system card instead of a user bubble — both live
+ * (startUserTurn) and on transcript replay share this detection.
+ */
+export const SYSTEM_REPORT_PREFIX = '（系統回報）';
+
+/** A system-generated report message (e.g. crawl outcome), rendered as a card. */
+export interface SystemReport {
+  kind: 'systemReport';
+  /** First line of the report (without the prefix). */
+  title: string;
+  /** Remaining lines (log tail etc.), shown when expanded. */
+  detail: string;
+  collapsed: boolean;
 }
 
 /** Per-turn token usage line appended when a turn's done event arrives. */
@@ -81,7 +101,7 @@ export interface TurnUsage {
   estimated: boolean;
 }
 
-export type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem | CrawlProposal | DbEditProposal | TurnUsage;
+export type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem | CrawlProposal | DbEditProposal | TurnUsage | SystemReport;
 
 /** Cumulative token usage across the whole conversation. */
 export interface UsageTotal {
@@ -108,14 +128,21 @@ export function newTurnFlags(): TurnFlags {
 /** Start a user turn: collapse previous-turn cards and add the user bubble.
     A pending crawl proposal is superseded by the new message — deactivate it. */
 export function startUserTurn(items: ChatItem[], userText: string): ChatItem[] {
-  return [
-    ...items.map(it => {
-      if (it.kind === 'diff' || it.kind === 'tools') return { ...it, collapsed: true };
-      if ((it.kind === 'crawlProposal' || it.kind === 'dbEditProposal') && !it.resolved) return { ...it, resolved: true };
-      return it;
-    }),
-    { kind: 'text', role: 'user', text: userText },
-  ];
+  const collapsed = items.map(it => {
+    if (it.kind === 'diff' || it.kind === 'tools') return { ...it, collapsed: true };
+    if ((it.kind === 'crawlProposal' || it.kind === 'dbEditProposal') && !it.resolved) return { ...it, resolved: true };
+    return it;
+  });
+  if (userText.startsWith(SYSTEM_REPORT_PREFIX)) {
+    const lines = userText.slice(SYSTEM_REPORT_PREFIX.length).split('\n');
+    return [...collapsed, {
+      kind: 'systemReport',
+      title: lines[0].trim(),
+      detail: lines.slice(1).join('\n').trim(),
+      collapsed: true,
+    }];
+  }
+  return [...collapsed, { kind: 'text', role: 'user', text: userText }];
 }
 
 /** Accumulate a usage event into the running total. */
@@ -237,6 +264,7 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
         kind: 'dbEditProposal',
         nodeName: event.nodeName,
         ueVersion: event.ueVersion,
+        create: event.create,
         patch: event.patch,
         rationale: event.rationale,
         resolved: false,
@@ -353,7 +381,17 @@ export function transcriptToMarkdown(
         out.push('');
         break;
       case 'dbEditProposal':
-        out.push(`> 🛠 節點 DB 修改提案：${it.nodeName}（${Object.keys(it.patch).join('、')}）`);
+        out.push(`> 🛠 節點 DB ${it.create ? '新增' : '修改'}提案：${it.nodeName}（${Object.keys(it.patch).join('、')}）`);
+        out.push('');
+        break;
+      case 'systemReport':
+        out.push(`> 🛰 系統回報：${it.title}`);
+        if (it.detail) {
+          out.push('');
+          out.push('```');
+          out.push(it.detail);
+          out.push('```');
+        }
         out.push('');
         break;
       case 'turnUsage':

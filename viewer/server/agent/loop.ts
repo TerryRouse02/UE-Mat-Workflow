@@ -381,6 +381,7 @@ export async function runAgent(
             type: 'db_edit_proposal',
             nodeName: parsed.nodeName,
             ueVersion: typeof parsed.ueVersion === 'string' ? parsed.ueVersion : session.ueVersion,
+            create: parsed.create === true,
             patch: (parsed.patch && typeof parsed.patch === 'object' ? parsed.patch : {}) as Record<string, unknown>,
             rationale: typeof parsed.rationale === 'string' ? parsed.rationale : '',
           });

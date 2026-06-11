@@ -35,6 +35,7 @@ import {
   type ThinkingItem,
   type CrawlProposal,
   type DbEditProposal,
+  type SystemReport,
   type UsageTotal,
   newTurnFlags,
   startUserTurn,
@@ -57,6 +58,25 @@ const THINKING_LABELS: Record<AgentThinkingLevel, string> = {
   off: '關', low: '低', medium: '中', high: '高',
 };
 const THINKING_STORAGE_KEY = 'agent-thinking-level';
+
+// ─── Quick commands (⚡ menu / slash input) ──────────────────────────────────
+
+interface QuickCommand {
+  cmd: string;                                   // slash form, e.g. "/validate"
+  label: string;
+  kind: 'send' | 'regen' | 'undo' | 'md';
+  text?: string;                                 // canned prompt for kind 'send'
+}
+
+const QUICK_COMMANDS: QuickCommand[] = [
+  { cmd: '/validate', label: '驗證並修正目前的圖', kind: 'send', text: '請驗證目前開啟的圖，有問題就修正。' },
+  { cmd: '/explain',  label: '解說目前的圖',       kind: 'send', text: '請讀取目前開啟的圖，用白話解說它的結構與效果。' },
+  { cmd: '/export',   label: '複製目前的圖到剪貼簿', kind: 'send', text: '請把目前開啟的圖複製到剪貼簿。' },
+  { cmd: '/compact',  label: '壓縮對話上下文',     kind: 'send', text: '請使用 compact_context 工具壓縮對話歷史。' },
+  { cmd: '/regen',    label: '重新生成上一回覆',   kind: 'regen' },
+  { cmd: '/undo',     label: '還原上一步',         kind: 'undo' },
+  { cmd: '/md',       label: '匯出對話 Markdown',  kind: 'md' },
+];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -143,6 +163,22 @@ function ThinkingView({ item, live, onToggle }: { item: ThinkingItem; live: bool
   );
 }
 
+/** System-generated report (crawl outcome) — a collapsed card, not a user
+    bubble: the title says what happened, the log tail expands on demand. */
+function SystemReportView({ item, onToggle }: { item: SystemReport; onToggle: () => void }) {
+  const open = !item.collapsed;
+  return (
+    <div className={'agent-sysreport agent-item' + (open ? ' open' : '')}>
+      <button type="button" className="agent-sysreport-head" onClick={onToggle}>
+        <Icon name="caret" size={11} className="caret" />
+        <Icon name="refresh" size={11} />
+        <span>系統回報 · {item.title}</span>
+      </button>
+      {open && item.detail && <pre className="agent-sysreport-detail">{item.detail}</pre>}
+    </div>
+  );
+}
+
 /** Agent-proposed crawl card — the agent can only PROPOSE; this button is the
     user's approval and goes through the same POST /api/crawl as the Config tab. */
 function CrawlProposalView({ item, crawl, onApprove }: {
@@ -194,12 +230,17 @@ function DbEditProposalView({ item, onResolve }: {
       const r = await fetch('/api/agent/db-edit', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ueVersion: item.ueVersion, nodeName: item.nodeName, patch: item.patch }),
+        body: JSON.stringify({ ueVersion: item.ueVersion, nodeName: item.nodeName, patch: item.patch, create: item.create }),
         cache: 'no-store',
       });
       const body = (r.ok ? await r.json() : { ok: false, error: `HTTP ${r.status}` }) as AgentDbEditResponse;
       if (body.ok) {
-        onResolve({ variant: 'info', message: `節點 DB 已更新（${item.nodeName}：${body.changedKeys.join('、')}），索引已重生並通過 parity audit。` });
+        onResolve({
+          variant: 'info',
+          message: item.create
+            ? `節點 DB 已新增 ${item.nodeName}（verified:false），索引已重生並通過 parity audit。之後請執行「節點導出」爬取補齊 metadata，才能匯出到 UE。`
+            : `節點 DB 已更新（${item.nodeName}：${body.changedKeys.join('、')}），索引已重生並通過 parity audit。`,
+        });
       } else {
         onResolve({ variant: 'error', message: `節點 DB 修改失敗（已回滾）：${body.error}` });
       }
@@ -210,8 +251,13 @@ function DbEditProposalView({ item, onResolve }: {
   return (
     <div className="agent-crawl-proposal agent-item">
       <div className="agent-crawl-title">
-        <Icon name="hash" size={12} /> Agent 提議修改節點 DB：{item.nodeName}（UE {item.ueVersion}）
+        <Icon name="hash" size={12} /> Agent 提議{item.create ? '新增節點' : '修改節點 DB'}：{item.nodeName}（UE {item.ueVersion}）
       </div>
+      {item.create && (
+        <div className="agent-crawl-note">
+          新節點以 <b>verified:false</b> 落庫（export metadata 尚不存在）；之後執行「節點導出」爬取補齊後才能匯出到 UE。
+        </div>
+      )}
       <ul className="agent-dbedit-lines">
         {dbPatchSummary(item.patch).map((l, i) => <li key={i}>{l}</li>)}
       </ul>
@@ -405,7 +451,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
 
   const toggleCollapse = useCallback((index: number) => {
     setItems(prev => prev.map((it, i) =>
-      i === index && (it.kind === 'tools' || it.kind === 'diff' || it.kind === 'thinking')
+      i === index && (it.kind === 'tools' || it.kind === 'diff' || it.kind === 'thinking' || it.kind === 'systemReport')
         ? { ...it, collapsed: !it.collapsed }
         : it,
     ));
@@ -664,6 +710,31 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
   const lastIndex = items.length - 1;
   const currentInList = sessionId !== null && sessions.some(s => s.id === sessionId);
 
+  // Slash mode: a single-line input starting with "/" opens the quick menu and
+  // filters it; Enter runs the first enabled match (never sent to the model).
+  const slashQuery = input.startsWith('/') && !input.includes('\n')
+    ? input.slice(1).trim().toLowerCase()
+    : null;
+  const menuOpen = quickOpen || slashQuery !== null;
+  const visibleCommands = slashQuery
+    ? QUICK_COMMANDS.filter(c => c.cmd.slice(1).startsWith(slashQuery) || c.label.toLowerCase().includes(slashQuery))
+    : QUICK_COMMANDS;
+  const cmdDisabled = (c: QuickCommand): boolean => {
+    if (c.kind === 'send') return streaming;
+    if (c.kind === 'regen') return streaming || !sessionId || items.length === 0;
+    if (c.kind === 'undo') return streaming;
+    return items.length === 0; // md
+  };
+  const runQuickCommand = (c: QuickCommand) => {
+    if (cmdDisabled(c)) return;
+    setQuickOpen(false);
+    setInput('');
+    if (c.kind === 'send' && c.text) void handleSend(c.text);
+    else if (c.kind === 'regen') void handleRegenerate();
+    else if (c.kind === 'undo') void handleUndo();
+    else if (c.kind === 'md') downloadMarkdown();
+  };
+
   // M8: per-session tool usage stats (live and replayed items both count —
   // tool steps are part of the persisted transcript).
   const toolCounts = new Map<string, { n: number; fail: number }>();
@@ -803,6 +874,9 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
               />
             );
           }
+          if (item.kind === 'systemReport') {
+            return <SystemReportView key={i} item={item} onToggle={() => toggleCollapse(i)} />;
+          }
           if (item.kind === 'turnUsage') {
             return (
               <div key={i} className="agent-turn-usage agent-item">
@@ -849,64 +923,53 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           <div className="agent-quick">
             <button
               className="agent-quick-btn"
-              title="快捷指令"
+              title="快捷指令（或在輸入框打 / 喚出）"
               aria-label="快捷指令"
               onClick={() => setQuickOpen(o => !o)}
             >
               <Icon name="bolt" size={13} />
             </button>
-            {quickOpen && (
+            {menuOpen && (
               <div className="agent-quick-menu">
-                {[
-                  { label: '驗證並修正目前的圖', text: '請驗證目前開啟的圖，有問題就修正。' },
-                  { label: '解說目前的圖', text: '請讀取目前開啟的圖，用白話解說它的結構與效果。' },
-                  { label: '複製目前的圖到剪貼簿', text: '請把目前開啟的圖複製到剪貼簿。' },
-                  { label: '壓縮對話上下文', text: '請使用 compact_context 工具壓縮對話歷史。' },
-                ].map(q => (
+                {visibleCommands.map(c => (
                   <button
-                    key={q.label}
+                    key={c.cmd}
                     className="agent-quick-item"
-                    disabled={streaming}
-                    onClick={() => { setQuickOpen(false); void handleSend(q.text); }}
+                    disabled={cmdDisabled(c)}
+                    onClick={() => runQuickCommand(c)}
                   >
-                    {q.label}
+                    <code className="agent-quick-cmd">{c.cmd}</code>
+                    <span>{c.label}</span>
                   </button>
                 ))}
-                <div className="agent-quick-sep" />
-                <button
-                  className="agent-quick-item"
-                  disabled={streaming || !sessionId || items.length === 0}
-                  onClick={() => { setQuickOpen(false); void handleRegenerate(); }}
-                >
-                  重新生成上一回覆
-                </button>
-                <button
-                  className="agent-quick-item"
-                  disabled={streaming}
-                  onClick={() => { setQuickOpen(false); void handleUndo(); }}
-                >
-                  還原上一步
-                </button>
-                <button
-                  className="agent-quick-item"
-                  disabled={items.length === 0}
-                  onClick={() => { setQuickOpen(false); downloadMarkdown(); }}
-                >
-                  匯出對話 Markdown
-                </button>
+                {visibleCommands.length === 0 && (
+                  <div className="agent-quick-empty">沒有符合的指令</div>
+                )}
               </div>
             )}
           </div>
           <textarea
             ref={inputRef}
             className="agent-input"
-            placeholder="描述你想要的材質效果…"
+            placeholder="描述你想要的材質效果…（/ 喚出快捷指令）"
             value={input}
             rows={1}
             onChange={e => setInput(e.target.value)}
             onKeyDown={e => {
+              if (e.key === 'Escape' && slashQuery !== null) {
+                e.preventDefault();
+                setInput('');
+                return;
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
+                // Slash mode: Enter runs the first matching command instead of
+                // sending the raw "/xxx" text to the model.
+                if (slashQuery !== null) {
+                  const first = visibleCommands.find(c => !cmdDisabled(c));
+                  if (first) runQuickCommand(first);
+                  return;
+                }
                 void handleSend(input);
               }
             }}

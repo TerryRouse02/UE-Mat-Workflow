@@ -157,6 +157,11 @@ interface ProviderStatus {
 
 ### 3.4 降級策略
 
+**token 統計口徑（2026-06-11 修正）**：`totalTokens` 是「累計消費」（每輪 input 重計整段
+歷史，只作顯示/記帳）；`contextTokens` 是「當前上下文」（最後一輪 input+output）。
+自動壓縮門檻與 contextLimit 上限一律比對 `contextTokens` — 比對累計值曾使壓縮在
+上下文遠未過半時就頻繁觸發。
+
 模型不支援工具呼叫（API 4xx 帶 tools 錯誤，或 finish 卻零 tool_use 且文字答非所問）→
 回明確中文錯誤建議換模型（列例：claude-opus-4-8、gpt-4o、deepseek-chat）。
 MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
@@ -174,7 +179,7 @@ MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 | `delete_graph` | `{path}` | 刪除 matgraph（pre-image 進 checkpoint，可 undo） | guardPath；刪非本對話建立的檔前先問使用者 |
 | `export_to_clipboard` | `{path}` | 驗證後請前端以 T3D 複製到剪貼簿（loop 發 `export_request` 事件，前端重用導出路徑） | 圖必須 valid；複製發生在瀏覽器 |
 | `request_crawl` | `{kind,contentRoot?}` | 只「提案」爬取：loop 發 `crawl_proposal`，使用者按卡片確認才走既有 POST /api/crawl | kind 限 workmf/projectmat；probeEnv 不綠直接報錯；agent 永遠拿不到拉起 UE 的權限 |
-| `propose_db_edit` | `{nodeName,patch,rationale}` | 只「提案」修改公開節點 DB 的既有 entry：loop 發 `db_edit_proposal`，使用者按卡片核准才走 POST /api/agent/db-edit（套用→重生索引→audit，失敗回滾） | patch 鍵 allowlist（description/category/verified/inputs/outputs/params）；節點必須已存在；只准乾淨 Epic/公開資料 |
+| `propose_db_edit` | `{nodeName,patch,rationale,create?}` | 只「提案」修改公開節點 DB：既有 entry 修正／verified 背書，或 `create:true` 補齊缺漏節點（強制 verified:false，待 export 爬取補 metadata）。loop 發 `db_edit_proposal`，使用者按卡片核准才走 POST /api/agent/db-edit（套用→重生索引→audit，失敗回滾） | patch 鍵 allowlist（description/category/verified/inputs/outputs/params）；create 需完整 entry 且節點不得已存在；verified:true 提案＝請使用者背書；只准乾淨 Epic/公開資料 |
 | `read_crawl_log` | `{lines?}` | 最近一次「已完成」爬取的 log 尾段（kind/status/exitCode＋行） | 唯讀；上限 200 行／12K 字；由 http-server 掛 runner.lastLog() |
 | `web_search` | `{query}` | DuckDuckGo HTML 端點搜尋（零金鑰、best-effort） | 走 fetchPublic 同套 SSRF 防護 |
 | `web_fetch` | `{url}` | 抓公網頁面轉純文字（HTML 剝離、15K 字上限） | SSRF 防護：僅 http(s)、封私網/loopback/link-local、DNS 全位址檢查、redirect 逐跳重檢（web-tools.ts） |
@@ -317,7 +322,7 @@ type AgentSseEvent =
   | { type: 'graph_written'; path: string; changedNodeIds?: string[] } // UI 自動開啟＋畫布脈衝高亮變更節點
   | { type: 'export_request'; path: string }                         // UI 以 T3D 複製該圖到剪貼簿（重用導出路徑）
   | { type: 'crawl_proposal'; kind: 'workmf' | 'projectmat'; contentRoot: string } // UI 顯示確認卡，使用者核准才呼叫 POST /api/crawl
-  | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; patch: Record<string, unknown>; rationale: string } // UI 顯示確認卡，使用者核准才呼叫 POST /api/agent/db-edit
+  | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; create: boolean; patch: Record<string, unknown>; rationale: string } // UI 顯示確認卡，使用者核准才呼叫 POST /api/agent/db-edit
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
   | { type: 'compacted'; message: string }                           // 壓縮通知（2026-06-11）
   | { type: 'limit'; kind: 'iters' | 'cost'; message: string }

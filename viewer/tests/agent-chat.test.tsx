@@ -942,7 +942,7 @@ describe('transcript reducer — per-turn usage + db-edit proposal + markdown', 
   it('db_edit_proposal becomes an actionable card, deactivated by the next user turn', () => {
     const flags = newTurnFlags();
     let items = applyAgentEvent([], {
-      type: 'db_edit_proposal', nodeName: 'Multiply', ueVersion: '5.7',
+      type: 'db_edit_proposal', nodeName: 'Multiply', ueVersion: '5.7', create: false,
       patch: { verified: true }, rationale: '依文件查證',
     }, flags);
     expect(items.at(-1)).toMatchObject({ kind: 'dbEditProposal', nodeName: 'Multiply', resolved: false });
@@ -1043,5 +1043,21 @@ describe('AgentChat keep-alive + crawl report', () => {
       expect(captured?.text).toContain('workmf 爬取已完成');
       expect(captured?.text).toContain('Wrote work-MF index');
     }, { timeout: 2000 });
+  });
+});
+
+describe('system report rendering (crawl outcome)', () => {
+  it('a（系統回報）message renders as a collapsed card, not a user bubble', () => {
+    const items = startUserTurn([], '（系統回報）你先前請求的 workmf 爬取已完成。\n\nlog 尾段：\nWrote work-MF index: 12 function(s)');
+    expect(items).toHaveLength(1);
+    expect(items[0]).toMatchObject({
+      kind: 'systemReport',
+      title: '你先前請求的 workmf 爬取已完成。',
+      collapsed: true,
+    });
+    expect((items[0] as { detail: string }).detail).toContain('Wrote work-MF index');
+    // A normal message still becomes a user bubble.
+    const normal = startUserTurn([], '做個發光材質');
+    expect(normal[0]).toMatchObject({ kind: 'text', role: 'user' });
   });
 });

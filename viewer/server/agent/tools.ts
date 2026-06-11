@@ -13,7 +13,7 @@ import { probeEnv } from '../crawl-env.js';
 import { applyPatch, changedNodeIds, type PatchOp } from './patch.js';
 import type { MemoryStore, MemoryScope } from './memory-store.js';
 import { fetchPublic, htmlToText, webSearch, WEB_TEXT_CAP, type WebDeps } from './web-tools.js';
-import { validateDbEditPatch, DB_EDIT_KEYS } from './db-edit.js';
+import { validateDbEditPatch, validateDbCreate, DB_EDIT_KEYS } from './db-edit.js';
 import * as QB from './query-bridge.js';
 
 // ---------------------------------------------------------------------------
@@ -455,21 +455,24 @@ export const toolDefs: ToolDef[] = [
   {
     name: 'propose_db_edit',
     description:
-      'PROPOSE a correction to the public node DB (agent-pack/nodes-ue<v>.json) for an EXISTING ' +
-      'node type — fix a wrong/missing description, category, inputs/outputs/params list, or the ' +
-      'verified flag. This does NOT write anything: the user sees a confirmation card; on approval ' +
+      'PROPOSE a change to the public node DB (agent-pack/nodes-ue<v>.json): fix an EXISTING ' +
+      'node entry (description/category/inputs/outputs/params/verified), or with create:true ADD ' +
+      'a missing public UE node (forced verified:false until an export crawl supplies its ' +
+      'metadata). This does NOT write anything: the user sees a confirmation card; on approval ' +
       'the server applies it, regenerates the index, and runs the parity audit (rolls back on ' +
-      'failure). ONLY clean public Epic/UE data may be proposed — never project-specific content. ' +
-      'After calling this, END your turn and wait for the user.',
+      'failure). Proposing verified:true on an existing node = asking the user to attest they ' +
+      'checked it in UE. ONLY clean public Epic/UE data may be proposed — never project-specific ' +
+      'content. After calling this, END your turn and wait for the user.',
     inputSchema: {
       type: 'object',
       properties: {
-        nodeName: { type: 'string', description: 'Exact node type name that already exists in the DB' },
+        nodeName: { type: 'string', description: 'Exact node type name' },
         patch: {
           type: 'object',
-          description: `Fields to replace on the node entry. Allowed keys: ${DB_EDIT_KEYS.join(', ')}. inputs/outputs/params replace the whole list.`,
+          description: `Fields to set. Allowed keys: ${DB_EDIT_KEYS.join(', ')}. inputs/outputs/params replace the whole list. With create:true, description/category/inputs/outputs are required.`,
         },
-        rationale: { type: 'string', description: 'Why this edit is correct (cite the UE doc/source you verified against)' },
+        rationale: { type: 'string', description: 'Why this is correct (cite the UE doc/source you verified against)' },
+        create: { type: 'boolean', description: 'true = add a NEW node (must not exist yet); default false = edit an existing one' },
       },
       required: ['nodeName', 'patch', 'rationale'],
     },
@@ -1250,7 +1253,8 @@ async function toolProposeDbEdit(
   if (typeof rationale !== 'string' || !rationale.trim()) {
     return { content: 'propose_db_edit: rationale is required —說明依據（UE 文件/來源）', isError: true };
   }
-  const v = validateDbEditPatch(inp.patch);
+  const create = inp.create === true;
+  const v = create ? validateDbCreate(inp.patch) : validateDbEditPatch(inp.patch);
   if (!v.ok) {
     return { content: `propose_db_edit: ${v.error}`, isError: true };
   }
@@ -1258,9 +1262,15 @@ async function toolProposeDbEdit(
   if (!db) {
     return { content: `propose_db_edit: 找不到 UE ${ctx.ueVersion} 的節點 DB`, isError: true };
   }
-  if (!(nodeName in db)) {
+  if (create && nodeName in db) {
     return {
-      content: `propose_db_edit: 節點「${nodeName}」不存在於 nodes-ue${ctx.ueVersion}.json — 此工具只能修正既有節點，不能新增`,
+      content: `propose_db_edit: 節點「${nodeName}」已存在於 nodes-ue${ctx.ueVersion}.json — 請改用修改（不帶 create）`,
+      isError: true,
+    };
+  }
+  if (!create && !(nodeName in db)) {
+    return {
+      content: `propose_db_edit: 節點「${nodeName}」不存在於 nodes-ue${ctx.ueVersion}.json — 要補齊新節點請帶 create: true`,
       isError: true,
     };
   }
@@ -1269,11 +1279,14 @@ async function toolProposeDbEdit(
       ok: true,
       nodeName,
       ueVersion: ctx.ueVersion,
+      create,
       patch: v.patch,
       rationale: rationale.trim().slice(0, RATIONALE_CAP),
       note:
-        '已向使用者送出節點 DB 修改確認卡。請結束本輪等待使用者決定；' +
-        '絕不要假設修改已套用。獲准後伺服器會自動重生索引並跑 parity audit。',
+        (create
+          ? '已向使用者送出「新增節點」確認卡（強制 verified:false，提醒使用者之後執行節點導出爬取補齊 metadata 才能匯出到 UE）。'
+          : '已向使用者送出節點 DB 修改確認卡。') +
+        '請結束本輪等待使用者決定；絕不要假設修改已套用。獲准後伺服器會自動重生索引並跑 parity audit。',
     }),
   };
 }

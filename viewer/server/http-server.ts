@@ -734,7 +734,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         sendJson(res, 400, { error: 'nodeName and ueVersion are required' });
         return;
       }
-      const result = await applyDbEdit(opts.repoRoot, body.ueVersion, body.nodeName, body.patch ?? {});
+      const result = await applyDbEdit(opts.repoRoot, body.ueVersion, body.nodeName, body.patch ?? {}, undefined, body.create === true);
       if (result.ok) {
         sendJson(res, 200, { ok: true, changedKeys: result.changedKeys ?? [] } satisfies AgentDbEditResponse);
       } else {

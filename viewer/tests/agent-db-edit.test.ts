@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { validateDbEditPatch, applyDbEdit } from '../server/agent/db-edit.js';
+import { validateDbEditPatch, validateDbCreate, applyDbEdit } from '../server/agent/db-edit.js';
 
 describe('validateDbEditPatch', () => {
   it('accepts a well-formed patch', () => {
@@ -97,5 +97,45 @@ describe('applyDbEdit', () => {
     expect((await applyDbEdit(tmp, '../5.7', 'Foo', { description: 'x' }, okRun)).ok).toBe(false);
     expect((await applyDbEdit(tmp, '5.7', 'Foo', { hack: true }, okRun)).ok).toBe(false);
     expect(await readFile(dbPath, 'utf-8')).toBe(before);
+  });
+});
+
+describe('validateDbCreate / applyDbEdit create mode (補齊)', () => {
+  const FULL_ENTRY = {
+    category: 'Math',
+    description: 'A brand-new public UE expression.',
+    inputs: [{ name: 'A', type: 'Float1|2|3|4', required: true }],
+    outputs: [{ name: 'Result', type: 'matchInput' }],
+  };
+
+  it('requires the full entry and forces verified:false', () => {
+    expect(validateDbCreate({ description: 'only desc' }).ok).toBe(false);
+    const tooSure = validateDbCreate({ ...FULL_ENTRY, verified: true });
+    expect(tooSure.ok).toBe(false);
+    if (!tooSure.ok) expect(tooSure.error).toContain('verified:false');
+    const r = validateDbCreate(FULL_ENTRY);
+    expect(r.ok).toBe(true);
+    if (r.ok) expect(r.patch.verified).toBe(false);
+  });
+
+  it('applyDbEdit(create) adds the provisional node; rejects an existing name', async () => {
+    const tmp = await mkdtemp(join(tmpdir(), 'ue-dbcreate-'));
+    try {
+      await mkdir(join(tmp, 'agent-pack'), { recursive: true });
+      const dbPath = join(tmp, 'agent-pack', 'nodes-ue5.7.json');
+      await writeFile(dbPath, JSON.stringify({ nodes: { Foo: { category: 'Math', description: 'x', verified: false } } }, null, 2) + '\n', 'utf-8');
+      const ok = async () => ({ code: 0, output: '' });
+
+      const r = await applyDbEdit(tmp, '5.7', 'NewNode', FULL_ENTRY, ok, true);
+      expect(r.ok).toBe(true);
+      const after = JSON.parse(await readFile(dbPath, 'utf-8'));
+      expect(after.nodes.NewNode).toMatchObject({ category: 'Math', verified: false });
+
+      const dup = await applyDbEdit(tmp, '5.7', 'Foo', FULL_ENTRY, ok, true);
+      expect(dup.ok).toBe(false);
+      expect(dup.error).toContain('already exists');
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
   });
 });
