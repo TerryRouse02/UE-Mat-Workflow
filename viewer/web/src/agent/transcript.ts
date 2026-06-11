@@ -53,7 +53,16 @@ export interface ThinkingItem {
   collapsed: boolean;
 }
 
-export type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem;
+/** Agent-proposed crawl awaiting the user's explicit approval (request_crawl). */
+export interface CrawlProposal {
+  kind: 'crawlProposal';
+  crawlKind: 'workmf' | 'projectmat';
+  contentRoot: string;
+  /** Set once the user clicks 開始爬取 (or on replay — proposals never persist as actionable). */
+  resolved: boolean;
+}
+
+export type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem | CrawlProposal;
 
 /** Cumulative token usage across the whole conversation. */
 export interface UsageTotal {
@@ -75,12 +84,15 @@ export function newTurnFlags(): TurnFlags {
   return { needsNewBubble: true, announced: new Set() };
 }
 
-/** Start a user turn: collapse previous-turn cards and add the user bubble. */
+/** Start a user turn: collapse previous-turn cards and add the user bubble.
+    A pending crawl proposal is superseded by the new message — deactivate it. */
 export function startUserTurn(items: ChatItem[], userText: string): ChatItem[] {
   return [
-    ...items.map(it =>
-      it.kind === 'diff' || it.kind === 'tools' ? { ...it, collapsed: true } : it,
-    ),
+    ...items.map(it => {
+      if (it.kind === 'diff' || it.kind === 'tools') return { ...it, collapsed: true };
+      if (it.kind === 'crawlProposal' && !it.resolved) return { ...it, resolved: true };
+      return it;
+    }),
     { kind: 'text', role: 'user', text: userText },
   ];
 }
@@ -187,6 +199,18 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
       return [...items, { kind: 'notice', variant: 'info', message: `已開啟圖形：${event.path}` }];
     }
 
+    case 'export_request':
+      // The clipboard copy itself is the caller's side effect (App-level).
+      return [...items, { kind: 'notice', variant: 'info', message: `正在複製 ${event.path} 到剪貼簿…` }];
+
+    case 'crawl_proposal':
+      return [...items, {
+        kind: 'crawlProposal',
+        crawlKind: event.kind,
+        contentRoot: event.contentRoot,
+        resolved: false,
+      }];
+
     case 'done':
       // Turn finished — auto-collapse tool groups; diffs stay open until the
       // next user message so the result remains in view.
@@ -213,5 +237,7 @@ export function reduceTranscript(transcript: AgentTranscriptEntry[]): { items: C
       items = applyAgentEvent(items, entry.event, flags);
     }
   }
+  // Replayed proposals are history, never actionable again.
+  items = items.map(it => (it.kind === 'crawlProposal' ? { ...it, resolved: true } : it));
   return { items, usage };
 }

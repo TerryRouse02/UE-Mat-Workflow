@@ -33,6 +33,10 @@ interface State {
   // Nodes the agent just wrote/modified — the Graph pulses them once the file
   // opens. ts gates staleness (an old highlight never re-fires on later mounts).
   agentHighlight: { path: string; ids: string[]; nonce: number; ts: number } | null;
+  // Agent asked for a UE-clipboard export of this graph; App performs it once
+  // the graph is open and rendered (T3D needs the dagre positions). ts gates
+  // staleness like agentHighlight.
+  agentExportReq: { path: string; nonce: number; ts: number } | null;
 }
 
 type Action =
@@ -48,6 +52,7 @@ type Action =
   | { type: 'snapshot' }
   | { type: 'setEnv'; env: EnvStatus }
   | { type: 'agentHighlight'; path: string; ids: string[] }
+  | { type: 'agentExportReq'; path: string }
   | { type: 'crawlReset' }
   | CrawlAction;
 
@@ -57,7 +62,7 @@ const initial: State = {
   files: [], currentPath: null, breadcrumb: [], graphs: {}, errors: {},
   connection: 'reconnecting', lastUpdate: null,
   env: null, crawl: idleCrawl, metadataVersion: 0, workMfVersion: 0,
-  agentHighlight: null,
+  agentHighlight: null, agentExportReq: null,
 };
 
 function reducer(s: State, a: Action): State {
@@ -82,6 +87,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, env: a.env };
     case 'agentHighlight':
       return { ...s, agentHighlight: { path: a.path, ids: a.ids, nonce: (s.agentHighlight?.nonce ?? 0) + 1, ts: Date.now() } };
+    case 'agentExportReq':
+      return { ...s, agentExportReq: { path: a.path, nonce: (s.agentExportReq?.nonce ?? 0) + 1, ts: Date.now() } };
     case 'crawlReset':
       return { ...s, crawl: idleCrawl };
     case 'crawlStarted':
@@ -124,6 +131,8 @@ interface Ctx {
   }): Promise<{ ok: boolean; error?: string }>;
   /** Pulse the given nodes on the canvas once the graph at path is open (agent diff highlight). */
   highlightNodes(path: string, ids: string[]): void;
+  /** Ask App to export the graph at path to the UE clipboard once it is rendered. */
+  requestAgentExport(path: string): void;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -265,7 +274,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     if (ids.length > 0) dispatch({ type: 'agentHighlight', path, ids });
   }, []);
 
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes]);
+  const requestAgentExport = useCallback((path: string) => {
+    dispatch({ type: 'agentExportReq', path });
+  }, []);
+
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

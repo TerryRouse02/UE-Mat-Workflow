@@ -69,6 +69,16 @@ export async function buildSystemPrompt(repoRoot: string, ueVersion: string, mem
 8. **不確定有什麼就先探索**：使用者提到既有材質但你不知道路徑 → 先 list_graphs；
    想找 Material Function → 先 search_mf 再 get_mf_signature 拿針腳；
    要做沒做過的材質類型 → 先 list_examples / read_example 參考現成範式。
+9. **search_mf 找不到使用者說存在的專案 MF** → 用 request_crawl 提出爬取（kind: "workmf"）。
+   這只是「提案」：使用者會看到確認卡並自行決定，爬取需數分鐘。送出提案後**結束本輪等待**，
+   絕不假設爬取已執行；使用者回報完成後再重新 search_mf。
+10. **做完材質、使用者想拿進 UE** → 用 export_to_clipboard 把圖複製到剪貼簿，
+   並提醒使用者到 UE 材質編輯器按 Ctrl+V 貼上。圖必須先通過驗證。
+11. **知識不確定或可能過時**（新版 UE 行為、節點細節、材質技法）→ 先 web_search 找來源，
+   再 web_fetch 讀內文。引用網路資訊時附上來源網址。優先信任本地 node DB 與 SPEC，
+   網路內容僅作補充參考。
+12. **rename_graph / delete_graph 是可還原的檔案管理**：刪除非本次對話建立的檔案前，
+   必須先向使用者確認；rename 不會自動改寫其他圖的相對引用，改名 MF 後要自己檢查並修補引用。
 ${memorySection(memory)}
 ## matgraph 撰寫規則
 以下是完整的 .matgraph.json 規格（來自 agent-pack/SPEC.md）：

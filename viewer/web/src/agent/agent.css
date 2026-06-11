@@ -239,3 +239,20 @@
 .agent-sess-sel:hover { border-color:var(--border-strong); color:var(--text); }
 .agent-sess-sel:disabled { opacity:.5; cursor:not-allowed; }
 .agent-sess-sel option { background:var(--bg-panel); color:var(--text); }
+
+/* ─── Crawl proposal card (request_crawl) ─────────────────────────────────── */
+.agent-crawl-proposal {
+  border: 1px solid var(--border-strong); border-radius: 8px;
+  padding: 9px 11px; background: var(--bg-panel-2);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.agent-crawl-title { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); }
+.agent-crawl-note { font-size: 11px; color: var(--text-dim); }
+.agent-crawl-resolved { font-size: 11px; color: var(--text-dim); font-style: italic; }
+.agent-crawl-approve {
+  align-self: flex-start; padding: 5px 14px; border-radius: 6px;
+  border: 1px solid var(--border-strong); background: var(--bg-elev);
+  color: var(--text); font: inherit; font-size: 12px; cursor: pointer;
+}
+.agent-crawl-approve:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.agent-crawl-approve:disabled { opacity: .5; cursor: not-allowed; }

@@ -514,3 +514,130 @@ describe('list_examples / read_example', () => {
     expect(missing.content).toContain('01_basic_pbr');
   });
 });
+
+// ---------------------------------------------------------------------------
+// rename_graph / delete_graph
+// ---------------------------------------------------------------------------
+
+describe('rename_graph / delete_graph', () => {
+  it('rename moves the file, returns a diff line, and snapshots both ends for undo', async () => {
+    const writes: string[] = [];
+    const hookCtx: ToolContext = { ...ctx, beforeWrite: async (p) => { writes.push(p); } };
+    await dispatchTool('write_graph', { path: 'fm/old.matgraph.json', graph: VALID_GRAPH }, ctx);
+
+    const r = await dispatchTool('rename_graph', { from: 'fm/old.matgraph.json', to: 'fm/new.matgraph.json' }, hookCtx);
+    expect(r.isError).toBeUndefined();
+    const parsed = JSON.parse(r.content);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.diff.join('')).toContain('改名');
+    expect(writes).toHaveLength(2); // pre-images: source content + absent target
+
+    await expect(readFile(join(ctx.graphsRoot, 'fm', 'new.matgraph.json'), 'utf-8')).resolves.toContain('test_mat');
+    await expect(readFile(join(ctx.graphsRoot, 'fm', 'old.matgraph.json'), 'utf-8')).rejects.toThrow();
+  });
+
+  it('rename rejects a missing source and an existing target', async () => {
+    await dispatchTool('write_graph', { path: 'fm/a.matgraph.json', graph: VALID_GRAPH }, ctx);
+    await dispatchTool('write_graph', { path: 'fm/b.matgraph.json', graph: VALID_GRAPH }, ctx);
+    const miss = await dispatchTool('rename_graph', { from: 'fm/none.matgraph.json', to: 'fm/x.matgraph.json' }, ctx);
+    expect(miss.isError).toBe(true);
+    const clash = await dispatchTool('rename_graph', { from: 'fm/a.matgraph.json', to: 'fm/b.matgraph.json' }, ctx);
+    expect(clash.isError).toBe(true);
+    expect(clash.content).toMatch(/already exists/);
+  });
+
+  it('delete removes the file after checkpointing; missing path errors', async () => {
+    const writes: string[] = [];
+    const hookCtx: ToolContext = { ...ctx, beforeWrite: async (p) => { writes.push(p); } };
+    await dispatchTool('write_graph', { path: 'fm/doomed.matgraph.json', graph: VALID_GRAPH }, ctx);
+
+    const r = await dispatchTool('delete_graph', { path: 'fm/doomed.matgraph.json' }, hookCtx);
+    expect(r.isError).toBeUndefined();
+    expect(JSON.parse(r.content).diff.join('')).toContain('刪除');
+    expect(writes).toHaveLength(1);
+    await expect(readFile(join(ctx.graphsRoot, 'fm', 'doomed.matgraph.json'), 'utf-8')).rejects.toThrow();
+
+    const miss = await dispatchTool('delete_graph', { path: 'fm/doomed.matgraph.json' }, ctx);
+    expect(miss.isError).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// export_to_clipboard / request_crawl
+// ---------------------------------------------------------------------------
+
+describe('export_to_clipboard', () => {
+  it('accepts a valid graph and echoes the path for the loop to signal the viewer', async () => {
+    await dispatchTool('write_graph', { path: 'exp/ok.matgraph.json', graph: VALID_GRAPH }, ctx);
+    const r = await dispatchTool('export_to_clipboard', { path: 'exp/ok.matgraph.json' }, ctx);
+    expect(r.isError).toBeUndefined();
+    const parsed = JSON.parse(r.content);
+    expect(parsed.ok).toBe(true);
+    expect(parsed.path).toBe('exp/ok.matgraph.json');
+  });
+
+  it('rejects a missing or invalid graph', async () => {
+    const r = await dispatchTool('export_to_clipboard', { path: 'exp/none.matgraph.json' }, ctx);
+    expect(r.isError).toBe(true);
+  });
+});
+
+describe('request_crawl', () => {
+  const readyEnv = { ready: true, platform: 'win32', projectPath: 'p', engineRoot: 'e', checks: {} };
+  const notReadyEnv = {
+    ready: false, platform: 'win32', projectPath: null, engineRoot: null,
+    checks: { config: { ok: false, detail: 'missing local.config.json' } },
+  };
+
+  it('proposes the crawl (never runs anything) when the env probe is green', async () => {
+    const r = await dispatchTool('request_crawl', { kind: 'workmf' }, {
+      ...ctx,
+      probeEnvFn: async () => readyEnv as never,
+    });
+    expect(r.isError).toBeUndefined();
+    const parsed = JSON.parse(r.content);
+    expect(parsed).toMatchObject({ ok: true, kind: 'workmf', contentRoot: '/Game' });
+    expect(parsed.note).toContain('等待使用者確認');
+  });
+
+  it('rejects bad kinds and bad content roots; reports a non-ready env as a tool error', async () => {
+    const badKind = await dispatchTool('request_crawl', { kind: 'export' }, ctx);
+    expect(badKind.isError).toBe(true);
+    const badRoot = await dispatchTool('request_crawl', { kind: 'workmf', contentRoot: 'Game' }, ctx);
+    expect(badRoot.isError).toBe(true);
+
+    const notReady = await dispatchTool('request_crawl', { kind: 'projectmat' }, {
+      ...ctx,
+      probeEnvFn: async () => notReadyEnv as never,
+    });
+    expect(notReady.isError).toBe(true);
+    expect(notReady.content).toContain('Config');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// web_search / web_fetch (network injected via ctx.web)
+// ---------------------------------------------------------------------------
+
+describe('web_search / web_fetch via dispatch', () => {
+  const publicLookup = async () => [{ address: '93.184.216.34' }];
+
+  it('web_fetch returns stripped text for HTML and blocks private targets', async () => {
+    const fetchFn = (async () => new Response('<html><body><p>UE docs body</p></body></html>', {
+      status: 200, headers: { 'content-type': 'text/html' },
+    })) as typeof fetch;
+    const ok = await dispatchTool('web_fetch', { url: 'https://example.com/doc' }, { ...ctx, web: { fetchFn, lookupFn: publicLookup } });
+    expect(ok.isError).toBeUndefined();
+    expect(JSON.parse(ok.content).text).toContain('UE docs body');
+
+    const blocked = await dispatchTool('web_fetch', { url: 'http://192.168.0.1/' }, { ...ctx, web: { fetchFn, lookupFn: publicLookup } });
+    expect(blocked.isError).toBe(true);
+    expect(blocked.content).toMatch(/blocked/);
+  });
+
+  it('web_search surfaces parse failures as tool errors', async () => {
+    const fetchFn = (async () => new Response('<html>no results</html>', { status: 200 })) as typeof fetch;
+    const r = await dispatchTool('web_search', { query: 'anything' }, { ...ctx, web: { fetchFn, lookupFn: publicLookup } });
+    expect(r.isError).toBe(true);
+  });
+});

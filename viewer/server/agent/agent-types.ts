@@ -13,6 +13,8 @@ export type AgentSseEvent =
   | { type: 'tool_end'; name: string; ok: boolean; summary?: string }
   | { type: 'diff'; lines: string[] }                                // plain-language diff (after successful write)
   | { type: 'graph_written'; path: string; changedNodeIds?: string[] } // UI auto-opens + highlights the changed nodes
+  | { type: 'export_request'; path: string }                         // UI copies this graph to the clipboard as UE T3D
+  | { type: 'crawl_proposal'; kind: 'workmf' | 'projectmat'; contentRoot: string } // UI shows a confirm card; user approves via POST /api/crawl
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
   | { type: 'compacted'; message: string }                           // old turns summarized into session memory
   | { type: 'limit'; kind: 'iters' | 'cost'; message: string }

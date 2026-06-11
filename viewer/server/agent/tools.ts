@@ -2,15 +2,17 @@
 // (compact_context is defined here but dispatched inside loop.ts — it needs the session.)
 // All tools catch internal throws and convert them to {content, isError:true}.
 
-import { mkdir, rename, writeFile, readdir, readFile } from 'node:fs/promises';
+import { mkdir, rename, writeFile, readdir, readFile, stat, unlink } from 'node:fs/promises';
 import { resolve, join, sep, dirname, relative } from 'node:path';
 import type { ToolDef } from './provider/types.js';
 import { validateGraph, materialStructureWarnings } from '../schema.js';
 import { loadGraph } from '../graph-loader.js';
 import { resolveMaterialFunctions } from '../mf-resolver.js';
 import { loadWorkMfIndex } from '../workmf-index.js';
+import { probeEnv } from '../crawl-env.js';
 import { applyPatch, changedNodeIds, type PatchOp } from './patch.js';
 import type { MemoryStore, MemoryScope } from './memory-store.js';
+import { fetchPublic, htmlToText, webSearch, WEB_TEXT_CAP, type WebDeps } from './web-tools.js';
 import * as QB from './query-bridge.js';
 
 // ---------------------------------------------------------------------------
@@ -35,6 +37,10 @@ export interface ToolContext {
    * report themselves unavailable instead of failing silently.
    */
   memory?: MemoryStore;
+  /** Injectable network deps for web_search / web_fetch (tests). */
+  web?: WebDeps;
+  /** Injectable env probe for request_crawl (tests — the real probe needs a UE install). */
+  probeEnvFn?: typeof probeEnv;
 }
 
 // ---------------------------------------------------------------------------
@@ -375,6 +381,93 @@ export const toolDefs: ToolDef[] = [
       'important is lost.',
     inputSchema: { type: 'object', properties: {} },
   },
+  {
+    name: 'rename_graph',
+    description:
+      'Rename/move a .matgraph.json within graphs/. Undoable. References from OTHER graphs ' +
+      '(MaterialFunctionCall relative paths) are NOT rewritten — check and patch them yourself ' +
+      'if the renamed file is a MaterialFunction used elsewhere.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        from: { type: 'string', description: 'Existing relative path within graphs/' },
+        to: { type: 'string', description: 'New relative path within graphs/, must not exist yet' },
+      },
+      required: ['from', 'to'],
+    },
+  },
+  {
+    name: 'delete_graph',
+    description:
+      'Delete a .matgraph.json from graphs/. Undoable (the pre-image is checkpointed). ' +
+      'Confirm with the user before deleting anything you did not create this conversation.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'export_to_clipboard',
+    description:
+      'Ask the viewer to copy the given graph to the user\'s clipboard as UE-pasteable T3D ' +
+      '(same as the header 導出 button). The graph must be valid. The copy happens in the ' +
+      'user\'s browser — tell the user to paste into UE\'s Material Editor with Ctrl+V. ' +
+      'Use after finishing a material when the user wants it in UE.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
+      },
+      required: ['path'],
+    },
+  },
+  {
+    name: 'request_crawl',
+    description:
+      'PROPOSE a metadata crawl of the user\'s UE project (their /Game Material Functions or ' +
+      'materials). This does NOT run anything: the user sees a confirmation card and must approve; ' +
+      'the crawl launches the UE editor and takes minutes. Use when search_mf/list cannot find ' +
+      'something the user says exists in their project. After calling this, END your turn and wait — ' +
+      'never assume the crawl ran.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        kind: { type: 'string', enum: ['workmf', 'projectmat'], description: 'workmf = index the project\'s Material Functions; projectmat = dump project materials' },
+        contentRoot: { type: 'string', description: 'UE content root to crawl, default "/Game"' },
+      },
+      required: ['kind'],
+    },
+  },
+  {
+    name: 'web_search',
+    description:
+      'Search the public web (DuckDuckGo). Returns {title, url, snippet} hits. Use when you need ' +
+      'knowledge newer or more specific than you have — UE release notes, node behavior details, ' +
+      'material techniques. Follow up with web_fetch to read a result.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search query' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'web_fetch',
+    description:
+      'Fetch a public http(s) URL and return its readable text (HTML stripped, capped). ' +
+      'Private/loopback addresses are blocked. Use for UE documentation and pages found via web_search.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        url: { type: 'string', description: 'Public http(s) URL' },
+      },
+      required: ['url'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -415,6 +508,12 @@ async function _dispatch(
     case 'read_example':    return toolReadExample(inp, ctx);
     case 'read_memory':     return toolReadMemory(inp, ctx);
     case 'update_memory':   return toolUpdateMemory(inp, ctx);
+    case 'rename_graph':    return toolRenameGraph(inp, ctx);
+    case 'delete_graph':    return toolDeleteGraph(inp, ctx);
+    case 'export_to_clipboard': return toolExportToClipboard(inp, ctx);
+    case 'request_crawl':   return toolRequestCrawl(inp, ctx);
+    case 'web_search':      return toolWebSearch(inp, ctx);
+    case 'web_fetch':       return toolWebFetch(inp, ctx);
     case 'compact_context':
       // Needs the live session/provider — the loop intercepts it before dispatch.
       return { content: 'compact_context 只能由代理迴圈執行。', isError: true };
@@ -934,5 +1033,191 @@ async function toolGetGraphErrors(
       warnings: report.warnings,
       unresolvedMfPins: report.unresolvedPins,
     }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// rename_graph / delete_graph — undoable file management
+// ---------------------------------------------------------------------------
+
+async function toolRenameGraph(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const from = guardPath(inp.from, ctx.graphsRoot);
+  if ('error' in from) return { content: `from: ${from.error}`, isError: true };
+  const to = guardPath(inp.to, ctx.graphsRoot);
+  if ('error' in to) return { content: `to: ${to.error}`, isError: true };
+
+  try {
+    await stat(from.abs);
+  } catch {
+    return { content: `rename_graph: source "${String(inp.from)}" does not exist`, isError: true };
+  }
+  let destExists = true;
+  try { await stat(to.abs); } catch { destExists = false; }
+  if (destExists) {
+    return { content: `rename_graph: target "${String(inp.to)}" already exists`, isError: true };
+  }
+
+  // Pre-images: source content (undo restores it) + absent target (undo deletes it).
+  await ctx.beforeWrite?.(from.abs, '');
+  await ctx.beforeWrite?.(to.abs, '');
+  await mkdir(dirname(to.abs), { recursive: true });
+  await rename(from.abs, to.abs);
+
+  return {
+    content: JSON.stringify({
+      ok: true,
+      from: inp.from,
+      to: inp.to,
+      diff: [`將 \`${String(inp.from)}\` 改名為 \`${String(inp.to)}\``],
+      warnings: ['references from other graphs (relative MaterialFunctionCall paths) are NOT rewritten'],
+    }),
+  };
+}
+
+async function toolDeleteGraph(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const guard = guardPath(inp.path, ctx.graphsRoot);
+  if ('error' in guard) return { content: guard.error, isError: true };
+
+  try {
+    await stat(guard.abs);
+  } catch {
+    return { content: `delete_graph: "${String(inp.path)}" does not exist`, isError: true };
+  }
+
+  await ctx.beforeWrite?.(guard.abs, '');
+  await unlink(guard.abs);
+
+  return {
+    content: JSON.stringify({
+      ok: true,
+      path: inp.path,
+      diff: [`刪除了 \`${String(inp.path)}\`（可用「還原」復原）`],
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// export_to_clipboard — validate, then let the loop signal the viewer.
+// The T3D build + clipboard write happen in the BROWSER (single source of
+// truth: web export/ueT3D.ts needs the rendered dagre positions anyway).
+// ---------------------------------------------------------------------------
+
+async function toolExportToClipboard(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const guard = guardPath(inp.path, ctx.graphsRoot);
+  if ('error' in guard) return { content: guard.error, isError: true };
+
+  const loaded = await loadGraph(guard.abs);
+  if (!loaded.graph) {
+    return {
+      content: JSON.stringify({ errors: loaded.errors, note: 'graph is invalid — fix it before exporting' }),
+      isError: true,
+    };
+  }
+
+  return {
+    content: JSON.stringify({
+      ok: true,
+      path: inp.path,
+      note: '已請求檢視器將此圖以 T3D 複製到剪貼簿（瀏覽器分頁需在前景）。請提醒使用者到 UE 材質編輯器按 Ctrl+V 貼上。',
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// request_crawl — a PROPOSAL only. The loop emits a crawl_proposal event; the
+// user approves via a chat card that calls the existing POST /api/crawl path.
+// The agent never gains the authority to spawn the UE editor itself.
+// ---------------------------------------------------------------------------
+
+async function toolRequestCrawl(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const kind = inp.kind;
+  if (kind !== 'workmf' && kind !== 'projectmat') {
+    return { content: 'request_crawl: kind must be "workmf" or "projectmat"', isError: true };
+  }
+  let contentRoot = '/Game';
+  if (inp.contentRoot != null) {
+    if (typeof inp.contentRoot !== 'string' || !inp.contentRoot.startsWith('/')) {
+      return { content: 'request_crawl: contentRoot must be a UE path starting with "/"', isError: true };
+    }
+    contentRoot = inp.contentRoot;
+  }
+
+  const env = await (ctx.probeEnvFn ?? probeEnv)(ctx.repoRoot);
+  if (!env.ready) {
+    const failing = Object.entries(env.checks)
+      .filter(([, c]) => !c.ok)
+      .map(([k, c]) => `${k}: ${c.detail}`);
+    return {
+      content: JSON.stringify({
+        ok: false,
+        envReady: false,
+        failing,
+        note: '爬取環境未就緒——請使用者先到 Config 分頁完成設定（ProjectPath/EngineRoot 等）。',
+      }),
+      isError: true,
+    };
+  }
+
+  return {
+    content: JSON.stringify({
+      ok: true,
+      kind,
+      contentRoot,
+      note:
+        '已向使用者送出爬取確認卡（爬取會啟動 UE 編輯器、需數分鐘）。請結束本輪並等待使用者確認與完成回報，' +
+        '絕不要假設爬取已執行或已完成。',
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// web_search / web_fetch — public-web access (SSRF-guarded, see web-tools.ts)
+// ---------------------------------------------------------------------------
+
+async function toolWebSearch(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const query = inp.query;
+  if (typeof query !== 'string' || !query.trim()) {
+    return { content: 'web_search: query must be a non-empty string', isError: true };
+  }
+  const r = await webSearch(query.trim(), ctx.web ?? {});
+  if (!r.ok) return { content: `web_search: ${r.error}`, isError: true };
+  return { content: JSON.stringify({ ok: true, results: r.results }) };
+}
+
+async function toolWebFetch(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const url = inp.url;
+  if (typeof url !== 'string' || !url.trim()) {
+    return { content: 'web_fetch: url must be a non-empty string', isError: true };
+  }
+  const r = await fetchPublic(url.trim(), ctx.web ?? {});
+  if (!r.ok) return { content: `web_fetch: ${r.error}`, isError: true };
+
+  const isHtml = r.contentType.includes('text/html') || /^\s*<(!doctype|html)/i.test(r.body);
+  let text = isHtml ? htmlToText(r.body) : r.body;
+  let truncated = r.truncatedBody;
+  if (text.length > WEB_TEXT_CAP) {
+    text = text.slice(0, WEB_TEXT_CAP);
+    truncated = true;
+  }
+  return {
+    content: JSON.stringify({ ok: true, url: r.finalUrl, status: r.status, truncated, text }),
   };
 }

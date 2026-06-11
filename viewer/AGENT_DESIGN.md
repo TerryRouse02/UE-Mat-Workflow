@@ -59,7 +59,7 @@ viewer/
 │     ├─ provider/openai.ts     # OpenAI-compatible adapter（可配 baseUrl）
 │     ├─ provider/index.ts      # pickProvider(config)
 │     ├─ loop.ts                # agent loop（閉環＋護欄）
-│     ├─ tools.ts               # 15 個 tool 定義 + dispatch（2026-06-11 起含探索/記憶/壓縮工具）
+│     ├─ tools.ts               # 21 個 tool 定義 + dispatch（探索/記憶/壓縮/檔案管理/剪貼簿/爬取提案/公網）
 │     ├─ patch.ts               # patch_graph 領域操作集（純函式）
 │     ├─ query-bridge.ts        # createRequire 載入 agent-pack/query-lib.js 的型別殼
 │     ├─ prompt.ts              # 新手人格 system prompt（runtime 讀 SPEC.md）
@@ -160,15 +160,21 @@ interface ProviderStatus {
 回明確中文錯誤建議換模型（列例：claude-opus-4-8、gpt-4o、deepseek-chat）。
 MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 
-## 4. Tool 契約（15 個）
+## 4. Tool 契約（21 個）
 
-2026-06-11 追加七個（探索＋記憶＋壓縮）：
+2026-06-11 追加七個（探索＋記憶＋壓縮）；同日再追加六個（檔案管理＋剪貼簿＋爬取提案＋公網存取）：
 
 | tool | input | returns | guard |
 |---|---|---|---|
 | `list_graphs` | `{}` | graphs/ 下所有 matgraph（路徑/type/name/ueVersion） | 唯讀；200 檔上限；壞檔標記不致命 |
 | `search_mf` | `{query}` | 引擎＋工作 MF 索引關鍵字搜尋（SSoT 在 query-lib `searchMf`；CLI `search-mf`） | 缺索引靜默跳過 |
 | `list_examples` | `{}` | agent-pack/examples 範例清單 | 唯讀 |
+| `rename_graph` | `{from,to}` | 改名/搬移 matgraph（可 undo；不改寫他圖引用） | guardPath ×2；目標不得已存在 |
+| `delete_graph` | `{path}` | 刪除 matgraph（pre-image 進 checkpoint，可 undo） | guardPath；刪非本對話建立的檔前先問使用者 |
+| `export_to_clipboard` | `{path}` | 驗證後請前端以 T3D 複製到剪貼簿（loop 發 `export_request` 事件，前端重用導出路徑） | 圖必須 valid；複製發生在瀏覽器 |
+| `request_crawl` | `{kind,contentRoot?}` | 只「提案」爬取：loop 發 `crawl_proposal`，使用者按卡片確認才走既有 POST /api/crawl | kind 限 workmf/projectmat；probeEnv 不綠直接報錯；agent 永遠拿不到拉起 UE 的權限 |
+| `web_search` | `{query}` | DuckDuckGo HTML 端點搜尋（零金鑰、best-effort） | 走 fetchPublic 同套 SSRF 防護 |
+| `web_fetch` | `{url}` | 抓公網頁面轉純文字（HTML 剝離、15K 字上限） | SSRF 防護：僅 http(s)、封私網/loopback/link-local、DNS 全位址檢查、redirect 逐跳重檢（web-tools.ts） |
 | `read_example` | `{name}` | 整個範例專案的 matgraph 檔 | 名稱 allowlist regex；30K 字上限 |
 | `read_memory` | `{scope}` | session / longterm 記憶內容 | 路徑寫死無穿越面 |
 | `update_memory` | `{scope, op: append\|replace, content}` | `{ok}` | 8K 字上限，超限響亮報錯要求 replace 精煉 |
@@ -305,6 +311,8 @@ type AgentSseEvent =
   | { type: 'tool_end'; name: string; ok: boolean; summary?: string }
   | { type: 'diff'; lines: string[] }                                // 白話 diff（成功寫入後）
   | { type: 'graph_written'; path: string; changedNodeIds?: string[] } // UI 自動開啟＋畫布脈衝高亮變更節點
+  | { type: 'export_request'; path: string }                         // UI 以 T3D 複製該圖到剪貼簿（重用導出路徑）
+  | { type: 'crawl_proposal'; kind: 'workmf' | 'projectmat'; contentRoot: string } // UI 顯示確認卡，使用者核准才呼叫 POST /api/crawl
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
   | { type: 'compacted'; message: string }                           // 壓縮通知（2026-06-11）
   | { type: 'limit'; kind: 'iters' | 'cost'; message: string }

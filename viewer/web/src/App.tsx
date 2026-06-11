@@ -129,6 +129,20 @@ function Body() {
     }
   }, [payload, supported, exportMeta, positions, mfRoot, pushToast]);
 
+  // Agent-requested clipboard export (export_to_clipboard tool): runs the same
+  // doExport as the header button, but only once the requested graph is the
+  // open one AND its nodes have rendered (T3D needs the dagre positions).
+  // nonce-consumed + 30s freshness so a stale request never re-fires later.
+  const consumedExportNonce = useRef(0);
+  useEffect(() => {
+    const req = state.agentExportReq;
+    if (!req || req.nonce === consumedExportNonce.current) return;
+    if (Date.now() - req.ts > 30_000) { consumedExportNonce.current = req.nonce; return; }
+    if (req.path !== current || !payload?.graph || Object.keys(positions).length === 0) return;
+    consumedExportNonce.current = req.nonce;
+    void doExport();
+  }, [state.agentExportReq, current, payload, positions, doExport]);
+
   // ─── Command handler ─────────────────────────────────────────────────────────
   const handleCmd = useCallback((id: string) => {
     switch (id) {

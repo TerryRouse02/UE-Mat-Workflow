@@ -1541,3 +1541,73 @@ describe('compaction', () => {
     expect(events.some(e => e.type === 'compacted')).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Viewer-action events: export_request / crawl_proposal / rename's graph_written
+// ---------------------------------------------------------------------------
+
+describe('viewer-action event fan-out', () => {
+  it('export_to_clipboard success emits export_request with the path', async () => {
+    await writeFile(
+      join(ctx.graphsRoot, 'm.matgraph.json'),
+      JSON.stringify(VALID_GRAPH, null, 2) + '\n',
+      'utf-8',
+    );
+    const provider = new FakeProvider([
+      [
+        { type: 'tool_use', id: 't1', name: 'export_to_clipboard', input: { path: 'm.matgraph.json' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [
+        { type: 'text_delta', text: '已複製，去 UE 按 Ctrl+V 貼上。' },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ]);
+    const events = await runAndCollect('幫我匯出到剪貼簿', session, provider, ctx);
+    const exp = events.filter(e => e.type === 'export_request');
+    expect(exp).toEqual([{ type: 'export_request', path: 'm.matgraph.json' }]);
+  });
+
+  it('request_crawl success emits crawl_proposal (a proposal, never a run)', async () => {
+    const readyCtx: ToolContext = {
+      ...ctx,
+      probeEnvFn: async () => ({ ready: true, platform: 'win32', projectPath: 'p', engineRoot: 'e', checks: {} }) as never,
+    };
+    const provider = new FakeProvider([
+      [
+        { type: 'tool_use', id: 't1', name: 'request_crawl', input: { kind: 'workmf' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [
+        { type: 'text_delta', text: '已送出爬取請求，請按確認後告訴我。' },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ]);
+    const events = await runAndCollect('找不到我的MF，去爬一下', session, provider, readyCtx);
+    const props = events.filter(e => e.type === 'crawl_proposal');
+    expect(props).toEqual([{ type: 'crawl_proposal', kind: 'workmf', contentRoot: '/Game' }]);
+  });
+
+  it('rename_graph emits diff lines and graph_written for the NEW path', async () => {
+    await writeFile(
+      join(ctx.graphsRoot, 'old.matgraph.json'),
+      JSON.stringify(VALID_GRAPH, null, 2) + '\n',
+      'utf-8',
+    );
+    const provider = new FakeProvider([
+      [
+        { type: 'tool_use', id: 't1', name: 'rename_graph', input: { from: 'old.matgraph.json', to: 'new.matgraph.json' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [
+        { type: 'text_delta', text: '改好名了。' },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ]);
+    const events = await runAndCollect('改個名', session, provider, ctx);
+    const written = events.filter(e => e.type === 'graph_written');
+    expect(written).toEqual([{ type: 'graph_written', path: 'new.matgraph.json' }]);
+    const diff = events.filter(e => e.type === 'diff').flatMap(e => (e as { lines: string[] }).lines);
+    expect(diff.join('')).toContain('改名');
+  });
+});

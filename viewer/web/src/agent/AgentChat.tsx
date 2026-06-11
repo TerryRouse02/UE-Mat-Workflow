@@ -32,6 +32,7 @@ import {
   type NoticeLine,
   type DiffBlock,
   type ThinkingItem,
+  type CrawlProposal,
   type UsageTotal,
   newTurnFlags,
   startUserTurn,
@@ -139,6 +140,32 @@ function ThinkingView({ item, live, onToggle }: { item: ThinkingItem; live: bool
   );
 }
 
+/** Agent-proposed crawl card — the agent can only PROPOSE; this button is the
+    user's approval and goes through the same POST /api/crawl as the Config tab. */
+function CrawlProposalView({ item, crawl, onApprove }: {
+  item: CrawlProposal;
+  crawl: { status: string; kind: string | null };
+  onApprove: () => void;
+}) {
+  const kindLabel = item.crawlKind === 'workmf' ? '專案 Material Function 索引' : '專案材質';
+  const running = crawl.status === 'running';
+  return (
+    <div className="agent-crawl-proposal agent-item">
+      <div className="agent-crawl-title">
+        <Icon name="refresh" size={12} /> Agent 請求爬取{kindLabel}（{item.contentRoot}）
+      </div>
+      <div className="agent-crawl-note">會啟動 UE 編輯器、需數分鐘；進度顯示在 Config 分頁。</div>
+      {item.resolved
+        ? <div className="agent-crawl-resolved">{running ? '爬取進行中…' : '已處理'}</div>
+        : (
+          <button className="agent-crawl-approve" disabled={running} onClick={onApprove}>
+            {running ? '另一個爬取進行中…' : '開始爬取'}
+          </button>
+        )}
+    </div>
+  );
+}
+
 /** Collapsible block listing plain-language diff lines after a successful write. */
 function DiffBlockView({ item, onToggle }: { item: DiffBlock; onToggle: () => void }) {
   const open = !item.collapsed;
@@ -167,7 +194,7 @@ export interface AgentChatProps {
 }
 
 export function AgentChat({ onGotoConfig }: AgentChatProps) {
-  const { state, open, highlightNodes } = useStore();
+  const { state, open, highlightNodes, requestAgentExport, startCrawl } = useStore();
   const { connection, currentPath } = state;
 
   const [status, setStatus] = useState<ProviderStatus | null>(null);
@@ -395,6 +422,10 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
           open(event.path);
           if (event.changedNodeIds?.length) highlightNodes(event.path, event.changedNodeIds);
         }
+        if (event.type === 'export_request') {
+          open(event.path); // export needs the graph rendered — App completes the copy
+          requestAgentExport(event.path);
+        }
         if (event.type === 'usage') setUsage(prev => accumulateUsage(prev, event));
         setItems(prev => applyAgentEvent(prev, event, flags));
       }
@@ -411,7 +442,7 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
       // Refresh titles/timestamps after the turn lands on disk.
       void fetchSessions();
     }
-  }, [streaming, currentPath, open, thinking, sessionId, fetchSessions, highlightNodes]);
+  }, [streaming, currentPath, open, thinking, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
 
   // Regenerate: rewind the last user turn server-side (files + history +
   // transcript), reload the trimmed view, then re-send the same text through
@@ -615,6 +646,19 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
                 item={item}
                 live={streaming && i === lastIndex}
                 onToggle={() => toggleCollapse(i)}
+              />
+            );
+          }
+          if (item.kind === 'crawlProposal') {
+            return (
+              <CrawlProposalView
+                key={i}
+                item={item}
+                crawl={state.crawl}
+                onApprove={() => {
+                  setItems(prev => prev.map((it, j) => (j === i && it.kind === 'crawlProposal' ? { ...it, resolved: true } : it)));
+                  void startCrawl(item.crawlKind, item.contentRoot);
+                }}
               />
             );
           }

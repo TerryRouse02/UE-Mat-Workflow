@@ -300,26 +300,41 @@ export async function runAgent(
         summary: result.isError ? undefined : toolEndSummary(call.name, result.content),
       });
 
-      // For write tools on success, emit diff and graph_written events.
-      if (!result.isError && writeTools.has(call.name)) {
+      // Successful tool results fan out to UI events: plain-language diff lines
+      // (any tool that returns them), graph_written for writes/renames, and the
+      // viewer-action signals for clipboard export and crawl proposals.
+      if (!result.isError) {
         const inp = call.input as Record<string, unknown>;
-        const path = typeof inp.path === 'string' ? inp.path : undefined;
-
-        let changedNodeIds: string[] | undefined;
+        let parsed: Record<string, unknown> = {};
         try {
-          const parsed = JSON.parse(result.content) as Record<string, unknown>;
-          if (parsed.ok && Array.isArray(parsed.diff) && parsed.diff.length > 0) {
-            emit({ type: 'diff', lines: parsed.diff as string[] });
-          }
-          if (Array.isArray(parsed.changedNodeIds) && parsed.changedNodeIds.length > 0) {
-            changedNodeIds = (parsed.changedNodeIds as unknown[]).map(String);
-          }
+          parsed = JSON.parse(result.content) as Record<string, unknown>;
         } catch {
-          // Non-JSON result — ignore diff extraction.
+          // Non-JSON result — nothing to fan out.
         }
 
-        if (path) {
-          emit({ type: 'graph_written', path, changedNodeIds });
+        if (parsed.ok && Array.isArray(parsed.diff) && parsed.diff.length > 0) {
+          emit({ type: 'diff', lines: parsed.diff as string[] });
+        }
+
+        if (writeTools.has(call.name) && typeof inp.path === 'string') {
+          const changedNodeIds =
+            Array.isArray(parsed.changedNodeIds) && parsed.changedNodeIds.length > 0
+              ? (parsed.changedNodeIds as unknown[]).map(String)
+              : undefined;
+          emit({ type: 'graph_written', path: inp.path, changedNodeIds });
+        }
+        if (call.name === 'rename_graph' && parsed.ok && typeof parsed.to === 'string') {
+          emit({ type: 'graph_written', path: parsed.to });
+        }
+        if (call.name === 'export_to_clipboard' && parsed.ok && typeof parsed.path === 'string') {
+          emit({ type: 'export_request', path: parsed.path });
+        }
+        if (call.name === 'request_crawl' && parsed.ok && (parsed.kind === 'workmf' || parsed.kind === 'projectmat')) {
+          emit({
+            type: 'crawl_proposal',
+            kind: parsed.kind,
+            contentRoot: typeof parsed.contentRoot === 'string' ? parsed.contentRoot : '/Game',
+          });
         }
       }
 

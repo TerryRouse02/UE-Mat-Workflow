@@ -890,3 +890,22 @@ describe('AgentChat tool stats (M8)', () => {
     expect(chip.title).toContain('search_nodes ×1');
   });
 });
+
+describe('transcript reducer — viewer-action events', () => {
+  it('export_request becomes an info notice; crawl_proposal becomes an actionable card', () => {
+    const flags = newTurnFlags();
+    let items = applyAgentEvent([], { type: 'export_request', path: 'a/b.matgraph.json' }, flags);
+    expect(items[0]).toMatchObject({ kind: 'notice', variant: 'info' });
+    expect((items[0] as { message: string }).message).toContain('剪貼簿');
+
+    items = applyAgentEvent(items, { type: 'crawl_proposal', kind: 'workmf', contentRoot: '/Game' }, flags);
+    expect(items[1]).toEqual({ kind: 'crawlProposal', crawlKind: 'workmf', contentRoot: '/Game', resolved: false });
+  });
+
+  it('a new user turn deactivates a pending crawl proposal', () => {
+    const flags = newTurnFlags();
+    let items = applyAgentEvent([], { type: 'crawl_proposal', kind: 'projectmat', contentRoot: '/Game' }, flags);
+    items = startUserTurn(items, '先不要爬');
+    expect(items[0]).toMatchObject({ kind: 'crawlProposal', resolved: true });
+  });
+});
