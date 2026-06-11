@@ -14,7 +14,9 @@
 - `validateGraph` 只證明**結構合法**，不證明**語意正確**。使用者用眼睛驗收，
   所以閉環驗證是地基、接地迴圈（即時圖＋白話 diff＋undo）才是價值。
 - **MVP = M0–M5**。範圍外（觀察/後做）：真實材質渲染預覽、UE 貼入 T3D debug、
-  評測語料、第三方 native adapter、JSON-in-text 工具降級解析。
+  第三方 native adapter、JSON-in-text 工具降級解析。
+  - 評測語料已落地（2026-06-11）：`tests/eval/`（情境 DSL＋fixtures＋runner）＋
+    `tests/agent-eval.test.ts`，15 個腳本化情境涵蓋生成／修圖／自修／undo，見 §10。
 - Local-first 鐵律不變：零新 npm 依賴（Node 18+ 原生 fetch）、零額外部署、
   一鍵 `pnpm dev`。
 
@@ -297,6 +299,11 @@ interface AgentChatRequest { text: string; ueVersion?: string; graphPath?: strin
 - **Tools**：tmp 目錄當 graphsRoot；DB 類工具直接打真 agent-pack 資料（唯讀）；
   workmf 用 tmp index 注入。
 - **洩漏守衛**：斷言 `/api/agent/status`、`/api/config` 回應、SSE 流中**永不含 apiKey**。
+- **評測語料**（`tests/eval/`）：宣告式情境（FakeProvider 腳本＋期望）跑真 loop/tools/
+  checkpoint 棧；runner 每步強制全域不變量——單一 `done` 收尾、無非預期 error/limit、
+  歷史角色嚴格交替且 tool_use 全配對、磁碟上所有 matgraph 恆過完整驗證閘門、節點永無
+  x/y、使用者可見 text/diff 永不含原始英文錯誤字串、undo 永不還原 graphsRoot 之外的路徑。
+  新增情境加在 `tests/eval/corpus-*.ts`。
 - 跑法：`viewer/node_modules/.bin/vitest run`（node env）＋ React 元件測試走
   `vitest.react.config.ts`（happy-dom，`.test.tsx`）。
 

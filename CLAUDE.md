@@ -16,7 +16,7 @@ break, and how to make the common changes.
 - **Stack:** TypeScript monorepo (pnpm workspaces). `viewer/server` = native Node http+ws.
   `viewer/web` = Vite + React + React Flow + dagre. `tools/node-t3d-metadata` = a UE editor
   commandlet + PowerShell (Windows `powershell` 5.1 or macOS `pwsh` 7). `agent-pack/` = the shipped data + agent rules.
-- **Build:** `pnpm build`  **Test:** `pnpm -r test` (216) + `node --test "tools/node-t3d-metadata/tests/**/*.test.js"` (17)  **Run:** `pnpm dev` (or `pnpm start`) → http://localhost:5790
+- **Build:** `pnpm build`  **Test:** `pnpm -r test` (583 node + 64 react) + `node --test "tools/node-t3d-metadata/tests/**/*.test.js"` (109)  **Run:** `pnpm dev` (or `pnpm start`) → http://localhost:5790
 - **Before committing public data, run the parity audit:** `node tools/node-t3d-metadata/audit-export-meta.js` (must exit 0).
 
 ## Mental model (data flow)
