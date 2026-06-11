@@ -20,7 +20,14 @@ export interface ToolContext {
   graphsRoot: string;            // resolve(repoRoot, 'graphs')
   ueVersion: string;             // session version — all DB lookups use this
   workMfIndexPath?: string;      // server-only; absent → work MFs unavailable
-  beforeWrite?: (absPath: string) => Promise<void>;  // M2 checkpoint hook
+  /**
+   * M2 checkpoint hook — called before any write to absPath.
+   * turnId identifies the LLM iteration so the HTTP server can group
+   * multiple writes in one assistant response under one undo step.
+   * Tools always supply a turnId (injected by the loop via callCtx);
+   * callers that do not need per-turn grouping may omit it.
+   */
+  beforeWrite?: (absPath: string, turnId: string) => Promise<void>;
 }
 
 // ---------------------------------------------------------------------------
@@ -494,8 +501,9 @@ async function toolWriteGraph(
     };
   }
 
-  // Clean — write
-  await ctx.beforeWrite?.(guard.abs);
+  // Clean — write. The loop injects a callCtx wrapper that supplies the real
+  // per-iteration turnId; the empty string here is never seen by the outer hook.
+  await ctx.beforeWrite?.(guard.abs, '');
   await atomicWrite(guard.abs, JSON.stringify(graph, null, 2) + '\n');
 
   return {
@@ -551,8 +559,9 @@ async function toolPatchGraph(
     };
   }
 
-  // Clean — write
-  await ctx.beforeWrite?.(guard.abs);
+  // Clean — write. The loop injects a callCtx wrapper that supplies the real
+  // per-iteration turnId; the empty string here is never seen by the outer hook.
+  await ctx.beforeWrite?.(guard.abs, '');
   await atomicWrite(guard.abs, JSON.stringify(patchResult.graph, null, 2) + '\n');
 
   return {
