@@ -73,10 +73,12 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   object for AI config), `POST /api/crawl`, `POST /api/import`,
   `POST /api/agent/chat` (SSE — agent conversation loop),
   `GET /api/agent/status` (ProviderStatus — never contains apiKey),
+  `POST /api/agent/explain` (one-shot LLM node explanation; JSON response; sameOrigin; concurrent-safe),
   `POST /api/agent/undo` (restore previous checkpoint turn; sameOrigin; 409 while streaming),
   `POST /api/agent/reset` (abort in-flight chat + clear session; sameOrigin);
   static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
   `listFiles`, crawl progress broadcast.
+- `server/agent/explain.ts` — `explainNode()` one-shot LLM call (no tools); `buildGraphContext()` graph connection summary; `RESERVED_NODE_DESCRIPTIONS` built-in zh-TW descriptions for the four reserved node types.
 - `schema.ts` — `validateGraph` (the `.matgraph.json` contract). `graph-loader.ts` — read+parse+validate.
 - `mf-resolver.ts` — resolves `MaterialFunctionCall` pins from sibling `.matgraph.json`,
   the engine-MF index, or the work-MF index. `workmf-index.ts` / `workmf-types.ts` (node-free types).
@@ -95,10 +97,12 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   `import.meta.glob`) so snapshot/offline renders; **re-fetched at runtime** in live mode
   (`agentPackClient.ts`) so a crawl refreshes without a rebuild.
 - `Graph.tsx` + `layout.ts` — React Flow render; dagre auto-layout (no x/y in the JSON).
-- `Sidebar.tsx` — three tabs: **Files** (`FileList`), **Nodes** (`NodeLibrary` — DB + official-MF
-  + project-MF browsers), **Config** (`ConfigPanel` — set paths, env checklist, run crawls).
+  Hover (≈500ms) on a node opens `NodeExplainPopover`; pane-click / Escape closes it.
+- `Sidebar.tsx` — four tabs: **Files** (`FileList`), **Nodes** (`NodeLibrary`), **Config** (`ConfigPanel`), **Agent** (`AgentChat` — hidden in snapshot mode).
 - `Header.tsx` — export to UE (`export/ueT3D.ts`) + import from UE (`ImportModal`).
 - `crawlRequest.ts` — POST /api/crawl + the `CrawlKind` union (web side).
+- `web/src/agent/AgentChat.tsx` — 4th Sidebar tab: conversational material agent UI (M3+M4+M5).
+- `web/src/agent/NodeExplainPopover.tsx` — hover node explain popover; Layer 1 = DB description+pins (zero fetch); Layer 2 = 「深入解說」button → POST /api/agent/explain; hidden in snapshot mode.
 
 ## tools/node-t3d-metadata (Windows + macOS)
 

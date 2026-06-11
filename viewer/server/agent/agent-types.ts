@@ -35,3 +35,22 @@ export type AgentUndoResponse =
 export interface AgentResetResponse {
   ok: true;
 }
+
+// ---------------------------------------------------------------------------
+// M5: POST /api/agent/explain — one-shot LLM node explanation
+// ---------------------------------------------------------------------------
+
+/** Body for POST /api/agent/explain */
+export interface AgentExplainRequest {
+  nodeType: string;
+  ueVersion?: string;
+  /** Path to a .matgraph.json file relative to graphs/ (optional, for connection context). */
+  graphPath?: string;
+  /** Node id within the graph (optional, used with graphPath). */
+  nodeId?: string;
+}
+
+/** Response from POST /api/agent/explain */
+export type AgentExplainResponse =
+  | { ok: true; text: string }
+  | { ok: false; error: string };

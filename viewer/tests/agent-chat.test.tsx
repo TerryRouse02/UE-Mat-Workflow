@@ -177,6 +177,37 @@ describe('AgentChat', () => {
     expect(container.textContent).toContain('PBR');
   });
 
+  it('clicking an example button invokes streamChat with that prompt (one-click cold-start)', async () => {
+    mockFetchStatus({ configured: true, provider: 'anthropic', model: 'claude-opus-4-8' });
+
+    // Track the request object that streamChat was invoked with.
+    // streamChat signature: streamChat(req: AgentChatRequest, signal): AsyncIterable
+    // args[0] is AgentChatRequest { text, graphPath? }.
+    let capturedText: string | undefined;
+    _streamChatImpl = async function* (...args: unknown[]) {
+      const req = args[0] as { text?: string };
+      capturedText = req.text;
+      yield { type: 'text', text: '好的！' } as AgentSseEvent;
+      yield { type: 'done' } as AgentSseEvent;
+    };
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(res => setTimeout(res, 50)); });
+
+    // Find and click the first example button (發光材質).
+    const exampleBtns = container.querySelectorAll('.agent-example-btn');
+    expect(exampleBtns.length).toBeGreaterThan(0);
+    const firstBtn = exampleBtns[0] as HTMLButtonElement;
+    expect(firstBtn.textContent).toContain('發光材質');
+
+    await act(async () => { fireEvent.click(firstBtn); });
+
+    await waitFor(() => {
+      expect(capturedText).toBeDefined();
+      expect(capturedText).toContain('發光材質');
+    }, { timeout: 2000 });
+  });
+
   it('shows provider/model status bar when configured', async () => {
     mockFetchStatus({ configured: true, provider: 'anthropic', model: 'claude-opus-4-8' });
 

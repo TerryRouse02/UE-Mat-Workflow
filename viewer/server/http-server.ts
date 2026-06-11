@@ -19,8 +19,9 @@ import type { ExportMeta } from '../web/src/export/export-meta-types.js';
 import { runAgent, createSession, type AgentLoopSession } from './agent/loop.js';
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
-import { discoverVersions } from './agent/query-bridge.js';
-import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse } from './agent/agent-types.js';
+import { discoverVersions, getNodes } from './agent/query-bridge.js';
+import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentExplainRequest, AgentExplainResponse } from './agent/agent-types.js';
+import { explainNode, buildGraphContext, RESERVED_NODE_DESCRIPTIONS } from './agent/explain.js';
 import type { LLMConfig, ProviderStatus } from './agent/provider/types.js';
 
 export interface ServerOpts {
@@ -473,6 +474,99 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     sendJson(res, 200, body);
   }
 
+  /** POST /api/agent/explain — one-shot LLM node explanation (JSON, not SSE). */
+  async function handleAgentExplain(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+
+    let body: AgentExplainRequest;
+    try { body = JSON.parse(await readBody(req)) as AgentExplainRequest; }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+
+    // Validate nodeType.
+    if (!body.nodeType || typeof body.nodeType !== 'string' || !body.nodeType.trim()) {
+      sendJson(res, 200, { ok: false, error: '必須提供 nodeType。' } satisfies AgentExplainResponse);
+      return;
+    }
+    const nodeType = body.nodeType.trim();
+
+    // Read LLM config fresh.
+    const llmConfig = await readLlmConfig();
+    if (!llmConfig) {
+      sendJson(res, 200, {
+        ok: false,
+        error: '尚未設定 LLM 提供商。請前往 Config 分頁的「AI 助手」區塊填寫 Provider、Model 和 API Key。',
+      } satisfies AgentExplainResponse);
+      return;
+    }
+
+    // Resolve ueVersion: use body.ueVersion or discover the newest available.
+    const versions = discoverVersions(opts.repoRoot);
+    const defaultVersion = versions.length > 0 ? versions[versions.length - 1] : '5.7';
+    const ueVersion = (body.ueVersion ?? defaultVersion).trim() || defaultVersion;
+
+    // Look up DB entry for the node type.
+    // Reserved types are handled with a built-in description (not in the DB).
+    let dbEntry: unknown;
+    let isReserved = false;
+    if (nodeType in RESERVED_NODE_DESCRIPTIONS) {
+      isReserved = true;
+      dbEntry = { description: RESERVED_NODE_DESCRIPTIONS[nodeType] };
+    } else {
+      const result = getNodes(opts.repoRoot, ueVersion, [nodeType]);
+      const entry = result.result[nodeType];
+      if (!entry) {
+        // Unknown node type — return a zh-TW error (not a 500).
+        sendJson(res, 200, {
+          ok: false,
+          error: `查無此節點型別「${nodeType}」，請確認節點名稱是否正確（版本：UE ${ueVersion}）。`,
+        } satisfies AgentExplainResponse);
+        return;
+      }
+      dbEntry = entry;
+    }
+    void isReserved; // reserved flag drives the built-in desc path above; no further use needed
+
+    // Build optional graph context (degrade silently on any failure).
+    let graphContext: string | undefined;
+    if (body.graphPath && body.nodeId) {
+      graphContext = await buildGraphContext(
+        resolve(opts.repoRoot, 'graphs'),
+        body.graphPath,
+        body.nodeId,
+      );
+    }
+
+    // Build provider.
+    let provider: import('./agent/provider/types.js').Provider;
+    try {
+      provider = makeProvider(llmConfig);
+    } catch (e) {
+      sendJson(res, 200, {
+        ok: false,
+        error: `無法建立 LLM 提供商：${(e as Error).message}`,
+      } satisfies AgentExplainResponse);
+      return;
+    }
+
+    // AbortController tied to client disconnect.
+    const ac = new AbortController();
+    req.on('close', () => ac.abort());
+
+    try {
+      const text = await explainNode(
+        provider,
+        llmConfig.model,
+        { nodeType, ueVersion, dbEntry, graphContext },
+        llmConfig.maxTokens,
+        ac.signal,
+      );
+      sendJson(res, 200, { ok: true, text } satisfies AgentExplainResponse);
+    } catch (e) {
+      const msg = (e as Error)?.message ?? 'unknown error';
+      sendJson(res, 200, { ok: false, error: `解說時發生錯誤：${msg}` } satisfies AgentExplainResponse);
+    }
+  }
+
   /** POST /api/agent/chat — SSE stream of AgentSseEvents. */
   async function handleAgentChat(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
@@ -656,6 +750,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin cancel requests are refused' }); return; }
       const ok = runner.cancel();
       sendJson(res, ok ? 200 : 409, ok ? { cancelled: true } : { error: 'no crawl running' });
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/agent/explain') {
+      try { await handleAgentExplain(req, res); }
+      catch (e) { console.error('agent explain handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/chat') {
