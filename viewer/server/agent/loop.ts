@@ -62,8 +62,19 @@ export interface AgentLoopSession {
   graphPath?: string;
   /** Accumulated conversation turns. */
   messages: Message[];
-  /** Running total tokens (input + output, estimated when necessary). */
+  /**
+   * Cumulative spend across the session (input + output of EVERY provider
+   * round, estimated when necessary). Display/accounting only — each round's
+   * input re-counts the full history, so this grows far faster than the
+   * actual context and must never gate compaction or the window ceiling.
+   */
   totalTokens: number;
+  /**
+   * Current context size: the LAST provider round's input + output (the input
+   * already covers system prompt + full history). This is what compaction and
+   * the contextLimit ceiling compare against.
+   */
+  contextTokens: number;
   /**
    * Monotonic user-turn counter. Checkpoint turn ids are derived from it and
    * must never repeat across runAgent calls — a reused id makes the checkpoint
@@ -80,6 +91,7 @@ export function createSession(id: string, ueVersion: string, graphPath?: string)
     graphPath,
     messages: [],
     totalTokens: 0,
+    contextTokens: 0,
     turnSeq: 0,
   };
 }
@@ -202,12 +214,15 @@ export async function runAgent(
   for (let iter = 0; iter < maxIters; iter++) {
     if (signal?.aborted) break;
 
-    // Check token ceiling before sending (in case the previous round pushed us over).
-    if (session.totalTokens >= tokenCeiling) {
+    // Check the context ceiling before sending (in case the previous round
+    // pushed us over). Compared against the CURRENT context size, not the
+    // cumulative spend — each round's input re-counts the whole history, so
+    // summing rounds would trip the limit long before the window is full.
+    if (session.contextTokens >= tokenCeiling) {
       emit({
         type: 'limit',
         kind: 'cost',
-        message: `累計 token 數（${session.totalTokens}）已達上限 ${tokenCeiling}，停止繼續。`,
+        message: `上下文 token 數（${Math.round(session.contextTokens)}）已達上限 ${tokenCeiling}，停止繼續。`,
       });
       limitEmitted = true;
       break;
@@ -261,6 +276,9 @@ export async function runAgent(
       const totalEstimate = (inputChars + outputCharEstimate) / 4;
       if (totalEstimate > 0) {
         session.totalTokens += totalEstimate;
+        // The estimated input already covers system + full history → it IS
+        // the context size, same as a real usage report's inputTokens.
+        session.contextTokens = totalEstimate;
         // Emit estimated usage event (output portion only for display).
         emit({
           type: 'usage',
@@ -280,11 +298,11 @@ export async function runAgent(
     // Still check the ceiling so a single massive text response that crosses it
     // gets a graceful limit event rather than silently stopping.
     if (toolUses.length === 0) {
-      if (session.totalTokens >= tokenCeiling) {
+      if (session.contextTokens >= tokenCeiling) {
         emit({
           type: 'limit',
           kind: 'cost',
-          message: `累計 token 數（${session.totalTokens}）已達上限 ${tokenCeiling}，停止繼續。`,
+          message: `上下文 token 數（${Math.round(session.contextTokens)}）已達上限 ${tokenCeiling}，停止繼續。`,
         });
         limitEmitted = true;
       }
@@ -402,11 +420,11 @@ export async function runAgent(
     });
 
     // Check ceiling again after tools round.
-    if (session.totalTokens >= tokenCeiling) {
+    if (session.contextTokens >= tokenCeiling) {
       emit({
         type: 'limit',
         kind: 'cost',
-        message: `累計 token 數（${session.totalTokens}）已達上限 ${tokenCeiling}，停止繼續。`,
+        message: `上下文 token 數（${Math.round(session.contextTokens)}）已達上限 ${tokenCeiling}，停止繼續。`,
       });
       limitEmitted = true;
       break;
@@ -445,8 +463,9 @@ export async function runAgent(
 // Compaction (M11-1)
 // ---------------------------------------------------------------------------
 
-/** chars/4 estimate over the text-bearing blocks of a message list. */
-function estimateMessagesTokens(msgs: Message[]): number {
+/** chars/4 estimate over the text-bearing blocks of a message list.
+    Exported so a session resumed from disk can initialize contextTokens. */
+export function estimateMessagesTokens(msgs: Message[]): number {
   let chars = 0;
   for (const m of msgs) {
     for (const b of m.content) {
@@ -527,7 +546,10 @@ async function maybeCompact(
   threshold: number,
   keepTurns: number,
 ): Promise<void> {
-  if (session.totalTokens < threshold) return;
+  // Trigger on the CURRENT context size, never the cumulative spend — the
+  // spend re-counts the full history every provider round, so comparing it
+  // here made compaction fire long before the window was actually half full.
+  if (session.contextTokens < threshold) return;
   await compactNow(session, provider, model, ctx, emit, signal, keepTurns);
 }
 
@@ -590,10 +612,10 @@ export async function compactNow(
   }
 
   session.messages = msgs.slice(cut);
-  // totalTokens drives the cost ceiling; re-estimate from the remaining
-  // context so a compacted session regains headroom instead of dying at the
-  // ceiling over history it no longer carries.
-  session.totalTokens = estimateMessagesTokens(session.messages);
+  // contextTokens gates compaction + the window ceiling; re-estimate from the
+  // remaining messages so the session regains headroom. totalTokens stays
+  // untouched — it is the cumulative spend record, not a gate.
+  session.contextTokens = estimateMessagesTokens(session.messages);
 
   emit({
     type: 'compacted',
@@ -656,6 +678,9 @@ async function handleStreamEvent(
 
     case 'usage': {
       session.totalTokens += event.inputTokens + event.outputTokens;
+      // inputTokens covers the full re-sent context → this round's in+out is
+      // the current context size (NOT additive across rounds).
+      session.contextTokens = event.inputTokens + event.outputTokens;
       setUsageEmitted();
       emit({
         type: 'usage',

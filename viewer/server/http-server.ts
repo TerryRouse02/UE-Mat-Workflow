@@ -16,7 +16,7 @@ import { isInside, toPosixPath, slugifyGraphName, writeGraph } from './graph-wri
 export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
 import { importProjectMaterials, PROJECT_DIR } from './projectmat-importer.js';
 import type { ExportMeta } from '../web/src/export/export-meta-types.js';
-import { runAgent, createSession, VIEW_CONTEXT_PREFIX, type AgentLoopSession } from './agent/loop.js';
+import { runAgent, createSession, estimateMessagesTokens, VIEW_CONTEXT_PREFIX, type AgentLoopSession } from './agent/loop.js';
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
@@ -164,6 +164,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     const loop = createSession(persisted.id, persisted.ueVersion);
     loop.messages = persisted.messages;
     loop.totalTokens = persisted.totalTokens;
+    // Context size is derived state — re-estimate from the restored history
+    // (the next provider round overwrites it with real usage numbers).
+    loop.contextTokens = estimateMessagesTokens(loop.messages);
     loop.turnSeq = persisted.turnSeq;
     const active: ActiveSession = {
       loop,

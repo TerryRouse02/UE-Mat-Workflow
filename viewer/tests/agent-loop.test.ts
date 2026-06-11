@@ -357,8 +357,9 @@ describe('TOKEN_CEILING limit', () => {
   });
 
   it('emits limit(cost) event at start of next iter when ceiling was already hit', async () => {
-    // Pre-seed session tokens above ceiling
-    session.totalTokens = TOKEN_CEILING;
+    // Pre-seed the CONTEXT size above the ceiling (the gate compares context,
+    // not cumulative spend).
+    session.contextTokens = TOKEN_CEILING;
 
     // Provider is configured with a tool call turn so the loop would iterate
     const provider = new FakeProvider([
@@ -385,11 +386,9 @@ describe('TOKEN_CEILING limit', () => {
 
 describe('TOKEN_CEILING after tool round — no double limit event', () => {
   it('emits exactly one limit(cost) event when ceiling is hit after tool dispatch', async () => {
-    // Pre-seed tokens just below ceiling so the tool-round pushes over.
-    session.totalTokens = TOKEN_CEILING - 10;
-
     const provider = new FakeProvider([
-      // Turn 1: model calls search_nodes; usage event pushes over ceiling.
+      // Turn 1: model calls search_nodes; the round's usage reports a context
+      // larger than the ceiling, so the post-tools check must stop the loop.
       [
         {
           type: 'tool_use',
@@ -397,7 +396,7 @@ describe('TOKEN_CEILING after tool round — no double limit event', () => {
           name: 'search_nodes',
           input: { query: 'multiply' },
         },
-        { type: 'usage', inputTokens: 20, outputTokens: 0 },
+        { type: 'usage', inputTokens: TOKEN_CEILING + 10, outputTokens: 0 },
         { type: 'done', stopReason: 'tool_use' },
       ],
       // Turn 2 would emit more text but must never be reached.
@@ -1362,7 +1361,7 @@ describe('compaction', () => {
     const memory = createMemoryStore(join(tmpDir, 'viewer'), 'test-session');
     const memCtx: ToolContext = { ...ctx, memory };
     seedTurns(6);
-    session.totalTokens = 200_000;
+    session.contextTokens = 200_000;
 
     const provider = new RecordingProvider([
       // Call #1 = the summarizer (tool-less one-shot).
@@ -1501,7 +1500,7 @@ describe('compaction', () => {
   it('a failed summarizer leaves the history intact (safe no-op)', async () => {
     const memory = createMemoryStore(join(tmpDir, 'viewer'), 'test-session');
     seedTurns(6);
-    session.totalTokens = 200_000;
+    session.contextTokens = 200_000;
 
     const provider = new RecordingProvider([
       [{ type: 'error', message: 'HTTP 500: summarizer down' }],
@@ -1669,5 +1668,32 @@ describe('db_edit_proposal viewer event', () => {
       patch: { verified: true },
       rationale: '依 UE 5.7 文件查證',
     }]);
+  });
+});
+
+describe('contextTokens vs totalTokens (compaction-too-eager regression)', () => {
+  it('contextTokens tracks the LAST round, totalTokens accumulates spend', async () => {
+    const provider = new FakeProvider([
+      [
+        { type: 'tool_use', id: 'c1', name: 'search_nodes', input: { query: 'multiply' } },
+        { type: 'usage', inputTokens: 10_000, outputTokens: 200 },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [
+        { type: 'tool_use', id: 'c2', name: 'search_nodes', input: { query: 'lerp' } },
+        { type: 'usage', inputTokens: 11_000, outputTokens: 200 },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [
+        { type: 'text_delta', text: '好了。' },
+        { type: 'usage', inputTokens: 12_000, outputTokens: 300 },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ]);
+    await runAndCollect('做個材質', session, provider, ctx);
+    // Spend: all three rounds summed. Context: the last round only — summing
+    // re-sent history was what made auto-compaction fire way too early.
+    expect(session.totalTokens).toBe(33_700);
+    expect(session.contextTokens).toBe(12_300);
   });
 });
