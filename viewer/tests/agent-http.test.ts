@@ -1342,3 +1342,72 @@ describe('POST /api/agent/test', () => {
     }
   }, 5000);
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/agent/chat — per-turn thinking level passthrough + SSE forwarding
+// ---------------------------------------------------------------------------
+
+describe('POST /api/agent/chat thinking', () => {
+  it('passes an allowlisted thinking level to the provider and forwards thinking SSE events', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, {
+      Llm: { provider: 'anthropic', model: 'claude-opus-4-8', apiKey: 'sk-think' },
+    });
+
+    let seenThinking: string | undefined = 'unset';
+    const provider: Provider = {
+      async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
+        seenThinking = req.thinking;
+        yield { type: 'thinking_delta', text: '思考片段' };
+        yield { type: 'text_delta', text: '好了。' };
+        yield { type: 'done', stopReason: 'end' };
+      },
+    };
+
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: () => provider });
+    try {
+      const r = await fetch(`http://localhost:${server.port}/api/agent/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '做個材質', thinking: 'medium' }),
+      });
+      const events = await parseSseResponse(r);
+      expect(seenThinking).toBe('medium');
+      const thinkingEvents = events.filter(e => e.type === 'thinking');
+      expect(thinkingEvents).toHaveLength(1);
+      expect((thinkingEvents[0] as { text: string }).text).toBe('思考片段');
+    } finally {
+      await server.close();
+    }
+  }, 10000);
+
+  it('ignores a non-allowlisted thinking value (request still succeeds without thinking)', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, {
+      Llm: { provider: 'anthropic', model: 'claude-opus-4-8', apiKey: 'sk-think' },
+    });
+
+    let seenThinking: string | undefined = 'unset';
+    const provider: Provider = {
+      async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
+        seenThinking = req.thinking;
+        yield { type: 'text_delta', text: '好了。' };
+        yield { type: 'done', stopReason: 'end' };
+      },
+    };
+
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: () => provider });
+    try {
+      const r = await fetch(`http://localhost:${server.port}/api/agent/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '做個材質', thinking: 'ultra-自創值' }),
+      });
+      const events = await parseSseResponse(r);
+      expect(seenThinking).toBeUndefined();
+      expect(events.at(-1)?.type).toBe('done');
+    } finally {
+      await server.close();
+    }
+  }, 10000);
+});

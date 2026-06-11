@@ -577,3 +577,96 @@ describe('AgentChat M4', () => {
     }, { timeout: 2000 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Thinking level: selector + collapsed reasoning card
+// ---------------------------------------------------------------------------
+
+describe('AgentChat thinking', () => {
+  it('renders the thinking selector (default 關) and remembers the choice', async () => {
+    localStorage.clear();
+    mockFetchStatus({ configured: true, provider: 'anthropic', model: 'test' });
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    const select = container.querySelector('.agent-think select') as HTMLSelectElement;
+    expect(select).toBeTruthy();
+    expect(select.value).toBe('off');
+
+    await act(async () => { fireEvent.change(select, { target: { value: 'high' } }); });
+    expect(select.value).toBe('high');
+    expect(localStorage.getItem('agent-thinking-level')).toBe('high');
+  });
+
+  it('sends the selected thinking level in the chat request (off sends none)', async () => {
+    localStorage.clear();
+    mockFetchStatus({ configured: true, provider: 'anthropic', model: 'test' });
+
+    const captured: Array<unknown> = [];
+    _streamChatImpl = async function* (...args: unknown[]) {
+      captured.push((args[0] as { thinking?: unknown }).thinking);
+      yield { type: 'text', text: '好。' } as AgentSseEvent;
+      yield { type: 'done' } as AgentSseEvent;
+    };
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+
+    // Default off → no thinking field.
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: '第一句' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+    await waitFor(() => expect(captured.length).toBe(1), { timeout: 2000 });
+    expect(captured[0]).toBeUndefined();
+
+    // Switch to medium → request carries it.
+    const select = container.querySelector('.agent-think select') as HTMLSelectElement;
+    await act(async () => { fireEvent.change(select, { target: { value: 'medium' } }); });
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: '第二句' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+    await waitFor(() => expect(captured.length).toBe(2), { timeout: 2000 });
+    expect(captured[1]).toBe('medium');
+  });
+
+  it('renders thinking events as a collapsed card that expands on click', async () => {
+    localStorage.clear();
+    mockFetchStatus({ configured: true, provider: 'anthropic', model: 'test' });
+    mockStreamChat([
+      { type: 'thinking', text: '先分析' },
+      { type: 'thinking', text: '需求' },
+      { type: 'text', text: '好的，開始。' },
+      { type: 'done' },
+    ]);
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: '做材質' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector('.agent-thinking')).toBeTruthy();
+      expect(container.textContent).toContain('好的，開始。');
+    }, { timeout: 2000 });
+
+    // Collapsed by default: header visible, reasoning text hidden.
+    expect(container.textContent).toContain('思考過程');
+    expect(container.querySelector('.agent-thinking-text')).toBeNull();
+    expect(container.textContent).not.toContain('先分析需求');
+
+    // Expand → the accumulated reasoning text shows.
+    const head = container.querySelector('.agent-thinking-head') as HTMLButtonElement;
+    await act(async () => { fireEvent.click(head); });
+    expect(container.querySelector('.agent-thinking-text')).toBeTruthy();
+    expect(container.textContent).toContain('先分析需求');
+  });
+});

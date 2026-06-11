@@ -186,3 +186,36 @@
 @keyframes agent-fade { from { opacity:0; transform:translateY(3px); } to { opacity:1; transform:none; } }
 @keyframes agent-caret { 0%,49% { opacity:1; } 50%,100% { opacity:0; } }
 @keyframes agent-pulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+
+/* ---------- Thinking (reasoning) card ---------- */
+.agent-thinking {
+  border:1px dashed var(--border-strong); border-radius:10px;
+  background:var(--bg-panel-2); overflow:hidden;
+}
+.agent-thinking-head {
+  display:flex; align-items:center; gap:7px; padding:6px 10px;
+  font-size:10.5px; color:var(--text-mute); cursor:pointer; user-select:none;
+  background:transparent; border:none; width:100%; text-align:left; font-family:inherit;
+}
+.agent-thinking-head:hover { background:var(--bg-elev); color:var(--text-dim); }
+.agent-thinking-head .caret { transition:transform .15s ease; }
+.agent-thinking.open .agent-thinking-head .caret { transform:rotate(90deg); }
+.agent-thinking-head .live { color:var(--accent); }
+.agent-thinking-head .spin { color:var(--accent); }
+.agent-thinking-text {
+  border-top:1px dashed var(--hairline);
+  padding:7px 11px; font-size:11px; line-height:1.6; color:var(--text-mute);
+  white-space:pre-wrap; word-break:break-word; max-height:220px; overflow-y:auto;
+}
+
+/* ---------- Thinking level selector ---------- */
+.agent-think { display:inline-flex; align-items:center; gap:4px; color:var(--text-mute); cursor:pointer; }
+.agent-think select {
+  all:unset; cursor:pointer;
+  font-family:inherit; font-size:10px; color:var(--text-dim);
+  border:1px solid var(--border); border-radius:5px; padding:1px 6px;
+  background:var(--bg-panel-2);
+}
+.agent-think select:hover { border-color:var(--border-strong); color:var(--text); }
+.agent-think select:disabled { opacity:.5; cursor:not-allowed; }
+.agent-think select option { background:var(--bg-panel); color:var(--text); }

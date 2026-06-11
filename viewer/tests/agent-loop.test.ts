@@ -1276,3 +1276,56 @@ describe('RunAgentOptions injection', () => {
     expect(events.at(-1)?.type).toBe('done');
   });
 });
+
+// ---------------------------------------------------------------------------
+// §19  Thinking: SSE forwarding + history round-trip placement
+// ---------------------------------------------------------------------------
+
+describe('thinking events', () => {
+  it('forwards thinking_delta as SSE thinking and stores thinking_block in history before text', async () => {
+    const provider = new FakeProvider([
+      [
+        { type: 'thinking_delta', text: '先想' },
+        { type: 'thinking_delta', text: '一下' },
+        { type: 'thinking_block', block: { type: 'thinking', thinking: '先想一下', signature: 'sig-x' } },
+        { type: 'text_delta', text: '好的，開始。' },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ]);
+
+    const events = await runAndCollect('做一個材質', session, provider, ctx, undefined, { thinking: 'medium' });
+
+    const thinkingEvents = events.filter(e => e.type === 'thinking');
+    expect(thinkingEvents.map(e => (e as { text: string }).text)).toEqual(['先想', '一下']);
+
+    // The assistant history message must carry the complete thinking block
+    // FIRST (Anthropic requires it ahead of text/tool_use on round-trip).
+    const assistant = session.messages.find(m => m.role === 'assistant');
+    expect(assistant).toBeDefined();
+    expect(assistant!.content[0]).toEqual({ type: 'thinking', thinking: '先想一下', signature: 'sig-x' });
+    expect(assistant!.content[1]).toEqual({ type: 'text', text: '好的，開始。' });
+
+    // thinking_block must never surface as a user-visible event.
+    expect(events.some(e => (e as { type: string }).type === 'thinking_block')).toBe(false);
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('passes the thinking level through to every ChatRequest of the turn', async () => {
+    const seen: Array<string | undefined> = [];
+    const provider: Provider = {
+      async *stream(req: ChatRequest) {
+        seen.push(req.thinking);
+        if (seen.length === 1) {
+          yield { type: 'tool_use', id: 'th-1', name: 'search_nodes', input: { query: 'noise' } };
+          yield { type: 'done', stopReason: 'tool_use' };
+        } else {
+          yield { type: 'text_delta', text: '完成。' };
+          yield { type: 'done', stopReason: 'end' };
+        }
+      },
+    };
+
+    await runAndCollect('找雜訊節點', session, provider as FakeProvider, ctx, undefined, { thinking: 'high' });
+    expect(seen).toEqual(['high', 'high']);
+  });
+});

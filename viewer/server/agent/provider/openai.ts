@@ -75,6 +75,8 @@ function translateMessages(messages: Message[]): unknown[] {
         out.push({ role: 'user', content: text });
       }
     } else if (msg.role === 'assistant') {
+      // thinking / redacted_thinking blocks are Anthropic-only history; the
+      // OpenAI dialect has no slot for them — drop silently.
       const textBlocks = msg.content.filter((b) => b.type === 'text');
       const toolUseBlocks = msg.content.filter((b) => b.type === 'tool_use');
 
@@ -139,6 +141,12 @@ export class OpenAIAdapter implements Provider {
     };
 
     if (req.maxTokens !== undefined) body.max_tokens = req.maxTokens;
+
+    // Reasoning-effort passthrough (o-series, DeepSeek-R1 endpoints, etc.).
+    // Servers that don't support it return a 4xx the caller surfaces as-is.
+    if (req.thinking !== undefined && req.thinking !== 'off') {
+      body.reasoning_effort = req.thinking;
+    }
 
     if (req.tools && req.tools.length > 0) {
       body.tools = req.tools.map((t) => ({
@@ -205,6 +213,12 @@ export class OpenAIAdapter implements Provider {
         // Text delta.
         if (typeof delta.content === 'string' && delta.content.length > 0) {
           yield { type: 'text_delta', text: delta.content };
+        }
+
+        // Reasoning stream (DeepSeek reasoning_content et al.) — display only;
+        // the OpenAI dialect never round-trips reasoning into history.
+        if (typeof delta.reasoning_content === 'string' && delta.reasoning_content.length > 0) {
+          yield { type: 'thinking_delta', text: delta.reasoning_content };
         }
 
         // Tool call fragments — accumulate by index.

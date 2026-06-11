@@ -17,7 +17,7 @@
 //   - Before every write, checkpoint.snapshotFile() is called via
 //     ctx.beforeWrite (injected by the caller via ToolContext).
 
-import type { Provider, Message, ToolUseBlock, ToolResultBlock, ContentBlock, StreamEvent } from './provider/types.js';
+import type { Provider, Message, ToolUseBlock, ToolResultBlock, ContentBlock, StreamEvent, ThinkingLevel } from './provider/types.js';
 import { toolDefs, dispatchTool, type ToolContext } from './tools.js';
 import type { AgentSseEvent } from './agent-types.js';
 import { buildSystemPrompt } from './prompt.js';
@@ -89,6 +89,12 @@ export interface RunAgentOptions {
    * Defaults to 8192 when absent.
    */
   maxTokens?: number;
+  /**
+   * Reasoning-effort level for this user turn (AgentChatRequest.thinking).
+   * Passed through to every ChatRequest of the turn; adapters map it to
+   * their dialect. 'off'/undefined sends no thinking parameter.
+   */
+  thinking?: ThinkingLevel;
 }
 
 export async function runAgent(
@@ -165,6 +171,7 @@ export async function runAgent(
       system,
       tools: toolDefs,
       maxTokens,
+      thinking: options?.thinking,
       signal,
     });
 
@@ -371,6 +378,22 @@ async function handleStreamEvent(
       emit({ type: 'text', text: event.text });
       // Estimate output chars; combined in+out estimation happens after the stream.
       accTokenEstimate(event.text.length);
+      break;
+    }
+
+    case 'thinking_delta': {
+      // Display-only reasoning stream — forward to the frontend; the history
+      // copy arrives separately as a complete thinking_block.
+      emit({ type: 'thinking', text: event.text });
+      accTokenEstimate(event.text.length);
+      break;
+    }
+
+    case 'thinking_block': {
+      // Complete block for history round-trip (Anthropic requires the
+      // unmodified thinking blocks back when tool use follows). Stream order
+      // guarantees this precedes the turn's text/tool_use blocks.
+      assistantContent.push(event.block);
       break;
     }
 

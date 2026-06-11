@@ -16,6 +16,15 @@ const DEFAULT_BASE = 'https://api.anthropic.com';
 // Anthropic requires max_tokens; choose a safe default when the caller omits it.
 const DEFAULT_MAX_TOKENS = 4096;
 
+// Extended-thinking budgets per level. max_tokens must exceed the budget, so
+// the request raises it to budget + headroom when the configured value is lower.
+const THINKING_BUDGETS: Record<'low' | 'medium' | 'high', number> = {
+  low: 2048,
+  medium: 8192,
+  high: 16384,
+};
+const THINKING_HEADROOM = 4096;
+
 type FetchFn = typeof globalThis.fetch;
 
 // Accumulated state for a single content block while streaming.
@@ -23,6 +32,13 @@ interface ToolBlockAcc {
   id: string;
   name: string;
   partialJson: string;
+}
+
+// Accumulated state for a streaming thinking block (signature arrives via
+// signature_delta and must be round-tripped verbatim).
+interface ThinkingAcc {
+  thinking: string;
+  signature: string;
 }
 
 function mapStopReason(r: string | null | undefined): 'end' | 'tool_use' | 'max_tokens' {
@@ -62,29 +78,44 @@ export class AnthropicAdapter implements Provider {
   }
 
   async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
+    const thinkingOn = req.thinking !== undefined && req.thinking !== 'off';
+
     // Build request body per Anthropic Messages API spec.
+    // With thinking disabled, historic thinking/redacted_thinking blocks are
+    // stripped (the API rejects them); with thinking enabled they round-trip
+    // verbatim — required when tool use follows an extended-thinking turn.
     const body: Record<string, unknown> = {
       model: req.model,
       messages: req.messages.map((m) => ({
         role: m.role,
-        content: m.content.map((block) => {
-          if (block.type === 'tool_result') {
-            // Neutral toolUseId → Anthropic tool_use_id.
-            const tb = block as ToolResultBlock;
-            const out: Record<string, unknown> = {
-              type: 'tool_result',
-              tool_use_id: tb.toolUseId,
-              content: tb.content,
-            };
-            if (tb.isError !== undefined) out.is_error = tb.isError;
-            return out;
-          }
-          return block;
-        }),
+        content: m.content
+          .filter((block) =>
+            thinkingOn || (block.type !== 'thinking' && block.type !== 'redacted_thinking'))
+          .map((block) => {
+            if (block.type === 'tool_result') {
+              // Neutral toolUseId → Anthropic tool_use_id.
+              const tb = block as ToolResultBlock;
+              const out: Record<string, unknown> = {
+                type: 'tool_result',
+                tool_use_id: tb.toolUseId,
+                content: tb.content,
+              };
+              if (tb.isError !== undefined) out.is_error = tb.isError;
+              return out;
+            }
+            return block;
+          }),
       })),
       max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
       stream: true,
     };
+
+    if (thinkingOn) {
+      const budget = THINKING_BUDGETS[req.thinking as 'low' | 'medium' | 'high'];
+      body.thinking = { type: 'enabled', budget_tokens: budget };
+      // max_tokens must be strictly greater than the thinking budget.
+      body.max_tokens = Math.max(req.maxTokens ?? DEFAULT_MAX_TOKENS, budget + THINKING_HEADROOM);
+    }
 
     // system is top-level, only when present.
     if (req.system !== undefined) body.system = req.system;
@@ -126,6 +157,11 @@ export class AnthropicAdapter implements Provider {
 
     // Currently streaming tool_use content block, if any.
     let currentTool: ToolBlockAcc | null = null;
+    // Currently streaming thinking block (text via thinking_delta, signature
+    // via signature_delta); emitted as one thinking_block on stop.
+    let currentThinking: ThinkingAcc | null = null;
+    // A redacted_thinking block arrives complete in content_block_start.
+    let currentRedacted: string | null = null;
 
     for await (const line of parseSse(response.body)) {
       // parseSse strips Anthropic's `event:` lines; the data JSON always carries
@@ -155,6 +191,10 @@ export class AnthropicAdapter implements Provider {
               name: String(block.name ?? ''),
               partialJson: '',
             };
+          } else if (block?.type === 'thinking') {
+            currentThinking = { thinking: '', signature: '' };
+          } else if (block?.type === 'redacted_thinking') {
+            currentRedacted = String(block.data ?? '');
           }
           // text blocks: nothing to do on start.
           break;
@@ -167,6 +207,12 @@ export class AnthropicAdapter implements Provider {
             yield { type: 'text_delta', text: String(delta.text ?? '') };
           } else if (delta.type === 'input_json_delta' && currentTool) {
             currentTool.partialJson += String(delta.partial_json ?? '');
+          } else if (delta.type === 'thinking_delta' && currentThinking) {
+            const text = String(delta.thinking ?? '');
+            currentThinking.thinking += text;
+            yield { type: 'thinking_delta', text };
+          } else if (delta.type === 'signature_delta' && currentThinking) {
+            currentThinking.signature += String(delta.signature ?? '');
           }
           break;
         }
@@ -175,6 +221,18 @@ export class AnthropicAdapter implements Provider {
           if (currentTool) {
             yield parseTool(currentTool);
             currentTool = null;
+          } else if (currentThinking) {
+            yield {
+              type: 'thinking_block',
+              block: { type: 'thinking', thinking: currentThinking.thinking, signature: currentThinking.signature },
+            };
+            currentThinking = null;
+          } else if (currentRedacted !== null) {
+            yield {
+              type: 'thinking_block',
+              block: { type: 'redacted_thinking', data: currentRedacted },
+            };
+            currentRedacted = null;
           }
           break;
         }

@@ -20,7 +20,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useStore } from '../store';
 import { Icon } from '../Icon';
 import { streamChat } from './sse';
-import type { AgentSseEvent, ProviderStatus, AgentUndoResponse, AgentResetResponse } from './protocol';
+import type { AgentSseEvent, AgentThinkingLevel, ProviderStatus, AgentUndoResponse, AgentResetResponse } from './protocol';
 import './agent.css';
 
 // ─── Message model ────────────────────────────────────────────────────────────
@@ -61,7 +61,19 @@ interface DiffBlock {
   collapsed: boolean;
 }
 
-type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock;
+/** Model reasoning stream (thinking SSE events) — collapsed by default. */
+interface ThinkingItem {
+  kind: 'thinking';
+  text: string;
+  collapsed: boolean;
+}
+
+type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem;
+
+const THINKING_LABELS: Record<AgentThinkingLevel, string> = {
+  off: '關', low: '低', medium: '中', high: '高',
+};
+const THINKING_STORAGE_KEY = 'agent-thinking-level';
 
 /** Cumulative token usage across the whole conversation. */
 interface UsageTotal {
@@ -134,6 +146,22 @@ function NoticeItem({ item }: { item: NoticeLine }) {
   );
 }
 
+/** Collapsible reasoning card — live 思考中… while streaming, 思考過程 after. */
+function ThinkingView({ item, live, onToggle }: { item: ThinkingItem; live: boolean; onToggle: () => void }) {
+  const open = !item.collapsed;
+  return (
+    <div className={'agent-thinking agent-item' + (open ? ' open' : '')}>
+      <button type="button" className="agent-thinking-head" onClick={onToggle}>
+        <Icon name="caret" size={11} className="caret" />
+        {live
+          ? <><Icon name="refresh" size={11} className="spin" /><span className="live">思考中…</span></>
+          : <><Icon name="bolt" size={11} /><span>思考過程 · {item.text.length} 字</span></>}
+      </button>
+      {open && <div className="agent-thinking-text">{item.text}</div>}
+    </div>
+  );
+}
+
 /** Collapsible block listing plain-language diff lines after a successful write. */
 function DiffBlockView({ item, onToggle }: { item: DiffBlock; onToggle: () => void }) {
   const open = !item.collapsed;
@@ -171,6 +199,13 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
   const [usage, setUsage] = useState<UsageTotal | null>(null);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
+  // Per-turn reasoning effort; persisted so the choice survives reloads.
+  const [thinking, setThinking] = useState<AgentThinkingLevel>(() => {
+    try {
+      const v = localStorage.getItem(THINKING_STORAGE_KEY);
+      return v === 'low' || v === 'medium' || v === 'high' ? v : 'off';
+    } catch { return 'off'; }
+  });
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -210,10 +245,15 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
 
   const toggleCollapse = useCallback((index: number) => {
     setItems(prev => prev.map((it, i) =>
-      i === index && (it.kind === 'tools' || it.kind === 'diff')
+      i === index && (it.kind === 'tools' || it.kind === 'diff' || it.kind === 'thinking')
         ? { ...it, collapsed: !it.collapsed }
         : it,
     ));
+  }, []);
+
+  const changeThinking = useCallback((v: AgentThinkingLevel) => {
+    setThinking(v);
+    try { localStorage.setItem(THINKING_STORAGE_KEY, v); } catch { /* private mode etc. */ }
   }, []);
 
   const handleStop = useCallback(() => {
@@ -306,6 +346,21 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
           break;
         }
 
+        case 'thinking': {
+          // Reasoning stream — append to a trailing thinking card or open one
+          // (collapsed by default; the header shows live progress).
+          setItems(prev => {
+            const last = prev[prev.length - 1];
+            if (last?.kind === 'thinking') {
+              const updated = [...prev];
+              updated[updated.length - 1] = { ...last, text: last.text + event.text };
+              return updated;
+            }
+            return [...prev, { kind: 'thinking', text: event.text, collapsed: true }];
+          });
+          break;
+        }
+
         case 'tool_start': {
           // Mark that the next text run needs a fresh bubble.
           needsNewBubble = true;
@@ -394,7 +449,11 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
 
     try {
       for await (const event of streamChat(
-        { text: userText, graphPath: currentPath ?? undefined },
+        {
+          text: userText,
+          graphPath: currentPath ?? undefined,
+          thinking: thinking !== 'off' ? thinking : undefined,
+        },
         ac.signal,
       )) {
         handleEvent(event);
@@ -410,7 +469,7 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
       setStreaming(false);
       inputRef.current?.focus();
     }
-  }, [streaming, currentPath, open]);
+  }, [streaming, currentPath, open, thinking]);
 
   // Hidden in snapshot mode.
   if (connection === 'snapshot') return null;
@@ -523,6 +582,16 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
           if (item.kind === 'diff') {
             return <DiffBlockView key={i} item={item} onToggle={() => toggleCollapse(i)} />;
           }
+          if (item.kind === 'thinking') {
+            return (
+              <ThinkingView
+                key={i}
+                item={item}
+                live={streaming && i === lastIndex}
+                onToggle={() => toggleCollapse(i)}
+              />
+            );
+          }
           return null;
         })}
       </div>
@@ -561,6 +630,18 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
           )}
         </div>
         <div className="agent-input-hint">
+          <label className="agent-think" title="模型思考程度：越高越深思但越慢、越耗 token">
+            思考
+            <select
+              value={thinking}
+              disabled={streaming}
+              onChange={e => changeThinking(e.target.value as AgentThinkingLevel)}
+            >
+              {(Object.keys(THINKING_LABELS) as AgentThinkingLevel[]).map(lv => (
+                <option key={lv} value={lv}>{THINKING_LABELS[lv]}</option>
+              ))}
+            </select>
+          </label>
           <span>Enter 送出 · Shift+Enter 換行</span>
           {streaming && <span className="responding">回應中…</span>}
         </div>

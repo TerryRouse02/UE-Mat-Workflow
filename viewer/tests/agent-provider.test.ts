@@ -869,3 +869,175 @@ describe('acceptance-review regressions', () => {
 
 // suppress TS unused import warnings
 void vi;
+
+// ---------------------------------------------------------------------------
+// §8  Extended thinking / reasoning effort
+// ---------------------------------------------------------------------------
+
+describe('AnthropicAdapter thinking', () => {
+  const THINKING_FIXTURE = [
+    'data: {"type":"message_start","message":{"usage":{"input_tokens":10}}}\n\n',
+    'data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}\n\n',
+    'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"先拆解需求"}}\n\n',
+    'data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"，再選節點"}}\n\n',
+    'data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig-abc"}}\n\n',
+    'data: {"type":"content_block_stop","index":0}\n\n',
+    'data: {"type":"content_block_start","index":1,"content_block":{"type":"text"}}\n\n',
+    'data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"好的"}}\n\n',
+    'data: {"type":"content_block_stop","index":1}\n\n',
+    'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":5}}\n\n',
+    'data: {"type":"message_stop"}\n\n',
+  ];
+
+  it('sends thinking.budget_tokens and raises max_tokens above the budget', async () => {
+    const [fetchFn, captured] = captureFetch(THINKING_FIXTURE);
+    const adapter = new AnthropicAdapter({ provider: 'anthropic', model: 'm', apiKey: 'k' }, fetchFn);
+    await collect(adapter.stream({ ...SIMPLE_REQ, thinking: 'medium' }));
+    const body = captured.body as Record<string, unknown>;
+    expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 8192 });
+    // max_tokens must exceed the budget (default 4096 would be too small).
+    expect(body.max_tokens as number).toBeGreaterThan(8192);
+  });
+
+  it('keeps a caller maxTokens that already exceeds the budget', async () => {
+    const [fetchFn, captured] = captureFetch(THINKING_FIXTURE);
+    const adapter = new AnthropicAdapter({ provider: 'anthropic', model: 'm', apiKey: 'k' }, fetchFn);
+    await collect(adapter.stream({ ...SIMPLE_REQ, thinking: 'low', maxTokens: 32000 }));
+    const body = captured.body as Record<string, unknown>;
+    expect(body.thinking).toEqual({ type: 'enabled', budget_tokens: 2048 });
+    expect(body.max_tokens).toBe(32000);
+  });
+
+  it('omits the thinking parameter when level is off or absent', async () => {
+    const [fetchFn, captured] = captureFetch(THINKING_FIXTURE);
+    const adapter = new AnthropicAdapter({ provider: 'anthropic', model: 'm', apiKey: 'k' }, fetchFn);
+    await collect(adapter.stream({ ...SIMPLE_REQ, thinking: 'off' }));
+    expect((captured.body as Record<string, unknown>).thinking).toBeUndefined();
+  });
+
+  it('streams thinking_delta events and a final thinking_block with the signature', async () => {
+    const adapter = new AnthropicAdapter({ provider: 'anthropic', model: 'm', apiKey: 'k' }, fakeFetch(THINKING_FIXTURE));
+    const events = await collect(adapter.stream({ ...SIMPLE_REQ, thinking: 'low' }));
+
+    const deltas = events.filter(e => e.type === 'thinking_delta');
+    expect(deltas.map(d => (d as { text: string }).text)).toEqual(['先拆解需求', '，再選節點']);
+
+    const blocks = events.filter(e => e.type === 'thinking_block');
+    expect(blocks).toHaveLength(1);
+    expect((blocks[0] as { block: unknown }).block).toEqual({
+      type: 'thinking',
+      thinking: '先拆解需求，再選節點',
+      signature: 'sig-abc',
+    });
+
+    // The thinking block must precede the text delta (history ordering).
+    const blockIdx = events.findIndex(e => e.type === 'thinking_block');
+    const textIdx = events.findIndex(e => e.type === 'text_delta');
+    expect(blockIdx).toBeLessThan(textIdx);
+    expect(events.at(-1)).toEqual({ type: 'done', stopReason: 'end' });
+  });
+
+  it('passes a redacted_thinking block through as a thinking_block event', async () => {
+    const fixture = [
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"redacted_thinking","data":"opaque-bytes"}}\n\n',
+      'data: {"type":"content_block_stop","index":0}\n\n',
+      'data: {"type":"content_block_start","index":1,"content_block":{"type":"text"}}\n\n',
+      'data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"hi"}}\n\n',
+      'data: {"type":"content_block_stop","index":1}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ];
+    const adapter = new AnthropicAdapter({ provider: 'anthropic', model: 'm', apiKey: 'k' }, fakeFetch(fixture));
+    const events = await collect(adapter.stream({ ...SIMPLE_REQ, thinking: 'high' }));
+    const blocks = events.filter(e => e.type === 'thinking_block');
+    expect(blocks).toHaveLength(1);
+    expect((blocks[0] as { block: unknown }).block).toEqual({ type: 'redacted_thinking', data: 'opaque-bytes' });
+  });
+
+  it('round-trips historic thinking blocks when enabled and strips them when off', async () => {
+    const history: ChatRequest = {
+      model: 'm',
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'q' }] },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: '上一輪的思考', signature: 'sig-1' },
+            { type: 'text', text: 'a' },
+            { type: 'tool_use', id: 't1', name: 'search_nodes', input: { query: 'x' } },
+          ],
+        },
+        { role: 'user', content: [{ type: 'tool_result', toolUseId: 't1', content: 'r' }] },
+      ],
+    };
+
+    // Enabled → the thinking block (incl. signature) is sent back verbatim.
+    let [fetchFn, captured] = captureFetch(THINKING_FIXTURE);
+    let adapter = new AnthropicAdapter({ provider: 'anthropic', model: 'm', apiKey: 'k' }, fetchFn);
+    await collect(adapter.stream({ ...history, thinking: 'medium' }));
+    let msgs = (captured.body as { messages: Array<{ content: unknown[] }> }).messages;
+    expect(msgs[1].content[0]).toEqual({ type: 'thinking', thinking: '上一輪的思考', signature: 'sig-1' });
+
+    // Disabled → thinking blocks are stripped (the API rejects them).
+    [fetchFn, captured] = captureFetch(THINKING_FIXTURE);
+    adapter = new AnthropicAdapter({ provider: 'anthropic', model: 'm', apiKey: 'k' }, fetchFn);
+    await collect(adapter.stream(history));
+    msgs = (captured.body as { messages: Array<{ content: Array<{ type: string }> }> }).messages;
+    expect(msgs[1].content.some(b => b.type === 'thinking')).toBe(false);
+    expect(msgs[1].content.some(b => b.type === 'text')).toBe(true);
+    expect(msgs[1].content.some(b => b.type === 'tool_use')).toBe(true);
+  });
+});
+
+describe('OpenAIAdapter thinking', () => {
+  it('sends reasoning_effort when a level is set and omits it when off', async () => {
+    const doneFixture = [
+      'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    let [fetchFn, captured] = captureFetch(doneFixture);
+    let adapter = new OpenAIAdapter({ provider: 'openai-compatible', model: 'm', apiKey: 'k' }, fetchFn);
+    await collect(adapter.stream({ ...SIMPLE_REQ, thinking: 'high' }));
+    expect((captured.body as Record<string, unknown>).reasoning_effort).toBe('high');
+
+    [fetchFn, captured] = captureFetch(doneFixture);
+    adapter = new OpenAIAdapter({ provider: 'openai-compatible', model: 'm', apiKey: 'k' }, fetchFn);
+    await collect(adapter.stream({ ...SIMPLE_REQ, thinking: 'off' }));
+    expect((captured.body as Record<string, unknown>).reasoning_effort).toBeUndefined();
+  });
+
+  it('maps reasoning_content deltas (DeepSeek dialect) to thinking_delta events', async () => {
+    const fixture = [
+      'data: {"choices":[{"delta":{"reasoning_content":"推理中"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{"reasoning_content":"…"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"答案"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    const adapter = new OpenAIAdapter({ provider: 'openai-compatible', model: 'm', apiKey: 'k' }, fakeFetch(fixture));
+    const events = await collect(adapter.stream({ ...SIMPLE_REQ, thinking: 'medium' }));
+    const deltas = events.filter(e => e.type === 'thinking_delta').map(e => (e as { text: string }).text);
+    expect(deltas).toEqual(['推理中', '…']);
+    // Reasoning never produces a thinking_block in the OpenAI dialect.
+    expect(events.some(e => e.type === 'thinking_block')).toBe(false);
+    expect(events.some(e => e.type === 'text_delta')).toBe(true);
+  });
+
+  it('drops historic thinking blocks from the translated message array', () => {
+    const msgs = buildMessages({
+      model: 'm',
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'q' }] },
+        {
+          role: 'assistant',
+          content: [
+            { type: 'thinking', thinking: 'secret reasoning', signature: 's' },
+            { type: 'text', text: 'a' },
+          ],
+        },
+      ],
+    });
+    expect(JSON.stringify(msgs)).not.toContain('secret reasoning');
+    expect(JSON.stringify(msgs)).toContain('"a"');
+  });
+});

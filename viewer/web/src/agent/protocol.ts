@@ -11,6 +11,7 @@
  */
 export type AgentSseEvent =
   | { type: 'text'; text: string }                                   // narrative text (streamed char-by-char)
+  | { type: 'thinking'; text: string }                               // model reasoning stream (display only)
   | { type: 'tool_start'; name: string; summary: string }            // human-readable step line
   | { type: 'tool_end'; name: string; ok: boolean; summary?: string }
   | { type: 'diff'; lines: string[] }                                // plain-language diff (after successful write)
@@ -20,11 +21,15 @@ export type AgentSseEvent =
   | { type: 'error'; message: string }
   | { type: 'done' };
 
+/** Reasoning-effort level selectable per user turn. */
+export type AgentThinkingLevel = 'off' | 'low' | 'medium' | 'high';
+
 /** Body for POST /api/agent/chat */
 export interface AgentChatRequest {
   text: string;
   ueVersion?: string;
   graphPath?: string;
+  thinking?: AgentThinkingLevel;
 }
 
 /**

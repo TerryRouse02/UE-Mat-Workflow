@@ -751,6 +751,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       },
     };
 
+    // Allowlist the per-turn thinking level from the request body.
+    const thinking = body.thinking === 'low' || body.thinking === 'medium' || body.thinking === 'high'
+      ? body.thinking
+      : undefined;
+
     try {
       await runAgent(
         body.text,
@@ -760,7 +765,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         ctx,
         emit,
         ac.signal,
-        { maxTokens: llmConfig.maxTokens },
+        { maxTokens: llmConfig.maxTokens, thinking },
       );
     } catch (e) {
       const msg = (e as Error)?.message ?? 'unknown error';
