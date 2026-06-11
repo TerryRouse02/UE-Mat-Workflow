@@ -73,7 +73,7 @@ export const actionScenarios: Scenario[] = [
         },
       ),
       chat(
-        '（系統回報）你先前請求的 workmf 爬取已完成，請繼續先前的工作（需要的話重新查詢索引）。\n\nlog 尾段：\nWrote work-MF index: agent-pack/workmf-index.json (12 function(s), 0 load failure(s))',
+        '（系統回報）workmf 爬取已完成\n（給 AI）這是你先前請求的爬取。請繼續先前的工作，需要的話重新查詢索引。\n\nlog 尾段：\nWrote work-MF index: agent-pack/workmf-index.json (12 function(s), 0 load failure(s))',
         [
           toolTurn({ id: 'a2-mf2', name: 'search_mf', input: { query: 'MF_RimGlow' } }),
           textTurn('索引更新了，我重新查過 MF_RimGlow，接下來把它接進材質。'),

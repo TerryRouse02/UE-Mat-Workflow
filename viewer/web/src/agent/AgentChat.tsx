@@ -64,7 +64,7 @@ const THINKING_STORAGE_KEY = 'agent-thinking-level';
 interface QuickCommand {
   cmd: string;                                   // slash form, e.g. "/validate"
   label: string;
-  kind: 'send' | 'regen' | 'undo' | 'md';
+  kind: 'send' | 'regen' | 'undo' | 'md' | 'new' | 'crawlmf';
   text?: string;                                 // canned prompt for kind 'send'
 }
 
@@ -73,9 +73,13 @@ const QUICK_COMMANDS: QuickCommand[] = [
   { cmd: '/explain',  label: '解說目前的圖',       kind: 'send', text: '請讀取目前開啟的圖，用白話解說它的結構與效果。' },
   { cmd: '/export',   label: '複製目前的圖到剪貼簿', kind: 'send', text: '請把目前開啟的圖複製到剪貼簿。' },
   { cmd: '/compact',  label: '壓縮對話上下文',     kind: 'send', text: '請使用 compact_context 工具壓縮對話歷史。' },
+  { cmd: '/log',      label: '總結最近一次爬取結果', kind: 'send', text: '請用 read_crawl_log 讀取最近一次爬取的結果，總結成功與否與重點。' },
+  { cmd: '/help',     label: 'AI 能幫我做什麼',     kind: 'send', text: '請介紹你能幫我做什麼：可用的工具、能直接執行與只能提案的操作，以及建議的工作流程。' },
   { cmd: '/regen',    label: '重新生成上一回覆',   kind: 'regen' },
   { cmd: '/undo',     label: '還原上一步',         kind: 'undo' },
   { cmd: '/md',       label: '匯出對話 Markdown',  kind: 'md' },
+  { cmd: '/new',      label: '開始新對話',         kind: 'new' },
+  { cmd: '/crawlmf',  label: '爬取專案 MF 索引（完成後回報給 AI）', kind: 'crawlmf' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -595,10 +599,15 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     if (c.status !== 'success' && c.status !== 'error') return;
     pendingCrawlReport.current = null;
     const tail = c.logs.slice(-30).join('\n').slice(-3000);
-    const head = c.status === 'success'
-      ? `（系統回報）你先前請求的 ${pending.kind} 爬取已完成，請繼續先前的工作（需要的話重新查詢索引）。`
-      : `（系統回報）你先前請求的 ${pending.kind} 爬取失敗（exit ${c.exitCode ?? '?'}）。請根據 log 找出原因，用白話告訴我該怎麼解決。`;
-    void handleSend(`${head}\n\nlog 尾段：\n${tail}`);
+    // First line = clean card title; the instruction to the model lives in the
+    // collapsed detail so prompt-speak never headlines the conversation.
+    const title = c.status === 'success'
+      ? `${pending.kind} 爬取已完成`
+      : `${pending.kind} 爬取失敗（exit ${c.exitCode ?? '?'}）`;
+    const instruction = c.status === 'success'
+      ? '（給 AI）這是你先前請求的爬取。請繼續先前的工作，需要的話重新查詢索引。'
+      : '（給 AI）這是你先前請求的爬取。請根據 log 找出失敗原因，用白話向使用者說明並給出解法。';
+    void handleSend(`（系統回報）${title}\n${instruction}\n\nlog 尾段：\n${tail}`);
   }, [state.crawl, streaming, handleSend]);
 
   // 問 AI / post-import explain: consume the store's one-shot ask request.
@@ -723,6 +732,8 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     if (c.kind === 'send') return streaming;
     if (c.kind === 'regen') return streaming || !sessionId || items.length === 0;
     if (c.kind === 'undo') return streaming;
+    if (c.kind === 'new') return streaming;
+    if (c.kind === 'crawlmf') return state.crawl.status === 'running' || !state.env?.ready;
     return items.length === 0; // md
   };
   const runQuickCommand = (c: QuickCommand) => {
@@ -733,6 +744,18 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     else if (c.kind === 'regen') void handleRegenerate();
     else if (c.kind === 'undo') void handleUndo();
     else if (c.kind === 'md') downloadMarkdown();
+    else if (c.kind === 'new') void handleNewSession();
+    else if (c.kind === 'crawlmf') {
+      // User-initiated crawl from the chat: same scope the Config tab uses
+      // (localStorage MF root), and the outcome reports back to the agent.
+      const mfRoot = (localStorage.getItem('ue-mf-root') || '/Game').trim() || '/Game';
+      pendingCrawlReport.current = { kind: 'workmf' };
+      void startCrawl('workmf', mfRoot);
+      setItems(prev => [...prev, {
+        kind: 'notice', variant: 'info',
+        message: `已開始爬取專案 MF 索引（${mfRoot}）——進度在 Config 分頁，完成後會自動回報給 AI。`,
+      }]);
+    }
   };
 
   // M8: per-session tool usage stats (live and replayed items both count —
