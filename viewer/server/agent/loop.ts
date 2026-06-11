@@ -35,6 +35,16 @@ export const MAX_ITERS = 8;
  */
 export const TOKEN_CEILING = 300_000;
 
+/**
+ * Compaction (M11-1): when the session's token total crosses this mark at the
+ * start of a user turn, old turns are summarized into session memory and
+ * trimmed from the history so long conversations keep headroom instead of
+ * dying at TOKEN_CEILING.
+ */
+export const COMPACT_THRESHOLD = 150_000;
+/** Most recent user turns kept verbatim by compaction. */
+export const COMPACT_KEEP_TURNS = 4;
+
 // ---------------------------------------------------------------------------
 // Session type (server-side only)
 // ---------------------------------------------------------------------------
@@ -95,6 +105,10 @@ export interface RunAgentOptions {
    * their dialect. 'off'/undefined sends no thinking parameter.
    */
   thinking?: ThinkingLevel;
+  /** Override COMPACT_THRESHOLD (tests use tiny values). */
+  compactThreshold?: number;
+  /** Override COMPACT_KEEP_TURNS. */
+  compactKeepTurns?: number;
 }
 
 export async function runAgent(
@@ -111,6 +125,14 @@ export async function runAgent(
   const maxIters = options?.maxIters ?? MAX_ITERS;
   const tokenCeiling = options?.tokenCeiling ?? TOKEN_CEILING;
   const maxTokens = options?.maxTokens ?? 8192;
+
+  // Compaction runs BEFORE the memory read so the freshly-written summary is
+  // part of this turn's system prompt.
+  await maybeCompact(
+    session, provider, model, ctx, emit, signal,
+    options?.compactThreshold ?? COMPACT_THRESHOLD,
+    options?.compactKeepTurns ?? COMPACT_KEEP_TURNS,
+  );
 
   // Build system prompt (reads SPEC.md from disk at call time). Memory is
   // re-read every user turn so notes written mid-conversation take effect
@@ -355,6 +377,136 @@ export async function runAgent(
   }
 
   emit({ type: 'done' });
+}
+
+// ---------------------------------------------------------------------------
+// Compaction (M11-1)
+// ---------------------------------------------------------------------------
+
+/** chars/4 estimate over the text-bearing blocks of a message list. */
+function estimateMessagesTokens(msgs: Message[]): number {
+  let chars = 0;
+  for (const m of msgs) {
+    for (const b of m.content) {
+      if ('text' in b && typeof b.text === 'string') chars += b.text.length;
+      else if ('content' in b && typeof b.content === 'string') chars += b.content.length;
+    }
+  }
+  return Math.round(chars / 4);
+}
+
+/** Flatten dropped turns into a compact text the summarizer can digest. */
+function serializeForSummary(msgs: Message[]): string {
+  const parts: string[] = [];
+  for (const m of msgs) {
+    for (const b of m.content) {
+      if (b.type === 'text') parts.push(`${m.role === 'user' ? '使用者' : '助手'}：${b.text}`);
+      else if (b.type === 'tool_use') parts.push(`[工具呼叫 ${b.name}] ${JSON.stringify(b.input).slice(0, 200)}`);
+      else if (b.type === 'tool_result') parts.push(`[工具結果${b.isError ? '（錯誤）' : ''}] ${b.content.slice(0, 200)}`);
+    }
+  }
+  let out = parts.join('\n');
+  if (out.length > 20_000) out = out.slice(0, 20_000) + '\n…（截斷）';
+  return out;
+}
+
+/** One-shot tool-less summary of the dropped turns. null = failed → skip compaction. */
+async function summarizeForCompaction(
+  provider: Provider,
+  model: string,
+  dropped: Message[],
+  session: AgentLoopSession,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  try {
+    let text = '';
+    for await (const ev of provider.stream({
+      model,
+      system:
+        '你是對話摘要器。把以下 UE 材質工作對話濃縮成繁體中文重點筆記（500 字內）：' +
+        '保留使用者目標與偏好、已建立/修改的圖檔路徑與關鍵參數決定、尚未完成的事項。' +
+        '直接輸出筆記內容，不要任何前言。',
+      messages: [{ role: 'user', content: [{ type: 'text', text: serializeForSummary(dropped) }] }],
+      maxTokens: 1024,
+      signal,
+    })) {
+      if (ev.type === 'text_delta') text += ev.text;
+      else if (ev.type === 'usage') session.totalTokens += ev.inputTokens + ev.outputTokens;
+      else if (ev.type === 'error') return null;
+      else if (ev.type === 'done') break;
+    }
+    const trimmed = text.trim();
+    return trimmed.length > 0 ? trimmed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * When the session crosses the threshold, summarize everything but the last
+ * keepTurns user turns into session memory and trim the message history.
+ * Every failure path is a safe no-op: the history stays intact.
+ */
+async function maybeCompact(
+  session: AgentLoopSession,
+  provider: Provider,
+  model: string,
+  ctx: ToolContext,
+  emit: EmitFn,
+  signal: AbortSignal | undefined,
+  threshold: number,
+  keepTurns: number,
+): Promise<void> {
+  if (session.totalTokens < threshold) return;
+  if (!ctx.memory) return; // the summary needs a home
+  if (signal?.aborted) return;
+
+  const msgs = session.messages;
+
+  // Safe cut points: user messages carrying ONLY text. Cutting at a merged
+  // tool_result+text message would orphan tool_results from their tool_use —
+  // an illegal history for the Anthropic dialect.
+  const safeStarts: number[] = [];
+  for (let i = 0; i < msgs.length; i++) {
+    const m = msgs[i];
+    if (m.role !== 'user') continue;
+    const hasText = m.content.some(b => b.type === 'text');
+    const hasToolResult = m.content.some(b => b.type === 'tool_result');
+    if (hasText && !hasToolResult) safeStarts.push(i);
+  }
+  if (safeStarts.length <= keepTurns) return;
+
+  const cut = safeStarts[safeStarts.length - keepTurns];
+  if (cut <= 0) return;
+  const dropped = msgs.slice(0, cut);
+  const droppedTurns = safeStarts.filter(i => i < cut).length;
+
+  const summary = await summarizeForCompaction(provider, model, dropped, session, signal);
+  if (summary === null) return;
+
+  const block = `## 先前對話摘要（自動壓縮）\n${summary}`;
+  try {
+    await ctx.memory.append('session', block);
+  } catch {
+    // Session-memory cap hit — last resort: the consolidated summary replaces
+    // the old notes (it subsumes them by construction).
+    try {
+      await ctx.memory.replace('session', block);
+    } catch {
+      return; // even replace failed — keep the history untouched
+    }
+  }
+
+  session.messages = msgs.slice(cut);
+  // totalTokens drives the cost ceiling; re-estimate from the remaining
+  // context so a compacted session regains headroom instead of dying at the
+  // ceiling over history it no longer carries.
+  session.totalTokens = estimateMessagesTokens(session.messages);
+
+  emit({
+    type: 'compacted',
+    message: `對話較長，已將先前 ${droppedTurns} 輪摘要寫入會話記憶並壓縮歷史。`,
+  });
 }
 
 // ---------------------------------------------------------------------------

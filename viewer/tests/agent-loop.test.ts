@@ -1329,3 +1329,145 @@ describe('thinking events', () => {
     expect(seen).toEqual(['high', 'high']);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §20  Compaction (M11-1): summarize old turns into session memory + trim
+// ---------------------------------------------------------------------------
+
+import { createMemoryStore } from '../server/agent/memory-store.js';
+
+describe('compaction', () => {
+  /** Recording provider: captures every ChatRequest, pops scripted turns. */
+  class RecordingProvider implements Provider {
+    requests: ChatRequest[] = [];
+    constructor(private readonly turns: StreamEvent[][]) {}
+    async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
+      this.requests.push(req);
+      const turn = this.turns[this.requests.length - 1] ?? [
+        { type: 'text_delta', text: '好的。' },
+        { type: 'done', stopReason: 'end' },
+      ];
+      for (const ev of turn) yield ev;
+    }
+  }
+
+  function seedTurns(n: number): void {
+    for (let i = 1; i <= n; i++) {
+      session.messages.push({ role: 'user', content: [{ type: 'text', text: `第${i}輪請求` }] });
+      session.messages.push({ role: 'assistant', content: [{ type: 'text', text: `第${i}輪回覆` }] });
+    }
+  }
+
+  it('summarizes dropped turns into session memory, trims history, emits compacted', async () => {
+    const memory = createMemoryStore(join(tmpDir, 'viewer'), 'test-session');
+    const memCtx: ToolContext = { ...ctx, memory };
+    seedTurns(6);
+    session.totalTokens = 200_000;
+
+    const provider = new RecordingProvider([
+      // Call #1 = the summarizer (tool-less one-shot).
+      [{ type: 'text_delta', text: '摘要：使用者要做發光材質，已建立 proj/glow。' }, { type: 'done', stopReason: 'end' }],
+      // Call #2 = the actual turn.
+      [{ type: 'text_delta', text: '繼續處理。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+
+    const events: AgentSseEvent[] = [];
+    await runAgent('繼續', session, provider, 'fake-model', memCtx, e => events.push(e), undefined, {
+      compactThreshold: 100,
+      compactKeepTurns: 2,
+    });
+
+    // compacted event emitted with the dropped-turn count (6 seeded − 2 kept = 4).
+    const compacted = events.find(e => e.type === 'compacted');
+    expect(compacted).toBeDefined();
+    if (compacted?.type === 'compacted') expect(compacted.message).toContain('4 輪');
+
+    // The summary landed in session memory…
+    expect(await memory.read('session')).toContain('使用者要做發光材質');
+    // …and the summarizer was tool-less.
+    expect(provider.requests[0].tools).toBeUndefined();
+
+    // History trimmed: dropped turns gone, kept turns + new exchange intact,
+    // starting at a text-only user message with strictly alternating roles.
+    const flat = JSON.stringify(session.messages);
+    expect(flat).not.toContain('第1輪請求');
+    expect(flat).not.toContain('第4輪回覆');
+    expect(flat).toContain('第5輪請求');
+    expect(flat).toContain('第6輪回覆');
+    expect(session.messages[0].role).toBe('user');
+    expect(session.messages[0].content.every(b => b.type === 'text')).toBe(true);
+    for (let i = 1; i < session.messages.length; i++) {
+      expect(session.messages[i].role).not.toBe(session.messages[i - 1].role);
+    }
+
+    // The MAIN call's system prompt carries the fresh summary (memory read
+    // happens after compaction), and totalTokens was re-estimated downward.
+    expect(provider.requests[1].system ?? '').toContain('使用者要做發光材質');
+    expect(session.totalTokens).toBeLessThan(100_000);
+  });
+
+  it('does not compact below threshold or without a memory store', async () => {
+    seedTurns(6);
+    session.totalTokens = 50; // below custom threshold
+
+    const memory = createMemoryStore(join(tmpDir, 'viewer'), 'test-session');
+    const p1 = new RecordingProvider([]);
+    await runAgent('hi', session, p1, 'fake-model', { ...ctx, memory }, () => {}, undefined, {
+      compactThreshold: 100_000, compactKeepTurns: 2,
+    });
+    expect(p1.requests).toHaveLength(1); // no summarizer call
+    expect(JSON.stringify(session.messages)).toContain('第1輪請求');
+
+    // Above threshold but NO memory store → also a no-op.
+    session.totalTokens = 200_000;
+    const p2 = new RecordingProvider([]);
+    await runAgent('again', session, p2, 'fake-model', ctx, () => {}, undefined, {
+      compactThreshold: 100, compactKeepTurns: 2,
+    });
+    expect(p2.requests).toHaveLength(1);
+    expect(JSON.stringify(session.messages)).toContain('第1輪請求');
+  });
+
+  it('a failed summarizer leaves the history intact (safe no-op)', async () => {
+    const memory = createMemoryStore(join(tmpDir, 'viewer'), 'test-session');
+    seedTurns(6);
+    session.totalTokens = 200_000;
+
+    const provider = new RecordingProvider([
+      [{ type: 'error', message: 'HTTP 500: summarizer down' }],
+      [{ type: 'text_delta', text: '照常回覆。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+
+    const events: AgentSseEvent[] = [];
+    await runAgent('繼續', session, provider, 'fake-model', { ...ctx, memory }, e => events.push(e), undefined, {
+      compactThreshold: 100, compactKeepTurns: 2,
+    });
+
+    expect(events.some(e => e.type === 'compacted')).toBe(false);
+    expect(JSON.stringify(session.messages)).toContain('第1輪請求');
+    expect(await memory.read('session')).toBe('');
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('skips when there is no safe cut point (all turns merged with tool results)', async () => {
+    const memory = createMemoryStore(join(tmpDir, 'viewer'), 'test-session');
+    // Two "turns" whose user messages all carry tool_results (merged-tail shape).
+    session.messages = [
+      { role: 'user', content: [{ type: 'text', text: '起始' }] },
+      { role: 'assistant', content: [{ type: 'tool_use', id: 't1', name: 'search_nodes', input: {} }] },
+      { role: 'user', content: [{ type: 'tool_result', toolUseId: 't1', content: 'r' }, { type: 'text', text: '混合' }] },
+      { role: 'assistant', content: [{ type: 'text', text: '回覆' }] },
+    ];
+    session.totalTokens = 200_000;
+
+    const provider = new RecordingProvider([]);
+    const events: AgentSseEvent[] = [];
+    await runAgent('next', session, provider, 'fake-model', { ...ctx, memory }, e => events.push(e), undefined, {
+      compactThreshold: 100, compactKeepTurns: 1,
+    });
+
+    // Only ONE safe start ('起始') ≤ keepTurns → no compaction, single main call.
+    expect(provider.requests).toHaveLength(1);
+    expect(events.some(e => e.type === 'compacted')).toBe(false);
+  });
+});

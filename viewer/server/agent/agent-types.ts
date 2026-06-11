@@ -14,6 +14,7 @@ export type AgentSseEvent =
   | { type: 'diff'; lines: string[] }                                // plain-language diff (after successful write)
   | { type: 'graph_written'; path: string }                          // UI can auto-open this file
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
+  | { type: 'compacted'; message: string }                           // old turns summarized into session memory
   | { type: 'limit'; kind: 'iters' | 'cost'; message: string }
   | { type: 'error'; message: string }
   | { type: 'done' };

@@ -157,6 +157,9 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
       return items;
     }
 
+    case 'compacted':
+      return [...items, { kind: 'notice', variant: 'info', message: event.message }];
+
     case 'limit':
       return [...items, { kind: 'notice', variant: 'limit', message: event.message }];
 
