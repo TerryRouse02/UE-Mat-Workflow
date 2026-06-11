@@ -615,6 +615,32 @@ describe('request_crawl', () => {
   });
 });
 
+describe('read_crawl_log', () => {
+  it('returns the last finished crawl tail and respects the lines cap', async () => {
+    const lines = Array.from({ length: 100 }, (_, i) => `line ${i + 1}`);
+    const withLog = {
+      ...ctx,
+      getCrawlLog: () => ({ kind: 'workmf', status: 'error' as const, exitCode: 1, lines }),
+    };
+    const r = await dispatchTool('read_crawl_log', { lines: 10 }, withLog);
+    expect(r.isError).toBeUndefined();
+    const parsed = JSON.parse(r.content);
+    expect(parsed).toMatchObject({ ok: true, kind: 'workmf', status: 'error', exitCode: 1 });
+    expect(parsed.logTail.split('\n')).toHaveLength(10);
+    expect(parsed.logTail).toContain('line 100');
+    expect(parsed.logTail).not.toContain('line 90\n');
+  });
+
+  it('reports "no crawl yet" without error, and unavailable runner as an error', async () => {
+    const none = await dispatchTool('read_crawl_log', {}, { ...ctx, getCrawlLog: () => null });
+    expect(none.isError).toBeUndefined();
+    expect(none.content).toContain('尚無');
+
+    const noRunner = await dispatchTool('read_crawl_log', {}, ctx);
+    expect(noRunner.isError).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // web_search / web_fetch (network injected via ctx.web)
 // ---------------------------------------------------------------------------

@@ -693,6 +693,13 @@ function toolSummary(call: ToolUseBlock): string {
     case 'read_memory':       return `讀取記憶：${inp.scope === 'longterm' ? '長期' : '本對話'}`;
     case 'update_memory':     return `更新記憶：${inp.scope === 'longterm' ? '長期' : '本對話'}`;
     case 'compact_context':   return '壓縮對話上下文';
+    case 'rename_graph':      return `改名圖形：${String(inp.from ?? '')} → ${String(inp.to ?? '')}`;
+    case 'delete_graph':      return `刪除圖形：${String(inp.path ?? '')}`;
+    case 'export_to_clipboard': return `複製到剪貼簿：${String(inp.path ?? '')}`;
+    case 'request_crawl':     return `提議爬取：${String(inp.kind ?? '')}`;
+    case 'read_crawl_log':    return '讀取爬取 log';
+    case 'web_search':        return `搜尋網路：${String(inp.query ?? '')}`;
+    case 'web_fetch':         return `讀取網頁：${String(inp.url ?? '')}`;
     default:                  return call.name;
   }
 }

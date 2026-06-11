@@ -41,6 +41,16 @@ export interface ToolContext {
   web?: WebDeps;
   /** Injectable env probe for request_crawl (tests — the real probe needs a UE install). */
   probeEnvFn?: typeof probeEnv;
+  /**
+   * Tail of the most recently finished crawl (read_crawl_log tool) — wired to
+   * the crawl runner's lastLog() by the HTTP server. Absent → tool unavailable.
+   */
+  getCrawlLog?: () => {
+    kind: string;
+    status: 'success' | 'error';
+    exitCode: number | null;
+    lines: string[];
+  } | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -442,6 +452,19 @@ export const toolDefs: ToolDef[] = [
     },
   },
   {
+    name: 'read_crawl_log',
+    description:
+      'Read the log tail of the most recently FINISHED metadata crawl (success or failure). ' +
+      'Use to diagnose why a crawl failed or to verify what it found. Returns kind, status, ' +
+      'exit code, and the last log lines.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        lines: { type: 'number', description: 'How many trailing lines to return (default 60, max 200)' },
+      },
+    },
+  },
+  {
     name: 'web_search',
     description:
       'Search the public web (DuckDuckGo). Returns {title, url, snippet} hits. Use when you need ' +
@@ -512,6 +535,7 @@ async function _dispatch(
     case 'delete_graph':    return toolDeleteGraph(inp, ctx);
     case 'export_to_clipboard': return toolExportToClipboard(inp, ctx);
     case 'request_crawl':   return toolRequestCrawl(inp, ctx);
+    case 'read_crawl_log':  return toolReadCrawlLog(inp, ctx);
     case 'web_search':      return toolWebSearch(inp, ctx);
     case 'web_fetch':       return toolWebFetch(inp, ctx);
     case 'compact_context':
@@ -1178,6 +1202,47 @@ async function toolRequestCrawl(
       note:
         '已向使用者送出爬取確認卡（爬取會啟動 UE 編輯器、需數分鐘）。請結束本輪並等待使用者確認與完成回報，' +
         '絕不要假設爬取已執行或已完成。',
+    }),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// read_crawl_log — log tail of the last finished crawl (diagnosis aid)
+// ---------------------------------------------------------------------------
+
+const CRAWL_LOG_DEFAULT_LINES = 60;
+const CRAWL_LOG_MAX_LINES = 200;
+const CRAWL_LOG_CHAR_CAP = 12_000;
+
+async function toolReadCrawlLog(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  if (!ctx.getCrawlLog) {
+    return { content: 'read_crawl_log: 此會話沒有爬取執行器（伺服器未掛載）。', isError: true };
+  }
+  const snap = ctx.getCrawlLog();
+  if (!snap) {
+    return { content: '尚無已完成的爬取紀錄。爬取需由使用者從 Config 分頁或確認卡啟動。' };
+  }
+  let n = CRAWL_LOG_DEFAULT_LINES;
+  if (typeof inp.lines === 'number' && Number.isFinite(inp.lines)) {
+    n = Math.max(1, Math.min(CRAWL_LOG_MAX_LINES, Math.floor(inp.lines)));
+  }
+  let tail = snap.lines.slice(-n).join('\n');
+  let truncated = false;
+  if (tail.length > CRAWL_LOG_CHAR_CAP) {
+    tail = tail.slice(-CRAWL_LOG_CHAR_CAP);
+    truncated = true;
+  }
+  return {
+    content: JSON.stringify({
+      ok: true,
+      kind: snap.kind,
+      status: snap.status,
+      exitCode: snap.exitCode,
+      truncated,
+      logTail: tail,
     }),
   };
 }

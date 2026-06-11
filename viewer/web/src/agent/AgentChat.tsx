@@ -445,6 +445,25 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
     }
   }, [streaming, currentPath, selectedNodeId, open, thinking, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
 
+  // Crawl-result feedback loop: a crawl approved from an agent proposal card
+  // reports its outcome (status + log tail) back into the conversation once it
+  // finishes, so the agent can re-search on success or diagnose the failure
+  // itself. Manual Config-tab crawls never report — only ones the agent asked
+  // for. Waits for any in-flight stream to end before sending.
+  const pendingCrawlReport = useRef<{ kind: string } | null>(null);
+  useEffect(() => {
+    const c = state.crawl;
+    const pending = pendingCrawlReport.current;
+    if (!pending || streaming) return;
+    if (c.status !== 'success' && c.status !== 'error') return;
+    pendingCrawlReport.current = null;
+    const tail = c.logs.slice(-30).join('\n').slice(-3000);
+    const head = c.status === 'success'
+      ? `（系統回報）你先前請求的 ${pending.kind} 爬取已完成，請繼續先前的工作（需要的話重新查詢索引）。`
+      : `（系統回報）你先前請求的 ${pending.kind} 爬取失敗（exit ${c.exitCode ?? '?'}）。請根據 log 找出原因，用白話告訴我該怎麼解決。`;
+    void handleSend(`${head}\n\nlog 尾段：\n${tail}`);
+  }, [state.crawl, streaming, handleSend]);
+
   // 問 AI / post-import explain: consume the store's one-shot ask request.
   // Waits for the provider status so an unconfigured agent silently drops it
   // (the guidance panel is already on screen). send=true submits immediately;
@@ -676,6 +695,7 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
                 crawl={state.crawl}
                 onApprove={() => {
                   setItems(prev => prev.map((it, j) => (j === i && it.kind === 'crawlProposal' ? { ...it, resolved: true } : it)));
+                  pendingCrawlReport.current = { kind: item.crawlKind };
                   void startCrawl(item.crawlKind, item.contentRoot);
                 }}
               />

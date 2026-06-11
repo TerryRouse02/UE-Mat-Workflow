@@ -1026,6 +1026,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         await checkpointStore.snapshotFile(turnId, absPath);
       },
       memory: active.memory,
+      getCrawlLog: () => runner.lastLog(),
     };
 
     // Allowlist the per-turn thinking level from the request body.

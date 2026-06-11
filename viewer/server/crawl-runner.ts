@@ -128,10 +128,21 @@ export interface RunnerOpts {
   timeoutMs?: number;
 }
 
+/** Tail of the most recently finished crawl — read by the agent's read_crawl_log tool. */
+export interface CrawlLogSnapshot {
+  kind: CrawlKind;
+  status: 'success' | 'error';
+  exitCode: number | null;
+  /** Last LOG_TAIL_CAP lines of stdout+stderr. */
+  lines: string[];
+}
+
 export interface CrawlRunner {
   start(kind: CrawlKind, emit: (e: CrawlEvent) => void, opts?: CrawlStartOpts): string;
   current(): CrawlStatus;
   cancel(): boolean;
+  /** The finished crawl's log tail (null until one completes). A running crawl does not change it. */
+  lastLog(): CrawlLogSnapshot | null;
 }
 
 export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): CrawlRunner {
@@ -142,6 +153,7 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
   let status: CrawlStatus = { status: 'idle' };
   let counter = 0;
   let currentChild: ChildProcess | null = null;
+  let lastLogSnapshot: CrawlLogSnapshot | null = null;
 
   function start(kind: CrawlKind, emit: (e: CrawlEvent) => void, startOpts?: CrawlStartOpts): string {
     if (status.status === 'running') throw new Error('a crawl is already running');
@@ -179,6 +191,7 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
         }
       }
       status = { status: ok ? 'success' : 'error', jobId, kind, exitCode };
+      lastLogSnapshot = { kind, status: ok ? 'success' : 'error', exitCode, lines: [...logTail] };
       emit({ type: 'done', jobId, status: ok ? 'success' : 'error', exitCode });
     };
 
@@ -193,5 +206,5 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
     return true;
   }
 
-  return { start, current: () => status, cancel };
+  return { start, current: () => status, cancel, lastLog: () => lastLogSnapshot };
 }
