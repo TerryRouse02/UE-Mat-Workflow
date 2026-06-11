@@ -137,7 +137,11 @@ interface LLMConfig {
   maxTokens?: number;
 }
 // 前端只拿這個（GET /api/agent/status）——apiKey 永不進任何前端回應
-interface ProviderStatus { configured: boolean; provider?: string; model?: string }
+// baseUrl 為使用者自填端點（非機密）、hasApiKey 只回布林（2026-06-11 擴充）
+interface ProviderStatus {
+  configured: boolean; provider?: string; model?: string;
+  baseUrl?: string; hasApiKey?: boolean;
+}
 ```
 
 `POST /api/config` 擴充收 `Llm` 物件（沿用 `cleanConfigField` 式淨化：字串、長度上限、
@@ -249,13 +253,15 @@ get_signature 再連線；MF 必查 `get_mf_signature`；改圖前先 `read_grap
 | `/api/agent/undo` | POST | 還原上一 turn 的 pre-image | `sameOrigin`；限 `graphs/` |
 | `/api/agent/reset` | POST | 清空 session | `sameOrigin` |
 | `/api/agent/status` | GET | `ProviderStatus`（永不含 apiKey） | 同 `/api/env` |
-| `/api/config` | POST（擴充） | 新收 `Llm` 物件 | 既有守衛 |
+| `/api/agent/test` | POST | 用「已儲存」設定發最小請求驗證連線；錯誤翻白話（2026-06-11） | `sameOrigin`；30s 上限 |
+| `/api/config` | POST（擴充） | 新收 `Llm` 物件；`baseUrl: ''` 表清除（兩個 provider 都收 baseUrl） | 既有守衛 |
 
 ### Wire 型別（agent-types.ts ↔ web/src/agent/protocol.ts，鏡像）
 
 ```ts
 type AgentSseEvent =
   | { type: 'text'; text: string }                                   // 敘事逐字
+  | { type: 'thinking'; text: string }                               // 思考串流（僅顯示；2026-06-11）
   | { type: 'tool_start'; name: string; summary: string }            // 使用者可讀的步驟行
   | { type: 'tool_end'; name: string; ok: boolean; summary?: string }
   | { type: 'diff'; lines: string[] }                                // 白話 diff（成功寫入後）
@@ -264,8 +270,14 @@ type AgentSseEvent =
   | { type: 'limit'; kind: 'iters' | 'cost'; message: string }
   | { type: 'error'; message: string }
   | { type: 'done' };
-// POST /api/agent/chat body
-interface AgentChatRequest { text: string; ueVersion?: string; graphPath?: string }
+// POST /api/agent/chat body — thinking 為每輪思考程度（2026-06-11）：
+// anthropic → thinking.budget_tokens（低 2048／中 8192／高 16384，max_tokens 自動抬高）；
+// openai-compatible → reasoning_effort。Anthropic 開啟思考＋工具呼叫時，
+// thinking block（含 signature）必須原樣回傳歷史；關閉時須剝除——adapter 已處理。
+interface AgentChatRequest {
+  text: string; ueVersion?: string; graphPath?: string;
+  thinking?: 'off' | 'low' | 'medium' | 'high';
+}
 ```
 
 ## 8. Web UI
