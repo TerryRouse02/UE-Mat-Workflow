@@ -112,8 +112,13 @@ export async function runAgent(
   const tokenCeiling = options?.tokenCeiling ?? TOKEN_CEILING;
   const maxTokens = options?.maxTokens ?? 8192;
 
-  // Build system prompt (reads SPEC.md from disk at call time).
-  const system = await buildSystemPrompt(ctx.repoRoot, session.ueVersion);
+  // Build system prompt (reads SPEC.md from disk at call time). Memory is
+  // re-read every user turn so notes written mid-conversation take effect
+  // on the next turn.
+  const memory = ctx.memory
+    ? { longterm: await ctx.memory.read('longterm'), session: await ctx.memory.read('session') }
+    : undefined;
+  const system = await buildSystemPrompt(ctx.repoRoot, session.ueVersion, memory);
 
   // Append the new user message. If the previous turn ended with tool_results
   // (iter/cost ceiling or abort), the last message is already user-role —
@@ -445,14 +450,17 @@ function toolSummary(call: ToolUseBlock): string {
     case 'patch_graph':       return `修改圖形：${String(inp.path ?? '')}`;
     case 'validate_graph':    return `驗證圖形：${typeof inp.path === 'string' ? inp.path : '(inline)'}`;
     case 'get_graph_errors':  return `取得圖形錯誤：${String(inp.path ?? '')}`;
+    case 'read_memory':       return `讀取記憶：${inp.scope === 'longterm' ? '長期' : '本對話'}`;
+    case 'update_memory':     return `更新記憶：${inp.scope === 'longterm' ? '長期' : '本對話'}`;
     default:                  return call.name;
   }
 }
 
 function toolEndSummary(toolName: string, _content: string): string | undefined {
   switch (toolName) {
-    case 'write_graph':  return '圖形已寫入';
-    case 'patch_graph':  return '圖形已更新';
-    default:             return undefined;
+    case 'write_graph':   return '圖形已寫入';
+    case 'patch_graph':   return '圖形已更新';
+    case 'update_memory': return '記憶已更新';
+    default:              return undefined;
   }
 }

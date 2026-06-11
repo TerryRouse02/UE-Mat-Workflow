@@ -7,14 +7,37 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
+/** Memory sections injected into the prompt (M7b). */
+export interface PromptMemory {
+  longterm: string;
+  session: string;
+}
+
+// Defensive per-section cap when injecting memory into the prompt — the
+// store already caps files, this only guards against an oversized file
+// written outside the tools.
+const MEMORY_INJECT_CAP = 8000;
+
+function memorySection(memory: PromptMemory | undefined): string {
+  if (!memory) return '';
+  const lt = memory.longterm.trim().slice(0, MEMORY_INJECT_CAP);
+  const ss = memory.session.trim().slice(0, MEMORY_INJECT_CAP);
+  if (!lt && !ss) return '';
+  let out = '\n## 你的記憶（本地檔案，可用 read_memory / update_memory 工具讀寫）\n';
+  if (lt) out += `\n### 長期記憶（跨對話的使用者偏好與事實）\n${lt}\n`;
+  if (ss) out += `\n### 本對話記憶（這個對話的工作筆記）\n${ss}\n`;
+  return out;
+}
+
 /**
  * Build the system prompt for the given session.
  * Reads agent-pack/SPEC.md at call time.
  *
  * @param repoRoot  absolute path to the repo root
  * @param ueVersion e.g. "5.7"
+ * @param memory    optional two-layer memory content to inject (M7b)
  */
-export async function buildSystemPrompt(repoRoot: string, ueVersion: string): Promise<string> {
+export async function buildSystemPrompt(repoRoot: string, ueVersion: string, memory?: PromptMemory): Promise<string> {
   let spec: string;
   try {
     spec = await readFile(join(repoRoot, 'agent-pack', 'SPEC.md'), 'utf-8');
@@ -40,7 +63,10 @@ export async function buildSystemPrompt(repoRoot: string, ueVersion: string): Pr
 4. **禁止寫入 x/y 座標**：版面配置是 dagre 的工作，matgraph 不應包含 x/y 欄位。
 5. **驗證失敗就自修，不放棄**：若工具回傳錯誤，在 MAX_ITERS 範圍內自行修正，不要直接把原始錯誤訊息丟給使用者。
 6. **圖形路徑使用相對路徑**：路徑從 graphs/ 目錄開始，以 .matgraph.json 結尾。
-
+7. **主動記憶使用者偏好**：當使用者陳述持久偏好（慣用版本、命名風格、亮度/色彩口味）時，
+   用 update_memory（scope: "longterm"）記下；本對話的工作脈絡（例如正在改哪個檔、目標效果）
+   可寫入 scope: "session"。筆記保持精簡，不記敏感資訊。
+${memorySection(memory)}
 ## matgraph 撰寫規則
 以下是完整的 .matgraph.json 規格（來自 agent-pack/SPEC.md）：
 

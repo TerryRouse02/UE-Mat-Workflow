@@ -362,3 +362,147 @@ describe('session persistence', () => {
     }
   }, 15000);
 });
+
+// ---------------------------------------------------------------------------
+// M7b: two-layer memory — store unit, tools, prompt injection, isolation
+// ---------------------------------------------------------------------------
+
+import { createMemoryStore, MEMORY_CHAR_CAP } from '../server/agent/memory-store.js';
+import { dispatchTool, type ToolContext } from '../server/agent/tools.js';
+
+describe('memory-store', () => {
+  it('read returns empty for missing files; replace/append round-trip', async () => {
+    const root = makeTmpRoot();
+    const store = createMemoryStore(resolve(root, 'viewer'), 'sess-mem');
+
+    expect(await store.read('longterm')).toBe('');
+    await store.replace('longterm', '- 喜歡低亮度');
+    expect(await store.read('longterm')).toBe('- 喜歡低亮度');
+
+    await store.append('longterm', '- 慣用 UE 5.7');
+    expect(await store.read('longterm')).toBe('- 喜歡低亮度\n\n- 慣用 UE 5.7');
+
+    // Session scope writes a per-session file.
+    await store.replace('session', '工作筆記');
+    expect(store.pathFor('session')).toContain('sess-mem.memory.md');
+    const other = createMemoryStore(resolve(root, 'viewer'), 'sess-other');
+    expect(await other.read('session')).toBe('');
+    expect(await other.read('longterm')).toBe('- 喜歡低亮度\n\n- 慣用 UE 5.7');
+  });
+
+  it('rejects writes over the size cap with a condense hint', async () => {
+    const root = makeTmpRoot();
+    const store = createMemoryStore(resolve(root, 'viewer'), 's');
+    await expect(store.replace('longterm', 'x'.repeat(MEMORY_CHAR_CAP + 1))).rejects.toThrow(/condense/i);
+    // Append that would push over the cap also fails, file unchanged.
+    await store.replace('longterm', 'y'.repeat(MEMORY_CHAR_CAP - 10));
+    await expect(store.append('longterm', 'z'.repeat(100))).rejects.toThrow();
+    expect((await store.read('longterm')).length).toBe(MEMORY_CHAR_CAP - 10);
+  });
+});
+
+describe('memory tools', () => {
+  function memCtx(root: string): ToolContext {
+    return {
+      repoRoot: REPO_ROOT,
+      graphsRoot: resolve(root, 'graphs'),
+      ueVersion: '5.7',
+      memory: createMemoryStore(resolve(root, 'viewer'), 'tool-sess'),
+    };
+  }
+
+  it('update_memory writes and read_memory reads back', async () => {
+    const ctx = memCtx(makeTmpRoot());
+    const w = await dispatchTool('update_memory', { scope: 'longterm', op: 'append', content: '- 偏好霧面' }, ctx);
+    expect(w.isError).toBeFalsy();
+    const r = await dispatchTool('read_memory', { scope: 'longterm' }, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(r.content).toContain('偏好霧面');
+  });
+
+  it('guards: missing store, bad scope/op, oversize content → isError (never throws)', async () => {
+    const root = makeTmpRoot();
+    const noMem: ToolContext = { repoRoot: REPO_ROOT, graphsRoot: resolve(root, 'graphs'), ueVersion: '5.7' };
+    expect((await dispatchTool('read_memory', { scope: 'longterm' }, noMem)).isError).toBe(true);
+
+    const ctx = memCtx(root);
+    expect((await dispatchTool('read_memory', { scope: 'global' }, ctx)).isError).toBe(true);
+    expect((await dispatchTool('update_memory', { scope: 'session', op: 'delete', content: 'x' }, ctx)).isError).toBe(true);
+    const over = await dispatchTool('update_memory', { scope: 'session', op: 'replace', content: 'x'.repeat(MEMORY_CHAR_CAP + 1) }, ctx);
+    expect(over.isError).toBe(true);
+    expect(over.content).toContain('Condense');
+  });
+});
+
+describe('memory across sessions (prompt injection + isolation)', () => {
+  it('longterm memory written in one session reaches the next session\'s system prompt; session memory stays isolated', async () => {
+    const root = makeTmpRoot();
+    llmConfigured(root);
+    const provider = new RecordingProvider([
+      // s1 turn: model stores a longterm preference and a session-only note.
+      [
+        { type: 'tool_use', id: 'm1', name: 'update_memory', input: { scope: 'longterm', op: 'append', content: '使用者喜歡低亮度發光' } },
+        { type: 'tool_use', id: 'm2', name: 'update_memory', input: { scope: 'session', op: 'append', content: 'S1專屬工作筆記' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [{ type: 'text_delta', text: '記住了！' }, { type: 'done', stopReason: 'end' }],
+      // s2 turn: plain reply.
+      [{ type: 'text_delta', text: '好的。' }, { type: 'done', stopReason: 'end' }],
+      // s1 second turn: plain reply.
+      [{ type: 'text_delta', text: '收到。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: () => provider });
+    try {
+      const mk = async () =>
+        ((await (await fetch(`http://localhost:${server.port}/api/agent/sessions`, { method: 'POST' })).json()) as AgentSessionCreateResponse).id;
+
+      const s1 = await mk();
+      await chat(server.port, { text: '記住我喜歡低亮度', sessionId: s1 });
+
+      const s2 = await mk();
+      await chat(server.port, { text: '做個材質', sessionId: s2 });
+
+      // s2's system prompt carries the longterm note but NOT s1's session note.
+      const s2System = provider.requests[2].system ?? '';
+      expect(s2System).toContain('使用者喜歡低亮度發光');
+      expect(s2System).not.toContain('S1專屬工作筆記');
+
+      // Back in s1: both layers are present.
+      await chat(server.port, { text: '繼續', sessionId: s1 });
+      const s1System = provider.requests[3].system ?? '';
+      expect(s1System).toContain('使用者喜歡低亮度發光');
+      expect(s1System).toContain('S1專屬工作筆記');
+    } finally {
+      await server.close();
+    }
+  }, 20000);
+
+  it('deleting a session removes its session memory file but keeps longterm', async () => {
+    const root = makeTmpRoot();
+    llmConfigured(root);
+    const provider = new RecordingProvider([
+      [
+        { type: 'tool_use', id: 'm1', name: 'update_memory', input: { scope: 'longterm', op: 'append', content: '長期筆記' } },
+        { type: 'tool_use', id: 'm2', name: 'update_memory', input: { scope: 'session', op: 'append', content: '會話筆記' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [{ type: 'text_delta', text: '好。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: () => provider });
+    try {
+      const { id } = await (await fetch(`http://localhost:${server.port}/api/agent/sessions`, { method: 'POST' })).json() as AgentSessionCreateResponse;
+      await chat(server.port, { text: '記筆記', sessionId: id });
+
+      const sessMemPath = resolve(root, 'viewer', '.agent-sessions', `${id}.memory.md`);
+      const longtermPath = resolve(root, 'viewer', '.agent-memory', 'longterm.md');
+      expect(existsSync(sessMemPath)).toBe(true);
+      expect(existsSync(longtermPath)).toBe(true);
+
+      await fetch(`http://localhost:${server.port}/api/agent/sessions/${id}`, { method: 'DELETE' });
+      expect(existsSync(sessMemPath)).toBe(false);
+      expect(existsSync(longtermPath)).toBe(true);
+    } finally {
+      await server.close();
+    }
+  }, 15000);
+});

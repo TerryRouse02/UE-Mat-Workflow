@@ -9,6 +9,7 @@ import { loadGraph } from '../graph-loader.js';
 import { resolveMaterialFunctions } from '../mf-resolver.js';
 import { loadWorkMfIndex } from '../workmf-index.js';
 import { applyPatch, type PatchOp } from './patch.js';
+import type { MemoryStore, MemoryScope } from './memory-store.js';
 import * as QB from './query-bridge.js';
 
 // ---------------------------------------------------------------------------
@@ -28,6 +29,11 @@ export interface ToolContext {
    * callers that do not need per-turn grouping may omit it.
    */
   beforeWrite?: (absPath: string, turnId: string) => Promise<void>;
+  /**
+   * M7b two-layer memory (session + longterm). Absent → the memory tools
+   * report themselves unavailable instead of failing silently.
+   */
+  memory?: MemoryStore;
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +293,37 @@ export const toolDefs: ToolDef[] = [
       required: ['path'],
     },
   },
+  {
+    name: 'read_memory',
+    description:
+      'Read your local memory notes. scope "session" = notes for THIS conversation; ' +
+      'scope "longterm" = user preferences and facts that persist across all conversations. ' +
+      'Both are also injected into your system prompt each turn.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: { type: 'string', enum: ['session', 'longterm'], description: 'Which memory layer to read' },
+      },
+      required: ['scope'],
+    },
+  },
+  {
+    name: 'update_memory',
+    description:
+      'Write your local memory notes. Use scope "longterm" for durable user preferences ' +
+      '(favorite UE version, naming style, brightness taste); scope "session" for working ' +
+      'notes about THIS conversation. op "append" adds a block; op "replace" rewrites the ' +
+      'whole file (use it to condense when the size cap is hit). Keep notes short.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        scope: { type: 'string', enum: ['session', 'longterm'], description: 'Which memory layer to write' },
+        op: { type: 'string', enum: ['append', 'replace'], description: 'append a block or replace the file' },
+        content: { type: 'string', description: 'The note content (markdown, keep concise)' },
+      },
+      required: ['scope', 'op', 'content'],
+    },
+  },
 ];
 
 // ---------------------------------------------------------------------------
@@ -321,9 +358,54 @@ async function _dispatch(
     case 'patch_graph':     return toolPatchGraph(inp, ctx);
     case 'validate_graph':  return toolValidateGraph(inp, ctx);
     case 'get_graph_errors':return toolGetGraphErrors(inp, ctx);
+    case 'read_memory':     return toolReadMemory(inp, ctx);
+    case 'update_memory':   return toolUpdateMemory(inp, ctx);
     default:
       return { content: `unknown tool: ${name}`, isError: true };
   }
+}
+
+// ---------------------------------------------------------------------------
+// read_memory / update_memory (M7b)
+// ---------------------------------------------------------------------------
+
+function parseScope(v: unknown): MemoryScope | null {
+  return v === 'session' || v === 'longterm' ? v : null;
+}
+
+async function toolReadMemory(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  if (!ctx.memory) return { content: 'memory store unavailable in this context', isError: true };
+  const scope = parseScope(inp.scope);
+  if (!scope) return { content: 'scope must be "session" or "longterm"', isError: true };
+  const content = await ctx.memory.read(scope);
+  return { content: content || '(empty)' };
+}
+
+async function toolUpdateMemory(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  if (!ctx.memory) return { content: 'memory store unavailable in this context', isError: true };
+  const scope = parseScope(inp.scope);
+  if (!scope) return { content: 'scope must be "session" or "longterm"', isError: true };
+  const op = inp.op;
+  if (op !== 'append' && op !== 'replace') {
+    return { content: 'op must be "append" or "replace"', isError: true };
+  }
+  const content = inp.content;
+  if (typeof content !== 'string') {
+    return { content: 'content must be a string', isError: true };
+  }
+
+  // Size-cap violations throw inside the store and surface as isError via
+  // dispatchTool's catch — the model then condenses with op:"replace".
+  if (op === 'append') await ctx.memory.append(scope, content);
+  else await ctx.memory.replace(scope, content);
+
+  return { content: JSON.stringify({ ok: true, scope, op }) };
 }
 
 // ---------------------------------------------------------------------------

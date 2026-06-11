@@ -22,6 +22,7 @@ import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
 import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse } from './agent/agent-types.js';
 import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/session-store.js';
+import { createMemoryStore } from './agent/memory-store.js';
 import { explainNode, buildGraphContext, RESERVED_NODE_DESCRIPTIONS } from './agent/explain.js';
 import type { LLMConfig, ProviderStatus } from './agent/provider/types.js';
 
@@ -114,6 +115,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   interface ActiveSession {
     loop: AgentLoopSession;
     checkpoint: ReturnType<typeof createCheckpointStore>;
+    memory: ReturnType<typeof createMemoryStore>;
     transcript: AgentTranscriptEntry[];
     title: string;
     createdAt: string;
@@ -143,6 +145,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     const active: ActiveSession = {
       loop: createSession(id, ueVersion, graphPath),
       checkpoint: createCheckpointStore(resolve(opts.repoRoot, 'viewer'), id),
+      memory: createMemoryStore(resolve(opts.repoRoot, 'viewer'), id),
       transcript: [],
       title: '',
       createdAt: new Date().toISOString(),
@@ -166,6 +169,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       // NOTE: the checkpoint turn stack is in-memory — undo history does not
       // survive a server restart (pre-images on disk are simply orphaned).
       checkpoint: createCheckpointStore(resolve(opts.repoRoot, 'viewer'), id),
+      memory: createMemoryStore(resolve(opts.repoRoot, 'viewer'), id),
       transcript: persisted.transcript,
       title: persisted.title,
       createdAt: persisted.createdAt,
@@ -695,6 +699,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         ?? resolve(opts.repoRoot, 'viewer', '.agent-checkpoints', id);
       await rm(cpDir, { recursive: true, force: true });
     } catch { /* non-fatal */ }
+    // Session memory belongs to the session — delete it too. Longterm memory
+    // is shared and untouched.
+    try {
+      await rm(resolve(opts.repoRoot, 'viewer', '.agent-sessions', `${id}.memory.md`), { force: true });
+    } catch { /* non-fatal */ }
     sendJson(res, 200, { ok: true });
   }
 
@@ -919,6 +928,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       beforeWrite: async (absPath: string, turnId: string) => {
         await checkpointStore.snapshotFile(turnId, absPath);
       },
+      memory: active.memory,
     };
 
     // Allowlist the per-turn thinking level from the request body.
