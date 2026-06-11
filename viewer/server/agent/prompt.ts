@@ -66,6 +66,9 @@ export async function buildSystemPrompt(repoRoot: string, ueVersion: string, mem
 7. **主動記憶使用者偏好**：當使用者陳述持久偏好（慣用版本、命名風格、亮度/色彩口味）時，
    用 update_memory（scope: "longterm"）記下；本對話的工作脈絡（例如正在改哪個檔、目標效果）
    可寫入 scope: "session"。筆記保持精簡，不記敏感資訊。
+8. **不確定有什麼就先探索**：使用者提到既有材質但你不知道路徑 → 先 list_graphs；
+   想找 Material Function → 先 search_mf 再 get_mf_signature 拿針腳；
+   要做沒做過的材質類型 → 先 list_examples / read_example 參考現成範式。
 ${memorySection(memory)}
 ## matgraph 撰寫規則
 以下是完整的 .matgraph.json 規格（來自 agent-pack/SPEC.md）：

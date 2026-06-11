@@ -1,8 +1,8 @@
 // server/agent/tools.ts — 8 tool definitions + dispatch for the material agent.
 // All tools catch internal throws and convert them to {content, isError:true}.
 
-import { mkdir, rename, writeFile } from 'node:fs/promises';
-import { resolve, join, sep, dirname } from 'node:path';
+import { mkdir, rename, writeFile, readdir, readFile } from 'node:fs/promises';
+import { resolve, join, sep, dirname, relative } from 'node:path';
 import type { ToolDef } from './provider/types.js';
 import { validateGraph, materialStructureWarnings } from '../schema.js';
 import { loadGraph } from '../graph-loader.js';
@@ -294,6 +294,46 @@ export const toolDefs: ToolDef[] = [
     },
   },
   {
+    name: 'list_graphs',
+    description:
+      'List every .matgraph.json under graphs/ with its material name and type. ' +
+      'Use this FIRST when the user refers to an existing material and you do not know its path.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'search_mf',
+    description:
+      'Search Material Functions by keyword across the engine MF index and the project (work) MF index. ' +
+      'Returns asset paths with pin counts. Follow up with get_mf_signature for the full pin names.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        query: { type: 'string', description: 'Search terms (space-separated), matched against path/name/category' },
+      },
+      required: ['query'],
+    },
+  },
+  {
+    name: 'list_examples',
+    description:
+      'List the shipped reference example projects (agent-pack/examples). ' +
+      'Each is a known-good .matgraph.json project to use as a pattern.',
+    inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'read_example',
+    description:
+      'Read one shipped example project (all of its .matgraph.json files). ' +
+      'Use as a reference pattern before authoring a similar material.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'Example folder name from list_examples (e.g. "01_basic_pbr")' },
+      },
+      required: ['name'],
+    },
+  },
+  {
     name: 'read_memory',
     description:
       'Read your local memory notes. scope "session" = notes for THIS conversation; ' +
@@ -358,11 +398,154 @@ async function _dispatch(
     case 'patch_graph':     return toolPatchGraph(inp, ctx);
     case 'validate_graph':  return toolValidateGraph(inp, ctx);
     case 'get_graph_errors':return toolGetGraphErrors(inp, ctx);
+    case 'list_graphs':     return toolListGraphs(ctx);
+    case 'search_mf':       return toolSearchMf(inp, ctx);
+    case 'list_examples':   return toolListExamples(ctx);
+    case 'read_example':    return toolReadExample(inp, ctx);
     case 'read_memory':     return toolReadMemory(inp, ctx);
     case 'update_memory':   return toolUpdateMemory(inp, ctx);
     default:
       return { content: `unknown tool: ${name}`, isError: true };
   }
+}
+
+// ---------------------------------------------------------------------------
+// list_graphs / search_mf / list_examples / read_example (M9 discovery tools)
+// ---------------------------------------------------------------------------
+
+const LIST_GRAPHS_CAP = 200;
+
+async function toolListGraphs(ctx: ToolContext): Promise<{ content: string; isError?: boolean }> {
+  const files: string[] = [];
+  async function walk(dir: string): Promise<void> {
+    let entries;
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const e of entries) {
+      if (files.length >= LIST_GRAPHS_CAP) return;
+      if (e.name.startsWith('.')) continue;
+      const p = join(dir, e.name);
+      if (e.isDirectory()) await walk(p);
+      else if (e.name.endsWith('.matgraph.json')) files.push(p);
+    }
+  }
+  await walk(ctx.graphsRoot);
+
+  if (files.length === 0) {
+    return { content: 'No .matgraph.json files under graphs/ yet.' };
+  }
+
+  const lines: string[] = [];
+  for (const abs of files.sort()) {
+    const rel = relative(ctx.graphsRoot, abs).split(sep).join('/');
+    let info = '';
+    try {
+      const g = JSON.parse(await readFile(abs, 'utf-8')) as { name?: unknown; type?: unknown; ueVersion?: unknown };
+      info = `  [${typeof g.type === 'string' ? g.type : '?'}]  ${typeof g.name === 'string' ? g.name : ''}  (ue${typeof g.ueVersion === 'string' ? g.ueVersion : '?'})`;
+    } catch {
+      info = '  [unparseable]';
+    }
+    lines.push(rel + info);
+  }
+  if (files.length >= LIST_GRAPHS_CAP) lines.push(`...capped at ${LIST_GRAPHS_CAP} files`);
+  return { content: lines.join('\n') };
+}
+
+async function toolSearchMf(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const query = String(inp.query ?? '');
+  const terms = query.trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) {
+    return { content: 'query must not be empty', isError: true };
+  }
+
+  const matches = QB.searchMf(ctx.repoRoot, terms, ctx.ueVersion, ctx.workMfIndexPath);
+  if (matches.length === 0) {
+    return { content: `No MF matches for: ${query}` };
+  }
+
+  const lines = matches.slice(0, SEARCH_LINE_CAP).map(m => m.line);
+  if (matches.length > SEARCH_LINE_CAP) {
+    lines.push(`...${matches.length - SEARCH_LINE_CAP} more, narrow your query`);
+  }
+  return { content: lines.join('\n') };
+}
+
+const EXAMPLE_NAME_RE = /^[A-Za-z0-9_-]+$/;
+const EXAMPLE_TOTAL_CHAR_CAP = 30_000;
+
+function examplesDir(ctx: ToolContext): string {
+  return join(ctx.repoRoot, 'agent-pack', 'examples');
+}
+
+async function listExampleNames(ctx: ToolContext): Promise<string[]> {
+  try {
+    const entries = await readdir(examplesDir(ctx), { withFileTypes: true });
+    return entries.filter(e => e.isDirectory()).map(e => e.name).sort();
+  } catch {
+    return [];
+  }
+}
+
+async function toolListExamples(ctx: ToolContext): Promise<{ content: string; isError?: boolean }> {
+  const names = await listExampleNames(ctx);
+  if (names.length === 0) {
+    return { content: 'No examples found in agent-pack/examples.' };
+  }
+  const lines: string[] = [];
+  for (const name of names) {
+    let files: string[] = [];
+    try {
+      files = (await readdir(join(examplesDir(ctx), name))).filter(f => f.endsWith('.matgraph.json'));
+    } catch { /* skip unreadable */ }
+    lines.push(`${name}: ${files.join(', ') || '(no matgraph files)'}`);
+  }
+  return { content: lines.join('\n') };
+}
+
+async function toolReadExample(
+  inp: Record<string, unknown>,
+  ctx: ToolContext,
+): Promise<{ content: string; isError?: boolean }> {
+  const name = String(inp.name ?? '');
+  if (!EXAMPLE_NAME_RE.test(name)) {
+    return { content: 'invalid example name (letters/digits/underscore/dash only)', isError: true };
+  }
+
+  const dir = join(examplesDir(ctx), name);
+  let entries: string[];
+  try {
+    entries = await readdir(dir);
+  } catch {
+    const names = await listExampleNames(ctx);
+    return {
+      content: `example "${name}" not found. Available: ${names.join(', ') || '(none)'}`,
+      isError: true,
+    };
+  }
+
+  const files = entries.filter(f => f.endsWith('.matgraph.json')).sort();
+  if (files.length === 0) {
+    return { content: `example "${name}" has no .matgraph.json files`, isError: true };
+  }
+
+  const parts: string[] = [];
+  let total = 0;
+  for (const f of files) {
+    const text = await readFile(join(dir, f), 'utf-8');
+    total += text.length;
+    if (total > EXAMPLE_TOTAL_CHAR_CAP) {
+      parts.push(`--- ${f} --- (omitted: example exceeds ${EXAMPLE_TOTAL_CHAR_CAP} chars)`);
+      continue;
+    }
+    parts.push(`--- ${f} ---\n${text}`);
+  }
+  return { content: parts.join('\n') };
 }
 
 // ---------------------------------------------------------------------------

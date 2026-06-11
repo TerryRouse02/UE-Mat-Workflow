@@ -318,3 +318,47 @@ test('getMf: work index absent returns found=false reason=index-absent kind=work
   assert.equal(r.reason, 'index-absent');
   assert.equal(r.kind, 'work');
 });
+
+// ---------------------------------------------------------------------------
+// searchMf
+// ---------------------------------------------------------------------------
+
+test('searchMf: finds engine and work entries by shared keyword', () => {
+  const matches = lib.searchMf(FIXTURE_DIR, ['mf_example'], '9.9', WORK_MF_PATH);
+  assert.equal(matches.length, 2);
+  const sources = matches.map((m) => m.source).sort();
+  assert.deepEqual(sources, ['engine', 'work']);
+  const engine = matches.find((m) => m.source === 'engine');
+  assert.equal(engine.assetPath, '/Engine/Functions/MF_Example.MF_Example');
+  assert.equal(engine.displayName, 'MF_Example');
+  assert.equal(engine.inputs, 1);
+  assert.equal(engine.outputs, 1);
+  assert.ok(engine.line.includes('[engine]'));
+  assert.ok(engine.line.includes('in:1 out:1'));
+});
+
+test('searchMf: AND logic — terms across path and name must all match', () => {
+  // 'game' only appears in the work entry's path.
+  const workOnly = lib.searchMf(FIXTURE_DIR, ['mf_example', 'game'], '9.9', WORK_MF_PATH);
+  assert.equal(workOnly.length, 1);
+  assert.equal(workOnly[0].source, 'work');
+
+  const none = lib.searchMf(FIXTURE_DIR, ['mf_example', 'nosuchterm'], '9.9', WORK_MF_PATH);
+  assert.equal(none.length, 0);
+});
+
+test('searchMf: missing work index is skipped, engine still searched', () => {
+  const missingPath = path.join(os.tmpdir(), 'nonexistent-workmf-xyzzy.json');
+  const matches = lib.searchMf(FIXTURE_DIR, ['mf_example'], '9.9', missingPath);
+  assert.equal(matches.length, 1);
+  assert.equal(matches[0].source, 'engine');
+});
+
+test('searchMf: version auto-resolves when exactly one engine index exists', () => {
+  const matches = lib.searchMf(FIXTURE_DIR, ['mf_example'], null, WORK_MF_PATH);
+  assert.equal(matches.length, 2);
+});
+
+test('searchMf: empty terms throw', () => {
+  assert.throws(() => lib.searchMf(FIXTURE_DIR, [], '9.9', WORK_MF_PATH), /term/);
+});

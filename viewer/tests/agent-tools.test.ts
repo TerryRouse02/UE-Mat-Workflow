@@ -419,3 +419,82 @@ describe('missing version DB', () => {
     expect(r.content).toMatch(/node DB for ueVersion 9\.9 could not be loaded/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// M9 discovery tools: list_graphs / search_mf / list_examples / read_example
+// ---------------------------------------------------------------------------
+
+describe('list_graphs', () => {
+  it('lists graphs with type/name and posix-relative paths', async () => {
+    await mkdir(join(tmpDir, 'graphs', 'proj_a'), { recursive: true });
+    await writeFile(
+      join(tmpDir, 'graphs', 'proj_a', 'water.matgraph.json'),
+      JSON.stringify(VALID_GRAPH, null, 2),
+      'utf-8',
+    );
+    await writeFile(join(tmpDir, 'graphs', 'broken.matgraph.json'), '{not json', 'utf-8');
+
+    const r = await dispatchTool('list_graphs', {}, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(r.content).toContain('proj_a/water.matgraph.json');
+    expect(r.content).toContain('[Material]');
+    expect(r.content).toContain('test_mat');
+    // Unparseable files are listed, marked, and never crash the tool.
+    expect(r.content).toContain('broken.matgraph.json');
+    expect(r.content).toContain('[unparseable]');
+  });
+
+  it('reports an empty graphs dir gracefully', async () => {
+    const r = await dispatchTool('list_graphs', {}, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(r.content).toContain('No .matgraph.json');
+  });
+});
+
+describe('search_mf', () => {
+  it('finds engine MFs by keyword against the real index', async () => {
+    const r = await dispatchTool('search_mf', { query: 'BlendAngleCorrectedNormals' }, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(r.content).toContain('BlendAngleCorrectedNormals');
+    expect(r.content).toContain('[engine]');
+    expect(r.content).toContain('/Engine/Functions/');
+  });
+
+  it('empty query is an error; no matches is a normal message', async () => {
+    const empty = await dispatchTool('search_mf', { query: '   ' }, ctx);
+    expect(empty.isError).toBe(true);
+
+    const none = await dispatchTool('search_mf', { query: 'zz_no_such_mf_zz' }, ctx);
+    expect(none.isError).toBeFalsy();
+    expect(none.content).toContain('No MF matches');
+  });
+});
+
+describe('list_examples / read_example', () => {
+  it('lists the shipped examples with their matgraph files', async () => {
+    const r = await dispatchTool('list_examples', {}, ctx);
+    expect(r.isError).toBeFalsy();
+    expect(r.content).toContain('01_basic_pbr: 01_basic_pbr.matgraph.json');
+    expect(r.content).toContain('04_snow');
+  });
+
+  it('reads every matgraph file of an example project', async () => {
+    const r = await dispatchTool('read_example', { name: '04_snow' }, ctx);
+    expect(r.isError).toBeFalsy();
+    // The snow example ships a material + a sibling MF.
+    expect(r.content).toContain('--- 04_snow.matgraph.json ---');
+    expect(r.content).toContain('--- blend_normals.matgraph.json ---');
+    expect(r.content).toContain('"type": "MaterialFunction"');
+  });
+
+  it('rejects traversal-shaped names and reports unknown examples with the available list', async () => {
+    const bad = await dispatchTool('read_example', { name: '../SPEC' }, ctx);
+    expect(bad.isError).toBe(true);
+    expect(bad.content).toContain('invalid example name');
+
+    const missing = await dispatchTool('read_example', { name: 'no_such_example' }, ctx);
+    expect(missing.isError).toBe(true);
+    expect(missing.content).toContain('Available:');
+    expect(missing.content).toContain('01_basic_pbr');
+  });
+});

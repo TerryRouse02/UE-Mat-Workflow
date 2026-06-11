@@ -27,12 +27,22 @@ export type MfResult =
   | { found: true; entry: unknown }
   | { found: false; reason: 'not-in-index' | 'index-absent'; kind: 'engine' | 'work' };
 
+export interface MfSearchMatch {
+  assetPath: string;
+  displayName: string;
+  source: 'engine' | 'work';
+  inputs: number;
+  outputs: number;
+  line: string;
+}
+
 interface QueryLib {
   discoverVersions(dataDir: string): string[];
   loadNodesDb(dataDir: string, version: string): unknown;
   searchNodes(dataDir: string, version: string, terms: string[], opts?: { category?: string }): SearchMatch[];
   getNodes(dataDir: string, version: string, names: string[]): GetNodesResult;
   getMf(dataDir: string, assetPath: string, version: string | null, workMfIndexPath?: string): MfResult;
+  searchMf(dataDir: string, terms: string[], version?: string | null, workMfIndexPath?: string): MfSearchMatch[];
 }
 
 // ---------------------------------------------------------------------------
@@ -96,6 +106,20 @@ export function getMf(
     join(repoRoot, 'agent-pack'),
     assetPath,
     version,
+    workMfIndexPath,
+  );
+}
+
+export function searchMf(
+  repoRoot: string,
+  terms: string[],
+  version?: string | null,
+  workMfIndexPath?: string,
+): MfSearchMatch[] {
+  return loadLib(repoRoot).searchMf(
+    join(repoRoot, 'agent-pack'),
+    terms,
+    version ?? null,
     workMfIndexPath,
   );
 }

@@ -450,6 +450,10 @@ function toolSummary(call: ToolUseBlock): string {
     case 'patch_graph':       return `修改圖形：${String(inp.path ?? '')}`;
     case 'validate_graph':    return `驗證圖形：${typeof inp.path === 'string' ? inp.path : '(inline)'}`;
     case 'get_graph_errors':  return `取得圖形錯誤：${String(inp.path ?? '')}`;
+    case 'list_graphs':       return '列出現有圖形檔案';
+    case 'search_mf':         return `搜尋 MF：${String(inp.query ?? '')}`;
+    case 'list_examples':     return '列出參考範例';
+    case 'read_example':      return `讀取範例：${String(inp.name ?? '')}`;
     case 'read_memory':       return `讀取記憶：${inp.scope === 'longterm' ? '長期' : '本對話'}`;
     case 'update_memory':     return `更新記憶：${inp.scope === 'longterm' ? '長期' : '本對話'}`;
     default:                  return call.name;

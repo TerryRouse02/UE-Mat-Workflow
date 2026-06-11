@@ -287,6 +287,83 @@ function getMf(dataDir, assetPath, version, workMfIndexPath) {
 }
 
 // ---------------------------------------------------------------------------
+// searchMf — keyword search across the engine + work MF indexes
+// ---------------------------------------------------------------------------
+
+/**
+ * Search Material Functions by keyword across the engine index (for the
+ * given version) and, when available, the work index. All terms must match
+ * (AND, case-insensitive) against assetPath + displayName + category.
+ *
+ * Missing indexes are skipped silently — searching must not fail just
+ * because one side has not been crawled yet.
+ *
+ * @param {string} dataDir
+ * @param {string[]} terms
+ * @param {string} [version]            — engine index version; omitted →
+ *                                        single discovered version, else engine skipped
+ * @param {string} [workMfIndexPath]
+ * @returns {{ assetPath: string; displayName: string; source: 'engine'|'work'; inputs: number; outputs: number; line: string }[]}
+ */
+function searchMf(dataDir, terms, version, workMfIndexPath) {
+  const lowerTerms = terms.map((t) => t.toLowerCase()).filter(Boolean);
+  if (lowerTerms.length === 0) throw new Error('at least one search term is required');
+
+  const matches = [];
+
+  function scan(functions, source) {
+    for (const [assetPath, entry] of Object.entries(functions || {})) {
+      const haystack = [
+        assetPath,
+        (entry && entry.displayName) || '',
+        (entry && entry.category) || '',
+      ]
+        .join('\n')
+        .toLowerCase();
+      if (!lowerTerms.every((t) => haystack.includes(t))) continue;
+
+      const displayName = (entry && entry.displayName) || assetPath.split('/').pop() || assetPath;
+      const inputs = Array.isArray(entry && entry.inputs) ? entry.inputs.length : 0;
+      const outputs = Array.isArray(entry && entry.outputs) ? entry.outputs.length : 0;
+      matches.push({
+        assetPath,
+        displayName,
+        source,
+        inputs,
+        outputs,
+        line: `${displayName}  [${source}]  in:${inputs} out:${outputs}  ${assetPath}`,
+      });
+    }
+  }
+
+  // Engine index — resolve version like getMf does.
+  let engineVersion = version;
+  if (!engineVersion) {
+    const engineVersions = discoverEngineMfVersions(dataDir);
+    if (engineVersions.length === 1) engineVersion = engineVersions[0];
+  }
+  if (engineVersion) {
+    try {
+      scan(loadEngineMfIndex(dataDir, engineVersion).functions, 'engine');
+    } catch {
+      // engine index absent — skip
+    }
+  }
+
+  // Work index — optional.
+  if (workMfIndexPath) {
+    try {
+      scan(loadWorkMfIndex(workMfIndexPath).functions, 'work');
+    } catch {
+      // work index absent — skip
+    }
+  }
+
+  matches.sort((a, b) => a.assetPath.localeCompare(b.assetPath));
+  return matches;
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -296,4 +373,5 @@ module.exports = {
   searchNodes,
   getNodes,
   getMf,
+  searchMf,
 };

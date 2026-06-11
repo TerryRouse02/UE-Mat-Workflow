@@ -166,6 +166,35 @@ function cmdSearch(args) {
 }
 
 // ---------------------------------------------------------------------------
+// Subcommand: search-mf
+// ---------------------------------------------------------------------------
+
+function cmdSearchMf(args) {
+  if (args.length < 1) {
+    process.stderr.write('Usage: node query.js search-mf <term> [<term>...]\n');
+    process.exit(1);
+  }
+
+  const workMfIndexPath = path.join(DATA_DIR, 'workmf-index.json');
+
+  let matches;
+  try {
+    // Version resolved automatically (single engine index); work index optional.
+    matches = lib.searchMf(DATA_DIR, args, null, workMfIndexPath);
+  } catch (err) {
+    process.stderr.write(err.message + '\n');
+    process.exit(1);
+  }
+
+  for (const m of matches) {
+    process.stdout.write(m.line + '\n');
+  }
+
+  process.stderr.write(`${matches.length} match${matches.length === 1 ? '' : 'es'}\n`);
+  process.exit(0);
+}
+
+// ---------------------------------------------------------------------------
 // Help / usage
 // ---------------------------------------------------------------------------
 
@@ -180,6 +209,9 @@ function printUsage(exitCode) {
     '',
     '  node query.js search <version> <term> [<term>...]',
     '    Example: node query.js search 5.7 math lerp',
+    '',
+    '  node query.js search-mf <term> [<term>...]',
+    '    Example: node query.js search-mf blend normal',
     '',
   ].join('\n');
   process.stderr.write(usage);
@@ -205,6 +237,8 @@ if (subcommand === 'node') {
   cmdMf(subArgs);
 } else if (subcommand === 'search') {
   cmdSearch(subArgs);
+} else if (subcommand === 'search-mf') {
+  cmdSearchMf(subArgs);
 } else {
   process.stderr.write(`Unknown subcommand: "${subcommand}"\n`);
   printUsage(1);
