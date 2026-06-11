@@ -338,11 +338,28 @@ function CrawlOpsSection({ env, mfRoot, setMfRoot, matRoot, setMatRoot, justRan,
 
 function RunLog({ lines }: { lines: Array<{ t: number; lvl: string; msg: string }> }) {
   const ref = useRef<HTMLDivElement>(null);
+  const stickToBottomRef = useRef(true);
+  const lastLineCountRef = useRef(0);
+
   useEffect(() => {
-    if (ref.current) ref.current.scrollTop = ref.current.scrollHeight;
-  }, [lines]);
+    const el = ref.current;
+    if (!el) return;
+
+    const firstRender = lastLineCountRef.current === 0;
+    lastLineCountRef.current = lines.length;
+    if (firstRender || stickToBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [lines.length, lines[lines.length - 1]?.msg]);
+
+  const onScroll = () => {
+    const el = ref.current;
+    if (!el) return;
+    stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 8;
+  };
+
   return (
-    <div className="runlog" ref={ref}>
+    <div className="runlog" ref={ref} onScroll={onScroll} onWheel={e => e.stopPropagation()}>
       {lines.map((l, i) => (
         <div key={i} className={'ll ' + l.lvl}>
           <span className="lt">+{l.t.toFixed(1)}s</span>
@@ -365,6 +382,7 @@ interface RunPanelProps {
 
 function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) {
   const [elapsed, setElapsed] = useState(0);
+  const [copiedLog, setCopiedLog] = useState(false);
   useEffect(() => {
     if (crawl.status !== 'running') return;
     setElapsed(Date.now() - startRef);
@@ -386,6 +404,15 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
     : undefined;
 
   const diag = crawl.status === 'error' ? diagnoseCrawl(crawl.logs) : null;
+  const copyErrorLog = async () => {
+    try {
+      await navigator.clipboard.writeText(crawl.logs.join('\n'));
+      setCopiedLog(true);
+      window.setTimeout(() => setCopiedLog(false), 1400);
+    } catch {
+      setCopiedLog(false);
+    }
+  };
 
   return (
     <div className="runwrap">
@@ -445,9 +472,17 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
 
       {crawl.status === 'error' && (
         <div className="run-result err">
-          <div className="rt">
-            <Icon name="warn" size={15} /> {meta.label}失敗
-            {crawl.exitCode != null ? `（exit ${crawl.exitCode}）` : ''}
+          <div className="errtop">
+            <div className="rt">
+              <Icon name="warn" size={15} /> {meta.label}失敗
+              {crawl.exitCode != null ? `（exit ${crawl.exitCode}）` : ''}
+            </div>
+            {crawl.logs.length > 0 && (
+              <button className="copylogbtn" onClick={() => void copyErrorLog()}>
+                <Icon name={copiedLog ? 'check' : 'clip'} size={12} />
+                {copiedLog ? '已複製' : '複製錯誤 log'}
+              </button>
+            )}
           </div>
           {diag ? (
             <>

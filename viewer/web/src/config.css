@@ -137,9 +137,18 @@
 .run-result { border-radius:8px; padding:12px 13px; margin-top:11px; }
 .run-result.ok { background:rgba(78,196,110,.09); border:1px solid rgba(78,196,110,.3); }
 .run-result.err { background:rgba(224,89,78,.09); border:1px solid rgba(224,89,78,.3); }
-.run-result .rt { font-size:13px; font-weight:650; display:flex; align-items:center; gap:8px; }
+.run-result .errtop { display:flex; align-items:center; gap:9px; justify-content:space-between; }
+.run-result .rt { font-size:13px; font-weight:650; display:flex; align-items:center; gap:8px; flex:1; min-width:0; }
 .run-result.ok .rt { color:var(--ok); }
 .run-result.err .rt { color:#f0a59c; }
+.copylogbtn {
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  flex:0 0 auto; min-height:25px; max-width:150px;
+  padding:4px 8px; border-radius:6px; border:1px solid rgba(224,89,78,.28);
+  background:rgba(224,89,78,.11); color:#f0c0ba;
+  font:inherit; font-size:10.5px; white-space:nowrap; cursor:pointer;
+}
+.copylogbtn:hover { border-color:rgba(224,89,78,.45); color:var(--text); background:rgba(224,89,78,.16); }
 .run-result .cause { font-size:11.5px; color:var(--text-dim); margin-top:9px; line-height:1.5; }
 .run-result .fixpill {
   display:inline-flex; align-items:center; gap:6px;
