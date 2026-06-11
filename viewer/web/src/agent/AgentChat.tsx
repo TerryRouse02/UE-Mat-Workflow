@@ -428,6 +428,24 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
   const lastIndex = items.length - 1;
   const currentInList = sessionId !== null && sessions.some(s => s.id === sessionId);
 
+  // M8: per-session tool usage stats (live and replayed items both count —
+  // tool steps are part of the persisted transcript).
+  const toolCounts = new Map<string, { n: number; fail: number }>();
+  for (const it of items) {
+    if (it.kind !== 'tools') continue;
+    for (const s of it.steps) {
+      const c = toolCounts.get(s.name) ?? { n: 0, fail: 0 };
+      c.n += 1;
+      if (s.done && s.ok === false) c.fail += 1;
+      toolCounts.set(s.name, c);
+    }
+  }
+  const toolTotal = [...toolCounts.values()].reduce((acc, c) => acc + c.n, 0);
+  const toolBreakdown = [...toolCounts.entries()]
+    .sort((a, b) => b[1].n - a[1].n)
+    .map(([name, c]) => `${name} ×${c.n}${c.fail > 0 ? `（${c.fail} 失敗）` : ''}`)
+    .join('\n');
+
   return (
     <div className="agent-panel">
       {/* Status bar */}
@@ -435,6 +453,11 @@ export function AgentChat({ onGotoConfig }: AgentChatProps) {
         <span className="agent-status-dot" />
         <span className="agent-provider">{status.provider} · {status.model}</span>
         <span className="grow" />
+        {toolTotal > 0 && (
+          <span className="agent-usage" title={`本會話工具呼叫：\n${toolBreakdown}`}>
+            {toolTotal} 工具
+          </span>
+        )}
         {usage && (
           <span
             className="agent-usage"

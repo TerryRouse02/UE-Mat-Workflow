@@ -832,3 +832,41 @@ describe('AgentChat sessions (M7)', () => {
     }, { timeout: 2000 });
   });
 });
+
+// ---------------------------------------------------------------------------
+// M8: tool usage stats chip
+// ---------------------------------------------------------------------------
+
+describe('AgentChat tool stats (M8)', () => {
+  it('counts tool calls across the conversation with a per-tool breakdown tooltip', async () => {
+    mockFetchStatus({ configured: true, provider: 'anthropic', model: 'test' });
+    mockStreamChat([
+      { type: 'tool_start', name: 'search_nodes', summary: '搜尋節點：sine' },
+      { type: 'tool_end', name: 'search_nodes', ok: true },
+      { type: 'tool_start', name: 'write_graph', summary: '寫入圖形：p/a.matgraph.json' },
+      { type: 'tool_end', name: 'write_graph', ok: false },
+      { type: 'tool_start', name: 'write_graph', summary: '寫入圖形：p/a.matgraph.json' },
+      { type: 'tool_end', name: 'write_graph', ok: true },
+      { type: 'text', text: '完成。' },
+      { type: 'done' },
+    ]);
+
+    const { container } = render(<AgentChat onGotoConfig={() => {}} />);
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    const textarea = container.querySelector('textarea') as HTMLTextAreaElement;
+    await act(async () => {
+      fireEvent.change(textarea, { target: { value: '做材質' } });
+      fireEvent.keyDown(textarea, { key: 'Enter', shiftKey: false });
+    });
+
+    await waitFor(() => {
+      expect(container.textContent).toContain('3 工具');
+    }, { timeout: 2000 });
+
+    const chip = Array.from(container.querySelectorAll('.agent-usage'))
+      .find(el => el.textContent?.includes('工具')) as HTMLElement;
+    expect(chip.title).toContain('write_graph ×2（1 失敗）');
+    expect(chip.title).toContain('search_nodes ×1');
+  });
+});
