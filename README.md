@@ -84,7 +84,8 @@ except to the provider you chose.
 What it can do:
 
 - **Build & modify graphs** — validated before every write (an invalid graph never reaches disk),
-  changed nodes pulse on the canvas, and every turn is undoable (還原 / 重新生成).
+  modifications are incremental patches (add/remove/rewire/retype single nodes) instead of full
+  rewrites, changed nodes pulse on the canvas, and every turn is undoable (還原 / 重新生成).
 - **See what you see** — the agent can look up the open graph and selected node on demand, so
   "this node" just works, while an open file never becomes the accidental target: "create a
   material" always writes a NEW file (overwriting an existing one requires your explicit say-so).
@@ -99,6 +100,8 @@ What it can do:
 - **Research** — zero-key web search + SSRF-guarded page fetch for knowledge newer than the model.
 - **Stay long-lived** — persistent sessions (switch / replay / delete), two-layer memory, automatic
   context compaction, per-turn token usage, and one-click Markdown export of the conversation.
+- **Stay on topic** — the agent only talks UE materials / shaders / game dev. Unrelated messages
+  get a reminder, then a refusal; a third strike closes and deletes the session.
 
 Type `/` in the input box for quick commands (`/validate`, `/explain`, `/export`, `/compact`,
 `/log`, `/help`, `/regen`, `/undo`, `/md`, `/new`, `/crawlmf`). Developers: the full design

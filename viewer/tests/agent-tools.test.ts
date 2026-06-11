@@ -892,3 +892,58 @@ describe('write_graph pre-read error narrowing (BUG-17)', () => {
     expect(r.content).toContain('cannot read existing file');
   });
 });
+
+// ---------------------------------------------------------------------------
+// patch_graph incremental-edit ergonomics: snake_case aliases end-to-end
+// ---------------------------------------------------------------------------
+
+describe('patch_graph snake_case aliases', () => {
+  it('add_node/set_param/add_connection pass validation and land on disk; changedNodeIds normalized', async () => {
+    const abs = join(ctx.graphsRoot, 'proj', 'alias_mat.matgraph.json');
+    await mkdir(join(ctx.graphsRoot, 'proj'), { recursive: true });
+    await writeFile(abs, JSON.stringify(VALID_GRAPH, null, 2) + '\n', 'utf-8');
+
+    const r = await dispatchTool('patch_graph', {
+      path: 'proj/alias_mat.matgraph.json',
+      ops: [
+        { op: 'add_node', id: 'rough', type: 'ScalarParameter', params: { ParameterName: 'Roughness', DefaultValue: 0.4 } },
+        { op: 'add_connection', from: 'rough:Value', to: 'OUT:Roughness' },
+        { op: 'set_param', id: 'rough', key: 'DefaultValue', value: 0.6 },
+      ],
+    }, ctx);
+    expect(r.isError).toBeUndefined();
+    const out = JSON.parse(r.content);
+    expect(out.ok).toBe(true);
+    expect(out.changedNodeIds).toContain('rough');
+    expect(out.changedNodeIds).toContain('OUT');
+
+    const updated = JSON.parse(await readFile(abs, 'utf-8'));
+    expect(updated.nodes.find((n: { id: string }) => n.id === 'rough')?.params?.DefaultValue).toBe(0.6);
+    expect(updated.connections.some((c: { to: string }) => c.to === 'OUT:Roughness')).toBe(true);
+  });
+
+  it('unknown op error reaches the model with the supported-op list', async () => {
+    const abs = join(ctx.graphsRoot, 'proj', 'alias_mat2.matgraph.json');
+    await mkdir(join(ctx.graphsRoot, 'proj'), { recursive: true });
+    await writeFile(abs, JSON.stringify(VALID_GRAPH, null, 2) + '\n', 'utf-8');
+
+    const r = await dispatchTool('patch_graph', {
+      path: 'proj/alias_mat2.matgraph.json',
+      ops: [{ op: 'move', id: 'mul' }],
+    }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('setNodeType');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// report_off_topic is loop-only (the session counter lives in the loop)
+// ---------------------------------------------------------------------------
+
+describe('report_off_topic via dispatch', () => {
+  it('returns a loop-only error like compact_context', async () => {
+    const r = await dispatchTool('report_off_topic', { reason: 'x' }, ctx);
+    expect(r.isError).toBe(true);
+    expect(r.content).toContain('代理迴圈');
+  });
+});

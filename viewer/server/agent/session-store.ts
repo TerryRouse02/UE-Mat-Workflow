@@ -26,6 +26,8 @@ export interface PersistedSession {
   ueVersion: string;
   totalTokens: number;
   turnSeq: number;
+  /** Cumulative off-topic strikes (absent in pre-fence session files → 0). */
+  offTopicStrikes?: number;
   messages: Message[];
   transcript: AgentTranscriptEntry[];
 }

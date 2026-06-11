@@ -1061,3 +1061,19 @@ describe('system report rendering (crawl outcome)', () => {
     expect(normal[0]).toMatchObject({ kind: 'text', role: 'user' });
   });
 });
+
+describe('transcript reducer — session_closed (off-topic fence)', () => {
+  it('renders as a final error-styled notice', () => {
+    const flags = newTurnFlags();
+    let items = startUserTurn([], '聊聊股票');
+    items = applyAgentEvent(items, { type: 'session_closed', message: '已累積 3 次離題訊息，本會話已關閉並刪除。' }, flags);
+    expect(items.at(-1)).toEqual({
+      kind: 'notice',
+      variant: 'error',
+      message: '已累積 3 次離題訊息，本會話已關閉並刪除。',
+    });
+    // done still collapses normally afterwards.
+    items = applyAgentEvent(items, { type: 'done' }, flags);
+    expect(items.at(-1)).toMatchObject({ kind: 'notice' });
+  });
+});

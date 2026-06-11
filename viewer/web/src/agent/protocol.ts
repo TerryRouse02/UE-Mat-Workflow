@@ -22,6 +22,7 @@ export type AgentSseEvent =
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
   | { type: 'compacted'; message: string }                           // old turns summarized into session memory
   | { type: 'limit'; kind: 'iters' | 'cost' | 'failures'; message: string }
+  | { type: 'session_closed'; message: string }                      // off-topic strike limit — server deletes the session after the stream
   | { type: 'error'; message: string }
   | { type: 'done' };
 

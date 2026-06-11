@@ -507,3 +507,136 @@ describe('empty endpoint halves (BUG-6)', () => {
     expect(r.ok).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// removeParam / setNodeType (incremental-edit completeness)
+// ---------------------------------------------------------------------------
+
+describe('removeParam', () => {
+  it('happy path: deletes the key and drops an emptied params object', () => {
+    const g = baseGraph();
+    g.nodes[0].params = { ConstA: 2 };
+    const r = applyPatch(g, [{ op: 'removeParam', id: 'A', key: 'ConstA' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.nodes.find(n => n.id === 'A')?.params).toBeUndefined();
+    expect(r.diff[0]).toBe('移除了「`A`」的 ConstA 參數');
+  });
+
+  it('happy path: other params survive', () => {
+    const g = baseGraph();
+    g.nodes[0].params = { ConstA: 2, ConstB: 3 };
+    const r = applyPatch(g, [{ op: 'removeParam', id: 'A', key: 'ConstA' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.nodes.find(n => n.id === 'A')?.params).toEqual({ ConstB: 3 });
+  });
+
+  it('error: missing node / missing key', () => {
+    expect(applyPatch(baseGraph(), [{ op: 'removeParam', id: 'NOPE', key: 'k' }]).ok).toBe(false);
+    const r = applyPatch(baseGraph(), [{ op: 'removeParam', id: 'A', key: 'NotThere' }]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.applyError).toMatch(/has no param "NotThere"/);
+  });
+});
+
+describe('setNodeType', () => {
+  it('happy path: swaps the type in place, keeping id/params/connections', () => {
+    const g = baseGraph();
+    g.nodes[0].params = { ConstA: 2 };
+    const r = applyPatch(g, [{ op: 'setNodeType', id: 'A', type: 'Add' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const node = r.graph.nodes.find(n => n.id === 'A');
+    expect(node?.type).toBe('Add');
+    expect(node?.params).toEqual({ ConstA: 2 });
+    expect(r.graph.connections).toEqual([{ from: 'A:Result', to: 'B:A' }]);
+    expect(r.diff[0]).toBe('將「`A`」的類型從 `Multiply` 改為 `Add`');
+  });
+
+  it('error: missing node / already that type', () => {
+    expect(applyPatch(baseGraph(), [{ op: 'setNodeType', id: 'NOPE', type: 'Add' }]).ok).toBe(false);
+    const r = applyPatch(baseGraph(), [{ op: 'setNodeType', id: 'A', type: 'Multiply' }]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.applyError).toMatch(/already of type/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// snake_case aliases — LLMs routinely emit these instead of the camelCase ops
+// ---------------------------------------------------------------------------
+
+describe('op aliases', () => {
+  it('add_node / set_param / add_connection map to their canonical ops', () => {
+    const ops = [
+      { op: 'add_node', id: 'C', type: 'Constant' },
+      { op: 'set_param', id: 'C', key: 'R', value: 1 },
+      { op: 'add_connection', from: 'C:Output', to: 'B:B' },
+    ] as unknown as PatchOp[];
+    const r = applyPatch(baseGraph(), ops);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.nodes.find(n => n.id === 'C')?.params?.R).toBe(1);
+    expect(r.graph.connections.some(c => c.from === 'C:Output' && c.to === 'B:B')).toBe(true);
+  });
+
+  it('remove_connection / remove_node / set_description work too', () => {
+    const ops = [
+      { op: 'remove_connection', from: 'A:Result', to: 'B:A' },
+      { op: 'remove_node', id: 'A' },
+      { op: 'set_description', value: 'aliased' },
+    ] as unknown as PatchOp[];
+    const r = applyPatch(baseGraph(), ops);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.nodes.some(n => n.id === 'A')).toBe(false);
+    expect(r.graph.description).toBe('aliased');
+  });
+
+  it('changedNodeIds normalizes aliases and counts the new ops', () => {
+    const ops = [
+      { op: 'set_param', id: 'A', key: 'k', value: 1 },
+      { op: 'removeParam', id: 'B', key: 'k' },
+      { op: 'set_node_type', id: 'C', type: 'Add' },
+    ] as unknown as PatchOp[];
+    expect(changedNodeIds(ops).sort()).toEqual(['A', 'B', 'C']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Occupied input pin — UE inputs take exactly one wire
+// ---------------------------------------------------------------------------
+
+describe('connect: occupied input pin', () => {
+  it('rejects a second connection into the same input pin with a how-to-fix hint', () => {
+    const g = baseGraph(); // A:Result → B:A already wired
+    const r = applyPatch(g, [{ op: 'connect', from: 'B:Result', to: 'B:A' }]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.applyError).toContain('already has a connection');
+      expect(r.applyError).toContain('A:Result');
+    }
+  });
+
+  it('disconnect-then-connect rewires in one patch', () => {
+    const g = baseGraph();
+    const r = applyPatch(g, [
+      { op: 'disconnect', from: 'A:Result', to: 'B:A' },
+      { op: 'connect', from: 'A:Result', to: 'B:B' },
+      { op: 'connect', from: 'A:Result', to: 'B:A' },
+    ]);
+    expect(r.ok).toBe(true);
+  });
+});
+
+describe('unknown op error lists supported ops', () => {
+  it('mentions canonical names and the snake_case tolerance', () => {
+    const r = applyPatch(baseGraph(), [{ op: 'move' }] as unknown as PatchOp[]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.applyError).toContain('addNode');
+      expect(r.applyError).toContain('setNodeType');
+      expect(r.applyError).toContain('snake_case');
+    }
+  });
+});

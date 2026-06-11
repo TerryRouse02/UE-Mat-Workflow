@@ -538,6 +538,10 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     const ac = new AbortController();
     abortRef.current = ac;
     const flags = newTurnFlags();
+    // Off-topic strike limit: the server deletes the session mid-stream; skip
+    // the post-turn list refresh — it can race the deletion and briefly
+    // resurrect the dead session in the sidebar.
+    let sessionClosed = false;
 
     try {
       for await (const event of streamChat(
@@ -560,6 +564,13 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           requestAgentExport(event.path);
         }
         if (event.type === 'usage') setUsage(prev => accumulateUsage(prev, event));
+        if (event.type === 'session_closed') {
+          // The server deleted this session (off-topic strike limit) — drop
+          // our binding so the next send starts a fresh session.
+          sessionClosed = true;
+          setSessionId(null);
+          setSessions(prev => prev.filter(s => s.id !== sid));
+        }
         setItems(prev => applyAgentEvent(prev, event, flags));
       }
     } catch (e: unknown) {
@@ -572,8 +583,10 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       abortRef.current = null;
       setStreaming(false);
       inputRef.current?.focus();
-      // Refresh titles/timestamps after the turn lands on disk.
-      void fetchSessions();
+      // Refresh titles/timestamps after the turn lands on disk — except when
+      // the server just deleted the session (the refetch could race the
+      // deletion and re-add the dead session; the local filter already removed it).
+      if (!sessionClosed) void fetchSessions();
     }
   }, [streaming, currentPath, selectedNodeId, open, thinking, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
 

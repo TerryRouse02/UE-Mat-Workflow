@@ -1798,3 +1798,65 @@ describe('checkpoint containment via path.relative (BUG-10)', () => {
     expect(JSON.parse(await readFile(nested, 'utf-8')).v).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Off-topic fence — report_off_topic strike escalation (1 remind / 2 refuse /
+// 3 close+delete). The strike counter lives on the session and persists.
+// ---------------------------------------------------------------------------
+
+describe('off-topic fence (report_off_topic)', () => {
+  /** One scripted off-topic turn: model reports, then answers per instruction. */
+  const offTopicTurn = (n: number): StreamEvent[][] => [
+    [
+      { type: 'tool_use', id: `off-${n}`, name: 'report_off_topic', input: { reason: '與材質無關' } },
+      { type: 'done', stopReason: 'tool_use' },
+    ],
+    [
+      { type: 'text_delta', text: n === 1 ? '請回到材質話題。' : '抱歉，這個問題我不回答。' },
+      { type: 'done', stopReason: 'end' },
+    ],
+  ];
+
+  it('strike 1 instructs a reminder, strike 2 a refusal — counter persists on the session', async () => {
+    const events1 = await runAndCollect('今天天氣如何？', session, new FakeProvider(offTopicTurn(1)), ctx);
+    expect(session.offTopicStrikes).toBe(1);
+    expect(events1.some(e => e.type === 'session_closed')).toBe(false);
+    // The instruction reaches the model via tool_result, not the UI stream.
+    const lastUser1 = session.messages.filter(m => m.role === 'user').at(-1);
+    const result1 = lastUser1?.content.find(b => b.type === 'tool_result') as { content: string } | undefined;
+    expect(result1?.content).toContain('第 1 次離題');
+
+    const events2 = await runAndCollect('推薦個食譜', session, new FakeProvider(offTopicTurn(2)), ctx);
+    expect(session.offTopicStrikes).toBe(2);
+    expect(events2.some(e => e.type === 'session_closed')).toBe(false);
+    const lastUser2 = session.messages.filter(m => m.role === 'user').at(-1);
+    const result2 = lastUser2?.content.find(b => b.type === 'tool_result') as { content: string } | undefined;
+    expect(result2?.content).toContain('第 2 次離題');
+  });
+
+  it('strike 3 emits session_closed and stops without another provider round', async () => {
+    session.offTopicStrikes = 2;
+    const provider = new FakeProvider(offTopicTurn(3));
+    const events = await runAndCollect('聊聊政治', session, provider, ctx);
+
+    const closed = events.find(e => e.type === 'session_closed');
+    expect(closed).toBeDefined();
+    expect((closed as { message: string }).message).toContain('離題');
+    expect(events.at(-1)?.type).toBe('done');
+    // Loop must terminate right after the strike — the scripted second turn
+    // (the would-be farewell text) is never requested.
+    expect(provider.calls).toBe(1);
+    // The strike's tool_result is still appended, keeping the history legal.
+    const lastMsg = session.messages.at(-1);
+    expect(lastMsg?.role).toBe('user');
+    expect(lastMsg?.content.some(b => b.type === 'tool_result')).toBe(true);
+  });
+
+  it('on-topic turns never touch the counter', async () => {
+    const provider = new FakeProvider([
+      [{ type: 'text_delta', text: '好的，我們來做發光水面。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    await runAndCollect('做一個發光的水面材質', session, provider, ctx);
+    expect(session.offTopicStrikes).toBe(0);
+  });
+});

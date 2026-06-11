@@ -331,16 +331,42 @@ export const toolDefs: ToolDef[] = [
   {
     name: 'patch_graph',
     description:
-      'Apply a list of patch ops to an existing .matgraph.json. Validates after applying; ' +
-      'never writes if validation fails. Returns diff lines on success.',
+      'Incrementally edit an existing .matgraph.json with an ordered list of ops — ALWAYS prefer ' +
+      'this over write_graph for modifications. The whole list applies atomically: any failing op ' +
+      'aborts the patch, and the result is validated before writing (never writes an invalid graph). ' +
+      'Returns plain-language diff lines on success. Supported ops:\n' +
+      '- {op:"addNode", id, type, params?} — add a node (id must be new, no ":")\n' +
+      '- {op:"removeNode", id} — remove a node and all its connections\n' +
+      '- {op:"setParam", id, key, value} — set/overwrite one param on a node\n' +
+      '- {op:"removeParam", id, key} — delete one param from a node\n' +
+      '- {op:"setNodeType", id, type} — change a node\'s type in place (connections/params kept; pins re-validated)\n' +
+      '- {op:"renameNode", id, newId} — rename a node, rewriting all its connections\n' +
+      '- {op:"connect", from:"nodeId:pin", to:"nodeId:pin"} — add a connection (target input pin must be free)\n' +
+      '- {op:"disconnect", from:"nodeId:pin", to:"nodeId:pin"} — remove a connection\n' +
+      '- {op:"setDescription", value} — set the graph description\n' +
+      'snake_case aliases (add_node, add_connection, set_param, …) are also accepted. ' +
+      'Every op may carry an optional why:"…" string that shows up in the user-facing diff.',
     inputSchema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
         ops: {
           type: 'array',
-          description: 'Ordered list of patch operations',
-          items: { type: 'object' },
+          description: 'Ordered patch operations — see the tool description for each op\'s fields',
+          items: {
+            type: 'object',
+            properties: {
+              op: {
+                type: 'string',
+                enum: [
+                  'addNode', 'removeNode', 'setParam', 'removeParam', 'setNodeType',
+                  'renameNode', 'connect', 'disconnect', 'setDescription',
+                ],
+                description: 'Operation kind',
+              },
+            },
+            required: ['op'],
+          },
         },
       },
       required: ['path', 'ops'],
@@ -461,6 +487,23 @@ export const toolDefs: ToolDef[] = [
       'very long. The summary is auto-injected into your system prompt afterwards, so nothing ' +
       'important is lost.',
     inputSchema: { type: 'object', properties: {} },
+  },
+  {
+    name: 'report_off_topic',
+    description:
+      'Report that the user\'s latest message is UNRELATED to UE materials, shaders, textures, ' +
+      'game art / game development, or using this tool (related math/color/graphics fundamentals ' +
+      'count as ON topic). Call this INSTEAD of answering the off-topic content, then follow the ' +
+      'instruction in the tool result. Strikes escalate: 1st = friendly reminder, 2nd = refuse and ' +
+      'warn, 3rd = the server closes and deletes this session. When in doubt, do NOT call this — ' +
+      'only clearly unrelated messages count.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        reason: { type: 'string', description: 'One short sentence (zh-TW) on why the message is off-topic' },
+      },
+      required: ['reason'],
+    },
   },
   {
     name: 'rename_graph',
@@ -639,6 +682,9 @@ async function _dispatch(
     case 'compact_context':
       // Needs the live session/provider — the loop intercepts it before dispatch.
       return { content: 'compact_context 只能由代理迴圈執行。', isError: true };
+    case 'report_off_topic':
+      // Needs the session's strike counter — the loop intercepts it before dispatch.
+      return { content: 'report_off_topic 只能由代理迴圈執行。', isError: true };
     default:
       return { content: `unknown tool: ${name}`, isError: true };
   }

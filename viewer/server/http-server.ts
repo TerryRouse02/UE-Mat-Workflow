@@ -186,6 +186,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // (the next provider round overwrites it with real usage numbers).
     loop.contextTokens = estimateMessagesTokens(loop.messages);
     loop.turnSeq = persisted.turnSeq;
+    loop.offTopicStrikes = persisted.offTopicStrikes ?? 0;
     const active: ActiveSession = {
       loop,
       // NOTE: the checkpoint turn stack is in-memory — undo history does not
@@ -212,12 +213,33 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         ueVersion: active.loop.ueVersion,
         totalTokens: Math.round(active.loop.totalTokens),
         turnSeq: active.loop.turnSeq,
+        offTopicStrikes: active.loop.offTopicStrikes,
         messages: active.loop.messages,
         transcript: active.transcript,
       });
     } catch (e) {
       console.error('agent session persist failed:', e);
     }
+  }
+
+  /**
+   * Fully remove a session: runtime cache, session file, checkpoint pre-images
+   * and per-session memory (longterm memory is shared and untouched). Used by
+   * DELETE /api/agent/sessions/:id and the off-topic session_closed path.
+   */
+  async function destroySession(id: string): Promise<void> {
+    const active = activeSessions.get(id);
+    activeSessions.delete(id);
+    if (currentSessionId === id) currentSessionId = null;
+    await sessionStore.remove(id);
+    try {
+      const cpDir = active?.checkpoint.sessionDir
+        ?? resolve(opts.repoRoot, 'viewer', '.agent-checkpoints', id);
+      await rm(cpDir, { recursive: true, force: true });
+    } catch { /* non-fatal */ }
+    try {
+      await rm(resolve(opts.repoRoot, 'viewer', '.agent-sessions', `${id}.memory.md`), { force: true });
+    } catch { /* non-fatal */ }
   }
 
   const sendJson = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
@@ -878,20 +900,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       sendJson(res, 409, { error: '正在還原／重新生成，請稍候再試。' });
       return;
     }
-    const active = activeSessions.get(id);
-    activeSessions.delete(id);
-    if (currentSessionId === id) currentSessionId = null;
-    await sessionStore.remove(id);
-    try {
-      const cpDir = active?.checkpoint.sessionDir
-        ?? resolve(opts.repoRoot, 'viewer', '.agent-checkpoints', id);
-      await rm(cpDir, { recursive: true, force: true });
-    } catch { /* non-fatal */ }
-    // Session memory belongs to the session — delete it too. Longterm memory
-    // is shared and untouched.
-    try {
-      await rm(resolve(opts.repoRoot, 'viewer', '.agent-sessions', `${id}.memory.md`), { force: true });
-    } catch { /* non-fatal */ }
+    await destroySession(id);
     sendJson(res, 200, { ok: true });
   }
 
@@ -1138,7 +1147,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         ? `模型不支援工具呼叫（${msg}）。${TOOL_HINT}`
         : msg;
 
+    // Off-topic strike limit: the loop emits session_closed; the finally block
+    // below deletes the session instead of persisting it.
+    let sessionClosed = false;
     const emit = (event: AgentSseEvent) => {
+      if (event.type === 'session_closed') sessionClosed = true;
       if (res.writableEnded) return;
       const out = event.type === 'error' ? { ...event, message: withToolHint(event.message) } : event;
       res.write(`data: ${JSON.stringify(out)}\n\n`);
@@ -1226,10 +1239,19 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         agentStreaming = false;
         agentAbortRef.current = null;
       }
-      if (!res.writableEnded) res.end();
-      // Persist the turn (messages + transcript + meta). Best-effort: an
-      // aborted turn is still saved — synthetic tool_results keep it legal.
-      await persistSession(active);
+      if (sessionClosed) {
+        // Off-topic strike limit: delete instead of persist — the session and
+        // all its artifacts (checkpoints, memory) are gone for good. Deleting
+        // BEFORE ending the response makes "stream closed ⇒ session gone" hold
+        // (clients acting on the done EVENT may still race by a few ms).
+        await destroySession(active.loop.id);
+        if (!res.writableEnded) res.end();
+      } else {
+        if (!res.writableEnded) res.end();
+        // Persist the turn (messages + transcript + meta). Best-effort: an
+        // aborted turn is still saved — synthetic tool_results keep it legal.
+        await persistSession(active);
+      }
     }
   }
 

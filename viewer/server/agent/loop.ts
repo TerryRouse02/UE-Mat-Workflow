@@ -62,6 +62,10 @@ export const VIEW_CONTEXT_PREFIX = '［視窗情境］';
 export const WRITE_FAIL_BREAKER = 3;
 /** Consecutive failed compact_context attempts before the loop stops. */
 export const COMPACT_FAIL_BREAKER = 2;
+/** Off-topic strikes (report_off_topic calls) before the session is closed
+    and deleted: 1 = remind, 2 = refuse + warn, 3 = close. Per-session,
+    cumulative (persisted), never reset by on-topic messages. */
+export const OFF_TOPIC_LIMIT = 3;
 
 // ---------------------------------------------------------------------------
 // Session type (server-side only)
@@ -93,6 +97,12 @@ export interface AgentLoopSession {
    * older than the previous turn.
    */
   turnSeq: number;
+  /**
+   * Cumulative off-topic strikes (report_off_topic calls) this session.
+   * Persisted; at OFF_TOPIC_LIMIT the loop emits session_closed and the
+   * http layer deletes the session.
+   */
+  offTopicStrikes: number;
 }
 
 export function createSession(id: string, ueVersion: string, graphPath?: string): AgentLoopSession {
@@ -104,7 +114,34 @@ export function createSession(id: string, ueVersion: string, graphPath?: string)
     totalTokens: 0,
     contextTokens: 0,
     turnSeq: 0,
+    offTopicStrikes: 0,
   };
+}
+
+/**
+ * Record one off-topic strike and return the tool_result instruction for the
+ * model. Strikes 1/2 tell the model what to say; strike 3's content is mostly
+ * ceremonial — the loop terminates right after the results are appended and
+ * the http layer deletes the session.
+ */
+function offTopicStrike(session: AgentLoopSession): { content: string; isError?: boolean } {
+  session.offTopicStrikes += 1;
+  const n = session.offTopicStrikes;
+  if (n === 1) {
+    return {
+      content:
+        '第 1 次離題。請友善提醒使用者：你只協助 UE 材質／shader／遊戲開發相關話題，' +
+        '請對方回到主題。不要回答離題內容本身。',
+    };
+  }
+  if (n === 2) {
+    return {
+      content:
+        '第 2 次離題。請直接拒絕回答這個問題（一句話即可），並明確警告使用者：' +
+        '再有一次離題訊息，本會話將被關閉並刪除。',
+    };
+  }
+  return { content: `第 ${n} 次離題。會話即將被關閉並刪除，不要再產生任何回應。` };
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +258,9 @@ export async function runAgent(
   const writeFailCounts = new Map<string, number>();
   let compactFailCount = 0;
   let breakerMessage: string | null = null;
+  // Set when an off-topic strike reaches OFF_TOPIC_LIMIT — terminate after the
+  // tool results land (the http layer deletes the session on session_closed).
+  let offTopicClosed = false;
 
   for (let iter = 0; iter < maxIters; iter++) {
     if (signal?.aborted) break;
@@ -329,8 +369,8 @@ export async function runAgent(
       // Emit tool_start with a human-readable summary.
       emit({ type: 'tool_start', name: call.name, summary: toolSummary(call) });
 
-      // compact_context is dispatched here, not in tools.ts — it needs the
-      // session/provider that only the loop holds.
+      // compact_context / report_off_topic are dispatched here, not in
+      // tools.ts — they need the session (and provider) that only the loop holds.
       const result = call.name === 'compact_context'
         ? await (async () => {
             const r = await compactNow(
@@ -341,7 +381,13 @@ export async function runAgent(
               ? { content: `已將先前 ${r.droppedTurns} 輪對話摘要進會話記憶並壓縮歷史。`, isError: false }
               : { content: r.reason ?? '壓縮失敗。', isError: true };
           })()
-        : await dispatchTool(call.name, call.input, turnCtx);
+        : call.name === 'report_off_topic'
+          ? offTopicStrike(session)
+          : await dispatchTool(call.name, call.input, turnCtx);
+
+      if (call.name === 'report_off_topic' && session.offTopicStrikes >= OFF_TOPIC_LIMIT) {
+        offTopicClosed = true;
+      }
 
       // Emit tool_end.
       emit({
@@ -452,6 +498,19 @@ export async function runAgent(
       role: 'user',
       content: toolResults,
     });
+
+    // Third off-topic strike: stop NOW — no further model round, no farewell
+    // text. The http layer reacts to session_closed by deleting the session
+    // (file + checkpoints + memory); the tool_results above keep the history
+    // legal in the unlikely event the deletion fails.
+    if (offTopicClosed) {
+      emit({
+        type: 'session_closed',
+        message: `已累積 ${session.offTopicStrikes} 次離題訊息，本會話已關閉並刪除。`,
+      });
+      limitEmitted = true;
+      break;
+    }
 
     // Circuit breaker tripped — every tool_use above is already answered, so
     // the history stays legal; stop with an honest plain-language explanation
@@ -771,6 +830,7 @@ function toolSummary(call: ToolUseBlock): string {
     case 'read_memory':       return `讀取記憶：${inp.scope === 'longterm' ? '長期' : '本對話'}`;
     case 'update_memory':     return `更新記憶：${inp.scope === 'longterm' ? '長期' : '本對話'}`;
     case 'compact_context':   return '壓縮對話上下文';
+    case 'report_off_topic':  return `記錄離題訊息：${String(inp.reason ?? '')}`;
     case 'rename_graph':      return `改名圖形：${String(inp.from ?? '')} → ${String(inp.to ?? '')}`;
     case 'delete_graph':      return `刪除圖形：${String(inp.path ?? '')}`;
     case 'export_to_clipboard': return `複製到剪貼簿：${String(inp.path ?? '')}`;

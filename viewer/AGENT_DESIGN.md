@@ -174,9 +174,9 @@ interface ProviderStatus {
 回明確中文錯誤建議換模型（列例：claude-opus-4-8、gpt-4o、deepseek-chat）。
 MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 
-## 4. Tool 契約（24 個）
+## 4. Tool 契約（25 個）
 
-2026-06-11 追加七個（探索＋記憶＋壓縮）；同日再追加六個（檔案管理＋剪貼簿＋爬取提案＋公網存取）；再追加兩個（DB 修改提案＋爬取 log）；2026-06-11 bugfix 批次追加 `get_viewport`（視窗情境改為按需查詢，不再注入 prompt）：
+2026-06-11 追加七個（探索＋記憶＋壓縮）；同日再追加六個（檔案管理＋剪貼簿＋爬取提案＋公網存取）；再追加兩個（DB 修改提案＋爬取 log）；2026-06-11 bugfix 批次追加 `get_viewport`（視窗情境改為按需查詢，不再注入 prompt）；同日追加 `report_off_topic`（主題圍欄三振）：
 
 | tool | input | returns | guard |
 |---|---|---|---|
@@ -196,6 +196,7 @@ MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 | `read_memory` | `{scope}` | session / longterm 記憶內容 | 路徑寫死無穿越面 |
 | `update_memory` | `{scope, op: append\|replace, content}` | `{ok}` | 8K 字上限，超限響亮報錯要求 replace 精煉 |
 | `compact_context` | `{}` | 壓縮輪數或「無須壓縮」說明 | **在 loop.ts 攔截執行（需 session/provider），不走 dispatchTool**；與門檻壓縮共用 `compactNow`，切點規則相同、turn 中安全 |
+| `report_off_topic` | `{reason}` | 第 N 次離題的行動指示（1 提醒／2 拒答警告／3 關閉） | **在 loop.ts 攔截執行（strike 計數在 session 上，落盤持久、不因回到正題歸零）**；第 3 次 emit `session_closed` 即停（不再請求模型），HTTP 層刪整個 session（檔＋checkpoint＋session 記憶）；prompt 規則 16 要求「判斷從寬、拿不準不回報」 |
 
 原 MVP 八個：
 
@@ -206,7 +207,7 @@ MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 | `get_mf_signature` | `{assetPath}` | MF 針腳簽名 | `/Engine/`→engine index；其他→workmf index；查無→提示跑對應爬取，**不得編造針腳名** |
 | `read_graph` | `{path}` | 目前 matgraph JSON＋既存錯誤/警告 | 路徑限 `graphs/` 內、限 `.matgraph.json` |
 | `write_graph` | `{path, graph, overwrite?}` | `{ok, warnings}` 或錯誤清單 | **先 validate＋MF 解析＋針腳查 DB，不過不落盤**；初建用；**拒絕覆寫非本對話建立的既有檔**（`overwrite:true` 僅限使用者明確要求整檔重寫） |
-| `patch_graph` | `{path, ops[]}` | `{ok, diff[]}` 或 `{opIndex, errors}` | 修改用；見 §5 |
+| `patch_graph` | `{path, ops[]}` | `{ok, diff[], changedNodeIds}` 或 `{opIndex, errors}` | 修改用（增量優先於 write_graph 重寫）；9 op＋snake_case 別名；見 §5 |
 | `validate_graph` | `{path \| graph}` | 完整錯誤＋警告＋未解析 MF 針腳 | `validateGraph`+`materialStructureWarnings`+`mf-resolver` |
 | `get_graph_errors` | `{path}` | 既存問題清單 | debug 用 |
 
@@ -223,17 +224,26 @@ MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 修改走 patch、初建走 write_graph。理由：LLM 輸出 diff 而非整圖（省 token、防截斷），
 且 **op 列表本身就是白話 diff**，不需二次生成。
 
-7 個 op（欄位對齊 schema 真實形狀；`why` 為可選的一句使用者看得懂的說明）：
+9 個 op（欄位對齊 schema 真實形狀；`why` 為可選的一句使用者看得懂的說明）：
 
 ```jsonc
 { "op": "addNode",    "id": "...", "type": "...", "params": {...}, "why": "..." }
 { "op": "removeNode", "id": "...", "why": "..." }                       // 自動級聯刪邊＋逐條列出
 { "op": "setParam",   "id": "...", "key": "...", "value": ..., "why": "..." }
+{ "op": "removeParam", "id": "...", "key": "...", "why": "..." }        // 刪一個 param；params 清空則整欄移除
+{ "op": "setNodeType", "id": "...", "type": "...", "why": "..." }       // 原地換型；連線/params 保留，驗證閘門重查針腳
 { "op": "renameNode", "id": "...", "newId": "...", "why": "..." }       // 同步 rewrite connections 引用
 { "op": "connect",    "from": "nodeId:pin", "to": "nodeId:pin", "why": "..." }
 { "op": "disconnect", "from": "nodeId:pin", "to": "nodeId:pin", "why": "..." }
 { "op": "setDescription", "value": "...", "why": "..." }
 ```
+
+**可發現性（2026-06-11）**：op 清單完整寫進 tool description＋inputSchema 的 `op` enum
+（先前 schema 只有 `items: {type:"object"}`，模型猜不到 op 只好整檔 write_graph 重寫——
+這正是增量編輯失效的根因）；unknown op 的 applyError 會列出全部支援 op。
+**別名容錯**：LLM 慣性輸出的 snake_case（`add_node`/`set_param`/`add_connection`/
+`remove_connection`/`set_node_type`…）在 `normalizeOp` 統一映射到 canonical 名，
+applyPatch 與 changedNodeIds 共用同一映射。
 
 白話句型（每 op 一條，有 `why` 則附「（why）」於句尾）：
 addNode→「加入了 `<type>` 節點「`<id>`」」；removeNode→「移除了節點「`<id>`」及其 N 條連線」；
@@ -247,7 +257,9 @@ Apply flow：讀現圖 → 逐 op 套用（apply 期錯誤回 `{opIndex, applyEr
 邊界決策（已定，勿重議）：removeNode 級聯刪邊＋notice（非靜默）；addNode 撞 id
 立即報錯含 opIndex；connect 引用不存在節點交給 validateGraph 既有檢查；
 dynamic-pin 節點不做靜態 pin 驗證（與現行行為一致）；renameNode 同步改寫
-所有 `connections[*].from/to` 前綴。
+所有 `connections[*].from/to` 前綴；connect 目標輸入針腳已被佔用 → 報錯並指出
+現有來源（UE 輸入針腳只收一條線；改接先 disconnect，不做靜默替換）；
+setNodeType 換成同型 → 報錯（提示模型 op 無效果）。
 
 ## 6. Agent Loop（loop.ts）
 
@@ -268,6 +280,12 @@ runAgent(userText, session):
   「0 = 不限制」的語意收在 **loop 內**（caller 直接傳 0，不可自行換算）；不限制模式仍受
   token 天花板＋**連續失敗熔斷**約束：同檔連續 3 次寫入驗證失敗、或連續 2 次壓縮失敗 →
   emit `limit(kind:'failures')` 白話收尾（誠實 > 自信的錯）。
+- 主題圍欄（2026-06-11）：離題判定在模型（語意問題只能由 LLM 判），**升級執法在 server**——
+  模型對無關訊息呼叫 `report_off_topic`（loop 攔截），`session.offTopicStrikes` 累加並落盤：
+  第 1 次 tool_result 指示友善提醒、第 2 次指示拒答＋警告、第 3 次（`OFF_TOPIC_LIMIT`）loop
+  emit `session_closed` 即停，http 層 `destroySession`（session 檔＋checkpoint＋session 記憶
+  全刪，在 `res.end()` 前完成）。計數不因回到正題歸零；前端收 `session_closed` 清空綁定、
+  跳過該輪列表刷新。已知限制：模型不呼叫工具就直接回答離題內容時，本機制不觸發（純 prompt 紀律）。
 - 視窗情境（2026-06-11 改版）：**不再注入 prompt**——前端照舊隨訊息送 graphPath/selectedNodeId，
   server 存進 ToolContext，模型需要時呼叫 `get_viewport`。開啟中的圖是環境資訊，
   不是預設操作對象；建立 vs 修改的意圖分流寫進 system prompt 規則 13/14，
@@ -416,8 +434,11 @@ interface AgentChatRequest {
 
 - **對話生圖**：白話描述 → 即時節點圖（watcher 重繪）＋白話 diff＋變更節點畫布高亮；
   錯誤一律餵回模型自修，使用者只看最終成果。
-- **修改與回退**：patch 式修改、還原上一步（undo）、重新生成上一回覆（檔案＋歷史＋
+- **修改與回退**：patch 式增量修改（9 op＋snake_case 別名，op 清單寫進 tool schema；
+  修改不再整檔重寫）、還原上一步（undo）、重新生成上一回覆（檔案＋歷史＋
   transcript 一併回捲）。
+- **主題圍欄**：與材質／遊戲開發無關的訊息三振制——第 1 次提醒、第 2 次拒答＋警告、
+  第 3 次關閉並刪除整個會話（strike 落盤，跨重啟有效）。
 - **情境理解**：前端隨訊息附帶目前開啟的圖＋選取節點，模型按需以 `get_viewport` 查詢
   （不注入 prompt——開啟中的圖是環境資訊，不是預設操作對象）；「建立」意圖一律寫新檔，
   write_graph 拒絕覆寫非本對話建立的檔；Inspector「問 AI」、匯入後自動解說、hover 節點兩層解說。

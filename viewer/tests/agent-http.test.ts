@@ -1666,3 +1666,78 @@ describe('regenerate/undo single-flight (BUG-11)', () => {
     }
   }, 20000);
 });
+
+// ---------------------------------------------------------------------------
+// Off-topic fence: 3rd report_off_topic strike closes AND deletes the session
+// ---------------------------------------------------------------------------
+
+describe('off-topic fence — session closed and deleted on the 3rd strike', () => {
+  it('streams session_closed, deletes the session file, and 404s afterwards', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test', apiKey: 'sk-x' } });
+
+    // Each user turn: the model reports off-topic, then (strikes 1–2) replies.
+    const strikeTurn = (n: number): StreamEvent[][] => [
+      [
+        { type: 'tool_use', id: `off-${n}`, name: 'report_off_topic', input: { reason: '離題' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [
+        { type: 'text_delta', text: '請回到主題。' },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ];
+    const { factory } = makeFactory([...strikeTurn(1), ...strikeTurn(2), ...strikeTurn(3)]);
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: factory });
+    try {
+      const create = await fetch(`http://localhost:${server.port}/api/agent/sessions`, { method: 'POST' });
+      const { id } = await create.json() as { id: string };
+
+      const chat = async (text: string) => {
+        const r = await fetch(`http://localhost:${server.port}/api/agent/chat`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text, sessionId: id }),
+        });
+        expect(r.status).toBe(200);
+        return parseSseResponse(r);
+      };
+
+      const e1 = await chat('今天天氣如何？');
+      expect(e1.some(e => e.type === 'session_closed')).toBe(false);
+      const e2 = await chat('講個笑話');
+      expect(e2.some(e => e.type === 'session_closed')).toBe(false);
+      // Strikes survive in the persisted session between requests.
+      const e3 = await chat('聊聊股票');
+      const closed = e3.find(e => e.type === 'session_closed');
+      expect(closed).toBeDefined();
+      expect((closed as { message: string }).message).toContain('離題');
+      expect(e3.at(-1)?.type).toBe('done');
+
+      // The session is gone: file deleted, detail endpoint 404s. The client
+      // sees the done EVENT slightly before the server's finally finishes the
+      // deletion — poll briefly instead of asserting the very first response.
+      const detailUrl = `http://localhost:${server.port}/api/agent/sessions/${id}`;
+      let detailStatus = (await fetch(detailUrl)).status;
+      const deadline = Date.now() + 3000;
+      while (detailStatus !== 404 && Date.now() < deadline) {
+        await new Promise(r => setTimeout(r, 25));
+        detailStatus = (await fetch(detailUrl)).status;
+      }
+      expect(detailStatus).toBe(404);
+      expect(existsSync(resolve(root, 'viewer', '.agent-sessions', `${id}.json`))).toBe(false);
+
+      // And a fresh chat without a session id starts a NEW session normally.
+      const r4 = await fetch(`http://localhost:${server.port}/api/agent/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '做一個發光材質' }),
+      });
+      expect(r4.status).toBe(200);
+      const e4 = await parseSseResponse(r4);
+      expect(e4.some(e => e.type === 'session_closed')).toBe(false);
+    } finally {
+      await server.close();
+    }
+  }, 15000);
+});

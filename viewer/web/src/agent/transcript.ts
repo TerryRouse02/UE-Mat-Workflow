@@ -233,6 +233,11 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
     case 'limit':
       return [...items, { kind: 'notice', variant: 'limit', message: event.message }];
 
+    case 'session_closed':
+      // The server has deleted this session — the caller clears its session id;
+      // here it just renders as a final error-styled notice.
+      return [...items, { kind: 'notice', variant: 'error', message: event.message }];
+
     case 'error':
       return [...items, { kind: 'notice', variant: 'error', message: event.message }];
 

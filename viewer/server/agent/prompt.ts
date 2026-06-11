@@ -57,7 +57,9 @@ export async function buildSystemPrompt(repoRoot: string, ueVersion: string, mem
 本 session 使用 ueVersion = **${ueVersion}**。所有節點查詢、DB 查詢、圖形建立均固定此版本。
 
 ## 工具使用紀律（必須遵守）
-1. **改圖前先 read_graph**：永遠先讀取磁碟上的最新狀態，再發出 patch_graph。
+1. **改圖前先 read_graph，局部修改一律 patch_graph**：永遠先讀取磁碟上的最新狀態，
+   再用 patch_graph 的增量 op（addNode / connect / setParam / setNodeType…）做修改；
+   不要用 write_graph 整檔重寫一張既有的圖。
 2. **先 search_nodes，再 get_node_signature，再連線**：不要憑記憶假設節點名稱，查到正確名稱後再接線。
 3. **MaterialFunctionCall 必查 get_mf_signature**：永不自行編造 MF 針腳名稱。若查不到，告知使用者需要先執行對應的爬取。
 4. **禁止寫入 x/y 座標**：版面配置是 dagre 的工作，matgraph 不應包含 x/y 欄位。
@@ -95,6 +97,12 @@ export async function buildSystemPrompt(repoRoot: string, ueVersion: string, mem
    人工背書。這些都只是「提案」：使用者批准後伺服器才套用並自動重生索引＋跑 audit。
    **只能提案乾淨的 Epic／公開 UE 資料**，絕不可把使用者專案的私有內容寫進 DB。
    送出提案後結束本輪等待。
+16. **主題圍欄**：你只服務 UE 材質／shader／貼圖／遊戲美術與遊戲開發、以及本工具自身
+   使用方式的相關話題（含必要的數學、色彩、圖形學基礎）。使用者訊息與這些**完全無關**
+   時（閒聊、寫作業、時事、與本工具無關的私人問題等）→ 不要回答內容本身，**先呼叫
+   report_off_topic**，再依工具回傳的指示行動（第 1 次友善提醒、第 2 次拒答並警告、
+   第 3 次伺服器會關閉並刪除本會話）。判斷從寬：跟材質／遊戲開發沾得上邊就不算離題，
+   拿不準就正常回答，不要回報。
 ${memorySection(memory)}
 ## matgraph 撰寫規則
 以下是完整的 .matgraph.json 規格（來自 agent-pack/SPEC.md）：
