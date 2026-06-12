@@ -2011,7 +2011,14 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   });
 
-  const wss = new WebSocketServer({ server: http });
+  // Use noServer mode so an HTTP listen failure (notably EADDRINUSE) is only
+  // reported by `http`. WebSocketServer({ server }) mirrors that error onto the
+  // WSS as an unhandled event, which used to crash before index.ts could retry
+  // the next port.
+  const wss = new WebSocketServer({ noServer: true });
+  http.on('upgrade', (req, socket, head) => {
+    wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  });
 
   const send = (ws: WebSocket, msg: ServerMessage) => ws.send(JSON.stringify(msg));
 
@@ -2152,6 +2159,22 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       catch (e) { console.error('ws authenticate error:', e); }
       if (!user) { ws.close(4401, 'authentication required'); return; }
     }
+    // Register the inbound handler before sending hello. A fast client can
+    // answer hello with `open` immediately; registering afterward creates a
+    // race where that first request is lost.
+    ws.on('message', async (raw) => {
+      try {
+        let msg: ClientMessage;
+        try { msg = JSON.parse(raw.toString()); } catch { return; }
+        if (msg.kind === 'listFiles') {
+          send(ws, { kind: 'fileList', files: await listFiles() });
+        } else if (msg.kind === 'open') {
+          await sendGraph(ws, msg.path);
+        }
+      } catch (e) {
+        console.error('message handler error:', e);
+      }
+    });
     // Guard the handler body: a thrown error here would otherwise become an
     // unhandledRejection and can crash the process.
     try {
@@ -2172,19 +2195,6 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     } catch (e) {
       console.error('connection handler error:', e);
     }
-    ws.on('message', async (raw) => {
-      try {
-        let msg: ClientMessage;
-        try { msg = JSON.parse(raw.toString()); } catch { return; }
-        if (msg.kind === 'listFiles') {
-          send(ws, { kind: 'fileList', files: await listFiles() });
-        } else if (msg.kind === 'open') {
-          await sendGraph(ws, msg.path);
-        }
-      } catch (e) {
-        console.error('message handler error:', e);
-      }
-    });
   });
 
   const watcher = watchGraphs(graphsRoot, async (changed) => {
@@ -2218,10 +2228,15 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // Local-first: bind loopback unless BIND_HOST opts into team mode. The crawl
   // endpoint spawns UnrealEditor-Cmd.exe, so a non-loopback bind is only safe
   // because the team gate above puts that surface behind admin auth.
-  await new Promise<void>((res, rej) => {
-    http.once('error', rej);
-    http.listen(opts.port, currentBindHost, () => { http.removeListener('error', rej); res(); });
-  });
+  try {
+    await new Promise<void>((res, rej) => {
+      http.once('error', rej);
+      http.listen(opts.port, currentBindHost, () => { http.removeListener('error', rej); res(); });
+    });
+  } catch (e) {
+    await watcher.close();
+    throw e;
+  }
   const addr = http.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : opts.port;
   boundPort = actualPort;

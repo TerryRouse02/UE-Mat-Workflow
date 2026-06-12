@@ -9,19 +9,26 @@ import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { WebSocket } from 'ws';
 import { startServer, type RunningServer } from '../server/http-server.js';
 import type { Provider, StreamEvent, ChatRequest, LLMConfig } from '../server/agent/provider/types.js';
 import type { AgentPublicSessionResponse } from '../server/agent/agent-types.js';
 
-const REPO_ROOT = resolve(new URL('.', import.meta.url).pathname, '..', '..');
+const REPO_ROOT = fileURLToPath(new URL('../..', import.meta.url));
 
 function makeTmpRoot(): string {
   const root = mkdtempSync(resolve(tmpdir(), 'agt-pub-'));
   mkdirSync(resolve(root, 'graphs'), { recursive: true });
   mkdirSync(resolve(root, 'tools', 'node-t3d-metadata'), { recursive: true });
   mkdirSync(resolve(root, 'viewer'), { recursive: true });
-  try { symlinkSync(resolve(REPO_ROOT, 'agent-pack'), resolve(root, 'agent-pack'), 'dir'); } catch { /* exists */ }
+  try {
+    symlinkSync(
+      resolve(REPO_ROOT, 'agent-pack'),
+      resolve(root, 'agent-pack'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+  } catch { /* exists */ }
   return root;
 }
 
