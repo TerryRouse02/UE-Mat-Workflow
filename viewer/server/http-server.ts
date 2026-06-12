@@ -1,4 +1,5 @@
 import { createServer, type Server, type IncomingMessage } from 'node:http';
+import { networkInterfaces } from 'node:os';
 import { readFile, readdir, mkdir, writeFile, access, rm } from 'node:fs/promises';
 import { resolve, join, extname, relative, dirname } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -57,6 +58,8 @@ export interface ServerOpts {
 
 export interface RunningServer {
   port: number;
+  /** Mode at startup (POST /api/team can switch it at runtime). */
+  mode: ServerMode;
   close(): Promise<void>;
 }
 
@@ -129,9 +132,36 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // classic single-user behavior is untouched. Team mode (non-loopback bind)
   // requires a valid token cookie (or Bearer header) on every /api route and
   // the WebSocket upgrade, with the dangerous surface admin-only.
-  const mode: ServerMode = opts.mode ?? resolveMode(opts.bindHost);
-  const teamMode = mode === 'team';
-  const authStore = teamMode ? createAuthStore(resolve(opts.repoRoot, 'viewer')) : null;
+  // BIND_HOST / the test `mode` override LOCK the mode for the process
+  // lifetime (Docker, scripts). Otherwise the mode is runtime-switchable from
+  // the Config tab (POST /api/team): the saved `Team` object in
+  // local.config.json decides the initial bind, and a live re-bind flips it.
+  const envLocked = opts.mode !== undefined || (typeof opts.bindHost === 'string' && opts.bindHost.trim() !== '');
+  interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean }
+  async function readTeamConfig(): Promise<TeamConfig> {
+    try {
+      const parsed = JSON.parse(await readFile(localConfigPath, 'utf-8')) as { Team?: TeamConfig };
+      return parsed.Team && typeof parsed.Team === 'object' ? parsed.Team : {};
+    } catch { return {}; }
+  }
+  async function saveTeamConfig(patch: Partial<TeamConfig>): Promise<void> {
+    let existing: Record<string, unknown> = {};
+    try {
+      const parsed = JSON.parse(await readFile(localConfigPath, 'utf-8'));
+      if (parsed && typeof parsed === 'object') existing = parsed as Record<string, unknown>;
+    } catch { /* absent — start fresh */ }
+    const team = { ...(existing.Team as object | undefined), ...patch };
+    await mkdir(dirname(localConfigPath), { recursive: true });
+    await writeFile(localConfigPath, JSON.stringify({ ...existing, Team: team }, null, 2) + '\n', 'utf-8');
+  }
+  const savedTeam = envLocked ? {} : await readTeamConfig();
+  // Mutable runtime state — POST /api/team re-points all three on a switch.
+  let currentBindHost = opts.mode !== undefined
+    ? (opts.bindHost ?? '127.0.0.1')
+    : (opts.bindHost ?? (savedTeam.enabled ? (savedTeam.bindHost ?? '0.0.0.0') : '127.0.0.1'));
+  let mode: ServerMode = opts.mode ?? resolveMode(currentBindHost);
+  let authStore = mode === 'team' ? createAuthStore(resolve(opts.repoRoot, 'viewer')) : null;
+  let secureCookies = opts.secureCookies ?? savedTeam.secureCookies ?? false;
   const loginLimiter = createLoginLimiter();
   const COOKIE_NAME = 'uemw_token';
 
@@ -159,7 +189,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   function setAuthCookie(res: import('node:http').ServerResponse, raw: string | null): void {
     const maxAge = raw ? Math.floor(TOKEN_TTL_MS / 1000) : 0;
     let cookie = `${COOKIE_NAME}=${raw ?? ''}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}`;
-    if (opts.secureCookies) cookie += '; Secure';
+    if (secureCookies) cookie += '; Secure';
     res.setHeader('Set-Cookie', cookie);
   }
 
@@ -170,6 +200,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // session is the team-visible window, added with the public-session API).
   function isAdminOnly(urlPath: string): boolean {
     if (urlPath === '/api/config' || urlPath === '/api/crawl' || urlPath === '/api/crawl/cancel') return true;
+    if (urlPath === '/api/team') return true;
     if (urlPath === '/api/auth/users' || urlPath.startsWith('/api/auth/users/')) return true;
     if (urlPath.startsWith('/api/agent/')) {
       return urlPath !== '/api/agent/status' && urlPath !== '/api/agent/explain'
@@ -1526,6 +1557,123 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }
 
+  // ─── Live mode switch (POST /api/team) ──────────────────────────────────────
+  // The listener is re-bound in place: close() stops accepting, the immediate
+  // re-listen picks the new host on the SAME port. Existing connections (the
+  // switching admin's own tab) keep working; the web WS auto-reconnects if its
+  // socket is dropped. On a failed re-listen we roll back to the old host.
+  let boundPort = 0;
+  let teamSwitching = false;
+  async function rebindListener(host: string): Promise<{ ok: true } | { ok: false; error: string }> {
+    const prev = currentBindHost;
+    const listenOn = (h: string) => new Promise<void>((res, rej) => {
+      http.once('error', rej);
+      http.listen(boundPort, h, () => { http.removeListener('error', rej); res(); });
+    });
+    http.close(() => { /* drain callback unused — the re-listen below is immediate */ });
+    try {
+      await listenOn(host);
+      currentBindHost = host;
+      return { ok: true };
+    } catch (e) {
+      try { await listenOn(prev); } catch (e2) { console.error('rebind rollback failed:', e2); }
+      return { ok: false, error: (e as Error).message };
+    }
+  }
+
+  /** Shareable URLs for the current bind (all external IPv4s for 0.0.0.0/::). */
+  function teamUrls(): string[] {
+    if (currentBindHost !== '0.0.0.0' && currentBindHost !== '::') {
+      return [`http://${currentBindHost}:${boundPort}`];
+    }
+    const urls: string[] = [];
+    for (const ifaces of Object.values(networkInterfaces())) {
+      for (const iface of ifaces ?? []) {
+        if (iface.family === 'IPv4' && !iface.internal) urls.push(`http://${iface.address}:${boundPort}`);
+      }
+    }
+    return urls.length > 0 ? urls : [`http://localhost:${boundPort}`];
+  }
+
+  const HOST_RE = /^[A-Za-z0-9.:_-]{1,253}$/;
+
+  async function handleTeamGet(res: import('node:http').ServerResponse) {
+    // Accounts may exist on disk while the mode is local (a previous team run
+    // keeps them) — read through a throwaway store so the UI can say so.
+    const store = authStore ?? createAuthStore(resolve(opts.repoRoot, 'viewer'));
+    sendJson(res, 200, {
+      mode,
+      envLocked,
+      bindHost: currentBindHost,
+      secureCookies,
+      port: boundPort,
+      hasUsers: await store.hasUsers(),
+      urls: mode === 'team' ? teamUrls() : [],
+    });
+  }
+
+  async function handleTeamPost(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    let body: { enabled?: unknown; bindHost?: unknown; secureCookies?: unknown; username?: unknown; password?: unknown };
+    try { body = JSON.parse(await readBody(req, 64_000)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    if (envLocked) { sendJson(res, 409, { error: '綁定位址由 BIND_HOST 環境變數鎖定，請在啟動環境調整。' }); return; }
+    if (teamSwitching) { sendJson(res, 409, { error: '正在切換模式，請稍候。' }); return; }
+    teamSwitching = true;
+    try {
+      if (typeof body.secureCookies === 'boolean' && body.secureCookies !== secureCookies) {
+        secureCookies = body.secureCookies;
+        await saveTeamConfig({ secureCookies });
+      }
+
+      if (body.enabled === true && mode === 'local') {
+        const host = typeof body.bindHost === 'string' && body.bindHost.trim() ? body.bindHost.trim() : '0.0.0.0';
+        if (!HOST_RE.test(host)) { sendJson(res, 400, { error: 'invalid bindHost' }); return; }
+        if (resolveMode(host) !== 'team') {
+          sendJson(res, 400, { error: '綁定位址不能是 loopback——團隊模式需要對外位址（例如 0.0.0.0）。' });
+          return;
+        }
+        // The admin account is created BEFORE the server is exposed, so there
+        // is never an unauthenticated window for someone on the LAN to claim.
+        const store = createAuthStore(resolve(opts.repoRoot, 'viewer'));
+        let autoLogin: string | null = null;
+        if (!(await store.hasUsers())) {
+          const created = await store.createUser(String(body.username ?? ''), String(body.password ?? ''), 'admin');
+          if (!created.ok) { sendJson(res, 400, { error: `需要先建立管理員帳號：${created.error}` }); return; }
+          autoLogin = String(body.username);
+        } else if (typeof body.username === 'string' && typeof body.password === 'string') {
+          const u = await store.verifyPassword(body.username, body.password);
+          if (u) autoLogin = u.username;
+        }
+        const r = await rebindListener(host);
+        if (!r.ok) { sendJson(res, 500, { error: `重綁監聽位址失敗：${r.error}` }); return; }
+        mode = 'team';
+        authStore = store;
+        await saveTeamConfig({ enabled: true, bindHost: host });
+        // Log the switching admin straight in — their next request already
+        // passes through the team gate.
+        if (autoLogin) setAuthCookie(res, await store.issueToken(autoLogin));
+        sendJson(res, 200, { ok: true, mode, bindHost: host, port: boundPort, urls: teamUrls() });
+        return;
+      }
+
+      if (body.enabled === false && mode === 'team') {
+        const r = await rebindListener('127.0.0.1');
+        if (!r.ok) { sendJson(res, 500, { error: `重綁監聽位址失敗：${r.error}` }); return; }
+        mode = 'local';
+        authStore = null; // accounts stay on disk for the next enable
+        await saveTeamConfig({ enabled: false });
+        sendJson(res, 200, { ok: true, mode, bindHost: '127.0.0.1', port: boundPort });
+        return;
+      }
+
+      // No mode change requested (or already in that mode) — report state.
+      sendJson(res, 200, { ok: true, mode, bindHost: currentBindHost, secureCookies, port: boundPort, urls: mode === 'team' ? teamUrls() : [] });
+    } finally {
+      teamSwitching = false;
+    }
+  }
+
   // ─── /api/auth/* handlers (team mode; 404 in local mode) ───────────────────
 
   async function handleAuthStatus(req: IncomingMessage, res: import('node:http').ServerResponse) {
@@ -1659,7 +1807,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
     // ── Team gate: every other /api route needs a valid token; the dangerous
     //    surface additionally needs the admin role. Local mode: no-op. ────────
-    if (teamMode && urlPath.startsWith('/api/')) {
+    if (mode === 'team' && urlPath.startsWith('/api/')) {
       let user: AuthUser | null = null;
       try { user = await authenticate(req); }
       catch (e) { console.error('authenticate error:', e); }
@@ -1693,6 +1841,19 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           catch (e) { console.error('auth user password error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
           return;
         }
+      }
+    }
+
+    if (urlPath === '/api/team') {
+      if (req.method === 'GET') {
+        try { await handleTeamGet(res); }
+        catch (e) { console.error('team get error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+        return;
+      }
+      if (req.method === 'POST') {
+        try { await handleTeamPost(req, res); }
+        catch (e) { console.error('team post error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+        return;
       }
     }
 
@@ -1985,7 +2146,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (!sameOrigin(req)) { ws.close(1008, 'cross-origin'); return; }
     // Team mode: the upgrade request carries the HttpOnly auth cookie — no
     // token, no socket (the WS streams every graph + the file list).
-    if (teamMode) {
+    if (mode === 'team') {
       let user: AuthUser | null = null;
       try { user = await authenticate(req); }
       catch (e) { console.error('ws authenticate error:', e); }
@@ -2059,13 +2220,15 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // because the team gate above puts that surface behind admin auth.
   await new Promise<void>((res, rej) => {
     http.once('error', rej);
-    http.listen(opts.port, opts.bindHost ?? '127.0.0.1', () => { http.removeListener('error', rej); res(); });
+    http.listen(opts.port, currentBindHost, () => { http.removeListener('error', rej); res(); });
   });
   const addr = http.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : opts.port;
+  boundPort = actualPort;
 
   return {
     port: actualPort,
+    mode,
     async close() {
       await watcher.close();
       // Cancel any running crawl child process so it does not outlive the server.

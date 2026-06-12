@@ -115,8 +115,9 @@ contract lives in [`viewer/AGENT_DESIGN.md`](./viewer/AGENT_DESIGN.md).
 ## Team mode (share one viewer with your team)
 
 By default the viewer binds `127.0.0.1` and has no login — nothing changes for
-solo use. Set `BIND_HOST=0.0.0.0` and the same server becomes a team
-workspace:
+solo use. Flip it on in the browser (Config → 團隊 → 啟用團隊模式: creates the
+admin account and live re-binds, no restart) — or set `BIND_HOST=0.0.0.0` for
+Docker/scripted deployments — and the same server becomes a team workspace:
 
 - **Login + roles** — username/password with 7-day tokens (HttpOnly cookie).
   First visit creates the admin; members are added in Config → 使用者管理.

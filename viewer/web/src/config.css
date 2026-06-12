@@ -261,3 +261,58 @@
 .ua-reset input:focus, .ua-create input:focus { border-color: var(--accent-dim); }
 .ua-create { display: flex; gap: 6px; margin-top: 8px; }
 .ua-create select { flex: 0 0 76px; }
+
+/* ── Config sub-tabs (爬取 / AI / 團隊) ──────────────────────────────────── */
+.cfg-tabs {
+  display: flex; gap: 2px;
+  padding: 2px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  margin-bottom: 10px;
+}
+.cfg-tab {
+  flex: 1;
+  padding: 5px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: none; border: none; border-radius: 4px;
+  cursor: pointer;
+}
+.cfg-tab:hover { color: var(--text); }
+.cfg-tab.on { background: var(--bg-elev); color: var(--text); font-weight: 600; }
+
+/* ── Team panel ──────────────────────────────────────────────────────────── */
+.team-state {
+  margin-left: auto; font-size: 10px;
+  padding: 1px 6px; border-radius: 4px;
+  background: var(--bg-elev); color: var(--text-mute);
+}
+.team-state.on { color: var(--accent); border: 1px solid var(--accent-dim); background: var(--accent-ghost); }
+.team-urls { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.team-url {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  padding: 5px 9px; font-size: 12px;
+}
+.team-url .mono { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-check {
+  display: flex; align-items: flex-start; gap: 7px;
+  font-size: 11px; color: var(--text-dim); line-height: 1.5;
+  margin: 8px 0;
+  cursor: pointer;
+}
+.team-check input { margin-top: 2px; }
+.team-pwrow { display: flex; gap: 6px; margin-bottom: 4px; }
+.team-pwrow input {
+  flex: 1; min-width: 0;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  color: var(--text); font-size: 12px;
+  padding: 6px 9px; outline: none;
+}
+.team-pwrow input:focus { border-color: var(--accent-dim); }
+.team-toggle-btn { width: 100%; padding: 7px 0; font-size: 12px; margin-top: 2px; }

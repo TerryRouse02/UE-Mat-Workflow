@@ -10,6 +10,7 @@ import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/re
 import { Login } from '../web/src/Login.js';
 import { PublicAgentView } from '../web/src/agent/PublicAgentView.js';
 import { UserAdminSection } from '../web/src/UserAdmin.js';
+import { TeamPanel } from '../web/src/TeamPanel.js';
 
 // ---------------------------------------------------------------------------
 // Store mock (mutable snapshot + spied auth actions)
@@ -32,6 +33,7 @@ vi.mock('../web/src/store.tsx', () => ({
     login: loginFn,
     setupAdmin: setupFn,
     logout: vi.fn(),
+    refreshAuth: vi.fn(async () => undefined),
   }),
   StoreProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
 }));
@@ -133,6 +135,82 @@ describe('PublicAgentView', () => {
     rerender(<PublicAgentView />);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     expect(await screen.findByText(/廣播中/)).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TeamPanel (web-driven mode switch)
+// ---------------------------------------------------------------------------
+
+describe('TeamPanel', () => {
+  const teamInfo = (over: Record<string, unknown>) => ({
+    mode: 'local', envLocked: false, bindHost: '127.0.0.1',
+    secureCookies: false, port: 5790, hasUsers: false, urls: [],
+    ...over,
+  });
+
+  function mockTeamApi(info: Record<string, unknown>) {
+    const calls: Array<{ init?: RequestInit }> = [];
+    global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === '/api/team' && init?.method === 'POST') {
+        calls.push({ init });
+        return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      }
+      if (url === '/api/team') return new Response(JSON.stringify(info), { status: 200 });
+      return new Response(JSON.stringify({}), { status: 200 });
+    }) as never;
+    return calls;
+  }
+
+  it('local + fresh box: enable form requires admin creds and posts the full switch', async () => {
+    const calls = mockTeamApi(teamInfo({}));
+    render(<TeamPanel />);
+    expect(await screen.findByText('未啟用')).toBeTruthy();
+
+    const btn = screen.getByText('啟用團隊模式') as HTMLButtonElement;
+    expect(btn.disabled).toBe(true); // no creds yet
+
+    fireEvent.change(screen.getByPlaceholderText('帳號（1–32 字元）'), { target: { value: 'admin' } });
+    fireEvent.change(screen.getByPlaceholderText('密碼（至少 8 字元）'), { target: { value: 'password1' } });
+    fireEvent.change(screen.getByPlaceholderText('確認密碼'), { target: { value: 'password1' } });
+    fireEvent.click(screen.getByText('啟用團隊模式'));
+
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(JSON.parse(String(calls[0].init!.body))).toMatchObject({
+      enabled: true, bindHost: '0.0.0.0', username: 'admin', password: 'password1',
+    });
+  });
+
+  it('local + existing accounts: no cred fields, enable posts without them', async () => {
+    const calls = mockTeamApi(teamInfo({ hasUsers: true }));
+    render(<TeamPanel />);
+    expect(await screen.findByText(/既有團隊帳號/)).toBeTruthy();
+    expect(screen.queryByPlaceholderText('帳號（1–32 字元）')).toBeNull();
+    fireEvent.click(screen.getByText('啟用團隊模式'));
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(JSON.parse(String(calls[0].init!.body))).toMatchObject({ enabled: true });
+  });
+
+  it('team mode: shows share URLs and disables after confirm', async () => {
+    const calls = mockTeamApi(teamInfo({
+      mode: 'team', bindHost: '0.0.0.0', hasUsers: true,
+      urls: ['http://192.168.1.20:5790'],
+    }));
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    render(<TeamPanel />);
+    expect(await screen.findByText('運作中')).toBeTruthy();
+    expect(screen.getByText('http://192.168.1.20:5790')).toBeTruthy();
+
+    fireEvent.click(screen.getByText(/關閉團隊模式/));
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(JSON.parse(String(calls[0].init!.body))).toEqual({ enabled: false });
+  });
+
+  it('env-locked: controls are hidden and the lock is explained', async () => {
+    mockTeamApi(teamInfo({ mode: 'team', envLocked: true, bindHost: '0.0.0.0', hasUsers: true, urls: ['http://10.0.0.5:5790'] }));
+    render(<TeamPanel />);
+    expect(await screen.findByText(/BIND_HOST/)).toBeTruthy();
+    expect(screen.queryByText(/關閉團隊模式/)).toBeNull();
   });
 });
 

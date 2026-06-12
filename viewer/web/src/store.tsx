@@ -197,6 +197,8 @@ interface Ctx {
   setupAdmin(username: string, password: string): Promise<{ ok: boolean; error?: string }>;
   /** Team mode: revoke the token and drop back to the login screen. */
   logout(): Promise<void>;
+  /** Re-fetch /api/auth/status (after a web-driven mode switch). */
+  refreshAuth(): Promise<void>;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -418,7 +420,14 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'setAuth', auth: { mode: 'team', needsSetup: false, authed: false } });
   }, []);
 
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout]);
+  const refreshAuth = useCallback(async () => {
+    try {
+      const r = await fetch('/api/auth/status', { cache: 'no-store' });
+      if (r.ok) dispatch({ type: 'setAuth', auth: await r.json() });
+    } catch { /* keep the current auth state */ }
+  }, []);
+
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

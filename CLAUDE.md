@@ -67,11 +67,16 @@ README.md / README.zh-TW.md user-facing docs (EN is source of truth; zh-TW mirro
 
 Entry `index.ts` → `http-server.ts` (`startServer`). Binds **127.0.0.1** (base port 5790,
 auto-tries 5790–5799). One WebSocket carries everything live.
-**Team mode:** `BIND_HOST=<non-loopback>` flips `resolveMode()` to `'team'` — every `/api`
-route and the WS upgrade then require a 7-day token (HttpOnly cookie or Bearer), with the
-dangerous surface (`/api/config`, `/api/crawl*`, all `/api/agent/*` except
+**Team mode:** switched from the Config tab's 團隊 sub-tab (`GET/POST /api/team` — enabling
+creates the admin in the SAME request, then live re-binds the listener on the same port;
+disabling keeps the on-disk accounts) or locked by `BIND_HOST=<non-loopback>` (Docker —
+`envLocked`, the web switch then 409s). In team mode every `/api` route and the WS upgrade
+require a 7-day token (HttpOnly cookie or Bearer), with the dangerous surface
+(`/api/config`, `/api/crawl*`, `/api/team`, all `/api/agent/*` except
 `status`/`explain`/`public-session`, `/api/auth/users*`) admin-only (`isAdminOnly`).
-Local mode constructs no auth store and skips every gate — behavior unchanged.
+Local mode constructs no auth store and skips every gate — behavior unchanged. `mode`,
+`authStore`, `secureCookies`, and `currentBindHost` are mutable runtime state; the `Team`
+object persists in `local.config.json`.
 
 - `http-server.ts` — routes + WS. HTTP: `GET /api/env`, `GET /api/agent-pack/:file`
   (filename allowlist), `GET /api/workmf`, `POST /api/config` (extended with optional `Llm`
@@ -87,7 +92,8 @@ Local mode constructs no auth store and skips every gate — behavior unchanged.
   `POST /api/agent/web-test` (one real search with the SAVED Web config; sameOrigin),
   `GET/POST /api/agent/sessions` + `GET/DELETE /api/agent/sessions/:id` (persistent sessions: list/create/replay/delete),
   `POST /api/agent/sessions/:id/public` (designate the team announcement session) + `GET /api/agent/public-session` (its transcript — the one member-readable agent surface),
-  `/api/auth/*` (status/setup/login/logout public; users CRUD admin-only — see `auth.ts`);
+  `/api/auth/*` (status/setup/login/logout public; users CRUD admin-only — see `auth.ts`),
+  `GET/POST /api/team` (mode status + the live local↔team switch; admin-only once in team mode);
   static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
   `listFiles`, crawl progress broadcast, `publicAgent` announcement pointer broadcast.
 - `auth.ts` — team-mode primitives: `resolveMode(BIND_HOST)`, scrypt user store +
@@ -129,8 +135,9 @@ Local mode constructs no auth store and skips every gate — behavior unchanged.
   Connection is `live | reconnecting | snapshot` (snapshot = exported HTML, no server).
   Probes `/api/auth/status` BEFORE opening the WS (a team-mode upgrade without a token is
   rejected); `auth` + `publicAgent` state drive the team UI (`Login.tsx` via App's AuthGate,
-  `UserAdmin.tsx` in Config, `agent/PublicAgentView.tsx` — the members' read-only
-  announcement view that re-fetches on every `publicAgent` WS bump).
+  `UserAdmin.tsx` + `TeamPanel.tsx` in the Config tab's 團隊 sub-tab,
+  `agent/PublicAgentView.tsx` — the members' read-only announcement view that re-fetches
+  on every `publicAgent` WS bump). `ConfigPanel.tsx` splits into 爬取/AI/團隊 sub-tabs.
 - `dbContext.tsx` — derives the active node DB / export metadata / engine-MF / work-MF for the
   open graph's `ueVersion`. **Baked at build time** (`dbRegistry.ts`, `engineMfRegistry.ts` via
   `import.meta.glob`) so snapshot/offline renders; **re-fetched at runtime** in live mode

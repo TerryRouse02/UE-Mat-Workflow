@@ -1,16 +1,26 @@
 # Deploying the viewer in team mode
 
-The viewer has two modes, switched by one environment variable:
+The viewer has two modes:
 
 | | local mode (default) | team mode |
 |---|---|---|
-| Trigger | `BIND_HOST` unset / loopback | `BIND_HOST=0.0.0.0` (or a LAN address) |
-| Bind | `127.0.0.1` only | the given host |
+| Bind | `127.0.0.1` only | a non-loopback host (e.g. `0.0.0.0`) |
 | Auth | none (single user owns the box) | username/password → 7-day token (HttpOnly cookie; `Authorization: Bearer` also accepted for scripts) |
 | Roles | — | `admin` / `user` |
 
-Local behavior is untouched by all of this: with no `BIND_HOST`, no auth store
-is created and no login screen ever appears.
+**The normal way to switch is in the browser**: Config tab → 團隊 sub-tab →
+啟用團隊模式. The form creates the admin account in the same request (so the
+server is never exposed unauthenticated), live re-binds the listener on the
+same port — no restart, no terminal — and shows the URLs to share with the
+team. Disabling re-binds back to loopback and keeps the accounts for next time.
+
+`BIND_HOST` (and `COOKIE_SECURE=1`) still work as environment variables for
+Docker/scripted deployments; when set, the mode is **locked** and the web
+switch is disabled. The web-saved settings persist as the `Team` object in
+`tools/node-t3d-metadata/local.config.json`.
+
+Local behavior is untouched by all of this: while in local mode, no auth store
+is active and no login screen ever appears.
 
 ## Roles
 
@@ -29,10 +39,11 @@ indirectly — through the admin-driven agent and the node-explain endpoint.
 
 ## First boot
 
-1. Start with `BIND_HOST=0.0.0.0` (or run the Docker image).
-2. Open the URL — the first visitor creates the **admin** account (Setup screen).
-3. Add members in **Config → 使用者管理**.
-4. To publish an announcement channel: Agent tab → pick a session → **設為公告**.
+1. Desktop: enable from **Config → 團隊** (creates the admin inline).
+   Docker: start with `BIND_HOST=0.0.0.0` — the first visitor then creates the
+   admin via the Setup screen.
+2. Add members in **Config → 團隊 → 使用者管理**.
+3. To publish an announcement channel: Agent tab → pick a session → **設為公告**.
    Members see it read-only in their Agent tab, live.
 
 ## Docker
@@ -52,8 +63,7 @@ Team mode also runs directly on a Windows/macOS workstation — this is the only
 setup where the admin can trigger crawls from the Config tab:
 
 ```bash
-BIND_HOST=0.0.0.0 pnpm start        # macOS / Linux
-$env:BIND_HOST='0.0.0.0'; pnpm start  # Windows PowerShell
+pnpm start          # then: Config → 團隊 → 啟用團隊模式 (no env var needed)
 ```
 
 ## HTTPS
@@ -61,7 +71,8 @@ $env:BIND_HOST='0.0.0.0'; pnpm start  # Windows PowerShell
 TLS is the reverse proxy's job — see `Caddyfile` (automatic certificates) or
 `nginx.conf` (note the WebSocket upgrade headers and `proxy_buffering off`
 for the agent's SSE stream). Once TLS terminates in front, start the viewer
-with `COOKIE_SECURE=1` so the auth cookie is marked `Secure`.
+with `COOKIE_SECURE=1` (or tick the Secure-cookie box in Config → 團隊) so the
+auth cookie is marked `Secure`.
 
 Without a proxy, plain-HTTP team mode is acceptable **only on a trusted LAN**:
 the login password and cookie travel unencrypted.
