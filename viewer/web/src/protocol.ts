@@ -43,6 +43,9 @@ export interface FileEntry {
    *  'error' = failed to load/validate, 'warn' = loaded with warnings, 'ok' = clean.
    *  Computed with the same load+resolve as opening the file, so dots match. */
   health?: 'ok' | 'warn' | 'error';
+  /** Constant-folded BaseColor/Emissive swatch (graph-preview.ts), 0-1 sRGB.
+   *  Absent when the chain cannot be folded (textures, MFs, ...). */
+  preview?: [number, number, number];
 }
 
 export type ServerMessage =

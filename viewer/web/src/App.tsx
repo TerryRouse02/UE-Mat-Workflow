@@ -15,6 +15,7 @@ import { shouldConfirmOpen } from './largeGraphGate';
 import { graphToUET3D } from './export/ueT3D';
 import { Login } from './Login';
 import { buildDiffPayload } from './diff';
+import { evaluateGraphPreview } from '../../server/graph-preview';
 import type { FileEntry, GraphPayload } from './protocol';
 
 export type AppTab = 'files' | 'nodes' | 'config' | 'agent';
@@ -247,6 +248,13 @@ function Body() {
   const errs = current ? (state.errors[current] ?? []) : [];
   const warns = payload?.warnings ?? [];
 
+  // Constant-folded BaseColor swatch for the open graph (same pure module the
+  // server uses for the file-list swatches; null = unfoldable, no chip shown).
+  const previewColor = useMemo(
+    () => (payload && payload.graph.type === 'Material' ? evaluateGraphPreview(payload.graph) : null),
+    [payload],
+  );
+
   // Agent diff highlight: only for the graph it targeted, and only while fresh —
   // a stale entry must not re-pulse when the user reopens the file minutes later.
   const hl = state.agentHighlight;
@@ -322,7 +330,16 @@ function Body() {
           </button>
           {payload && (
             <div className="canvas-topbar">
-              <div className="ct-left"><span className="ct-title">{payload.graph.name}</span></div>
+              <div className="ct-left">
+                {previewColor && (
+                  <span
+                    className="ct-swatch"
+                    title={`BaseColor 預覽（常數折疊近似）rgb(${previewColor.map(c => Math.round(c * 255)).join(',')})`}
+                    style={{ background: `rgb(${previewColor.map(c => Math.round(c * 255)).join(',')})` }}
+                  />
+                )}
+                <span className="ct-title">{payload.graph.name}</span>
+              </div>
               <div className="ct-right">
                 {(errs.length + warns.length) > 0 && (
                   <span className="ct-warn" title={[...errs, ...warns].join('\n')}>

@@ -113,6 +113,13 @@ function FileRow({ entry, onLargeGraph, onCompare }: FileRowProps) {
         <Icon name={entry.type === 'MaterialFunction' ? 'func' : 'material'} size={15} />
       </span>
       <span className="nm">{baseName(entry.path)}</span>
+      {entry.preview && (
+        <span
+          className="fswatch"
+          title="BaseColor 預覽（常數折疊近似）"
+          style={{ background: `rgb(${entry.preview.map(c => Math.round(c * 255)).join(',')})` }}
+        />
+      )}
       <span className="meta">
         {isBig && <span className="bigmark" title="大型圖">300+</span>}
         {displayCount != null && <span className="nc">{displayCount}</span>}

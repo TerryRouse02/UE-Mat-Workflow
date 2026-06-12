@@ -143,6 +143,8 @@
   font-size: 12.5px;
 }
 .frow.ro .nm { color: var(--text-dim); }
+/* Constant-folded BaseColor swatch (server-computed; absent when unfoldable). */
+.frow .fswatch { flex: none; width: 10px; height: 10px; border-radius: 3px; border: 1px solid rgba(255,255,255,.25); }
 .frow .meta {
   display: flex;
   align-items: center;

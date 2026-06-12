@@ -86,6 +86,8 @@ body { margin: 0; background: var(--bg-app); color: var(--text);
 .db-close { margin-left: auto; flex: none; padding: 2px 10px; font-size: 11px; cursor: pointer;
   background: var(--bg1); color: var(--fg-dim); border: 1px solid var(--bd); border-radius: 5px; }
 .db-close:hover { color: var(--fg); background: var(--bg-elev); }
+.ct-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ct-swatch { flex: none; width: 13px; height: 13px; border-radius: 4px; border: 1px solid rgba(255,255,255,.3); }
 .ct-title { font-weight: 600; }
 .ct-right { display: flex; align-items: center; gap: 12px; }
 .ct-warn { color: var(--warn); font-size: 11px; cursor: default; }

@@ -5,6 +5,7 @@ import { resolve, join, extname, relative, dirname } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { watchGraphs } from './watcher.js';
 import { loadGraph } from './graph-loader.js';
+import { evaluateGraphPreview, type PreviewGraph } from './graph-preview.js';
 import { materialStructureWarnings } from './schema.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
 import { loadWorkMfIndex } from './workmf-index.js';
@@ -2528,16 +2529,21 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   // Any read/parse error → type 'Unknown', nodeCount undefined; user sees it
   // under "Unorganized" and can investigate. Distinct error types are not surfaced.
-  async function readGraphMeta(absPath: string): Promise<{ type: FileEntry['type']; nodeCount: number | undefined }> {
+  async function readGraphMeta(absPath: string): Promise<{ type: FileEntry['type']; nodeCount: number | undefined; preview: FileEntry['preview'] }> {
     try {
       const raw = await readFile(absPath, 'utf-8');
-      const parsed = JSON.parse(raw) as { type?: string; nodes?: unknown };
+      const parsed = JSON.parse(raw) as { type?: string; nodes?: unknown; connections?: unknown };
       const type: FileEntry['type'] =
         parsed.type === 'Material' || parsed.type === 'MaterialFunction' ? parsed.type : 'Unknown';
       const nodeCount = Array.isArray(parsed.nodes) ? parsed.nodes.length : undefined;
-      return { type, nodeCount };
+      // Best-effort constant-folded swatch; null for unfoldable chains.
+      let preview: FileEntry['preview'];
+      if (type === 'Material' && Array.isArray(parsed.nodes) && Array.isArray(parsed.connections)) {
+        preview = evaluateGraphPreview(parsed as unknown as PreviewGraph) ?? undefined;
+      }
+      return { type, nodeCount, preview };
     } catch {
-      return { type: 'Unknown', nodeCount: undefined };
+      return { type: 'Unknown', nodeCount: undefined, preview: undefined };
     }
   }
 
@@ -2581,11 +2587,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         const full = join(dir, e.name);
         if (e.isDirectory()) await walk(full);
         else if (e.isFile() && e.name.endsWith('.matgraph.json')) {
-          const { type, nodeCount } = await readGraphMeta(full);
+          const { type, nodeCount, preview } = await readGraphMeta(full);
           const posixPath = toPosixPath(relative(graphsRoot, full));
           const origin: FileEntry['origin'] = posixPath.startsWith(PROJECT_DIR + '/') ? 'crawled' : 'agent';
           const entry: FileEntry = { path: posixPath, type, origin };
           if (nodeCount !== undefined) entry.nodeCount = nodeCount;
+          if (preview) entry.preview = preview;
           entry.health = await computeHealth(full, ctx);
           out.push(entry);
         }
