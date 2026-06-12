@@ -419,6 +419,21 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     setUsage(null);
   }, [streaming]);
 
+  // Team mode: designate / clear this session as the announcement channel.
+  // The server broadcasts `publicAgent` to every client; the store keeps the
+  // pointer, so the button label flips without a local round-trip state.
+  const togglePublic = useCallback(async () => {
+    if (sessionId === null) return;
+    const makePublic = state.publicAgent.id !== sessionId;
+    try {
+      await fetch(`/api/agent/sessions/${sessionId}/public`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ public: makePublic }),
+      });
+    } catch { /* surfaced by the unchanged button state */ }
+  }, [sessionId, state.publicAgent.id]);
+
   const handleDeleteSession = useCallback(async () => {
     if (streaming || !sessionId) return;
     if (!window.confirm('刪除此對話？已寫入的圖檔不受影響。')) return;
@@ -882,6 +897,17 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             <option key={s.id} value={s.id}>{sessionLabel(s)}</option>
           ))}
         </select>
+        {sessionId !== null && !streaming && state.auth?.mode === 'team' && (
+          <button
+            className={'agent-bar-btn' + (state.publicAgent.id === sessionId ? ' on' : '')}
+            onClick={() => void togglePublic()}
+            title={state.publicAgent.id === sessionId
+              ? '取消公告：成員將看不到此會話'
+              : '設為公告：全體成員可唯讀圍觀此會話'}
+          >
+            <Icon name="eye" size={11} /> {state.publicAgent.id === sessionId ? '公告中' : '設為公告'}
+          </button>
+        )}
         {sessionId !== null && !streaming && (
           <button className="agent-bar-btn" onClick={() => void handleDeleteSession()} title="刪除此對話">
             <Icon name="x" size={11} /> 刪除

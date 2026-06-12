@@ -37,6 +37,8 @@ vi.mock('../web/src/store.tsx', () => {
       selectedNodeId: null,
       agentAsk: null,
       agentActivity: 'idle',
+      auth: { mode: 'local', needsSetup: false, authed: true, role: 'admin' },
+      publicAgent: { id: null, streaming: false, version: 0 },
     },
     open: vi.fn(),
     enterMF: vi.fn(),
@@ -53,6 +55,9 @@ vi.mock('../web/src/store.tsx', () => {
     askAgent: vi.fn(),
     bumpMetadata: vi.fn(),
     setAgentActivity: vi.fn(),
+    login: vi.fn(),
+    setupAdmin: vi.fn(),
+    logout: vi.fn(),
   });
 
   // Default: live connection, idle crawl

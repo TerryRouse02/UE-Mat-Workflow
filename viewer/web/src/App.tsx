@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { StoreProvider, useStore } from './store';
 import { Chrome } from './Chrome';
 import { Banner } from './Banner';
@@ -13,9 +13,24 @@ import { Icon } from './Icon';
 import { DbProvider, useDb } from './dbContext';
 import { shouldConfirmOpen } from './largeGraphGate';
 import { graphToUET3D } from './export/ueT3D';
+import { Login } from './Login';
 import type { FileEntry } from './protocol';
 
 export type AppTab = 'files' | 'nodes' | 'config' | 'agent';
+
+/**
+ * Team-mode gate: until /api/auth/status answers, show a tiny splash; an
+ * unauthenticated team session gets the Login screen instead of the app.
+ * Snapshot + local mode pass straight through.
+ */
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { state } = useStore();
+  if (state.connection !== 'snapshot') {
+    if (state.auth === null) return <div className="auth-splash">連線中…</div>;
+    if (state.auth.mode === 'team' && !state.auth.authed) return <Login />;
+  }
+  return <>{children}</>;
+}
 
 function srcToKind(src: string): 'workmf' | 'projectmat' | 'enginemf' | 'export' {
   if (src === 'workmf') return 'workmf';
@@ -343,7 +358,9 @@ function Body() {
 export function App() {
   return (
     <StoreProvider>
-      <DbProvider><Body /></DbProvider>
+      <AuthGate>
+        <DbProvider><Body /></DbProvider>
+      </AuthGate>
     </StoreProvider>
   );
 }

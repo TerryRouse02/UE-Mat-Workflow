@@ -85,3 +85,21 @@
 .tdot.err { background: var(--error); }
 .tdot.new { background: var(--accent); }
 @keyframes tdot-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+
+/* Team-mode signed-in chip (Chrome header) */
+.userchip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 8px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  font-size: 12px; color: var(--text-dim);
+}
+.userchip .uc-name { color: var(--text); font-weight: 600; max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.userchip .uc-role { font-size: 10px; padding: 1px 5px; border-radius: 4px; background: var(--bg-elev); color: var(--text-mute); }
+.userchip .uc-role.admin { color: var(--accent); border: 1px solid var(--accent-dim); background: var(--accent-ghost); }
+.userchip .uc-out {
+  border: none; background: none; color: var(--text-mute);
+  font-size: 11px; cursor: pointer; padding: 1px 2px;
+}
+.userchip .uc-out:hover { color: var(--error); }

@@ -4,6 +4,7 @@ import { FileList } from './FileList';
 import { NodeLibrary } from './NodeLibrary';
 import { ConfigPanel } from './ConfigPanel';
 import { AgentChat } from './agent/AgentChat';
+import { PublicAgentView } from './agent/PublicAgentView';
 import type { FileEntry } from './protocol';
 import './sidebar.css';
 import './chrome.css';
@@ -32,6 +33,9 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
     crawlStatus === 'running' ? 'run' : crawlStatus === 'error' ? 'err' : null;
   // Agent tab is hidden in snapshot mode (same as ConfigPanel behaviour).
   const isSnapshot = state.connection === 'snapshot';
+  // Team mode, member role: the agent surface is the read-only announcement
+  // channel — the full chat (and its keep-alive cost) is admin-only.
+  const memberView = state.auth?.mode === 'team' && state.auth.role !== 'admin';
   // Pulse while the agent streams; steady dot when a reply finished off-tab.
   const agentCue: 'run' | 'new' | null =
     state.agentActivity === 'busy' ? 'run' : state.agentActivity === 'unseen' ? 'new' : null;
@@ -91,11 +95,12 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
         {/* AgentChat stays MOUNTED across tab switches (hidden, never unmounted):
             the pending crawl-report, an in-flight stream, and unsent input must
             survive the user watching crawl progress in the Config tab. */}
-        {!isSnapshot && (
+        {!isSnapshot && !memberView && (
           <div className="agent-keepalive" style={{ display: tab === 'agent' ? 'flex' : 'none' }}>
             <AgentChat onGotoConfig={onGotoConfig} active={tab === 'agent'} />
           </div>
         )}
+        {!isSnapshot && memberView && tab === 'agent' && <PublicAgentView />}
       </div>
     </div>
   );

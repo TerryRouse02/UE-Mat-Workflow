@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from './store';
+import { UserAdminSection } from './UserAdmin';
 import type { CrawlKind } from './crawlRequest';
 import { diagnoseCrawl } from './crawlDiagnosis';
 import { Icon } from './Icon';
@@ -1070,6 +1071,22 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
     );
   }
 
+  // ── team mode, member role: the whole panel is admin-managed ─────────────
+  if (state.auth?.mode === 'team' && state.auth.role !== 'admin') {
+    return (
+      <div className="cfg">
+        <div className="cfg-notice">
+          <div className="ni"><Icon name="settings" size={20} /></div>
+          <div className="nt">此區由管理員管理</div>
+          <div className="nd">
+            UE 路徑、爬取與 LLM 設定屬於伺服器端設定，僅管理員可變更。
+            {crawl.status === 'running' && ' 目前有一個爬取正在進行。'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── live: run-panel takeover ─────────────────────────────────────────────
   if (crawl.status !== 'idle') {
     return (
@@ -1104,6 +1121,7 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
         onStart={onStart}
       />
       <AiSection saveAgentConfig={saveAgentConfig} />
+      {state.auth?.mode === 'team' && state.auth.role === 'admin' && <UserAdminSection />}
     </div>
   );
 }

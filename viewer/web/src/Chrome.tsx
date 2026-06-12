@@ -14,8 +14,12 @@ export interface ChromeProps {
 }
 
 export function Chrome({ graph, onPalette, onImport, onExport, onSettings }: ChromeProps) {
-  const { state, popBreadcrumb } = useStore();
+  const { state, popBreadcrumb, logout } = useStore();
   const conn = state.connection;
+  // Team mode: show who is signed in + a logout control.
+  const teamUser = conn !== 'snapshot' && state.auth?.mode === 'team' && state.auth.authed
+    ? { name: state.auth.username ?? '?', role: state.auth.role ?? 'user' }
+    : null;
 
   const connInfo = conn === 'snapshot'
     ? ['offline', '離線快照'] as const
@@ -63,6 +67,16 @@ export function Chrome({ graph, onPalette, onImport, onExport, onSettings }: Chr
       <div className={'conn ' + connInfo[0]}>
         <span className="dot" /> {connInfo[1]}
       </div>
+      {teamUser && (
+        <div className="userchip" title={teamUser.role === 'admin' ? '管理員' : '成員'}>
+          <Icon name="chip" size={12} />
+          <span className="uc-name">{teamUser.name}</span>
+          <span className={'uc-role' + (teamUser.role === 'admin' ? ' admin' : '')}>
+            {teamUser.role === 'admin' ? 'admin' : 'user'}
+          </span>
+          <button className="uc-out" title="登出" onClick={() => void logout()}>登出</button>
+        </div>
+      )}
       {conn === 'live' && (
         <>
           <button className="btn" onClick={onImport}>

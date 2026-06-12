@@ -218,3 +218,46 @@
 .ai-test-result { font-size:11px; line-height:1.5; flex:1 1 140px; }
 .ai-test-result.ok { color:var(--ok); }
 .ai-test-result.err { color:#f0a59c; }
+
+/* ── User management (team mode, Config tab) ─────────────────────────────── */
+.useradmin-err {
+  font-size: 12px; color: var(--error);
+  background: rgba(224, 89, 78, .1);
+  border: 1px solid rgba(224, 89, 78, .35);
+  border-radius: var(--chip-radius);
+  padding: 6px 9px; margin-bottom: 8px;
+}
+.useradmin-list { display: flex; flex-direction: column; gap: 4px; }
+.useradmin-row {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  padding: 6px 9px;
+}
+.ua-main { display: flex; align-items: center; gap: 8px; }
+.ua-name { font-size: 12px; color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ua-me { color: var(--text-mute); font-weight: 400; font-size: 11px; }
+.ua-role { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--bg-elev); color: var(--text-mute); }
+.ua-role.admin { color: var(--accent); border: 1px solid var(--accent-dim); background: var(--accent-ghost); }
+.ua-actions { margin-left: auto; display: inline-flex; gap: 5px; }
+.ua-btn {
+  font-size: 11px; padding: 3px 8px; cursor: pointer;
+  background: var(--bg-elev); color: var(--text-dim);
+  border: 1px solid var(--border); border-radius: var(--chip-radius);
+}
+.ua-btn:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.ua-btn:disabled { opacity: .5; cursor: default; }
+.ua-btn.danger:hover:not(:disabled) { color: var(--error); border-color: var(--error); }
+.ua-btn.primary { color: var(--accent); border-color: var(--accent-dim); }
+.ua-reset { display: flex; gap: 6px; margin-top: 6px; }
+.ua-reset input, .ua-create input, .ua-create select {
+  flex: 1; min-width: 0;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  color: var(--text); font-size: 12px;
+  padding: 5px 8px; outline: none;
+}
+.ua-reset input:focus, .ua-create input:focus { border-color: var(--accent-dim); }
+.ua-create { display: flex; gap: 6px; margin-top: 8px; }
+.ua-create select { flex: 0 0 76px; }
