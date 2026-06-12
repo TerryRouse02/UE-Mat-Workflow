@@ -55,6 +55,11 @@ The sidebar has four tabs:
 
 The viewer hot-reloads when files change.
 
+**Preview swatches** — materials whose BaseColor (or Emissive) chain folds to a constant
+(constants, parameters, lerp/multiply/etc.) show a color swatch in the file list and the
+canvas topbar. Chains through textures or Material Functions honestly show nothing rather
+than a guess.
+
 **Compare two graphs** — open one file, then pick **與目前圖比較 (Compare with open
 graph)** from any other file's `⋯` menu. The canvas shows the union with green = added,
 red dashed = removed, amber = params/type changed (connections colored the same way), plus
