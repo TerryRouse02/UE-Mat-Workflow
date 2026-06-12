@@ -72,6 +72,20 @@ body { margin: 0; background: var(--bg-app); color: var(--text);
 .canvas-banner { flex: none; padding: 8px 12px; font-size: 12px; line-height: 1.5; color: var(--warn); background: var(--bg2); border-bottom: 1px solid var(--bd); border-left: 3px solid var(--warn); }
 .canvas-banner b { color: var(--fg); }
 .canvas-banner code { font-size: 11px; background: var(--bg1); padding: 1px 4px; border-radius: 3px; color: var(--fg-dim); }
+/* Compare-view banner (graph diff): sits under the topbar, in flow. */
+.diff-banner { display: flex; align-items: center; gap: 12px; flex: none; padding: 6px 12px; font-size: 12px;
+  background: var(--bg2); border-bottom: 1px solid var(--bd); border-left: 3px solid var(--accent); }
+.diff-banner b { color: var(--fg); font-weight: 600; }
+.db-title { color: var(--fg-dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.db-arrow { margin: 0 6px; color: var(--fg-faint); }
+.db-stats { display: flex; gap: 6px; flex: none; }
+.db-chip { padding: 1px 7px; border-radius: 9px; font-size: 11px; border: 1px solid var(--bd); color: var(--fg-dim); }
+.db-chip.added { color: #3fb950; border-color: rgba(63,185,80,.5); }
+.db-chip.removed { color: #f85149; border-color: rgba(248,81,73,.5); }
+.db-chip.changed { color: var(--warn); border-color: rgba(224,179,77,.5); }
+.db-close { margin-left: auto; flex: none; padding: 2px 10px; font-size: 11px; cursor: pointer;
+  background: var(--bg1); color: var(--fg-dim); border: 1px solid var(--bd); border-radius: 5px; }
+.db-close:hover { color: var(--fg); background: var(--bg-elev); }
 .ct-title { font-weight: 600; }
 .ct-right { display: flex; align-items: center; gap: 12px; }
 .ct-warn { color: var(--warn); font-size: 11px; cursor: default; }

@@ -55,6 +55,11 @@ The sidebar has four tabs:
 
 The viewer hot-reloads when files change.
 
+**Compare two graphs** — open one file, then pick **與目前圖比較 (Compare with open
+graph)** from any other file's `⋯` menu. The canvas shows the union with green = added,
+red dashed = removed, amber = params/type changed (connections colored the same way), plus
+a summary banner. `Esc` or **結束比較** exits.
+
 ---
 
 ## Refresh UE metadata from the browser (Windows / macOS)

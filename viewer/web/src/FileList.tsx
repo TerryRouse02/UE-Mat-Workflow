@@ -12,6 +12,8 @@ function baseName(path: string): string {
 interface FileRowProps {
   entry: FileEntry;
   onLargeGraph?(file: FileEntry): void;
+  /** Live mode: start a compare of this file against the open graph. */
+  onCompare?(path: string): void;
 }
 
 /** users/<name>/<proj> → 「<name> 的工作區 / <proj>」 (personal dirs). */
@@ -21,7 +23,7 @@ function groupTitle(folder: string): string {
   return m[2] ? `${m[1]} 的工作區 / ${m[2]}` : `${m[1]} 的工作區`;
 }
 
-function FileRow({ entry, onLargeGraph }: FileRowProps) {
+function FileRow({ entry, onLargeGraph, onCompare }: FileRowProps) {
   const { state, open } = useStore();
   const active = state.breadcrumb[0] === entry.path;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -115,7 +117,7 @@ function FileRow({ entry, onLargeGraph }: FileRowProps) {
         {isBig && <span className="bigmark" title="大型圖">300+</span>}
         {displayCount != null && <span className="nc">{displayCount}</span>}
         {status && <span className={'sdot ' + status} title={status} />}
-        {live && !isCrawled && (
+        {live && (!isCrawled || (onCompare && !active)) && (
           <span className="fops" onClick={e => e.stopPropagation()}>
             <button
               className="fops-btn"
@@ -127,9 +129,12 @@ function FileRow({ entry, onLargeGraph }: FileRowProps) {
             </button>
             {menuOpen && (
               <span className="fops-menu" onMouseLeave={() => setMenuOpen(false)}>
-                <button onClick={() => void fileOp('rename')}>改名／移動</button>
-                <button onClick={() => void fileOp('duplicate')}>建立副本</button>
-                <button className="danger" onClick={() => void fileOp('delete')}>刪除</button>
+                {onCompare && !active && (
+                  <button onClick={() => { setMenuOpen(false); onCompare(entry.path); }}>與目前圖比較</button>
+                )}
+                {!isCrawled && <button onClick={() => void fileOp('rename')}>改名／移動</button>}
+                {!isCrawled && <button onClick={() => void fileOp('duplicate')}>建立副本</button>}
+                {!isCrawled && <button className="danger" onClick={() => void fileOp('delete')}>刪除</button>}
               </span>
             )}
           </span>
@@ -171,6 +176,8 @@ export interface FileListProps {
   onGotoConfig?(): void;
   /** Called when a large-graph entry is clicked, instead of window.confirm. */
   onLargeGraph?(file: FileEntry): void;
+  /** Live mode: start a compare of a file against the open graph. */
+  onCompare?(path: string): void;
 }
 
 type TypeFilter = 'all' | 'material' | 'function';
@@ -181,7 +188,7 @@ const TYPE_SEGMENTS: { key: TypeFilter; label: string }[] = [
   { key: 'function', label: '函式' },
 ];
 
-export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
+export function FileList({ onGotoConfig, onLargeGraph, onCompare }: FileListProps = {}) {
   const { state } = useStore();
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
@@ -241,7 +248,7 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
       {visibleProjects.map(p => (
         <Group key={p.folder} title={groupTitle(p.folder)} count={p.files.length}>
           {p.files.map(f => (
-            <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} />
+            <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} onCompare={onCompare} />
           ))}
         </Group>
       ))}
@@ -249,7 +256,7 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
       {visibleUnorg.length > 0 && (
         <Group title="未分類" count={visibleUnorg.length} defaultOpen={false}>
           {visibleUnorg.map(f => (
-            <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} />
+            <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} onCompare={onCompare} />
           ))}
         </Group>
       )}
@@ -286,14 +293,14 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
             {crawledMats.length > 0 && (
               <Group title="母材質 Materials" count={crawledMats.length}>
                 {crawledMats.map(f => (
-                  <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} />
+                  <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} onCompare={onCompare} />
                 ))}
               </Group>
             )}
             {crawledFns.length > 0 && (
               <Group title="函式 Functions" count={crawledFns.length}>
                 {crawledFns.map(f => (
-                  <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} />
+                  <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} onCompare={onCompare} />
                 ))}
               </Group>
             )}

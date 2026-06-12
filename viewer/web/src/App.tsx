@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { StoreProvider, useStore } from './store';
 import { Chrome } from './Chrome';
 import { Banner } from './Banner';
@@ -14,7 +14,8 @@ import { DbProvider, useDb } from './dbContext';
 import { shouldConfirmOpen } from './largeGraphGate';
 import { graphToUET3D } from './export/ueT3D';
 import { Login } from './Login';
-import type { FileEntry } from './protocol';
+import { buildDiffPayload } from './diff';
+import type { FileEntry, GraphPayload } from './protocol';
 
 export type AppTab = 'files' | 'nodes' | 'config' | 'agent';
 
@@ -122,8 +123,31 @@ function Body() {
     setToasts(ts => [...ts, { id: Date.now() + Math.random(), ...t }]), []);
   const closeToast = (id: number) => setToasts(ts => ts.filter(t => t.id !== id));
 
+  // ─── Compare view (graph diff) ──────────────────────────────────────────────
+  // base = the open graph at the moment compare started; other = the fetched
+  // target. Cleared on navigation; recomputed live when the open graph reloads.
+  const [diffTarget, setDiffTarget] = useState<{ basePath: string; otherPath: string; other: GraphPayload } | null>(null);
+  const startCompare = useCallback(async (otherPath: string) => {
+    if (!current || otherPath === current) return;
+    try {
+      const r = await fetch(`/api/graph?path=${encodeURIComponent(otherPath)}`, { cache: 'no-store' });
+      if (!r.ok) {
+        const e = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(e.error || `HTTP ${r.status}`);
+      }
+      const data = (await r.json()) as { path: string; payload: GraphPayload };
+      setDiffTarget({ basePath: current, otherPath, other: data.payload });
+    } catch (e) {
+      pushToast({ variant: 'error', title: '無法載入比較對象', message: (e as Error).message });
+    }
+  }, [current, pushToast]);
+  const diffData = useMemo(() => {
+    if (!diffTarget || !payload || diffTarget.basePath !== current) return null;
+    return buildDiffPayload(payload, diffTarget.other);
+  }, [diffTarget, payload, current]);
+
   // Reset per-graph view state on navigation.
-  useEffect(() => { selectNode(null); setFocusReq(null); }, [current, selectNode]);
+  useEffect(() => { selectNode(null); setFocusReq(null); setDiffTarget(null); }, [current, selectNode]);
 
   // 問 AI / post-import explain: a fresh agentAsk switches to the Agent tab;
   // AgentChat itself consumes the text (nonce-tracked there too).
@@ -213,6 +237,7 @@ function Body() {
         setConfirmFile(null);
         setPaletteOpen(false);
         setImportOpen(false);
+        setDiffTarget(null);
       }
     };
     window.addEventListener('keydown', h);
@@ -266,6 +291,7 @@ function Body() {
             setTab={setTab}
             onGotoConfig={gotoConfig}
             onLargeGraph={setConfirmFile}
+            onCompare={state.connection === 'live' && current ? (p) => void startCompare(p) : undefined}
             mfRoot={mfRoot}
             setMfRoot={setMfRoot}
             matRoot={matRoot}
@@ -311,8 +337,31 @@ function Body() {
               </div>
             </div>
           )}
+          {payload && diffData && diffTarget && (
+            <div className="diff-banner">
+              <span className="db-title">
+                比較中：<b>{diffTarget.basePath.replace(/\.matgraph\.json$/, '')}</b>
+                <span className="db-arrow">→</span>
+                <b>{diffTarget.otherPath.replace(/\.matgraph\.json$/, '')}</b>
+              </span>
+              <span className="db-stats">
+                <span className="db-chip added">+{diffData.diff.summary.added.length} 節點</span>
+                <span className="db-chip removed">−{diffData.diff.summary.removed.length} 節點</span>
+                <span className="db-chip changed">~{diffData.diff.summary.changed.length} 修改</span>
+                <span className="db-chip conn">連線 +{diffData.diff.summary.connAdded}/−{diffData.diff.summary.connRemoved}</span>
+              </span>
+              <button className="db-close" onClick={() => setDiffTarget(null)} title="結束比較（Esc）">結束比較</button>
+            </div>
+          )}
           {payload
-            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={selectNode} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} agentHighlight={agentHl} />
+            ? <Graph
+                key={diffData ? `${current}<>${diffTarget!.otherPath}` : current}
+                payload={diffData ? diffData.payload : payload}
+                basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={selectNode} onPositions={setPositions}
+                focus={!diffData && focusReq && focusReq.path === current ? focusReq : null}
+                agentHighlight={diffData ? null : agentHl}
+                diff={diffData ? diffData.diff : null}
+              />
             : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
         <div className="panel right-wrap">

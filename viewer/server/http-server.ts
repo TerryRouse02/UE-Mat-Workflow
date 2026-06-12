@@ -587,6 +587,37 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }
 
+  /**
+   * GET /api/graph?path=<rel .matgraph.json> — stateless fetch of a resolved
+   * graph (same load + MF-resolve as a WS 'open', but without switching the
+   * client's open graph). Powers the web's graph-diff view, which needs a
+   * second graph alongside the open one.
+   */
+  async function handleGraphGet(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    const relPath = (url.searchParams.get('path') ?? '').trim();
+    const graphsRootAbs = resolve(opts.repoRoot, 'graphs');
+    const target = resolve(graphsRootAbs, relPath);
+    if (!relPath || !relPath.endsWith('.matgraph.json') || !isInside(graphsRootAbs, target)) {
+      sendJson(res, 400, { error: 'invalid graph path' });
+      return;
+    }
+    if (!canSeePath(user, relPath)) {
+      sendJson(res, 403, { error: '不能讀取其他成員的個人工作區檔案。' });
+      return;
+    }
+    const msg = await buildGraphMessage(relPath);
+    if (msg.kind === 'graphError') {
+      sendJson(res, 422, { error: msg.errors.join('; ') || 'failed to load graph' });
+      return;
+    }
+    if (msg.kind !== 'graph') {
+      sendJson(res, 500, { error: 'internal error' });
+      return;
+    }
+    sendJson(res, 200, { path: msg.path, payload: msg.payload });
+  }
+
   // Serve a committed agent-pack data file so the web can re-fetch it at runtime
   // after a crawl (no rebuild). Allowlist by filename pattern — the exact set the
   // web bundles — so no arbitrary path can be read.
@@ -2328,6 +2359,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'GET' && urlPath === '/api/export-html') {
       try { await handleExportHtml(req, res, gateUser); }
       catch (e) { console.error('export-html error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'GET' && urlPath === '/api/graph') {
+      try { await handleGraphGet(req, res, gateUser); }
+      catch (e) { console.error('graph fetch error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'GET' && urlPath === '/api/workmf') {

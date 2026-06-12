@@ -115,6 +115,9 @@ describe('personal workspaces', () => {
       const mv = await fetch(`${h.base}/api/files`, json({ op: 'rename', path: 'users/bob/secret/secret.matgraph.json', to: 'users/bob/secret/x.matgraph.json' }, h.artist));
       expect(mv.status).toBe(403);
       expect((await fetch(`${h.base}/api/export-html?name=${encodeURIComponent('users/bob/secret/secret')}`, { headers: { cookie: h.artist } })).status).toBe(403);
+      // Stateless graph fetch (the diff view's source) honours the same wall.
+      expect((await fetch(`${h.base}/api/graph?path=${encodeURIComponent('users/bob/secret/secret.matgraph.json')}`, { headers: { cookie: h.artist } })).status).toBe(403);
+      expect((await fetch(`${h.base}/api/graph?path=${encodeURIComponent('shared/shared.matgraph.json')}`, { headers: { cookie: h.artist } })).status).toBe(200);
       // Own + shared stay manageable.
       expect((await fetch(`${h.base}/api/files`, json({ op: 'duplicate', path: 'users/artist/glass/glass.matgraph.json', to: 'users/artist/glass/glass2.matgraph.json' }, h.artist))).status).toBe(200);
 

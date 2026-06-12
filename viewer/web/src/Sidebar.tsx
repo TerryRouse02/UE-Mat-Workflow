@@ -19,6 +19,8 @@ export interface SidebarProps {
   onGotoConfig(): void;
   /** Triggered when a large-graph file is clicked (passed to FileList) */
   onLargeGraph(file: FileEntry): void;
+  /** Start comparing a file against the open graph (passed to FileList). */
+  onCompare?(path: string): void;
   /** MF content root (workmf crawl + export) — passed to ConfigPanel */
   mfRoot: string;
   setMfRoot(v: string): void;
@@ -27,7 +29,7 @@ export interface SidebarProps {
   setMatRoot(v: string): void;
 }
 
-export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMfRoot, matRoot, setMatRoot }: SidebarProps) {
+export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, onCompare, mfRoot, setMfRoot, matRoot, setMatRoot }: SidebarProps) {
   const { state } = useStore();
   const crawlStatus = state.crawl.status;
   const configCue: 'run' | 'err' | 'new' | null =
@@ -94,7 +96,7 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
       </div>
       <div className="sidebar-panel">
         {tab === 'files' && (
-          <FileList onGotoConfig={onGotoConfig} onLargeGraph={onLargeGraph} />
+          <FileList onGotoConfig={onGotoConfig} onLargeGraph={onLargeGraph} onCompare={onCompare} />
         )}
         {tab === 'nodes' && <NodeLibrary />}
         {tab === 'config' && (

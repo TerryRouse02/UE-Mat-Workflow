@@ -45,7 +45,16 @@ export interface GraphProps {
   focus?: { id: string; nonce: number } | null;
   /** Agent diff highlight: pulse these nodes + fit the view to them; nonce re-triggers. */
   agentHighlight?: { ids: string[]; nonce: number } | null;
+  /** Compare view: per-node / per-connection statuses computed by diff.ts.
+   *  When set, the payload is the merged union graph and nodes/edges get
+   *  diff-added / diff-removed / diff-changed classes + colors. */
+  diff?: { nodeStatus: Record<string, 'added' | 'removed' | 'changed'>; connStatus: Record<string, 'added' | 'removed'> } | null;
 }
+
+const DIFF_EDGE_COLOR: Record<'added' | 'removed', string> = {
+  added: '#3fb950',
+  removed: '#f85149',
+};
 
 function inferPinsFromConnections(
   nodeId: string,
@@ -106,7 +115,7 @@ interface PopoverSlot {
 
 const HOVER_DELAY_MS = 500;
 
-function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPositions, focus, agentHighlight }: GraphProps) {
+function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPositions, focus, agentHighlight, diff }: GraphProps) {
   const { graph, derivedPins } = payload;
 
   const rf = useReactFlow();
@@ -259,6 +268,15 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
       };
     });
 
+    // Compare view: tint nodes by diff status (the merged graph carries B's
+    // version of shared nodes plus A-only removed ghosts).
+    const diffedNodes = diff
+      ? rfNodes.map(n => {
+          const status = diff.nodeStatus[n.id];
+          return status ? { ...n, className: `diff-${status}` } : n;
+        })
+      : rfNodes;
+
     // Build a Map<id, type> once so edge coloring is O(E) not O(E×N).
     const nodeTypeById = new Map(graph.nodes.map(n => [n.id, n.type]));
     const rfEdges: Edge[] = graph.connections.map((c, i) => {
@@ -267,8 +285,12 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
       const srcNodeType = nodeTypeById.get(src) ?? '';
       const srcType = derivedPins[src]?.outputs.find(o => o.name === srcPin)?.type
         ?? db.nodes[srcNodeType]?.outputs?.find(o => o.name === srcPin)?.type;
+      const connDiff = diff ? diff.connStatus[`${c.from}->${c.to}`] : undefined;
       return { id: `e${i}`, source: src, sourceHandle: srcPin, target: tgt, targetHandle: tgtPin,
-        style: { stroke: pinColor(srcType), strokeWidth: 2 } };
+        ...(connDiff ? { className: `diff-edge-${connDiff}` } : {}),
+        style: connDiff
+          ? { stroke: DIFF_EDGE_COLOR[connDiff], strokeWidth: 2.5, ...(connDiff === 'removed' ? { strokeDasharray: '6 4' } : {}) }
+          : { stroke: pinColor(srcType), strokeWidth: 2 } };
     });
 
     const clusters = (graph.comments ?? []).map(c => ({
@@ -276,9 +298,9 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
       childNodeIds: c.contains,
     }));
 
-    const result = applyLayout(rfNodes, rfEdges, clusters);
+    const result = applyLayout(diffedNodes, rfEdges, clusters);
     return { nodes: result.nodes, edges: rfEdges, clusterBounds: result.clusterBounds };
-  }, [graph, derivedPins, db, onEnterMF, basePath]);
+  }, [graph, derivedPins, db, onEnterMF, basePath, diff]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialLayout.nodes);
 

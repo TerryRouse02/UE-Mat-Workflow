@@ -90,7 +90,9 @@ Local mode constructs no auth store and skips every gate — behavior unchanged.
 object persists in `local.config.json`.
 
 - `http-server.ts` — routes + WS. HTTP: `GET /api/env`, `GET /api/agent-pack/:file`
-  (filename allowlist), `GET /api/workmf`, `POST /api/config` (extended with optional `Llm`
+  (filename allowlist), `GET /api/workmf`,
+  `GET /api/graph?path=` (stateless resolved-graph fetch — powers the web compare view;
+  canSeePath-guarded in team mode), `POST /api/config` (extended with optional `Llm`
   object for AI config), `POST /api/crawl`, `POST /api/import`,
   `POST /api/agent/chat` (SSE — agent conversation loop),
   `GET /api/agent/status` (ProviderStatus — never contains apiKey),
@@ -155,6 +157,10 @@ object persists in `local.config.json`.
   (`agentPackClient.ts`) so a crawl refreshes without a rebuild.
 - `Graph.tsx` + `layout.ts` — React Flow render; dagre auto-layout (no x/y in the JSON).
   Hover (≈500ms) on a node opens `NodeExplainPopover`; pane-click / Escape closes it.
+- `diff.ts` — pure graph-diff (`computeGraphDiff`/`buildDiffPayload`): union graph + per-node
+  (added/removed/changed) and per-connection statuses. FileList's 「與目前圖比較」menu item
+  (live mode) fetches the target via `GET /api/graph`, App renders the merged payload through
+  the normal `<Graph diff={…}>` with diff-* classes + a summary banner; Esc / 結束比較 exits.
 - `Sidebar.tsx` — four tabs: **Files** (`FileList`), **Nodes** (`NodeLibrary`), **Config** (`ConfigPanel`), **Agent** (`AgentChat` — hidden in snapshot mode; in live mode it stays MOUNTED across tab switches via a display-toggled keep-alive wrapper so pending crawl reports / in-flight streams survive). Team-mode member role swaps AgentChat for the read-only `PublicAgentView`.
 - `Header.tsx` — export to UE (`export/ueT3D.ts`) + import from UE (`ImportModal`).
 - `crawlRequest.ts` — POST /api/crawl + the `CrawlKind` union (web side).
