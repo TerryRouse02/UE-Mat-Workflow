@@ -260,6 +260,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     const ws = connect({
       onOpen: () => dispatch({ type: 'wsOpen' }),
       onClose: () => dispatch({ type: 'wsClosed' }),
+      onAuthRequired: () => {
+        // Server rejected the WS with 4401 (auth cookie missing or expired).
+        // Re-probe status: if still authed the next connect attempt will pass;
+        // if the session expired, the AuthGate flips back to the Login screen.
+        void (async () => {
+          try {
+            const r = await fetch('/api/auth/status', { cache: 'no-store' });
+            if (r.ok) dispatch({ type: 'setAuth', auth: await r.json() });
+          } catch { /* server unreachable — stay in reconnecting */ }
+        })();
+      },
       onMessage: (m: ServerMessage) => {
         if (m.kind === 'hello') dispatch({ type: 'hello', files: m.files });
         else if (m.kind === 'fileList') dispatch({ type: 'fileList', files: m.files });

@@ -33,7 +33,7 @@ export function Banner({ conn, engineMismatch, dismissed, onDismiss }: BannerPro
     return (
       <div className="banner info">
         <Icon name="refresh" size={15} className="spin" />
-        <span>正在連線本機 viewer server… <span style={{ color: 'var(--text-mute)' }}>127.0.0.1:5790</span></span>
+        <span>正在連線 viewer server… <span style={{ color: 'var(--text-mute)' }}>{location.host}</span></span>
       </div>
     );
   }
