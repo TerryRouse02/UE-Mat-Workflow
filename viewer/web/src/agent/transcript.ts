@@ -60,6 +60,8 @@ export interface CrawlProposal {
   contentRoot: string;
   /** Set once the user clicks 開始爬取 (or on replay — proposals never persist as actionable). */
   resolved: boolean;
+  /** Team member turn: diverted into the admin approval queue — no buttons. */
+  pendingApproval?: boolean;
 }
 
 /** Agent-proposed edit to the public node DB awaiting explicit approval (propose_db_edit). */
@@ -73,6 +75,8 @@ export interface DbEditProposal {
   rationale: string;
   /** Set once the user acts (or on replay — proposals never persist as actionable). */
   resolved: boolean;
+  /** Team member turn: diverted into the admin approval queue — no buttons. */
+  pendingApproval?: boolean;
 }
 
 /**
@@ -262,6 +266,7 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
         crawlKind: event.kind,
         contentRoot: event.contentRoot,
         resolved: false,
+        pendingApproval: event.pendingApproval === true,
       }];
 
     case 'db_edit_proposal':
@@ -273,6 +278,7 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
         patch: event.patch,
         rationale: event.rationale,
         resolved: false,
+        pendingApproval: event.pendingApproval === true,
       }];
 
     case 'done': {

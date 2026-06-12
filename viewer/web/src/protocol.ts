@@ -56,7 +56,13 @@ export type ServerMessage =
   // Announcement-channel signal (team mode): the public agent session changed
   // (id), started streaming, or finished a turn (streaming false -> viewers
   // re-fetch GET /api/agent/public-session). Sent on connect + on change.
-  | { kind: 'publicAgent'; id: string | null; streaming: boolean };
+  | { kind: 'publicAgent'; id: string | null; streaming: boolean }
+  // Member->admin approval queue size changed (team mode). Sent on connect +
+  // on every add/resolve; the admin inbox re-fetches on it.
+  | { kind: 'proposals'; pending: number }
+  // A server-side report was injected into this session (approval outcome) -
+  // the session's open chat view re-fetches its transcript.
+  | { kind: 'sessionBumped'; id: string };
 
 export type ClientMessage =
   | { kind: 'open'; path: string }

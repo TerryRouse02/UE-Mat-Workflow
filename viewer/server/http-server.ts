@@ -27,6 +27,7 @@ import { applyDbEdit } from './agent/db-edit.js';
 import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/session-store.js';
 import { createMemoryStore } from './agent/memory-store.js';
 import { createUsageStore } from './agent/usage-store.js';
+import { createProposalStore } from './agent/proposal-store.js';
 import { explainNode, buildGraphContext, RESERVED_NODE_DESCRIPTIONS } from './agent/explain.js';
 import { buildSnapshot } from './html-export.js';
 import type { LLMConfig, ProviderStatus } from './agent/provider/types.js';
@@ -173,6 +174,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // so the dashboard shows everyone's spend.
   let quotas: Record<string, number> = savedTeam.quotas ?? {};
   const usageStore = createUsageStore(resolve(opts.repoRoot, 'viewer'));
+  // Member→admin approval queue (request_crawl / propose_db_edit from member
+  // turns land here; the outcome is injected back into the member's session).
+  const proposalStore = createProposalStore(resolve(opts.repoRoot, 'viewer'));
   const loginLimiter = createLoginLimiter();
   const COOKIE_NAME = 'uemw_token';
 
@@ -217,9 +221,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       // Open to every member regardless of the agent switch:
       if (urlPath === '/api/agent/status' || urlPath === '/api/agent/explain'
         || urlPath === '/api/agent/public-session') return false;
-      // Hard admin-only: public-data writes, config verification, announcing.
+      // Hard admin-only: public-data writes, config verification, announcing,
+      // and the approval inbox itself.
       if (urlPath === '/api/agent/db-edit' || urlPath === '/api/agent/test'
         || urlPath === '/api/agent/web-test') return true;
+      if (urlPath.startsWith('/api/agent/proposals')) return true;
       if (/^\/api\/agent\/sessions\/[A-Za-z0-9_-]{1,64}\/public$/.test(urlPath)) return true;
       // chat / undo / regenerate / reset / sessions CRUD: members when the
       // admin switch is on (handlers enforce per-session ownership).
@@ -232,6 +238,38 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   function broadcastPublicAgent(id: string | null, streaming: boolean): void {
     const msg: ServerMessage = { kind: 'publicAgent', id, streaming };
     for (const ws of wss.clients) safeSend(ws, msg);
+  }
+
+  /** Approval-queue size changed → admin inboxes re-fetch. */
+  async function broadcastProposals(): Promise<void> {
+    try {
+      const msg: ServerMessage = { kind: 'proposals', pending: await proposalStore.pendingCount() };
+      for (const ws of wss.clients) safeSend(ws, msg);
+    } catch (e) { console.error('proposals broadcast failed:', e); }
+  }
+
+  /**
+   * Inject an approval outcome into the requester's session as a（系統回報）
+   * user message (merged into a trailing user message when one exists — the
+   * provider requires strictly alternating roles, mirroring runAgent's own
+   * merge). Serialized behind the session's unwind so it never interleaves
+   * with a streaming turn; `sessionBumped` tells the open chat to re-fetch.
+   */
+  async function injectSystemReport(sessionId: string, text: string): Promise<void> {
+    try {
+      const active = await resumeSession(sessionId);
+      if (!active) return; // session deleted meanwhile — drop silently
+      await active.unwind;
+      appendTranscript(active.transcript, { kind: 'user', text });
+      const last = active.loop.messages.at(-1);
+      if (last?.role === 'user') last.content.push({ type: 'text', text });
+      else active.loop.messages.push({ role: 'user', content: [{ type: 'text', text }] });
+      await persistSession(active);
+      const msg: ServerMessage = { kind: 'sessionBumped', id: sessionId };
+      for (const ws of wss.clients) safeSend(ws, msg);
+    } catch (e) {
+      console.error('system report injection failed:', e);
+    }
   }
 
   // ─── Agent state (M7: persistent multi-session) ────────────────────────────
@@ -812,25 +850,40 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       contentRoots = cr;
     }
     try {
-      const jobId = runner.start(kind, (e) => {
-        const msg = crawlEventToMsg(e);
-        for (const ws of wss.clients) safeSend(ws, msg);
-        // After a successful project-materials crawl, convert the staged T3D dumps
-        // into openable graphs under graphs/_project/. The chokidar watcher then
-        // refreshes the file list; import results append as trailing crawl-log lines.
-        if (kind === 'projectmat' && e.type === 'done' && e.status === 'success') {
-          void importStagedProjectMaterials(e.jobId);
-        }
-        // Record freshness timestamp after any successful crawl.
-        if (e.type === 'done' && e.status === 'success') {
-          void recordFreshness(opts.repoRoot, kind as keyof CrawlFreshness, new Date().toISOString());
-        }
-      }, contentRoots ? { contentRoots } : undefined);
+      const jobId = startCrawlJob(kind, contentRoots);
       sendJson(res, 200, { jobId });
     } catch (e) {
       // Already running — single-job lock.
       sendJson(res, 409, { error: (e as Error).message });
     }
+  }
+
+  /**
+   * Start a crawl with the standard fan-out (WS broadcast, projectmat staging
+   * import, freshness stamp). `onDone` lets the approval queue report the
+   * outcome back into the requesting member's session. Throws when a crawl is
+   * already running (single-job lock).
+   */
+  function startCrawlJob(
+    kind: 'export' | 'enginemf' | 'workmf' | 'projectmat',
+    contentRoots: string | undefined,
+    onDone?: (status: 'success' | 'error', exitCode: number | null) => void,
+  ): string {
+    return runner.start(kind, (e) => {
+      const msg = crawlEventToMsg(e);
+      for (const ws of wss.clients) safeSend(ws, msg);
+      // After a successful project-materials crawl, convert the staged T3D dumps
+      // into openable graphs under graphs/_project/. The chokidar watcher then
+      // refreshes the file list; import results append as trailing crawl-log lines.
+      if (kind === 'projectmat' && e.type === 'done' && e.status === 'success') {
+        void importStagedProjectMaterials(e.jobId);
+      }
+      // Record freshness timestamp after any successful crawl.
+      if (e.type === 'done' && e.status === 'success') {
+        void recordFreshness(opts.repoRoot, kind as keyof CrawlFreshness, new Date().toISOString());
+      }
+      if (e.type === 'done') onDone?.(e.status, e.exitCode ?? null);
+    }, contentRoots ? { contentRoots } : undefined);
   }
 
   // ─── Agent handlers ───────────────────────────────────────────────────────
@@ -1361,6 +1414,84 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     } satisfies AgentPublicSessionResponse);
   }
 
+  /** GET /api/agent/proposals — the admin approval inbox (newest first). */
+  async function handleProposalsList(res: import('node:http').ServerResponse) {
+    sendJson(res, 200, { proposals: await proposalStore.list() });
+  }
+
+  /** POST /api/agent/proposals/:id { action: 'approve' | 'deny' } */
+  async function handleProposalResolve(id: string, req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    let body: { action?: unknown };
+    try { body = JSON.parse(await readBody(req, 64_000)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    const prop = await proposalStore.get(id);
+    if (!prop || prop.status !== 'pending') { sendJson(res, 404, { error: '提案不存在或已處理。' }); return; }
+    const now = () => new Date().toISOString();
+    const kindLabel = prop.kind === 'crawl' ? '爬取' : '節點 DB 修改';
+
+    if (body.action === 'deny') {
+      await proposalStore.update(id, { status: 'denied', resolvedAt: now() });
+      void injectSystemReport(prop.sessionId,
+        `（系統回報）管理員拒絕了你的${kindLabel}請求\n（給 AI）此請求未被批准。請告知使用者，並考慮替代做法或說明限制。`);
+      await broadcastProposals();
+      sendJson(res, 200, { ok: true, status: 'denied' });
+      return;
+    }
+    if (body.action !== 'approve') { sendJson(res, 400, { error: 'action must be approve | deny' }); return; }
+
+    if (prop.kind === 'crawl') {
+      const crawlKind = String(prop.payload.kind);
+      if (crawlKind !== 'workmf' && crawlKind !== 'projectmat') {
+        sendJson(res, 400, { error: `unknown crawl kind: ${crawlKind}` });
+        return;
+      }
+      const crRaw = typeof prop.payload.contentRoot === 'string' ? prop.payload.contentRoot.replace(/\s+/g, '') : '';
+      const contentRoots = CONTENT_ROOT_RE.test(crRaw) ? crRaw : undefined;
+      try {
+        const jobId = startCrawlJob(crawlKind, contentRoots, (status, exitCode) => {
+          void proposalStore
+            .update(id, { status: status === 'success' ? 'done' : 'failed', resolvedAt: now(), note: status === 'success' ? undefined : `exit ${exitCode}` })
+            .then(() => broadcastProposals());
+          const tail = (runner.lastLog()?.lines ?? []).slice(-30).join('\n').slice(-3000);
+          void injectSystemReport(prop.sessionId, status === 'success'
+            ? `（系統回報）${crawlKind} 爬取已完成（管理員批准）\n（給 AI）這是你先前請求的爬取。請繼續先前的工作，需要的話重新查詢索引。\n\nlog 尾段：\n${tail}`
+            : `（系統回報）${crawlKind} 爬取失敗（管理員已批准執行，exit ${exitCode}）\n（給 AI）請閱讀 log 尾段，向使用者說明失敗原因與下一步。\n\nlog 尾段：\n${tail}`);
+        });
+        await proposalStore.update(id, { status: 'approved' });
+        await broadcastProposals();
+        sendJson(res, 200, { ok: true, status: 'approved', jobId });
+      } catch (e) {
+        sendJson(res, 409, { error: (e as Error).message });
+      }
+      return;
+    }
+
+    // db-edit — same single-flight as the direct endpoint.
+    if (dbEditRunning) { sendJson(res, 409, { error: '另一個 DB 修改正在套用中，請稍候。' }); return; }
+    dbEditRunning = true;
+    try {
+      const p = prop.payload as { nodeName?: unknown; ueVersion?: unknown; patch?: unknown; create?: unknown };
+      const result = await applyDbEdit(
+        opts.repoRoot, String(p.ueVersion ?? ''), String(p.nodeName ?? ''),
+        (p.patch ?? {}) as Record<string, unknown>, undefined, p.create === true,
+      );
+      const ok = result.ok === true;
+      await proposalStore.update(id, {
+        status: ok ? 'done' : 'failed',
+        resolvedAt: now(),
+        note: ok ? undefined : ('error' in result ? String(result.error) : undefined),
+      });
+      void injectSystemReport(prop.sessionId, ok
+        ? `（系統回報）節點 DB 修改已套用（管理員批准：${String(p.nodeName)}）\n（給 AI）提案已通過並寫入公開 DB（索引已重生、audit 通過）。請繼續先前的工作。`
+        : `（系統回報）節點 DB 修改套用失敗（${String(p.nodeName)}）\n（給 AI）伺服器拒絕了這次修改：${'error' in result ? String(result.error) : '未知錯誤'}。請修正提案內容或說明限制。`);
+      await broadcastProposals();
+      sendJson(res, 200, { ok, status: ok ? 'done' : 'failed', ...(ok ? {} : { error: 'error' in result ? String(result.error) : 'unknown' }) });
+    } finally {
+      dbEditRunning = false;
+    }
+  }
+
   /** POST /api/agent/explain — one-shot LLM node explanation (JSON, not SSE). */
   async function handleAgentExplain(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
@@ -1581,6 +1712,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     currentSessionId = active.loop.id;
     // Spend accounting baseline — the finally below records this turn's delta.
     const tokensBefore = active.loop.totalTokens;
+    // Member turns: proposals divert into the admin approval queue (the
+    // member cannot call the approve endpoints), marked pendingApproval so
+    // the chat renders a submitted-state card instead of approve buttons.
+    const isMember = mode === 'team' && user !== null && user.role !== 'admin';
 
     // Announcement channel: tell every viewer a new turn started streaming here.
     if ((await sessionStore.getPublicId()) === active.loop.id) broadcastPublicAgent(active.loop.id, true);
@@ -1649,8 +1784,19 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // Off-topic strike limit: the loop emits session_closed; the finally block
     // below deletes the session instead of persisting it.
     let sessionClosed = false;
-    const emit = (event: AgentSseEvent) => {
-      if (event.type === 'session_closed') sessionClosed = true;
+    const emit = (rawEvent: AgentSseEvent) => {
+      if (rawEvent.type === 'session_closed') sessionClosed = true;
+      let event = rawEvent;
+      if (isMember && (event.type === 'crawl_proposal' || event.type === 'db_edit_proposal')) {
+        const payload = event.type === 'crawl_proposal'
+          ? { kind: event.kind, contentRoot: event.contentRoot }
+          : { nodeName: event.nodeName, ueVersion: event.ueVersion, create: event.create, patch: event.patch, rationale: event.rationale };
+        void proposalStore
+          .add({ kind: event.type === 'crawl_proposal' ? 'crawl' : 'db-edit', requester: user!.username, sessionId: active.loop.id, payload })
+          .then(() => broadcastProposals())
+          .catch((e) => console.error('proposal enqueue failed:', e));
+        event = { ...event, pendingApproval: true };
+      }
       if (res.writableEnded) return;
       const out = event.type === 'error' ? { ...event, message: withToolHint(event.message) } : event;
       res.write(`data: ${JSON.stringify(out)}\n\n`);
@@ -1713,12 +1859,6 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           tokenCeiling: llmConfig.contextLimit,
           // 🌐 switch: absent = on (the loop removes the web tools when false).
           webToolsEnabled: body.webSearch !== false,
-          // Team members cannot approve crawl/DB-edit cards (those endpoints
-          // are admin-only), so their agent never gets the proposal tools —
-          // a card that can only 403 is worse than no card.
-          disabledTools: mode === 'team' && user && user.role !== 'admin'
-            ? ['request_crawl', 'propose_db_edit']
-            : undefined,
         },
       );
     } catch (e) {
@@ -2203,6 +2343,19 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         return;
       }
     }
+    if (req.method === 'GET' && urlPath === '/api/agent/proposals') {
+      try { await handleProposalsList(res); }
+      catch (e) { console.error('proposals list error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    {
+      const m = urlPath.match(/^\/api\/agent\/proposals\/([A-Za-z0-9-]{1,64})$/);
+      if (m && req.method === 'POST') {
+        try { await handleProposalResolve(m[1], req, res); }
+        catch (e) { console.error('proposal resolve error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+        return;
+      }
+    }
     if (req.method === 'GET' && urlPath === '/api/agent/public-session') {
       try { await handleAgentPublicSession(res); }
       catch (e) { console.error('agent public-session error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
@@ -2472,6 +2625,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       // Replay the announcement-channel pointer so a late joiner can render it.
       const publicId = await sessionStore.getPublicId();
       if (publicId) send(ws, { kind: 'publicAgent', id: publicId, streaming: activeSessions.get(publicId)?.streaming === true });
+      // Replay the approval-queue size (admin inbox badge).
+      if (mode === 'team') send(ws, { kind: 'proposals', pending: await proposalStore.pendingCount() });
     } catch (e) {
       console.error('connection handler error:', e);
     }

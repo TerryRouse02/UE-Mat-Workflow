@@ -382,3 +382,28 @@
   padding: 2px 6px; outline: none;
 }
 .ua-quota-input:focus { border-color: var(--accent-dim); }
+
+/* ── Proposal inbox (admin) ──────────────────────────────────────────────── */
+.pinbox-list { display: flex; flex-direction: column; gap: 5px; }
+.pinbox-row {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--chip-radius);
+  padding: 7px 9px;
+}
+.pinbox-main { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.pinbox-kind {
+  font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  background: var(--accent-ghost); color: var(--accent); border: 1px solid var(--accent-dim);
+}
+.pinbox-summary { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pinbox-who { font-size: 11px; color: var(--text-mute); }
+.pinbox-note { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.pinbox-actions { display: flex; gap: 6px; margin-top: 7px; }
+.pinbox-history { border-top: 1px solid var(--hairline); margin-top: 4px; padding-top: 5px; display: flex; flex-direction: column; gap: 3px; }
+.pinbox-hrow { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); }
+.pinbox-status { font-size: 10px; padding: 0 5px; border-radius: 4px; background: var(--bg-elev); color: var(--text-mute); }
+.pinbox-status.done { color: var(--ok); }
+.pinbox-status.failed, .pinbox-status.denied { color: var(--error); }
+.pinbox-status.approved { color: var(--info); }
+.pinbox-note-inline { color: var(--text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }

@@ -30,8 +30,11 @@ export interface SidebarProps {
 export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMfRoot, matRoot, setMatRoot }: SidebarProps) {
   const { state } = useStore();
   const crawlStatus = state.crawl.status;
-  const configCue: 'run' | 'err' | null =
-    crawlStatus === 'running' ? 'run' : crawlStatus === 'error' ? 'err' : null;
+  const configCue: 'run' | 'err' | 'new' | null =
+    crawlStatus === 'running' ? 'run'
+    : crawlStatus === 'error' ? 'err'
+    : state.auth?.role === 'admin' && state.proposalsPending > 0 ? 'new'
+    : null;
   // Agent tab is hidden in snapshot mode (same as ConfigPanel behaviour).
   const isSnapshot = state.connection === 'snapshot';
   // Team mode, member role: the agent surface is the read-only announcement

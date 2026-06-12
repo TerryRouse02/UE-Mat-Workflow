@@ -4,6 +4,7 @@ import { UserAdminSection } from './UserAdmin';
 import { TeamPanel } from './TeamPanel';
 import { MyAccountSection } from './MyAccount';
 import { TeamUsageSection } from './TeamUsage';
+import { ProposalInboxSection } from './ProposalInbox';
 import type { CrawlKind } from './crawlRequest';
 import { diagnoseCrawl } from './crawlDiagnosis';
 import { Icon } from './Icon';
@@ -1148,6 +1149,7 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
       {cfgTab === 'team' && (
         <>
           <TeamPanel />
+          {state.auth?.mode === 'team' && state.auth.role === 'admin' && <ProposalInboxSection />}
           {state.auth?.mode === 'team' && state.auth.role === 'admin' && <UserAdminSection />}
           {state.auth?.mode === 'team' && state.auth.role === 'admin' && <TeamUsageSection />}
           {state.auth?.mode === 'team' && state.auth.authed && <MyAccountSection />}

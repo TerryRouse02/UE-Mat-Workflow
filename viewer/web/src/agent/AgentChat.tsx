@@ -274,7 +274,9 @@ function DbEditProposalView({ item, onResolve }: {
         nodes-ue{item.ueVersion}.json 是<b>公開資料檔</b>——只接受乾淨的 Epic／公開 UE 資料。
         套用後會自動重生索引並跑 parity audit，失敗即回滾。
       </div>
-      {item.resolved
+      {item.pendingApproval
+        ? <div className="agent-crawl-resolved">已送出管理員審批——核准後會寫入公開 DB 並回報到此對話。</div>
+        : item.resolved
         ? <div className="agent-crawl-resolved">已處理</div>
         : (
           <button className="agent-crawl-approve" disabled={busy} onClick={() => void approve()}>
@@ -392,6 +394,18 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       setSessionId(id);
     } catch { /* keep the current view */ }
   }, []);
+
+  // A server-injected（系統回報）landed in THIS session (approval outcome) —
+  // re-fetch the transcript so the member sees it without a manual reload.
+  // Never mid-stream: the SSE turn owns the view until it finishes.
+  const lastBumpRef = useRef(0);
+  useEffect(() => {
+    const bump = state.sessionBump;
+    if (!bump || bump.version === lastBumpRef.current) return;
+    lastBumpRef.current = bump.version;
+    if (!streaming && sessionId !== null && bump.id === sessionId) void loadSession(sessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.sessionBump]);
 
   // On mount: list sessions and restore the most recent one — a page reload
   // continues the conversation instead of silently inheriting it server-side.

@@ -55,6 +55,11 @@ interface State {
   // whether it is mid-turn. version bumps on every publicAgent WS message so
   // the read-only viewer knows to re-fetch the transcript.
   publicAgent: { id: string | null; streaming: boolean; version: number };
+  // Member→admin approval queue size (team mode) — the admin inbox badge.
+  proposalsPending: number;
+  // A server-side report landed in this session (approval outcome): the open
+  // chat re-fetches its transcript when the version bumps.
+  sessionBump: { id: string; version: number } | null;
 }
 
 export interface AuthStatus {
@@ -87,6 +92,8 @@ type Action =
   | { type: 'agentActivity'; value: 'idle' | 'busy' | 'unseen' }
   | { type: 'setAuth'; auth: AuthStatus }
   | { type: 'publicAgent'; id: string | null; streaming: boolean }
+  | { type: 'proposals'; pending: number }
+  | { type: 'sessionBumped'; id: string }
   | { type: 'crawlReset' }
   | CrawlAction;
 
@@ -99,6 +106,7 @@ const initial: State = {
   agentHighlight: null, agentExportReq: null,
   selectedNodeId: null, agentAsk: null, agentActivity: 'idle',
   auth: null, publicAgent: { id: null, streaming: false, version: 0 },
+  proposalsPending: 0, sessionBump: null,
 };
 
 function reducer(s: State, a: Action): State {
@@ -138,6 +146,10 @@ function reducer(s: State, a: Action): State {
       return { ...s, auth: a.auth };
     case 'publicAgent':
       return { ...s, publicAgent: { id: a.id, streaming: a.streaming, version: s.publicAgent.version + 1 } };
+    case 'proposals':
+      return s.proposalsPending === a.pending ? s : { ...s, proposalsPending: a.pending };
+    case 'sessionBumped':
+      return { ...s, sessionBump: { id: a.id, version: (s.sessionBump?.version ?? 0) + 1 } };
     case 'crawlReset':
       return { ...s, crawl: idleCrawl };
     case 'crawlStarted':
@@ -274,6 +286,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           if (m.status === 'success') void refreshEnv();
         }
         else if (m.kind === 'publicAgent') dispatch({ type: 'publicAgent', id: m.id, streaming: m.streaming });
+        else if (m.kind === 'proposals') dispatch({ type: 'proposals', pending: m.pending });
+        else if (m.kind === 'sessionBumped') dispatch({ type: 'sessionBumped', id: m.id });
       },
     });
     wsRef.current = ws;
