@@ -1065,9 +1065,9 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
         <div className="reconnect-spin">
           <Icon name="refresh" size={26} className="spin" style={{ color: 'var(--accent)' }} />
           <div>
-            正在連線 viewer server…
+            正在連線本機 viewer server…
             <div className="note" style={{ marginTop: 6 }}>
-              connecting to viewer server · {location.host}
+              connecting to local viewer server · 127.0.0.1
             </div>
           </div>
         </div>
