@@ -39,6 +39,11 @@ export interface AgentChatRequest {
   selectedNodeId?: string;
   thinking?: AgentThinkingLevel;
   /**
+   * Pasted images (max 3): base64 WITHOUT the data: prefix, mediaType one of
+   * image/png|jpeg|webp|gif, ≤5MB decoded each. Needs a vision-capable model.
+   */
+  images?: Array<{ mediaType: string; data: string }>;
+  /**
    * Per-turn 🌐 switch. Absent/true = web tools available (the prompt tells
    * the model to self-check timeliness before answering); false = web_search/
    * web_fetch removed from the tool list and refused at dispatch.
@@ -152,7 +157,7 @@ export interface AgentSessionMeta {
  * The provider-neutral message history stays server-side and is never sent.
  */
 export type AgentTranscriptEntry =
-  | { kind: 'user'; text: string }
+  | { kind: 'user'; text: string; images?: number } // images = attached-image count (data not replayed)
   | { kind: 'event'; event: AgentSseEvent };
 
 /** Response from GET /api/agent/sessions/:id */

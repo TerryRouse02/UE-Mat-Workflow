@@ -302,11 +302,20 @@ export const toolDefs: ToolDef[] = [
     name: 'get_node_signature',
     description:
       'Return the full DB entry for a node type: inputs, outputs, params, pinInfo. ' +
-      'On miss, returns an error with suggestions. Always call this before writing a connection.',
+      'name accepts ONE name or an ARRAY of up to 8 names — when you already know the ' +
+      'node types a graph will need, query them in ONE batched call instead of one call ' +
+      'per type. Batch result: {found: {name: entry…}, missing?: {name: hint}}. ' +
+      'On a full miss, returns an error with suggestions. Always call this before writing a connection.',
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Exact node type name (e.g. "Multiply", "Lerp")' },
+        name: {
+          description: 'Exact node type name (e.g. "Multiply"), or an array of up to 8 names (e.g. ["Lerp","Multiply","Power"])',
+          anyOf: [
+            { type: 'string' },
+            { type: 'array', items: { type: 'string' }, maxItems: 8 },
+          ],
+        },
       },
       required: ['name'],
     },
@@ -994,24 +1003,52 @@ async function toolSearchNodes(
 // get_node_signature
 // ---------------------------------------------------------------------------
 
+const SIGNATURE_BATCH_CAP = 8;
+
 async function toolGetNodeSignature(
   inp: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ content: string; isError?: boolean }> {
-  const name = String(inp.name ?? '');
-  if (!name) return { content: 'name is required', isError: true };
-
-  const { result, suggestions } = QB.getNodes(ctx.repoRoot, ctx.ueVersion, [name]);
-
-  if (name in result) {
-    return { content: JSON.stringify(result[name], null, 2) };
+  // `name` accepts one name or an array of names (batch saves round-trips).
+  const raw = inp.name ?? inp.names;
+  const names = (Array.isArray(raw) ? raw.map(String) : [String(raw ?? '')])
+    .map(n => n.trim()).filter(Boolean);
+  if (names.length === 0) return { content: 'name is required', isError: true };
+  if (names.length > SIGNATURE_BATCH_CAP) {
+    return { content: `too many names (${names.length}); max ${SIGNATURE_BATCH_CAP} per call`, isError: true };
   }
 
-  const sugg = suggestions[name] ?? [];
-  const msg = sugg.length > 0
-    ? `"${name}" not found. Did you mean: ${sugg.join(', ')}?`
-    : `"${name}" not found.`;
-  return { content: msg, isError: true };
+  const { result, suggestions } = QB.getNodes(ctx.repoRoot, ctx.ueVersion, names);
+
+  // Single name keeps the original shape (entry JSON, or a not-found error).
+  if (names.length === 1) {
+    const name = names[0];
+    if (name in result) {
+      return { content: JSON.stringify(result[name]) };
+    }
+    const sugg = suggestions[name] ?? [];
+    const msg = sugg.length > 0
+      ? `"${name}" not found. Did you mean: ${sugg.join(', ')}?`
+      : `"${name}" not found.`;
+    return { content: msg, isError: true };
+  }
+
+  // Batch: found entries keyed by name; misses listed with suggestions.
+  // Partial misses are NOT an error — the model uses what resolved and
+  // re-queries only the missing ones.
+  const missing: Record<string, string> = {};
+  for (const name of names) {
+    if (name in result) continue;
+    const sugg = suggestions[name] ?? [];
+    missing[name] = sugg.length > 0 ? `not found — did you mean: ${sugg.join(', ')}?` : 'not found';
+  }
+  return {
+    content: JSON.stringify({
+      found: result,
+      ...(Object.keys(missing).length > 0 ? { missing } : {}),
+    }),
+    isError: Object.keys(result).length === 0 ? true : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------

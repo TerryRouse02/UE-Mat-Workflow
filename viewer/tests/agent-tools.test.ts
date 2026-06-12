@@ -457,6 +457,32 @@ describe('get_node_signature', () => {
     const r = await dispatchTool('get_node_signature', { name: 'LerpXYZNonExistent' }, ctx);
     expect(r.isError).toBe(true);
   });
+
+  it('batch: array of names returns found entries keyed by name in one call', async () => {
+    const r = await dispatchTool('get_node_signature', { name: ['Lerp', 'Multiply', 'Power'] }, ctx);
+    expect(r.isError).toBeUndefined();
+    const out = JSON.parse(r.content);
+    expect(Object.keys(out.found).sort()).toEqual(['Lerp', 'Multiply', 'Power']);
+    expect(out.found.Multiply.inputs).toBeDefined();
+    expect(out.missing).toBeUndefined();
+  });
+
+  it('batch: partial misses listed with hints, not an error', async () => {
+    const r = await dispatchTool('get_node_signature', { name: ['Lerp', 'NoSuchNodeXYZ'] }, ctx);
+    expect(r.isError).toBeUndefined();
+    const out = JSON.parse(r.content);
+    expect(out.found.Lerp).toBeDefined();
+    expect(out.missing.NoSuchNodeXYZ).toContain('not found');
+  });
+
+  it('batch: all misses → error; over-cap rejected', async () => {
+    const all = await dispatchTool('get_node_signature', { name: ['NopeA', 'NopeB'] }, ctx);
+    expect(all.isError).toBe(true);
+
+    const over = await dispatchTool('get_node_signature', { name: Array.from({ length: 9 }, (_, i) => `N${i}`) }, ctx);
+    expect(over.isError).toBe(true);
+    expect(over.content).toContain('max 8');
+  });
 });
 
 // ---------------------------------------------------------------------------

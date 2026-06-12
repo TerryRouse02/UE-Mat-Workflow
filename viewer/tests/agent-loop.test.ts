@@ -273,6 +273,31 @@ describe('patch_graph dryRun', () => {
 });
 
 // ---------------------------------------------------------------------------
+// §3c  Pasted images — neutral image blocks ride the user message
+// ---------------------------------------------------------------------------
+
+describe('pasted images', () => {
+  it('options.images become image blocks ahead of the user text; token estimate stays sane', async () => {
+    const provider = new FakeProvider([
+      [{ type: 'text_delta', text: '看到了。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const bigData = 'A'.repeat(100_000); // 100KB of base64 must NOT count as text
+    await runAndCollect('參考這張圖', session, provider, ctx, undefined, {
+      images: [{ mediaType: 'image/png', data: bigData }],
+    });
+
+    const first = session.messages[0];
+    expect(first.role).toBe('user');
+    expect(first.content[0]).toEqual({ type: 'image', mediaType: 'image/png', data: bigData });
+    expect(first.content[1]).toEqual({ type: 'text', text: '參考這張圖' });
+
+    // estimateMessagesTokens treats the image as ~1.6K vision tokens, not 25K text tokens.
+    const { estimateMessagesTokens } = await import('../server/agent/loop.js');
+    expect(estimateMessagesTokens(session.messages)).toBeLessThan(5000);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // §4  Self-correction: invalid graph on first try, valid on second
 // ---------------------------------------------------------------------------
 

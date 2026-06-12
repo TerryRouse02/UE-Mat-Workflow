@@ -6,7 +6,7 @@ import { describe, it, expect } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync, existsSync, symlinkSync } from 'node:fs';
 import { readFile, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { resolve, dirname } from 'node:path';
+import { resolve, dirname, join } from 'node:path';
 import { startServer } from '../server/http-server.js';
 import type { Provider, StreamEvent, ChatRequest, LLMConfig } from '../server/agent/provider/types.js';
 import type {
@@ -398,6 +398,31 @@ describe('memory-store', () => {
     await store.replace('longterm', 'y'.repeat(MEMORY_CHAR_CAP - 10));
     await expect(store.append('longterm', 'z'.repeat(100))).rejects.toThrow();
     expect((await store.read('longterm')).length).toBe(MEMORY_CHAR_CAP - 10);
+  });
+
+  it('team mode: per-owner longterm files are isolated from each other and from the shared file', async () => {
+    const root = makeTmpRoot();
+    const viewer = resolve(root, 'viewer');
+    const alice = createMemoryStore(viewer, 's1', 'alice');
+    const bob = createMemoryStore(viewer, 's2', 'bob');
+    const local = createMemoryStore(viewer, 's3'); // no owner = local mode
+
+    await alice.replace('longterm', '- alice 喜歡霓虹色');
+    await bob.replace('longterm', '- bob 慣用 5.6');
+    await local.replace('longterm', '- 共享筆記');
+
+    expect(await alice.read('longterm')).toBe('- alice 喜歡霓虹色');
+    expect(await bob.read('longterm')).toBe('- bob 慣用 5.6');
+    expect(await local.read('longterm')).toBe('- 共享筆記');
+
+    // Same owner across different sessions shares one longterm file.
+    const alice2 = createMemoryStore(viewer, 's4', 'alice');
+    expect(await alice2.read('longterm')).toBe('- alice 喜歡霓虹色');
+
+    // Paths: owner files live under users/, slugged against traversal.
+    expect(alice.pathFor('longterm')).toContain(join('.agent-memory', 'users', 'alice.md'));
+    const evil = createMemoryStore(viewer, 's5', '../../etc/passwd');
+    expect(evil.pathFor('longterm')).toContain(join('.agent-memory', 'users', '______etc_passwd.md'));
   });
 });
 

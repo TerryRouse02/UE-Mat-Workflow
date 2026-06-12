@@ -14,7 +14,7 @@ export interface ToolResultBlock { type: 'tool_result'; toolUseId: string; conte
 export interface ThinkingBlock         { type: 'thinking'; thinking: string; signature: string }
 export interface RedactedThinkingBlock { type: 'redacted_thinking'; data: string }
 
-export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | RedactedThinkingBlock;
+export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | RedactedThinkingBlock | ImageBlock;
 
 export interface Message  { role: Role; content: ContentBlock[] }
 
@@ -37,6 +37,10 @@ export interface ChatRequest {
   thinking?: ThinkingLevel;
   signal?: AbortSignal;
 }
+
+/** User-attached image, base64 without the data: prefix. Anthropic maps it to
+    an image source block; OpenAI-compatible to an image_url data URI. */
+export interface ImageBlock { type: 'image'; mediaType: string; data: string }
 
 export type StreamEvent =
   | { type: 'text_delta'; text: string }

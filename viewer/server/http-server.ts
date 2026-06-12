@@ -141,7 +141,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // the Config tab (POST /api/team): the saved `Team` object in
   // local.config.json decides the initial bind, and a live re-bind flips it.
   const envLocked = opts.mode !== undefined || (typeof opts.bindHost === 'string' && opts.bindHost.trim() !== '');
-  interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean; memberAgent?: boolean; quotas?: Record<string, number> }
+  /** Admin lock: when set, member chat turns run with THESE values — whatever
+      the member's client sends is overridden (UI shows the controls grayed). */
+  interface MemberLock { thinking: 'off' | 'low' | 'medium' | 'high'; webSearch: boolean }
+  interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean; memberAgent?: boolean; quotas?: Record<string, number>; memberLock?: MemberLock | null }
   async function readTeamConfig(): Promise<TeamConfig> {
     try {
       const parsed = JSON.parse(await readFile(localConfigPath, 'utf-8')) as { Team?: TeamConfig };
@@ -174,6 +177,17 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // Enforced for member turns only; admins are never blocked but ARE counted,
   // so the dashboard shows everyone's spend.
   let quotas: Record<string, number> = savedTeam.quotas ?? {};
+  // Admin lock on member agent controls (thinking level + 🌐). null = members
+  // pick their own per-turn values (the default).
+  const THINKING_LEVELS = new Set(['off', 'low', 'medium', 'high']);
+  function normalizeMemberLock(v: unknown): MemberLock | null {
+    if (!v || typeof v !== 'object') return null;
+    const o = v as Record<string, unknown>;
+    if (typeof o.thinking !== 'string' || !THINKING_LEVELS.has(o.thinking)) return null;
+    if (typeof o.webSearch !== 'boolean') return null;
+    return { thinking: o.thinking as MemberLock['thinking'], webSearch: o.webSearch };
+  }
+  let memberLock: MemberLock | null = normalizeMemberLock(savedTeam.memberLock);
   const usageStore = createUsageStore(resolve(opts.repoRoot, 'viewer'));
   // Member→admin approval queue (request_crawl / propose_db_edit from member
   // turns land here; the outcome is injected back into the member's session).
@@ -342,7 +356,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     const active: ActiveSession = {
       loop: createSession(id, ueVersion, graphPath),
       checkpoint: createCheckpointStore(resolve(opts.repoRoot, 'viewer'), id),
-      memory: createMemoryStore(resolve(opts.repoRoot, 'viewer'), id),
+      memory: createMemoryStore(resolve(opts.repoRoot, 'viewer'), id, owner),
       transcript: [],
       title: '',
       createdAt: new Date().toISOString(),
@@ -380,7 +394,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       // NOTE: the checkpoint turn stack is in-memory — undo history does not
       // survive a server restart (pre-images on disk are simply orphaned).
       checkpoint: createCheckpointStore(resolve(opts.repoRoot, 'viewer'), id),
-      memory: createMemoryStore(resolve(opts.repoRoot, 'viewer'), id),
+      memory: createMemoryStore(resolve(opts.repoRoot, 'viewer'), id, persisted.owner),
       transcript: persisted.transcript,
       title: persisted.title,
       createdAt: persisted.createdAt,
@@ -1640,10 +1654,43 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
 
     let body: AgentChatRequest;
-    try { body = JSON.parse(await readBody(req)) as AgentChatRequest; }
+    // 32MB cap: 3 pasted images at the 5MB decoded limit are ~21MB as base64.
+    try { body = JSON.parse(await readBody(req, 32_000_000)) as AgentChatRequest; }
     catch (e) {
       sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` });
       return;
+    }
+
+    // Pasted images: validate count, media type, base64 shape and size before
+    // anything heavy happens. ~6.9M base64 chars ≈ 5MB decoded (Anthropic cap).
+    const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif']);
+    let images: Array<{ mediaType: string; data: string }> | undefined;
+    if (body.images !== undefined) {
+      if (!Array.isArray(body.images) || body.images.length > 3) {
+        sendJson(res, 400, { error: '一次最多附 3 張圖片' });
+        return;
+      }
+      images = [];
+      for (const it of body.images) {
+        const mt = (it as { mediaType?: unknown })?.mediaType;
+        const data = (it as { data?: unknown })?.data;
+        if (typeof mt !== 'string' || !IMAGE_TYPES.has(mt) || typeof data !== 'string' || data.length === 0) {
+          sendJson(res, 400, { error: '圖片格式無效——僅接受 png/jpeg/webp/gif 的 base64 內容' });
+          return;
+        }
+        if (!/^[A-Za-z0-9+/]+={0,2}$/.test(data)) {
+          sendJson(res, 400, { error: '圖片內容不是有效的 base64（不要帶 data: 前綴）' });
+          return;
+        }
+        if (data.length > 6_990_000) {
+          sendJson(res, 400, { error: '單張圖片超過 5MB 上限，請壓縮後再貼' });
+          return;
+        }
+        images.push({ mediaType: mt, data });
+      }
+      if (images.length === 0) images = undefined;
+      // Normalize: downstream (transcript + runAgent) reads body.images.
+      body.images = images;
     }
 
     // Read LLM config fresh on each request.
@@ -1776,7 +1823,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     const checkpointStore = active.checkpoint;
 
     // Transcript: record the user message and derive a title from the first one.
-    appendTranscript(active.transcript, { kind: 'user', text: body.text });
+    // Image DATA is not replayed — only the count (the provider history keeps
+    // the real blocks; replaying multi-MB base64 through transcripts is waste).
+    appendTranscript(active.transcript, {
+      kind: 'user',
+      text: body.text,
+      ...(body.images?.length ? { images: body.images.length } : {}),
+    });
     if (!active.title) active.title = body.text.trim().slice(0, 30);
 
     // Build provider.
@@ -1828,10 +1881,18 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // as a thrown 4xx (catch below) or as an error StreamEvent the adapter
     // yields without throwing — rewriting at the emit boundary covers both.
     const TOOL_HINT = '建議使用支援工具的模型，例如 claude-opus-4-8、gpt-4o 或 deepseek-chat。';
-    const withToolHint = (msg: string): string =>
-      /4\d\d/.test(msg) && /tool/i.test(msg) && !msg.includes(TOOL_HINT)
-        ? `模型不支援工具呼叫（${msg}）。${TOOL_HINT}`
-        : msg;
+    const IMG_HINT = '目前模型可能不支援圖片輸入——請改用支援視覺的模型（例如 claude-opus-4-8、gpt-4o）。';
+    const withToolHint = (msg: string): string => {
+      if (/4\d\d/.test(msg) && /tool/i.test(msg) && !msg.includes(TOOL_HINT)) {
+        return `模型不支援工具呼叫（${msg}）。${TOOL_HINT}`;
+      }
+      // The vision hint only fires on turns that actually attached images —
+      // an unrelated provider error must not get the misleading suffix.
+      if (body.images?.length && /4\d\d/.test(msg) && /image|vision|multimodal|media/i.test(msg) && !msg.includes(IMG_HINT)) {
+        return `${msg} ${IMG_HINT}`;
+      }
+      return msg;
+    };
 
     // Off-topic strike limit: the loop emits session_closed; the finally block
     // below deletes the session instead of persisting it.
@@ -1900,9 +1961,17 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     };
 
     // Allowlist the per-turn thinking level from the request body.
-    const thinking = body.thinking === 'low' || body.thinking === 'medium' || body.thinking === 'high'
+    let thinking = body.thinking === 'low' || body.thinking === 'medium' || body.thinking === 'high'
       ? body.thinking
       : undefined;
+    let webToolsEnabled = body.webSearch !== false;
+    // Admin lock: a locked member's turn runs with the admin-set values no
+    // matter what their client sends (the UI grays the controls, but the
+    // server is the enforcement point).
+    if (isMember && memberLock) {
+      thinking = memberLock.thinking === 'off' ? undefined : memberLock.thinking;
+      webToolsEnabled = memberLock.webSearch;
+    }
 
     try {
       await runAgent(
@@ -1924,7 +1993,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           compactThreshold: llmConfig.contextLimit !== undefined ? Math.floor(llmConfig.contextLimit / 2) : undefined,
           tokenCeiling: llmConfig.contextLimit,
           // 🌐 switch: absent = on (the loop removes the web tools when false).
-          webToolsEnabled: body.webSearch !== false,
+          webToolsEnabled,
+          // Pasted images (validated in handleAgentChat) ride this turn only.
+          images: body.images,
         },
       );
     } catch (e) {
@@ -2032,6 +2103,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       bindHost: currentBindHost,
       secureCookies,
       memberAgent: memberAgentEnabled,
+      memberLock,
       quotas,
       usageToday: await usageStore.today(),
       online: mode === 'team' ? onlineUsers() : [],
@@ -2043,7 +2115,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   async function handleTeamPost(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    let body: { enabled?: unknown; bindHost?: unknown; secureCookies?: unknown; memberAgent?: unknown; quotas?: unknown; username?: unknown; password?: unknown };
+    let body: { enabled?: unknown; bindHost?: unknown; secureCookies?: unknown; memberAgent?: unknown; quotas?: unknown; memberLock?: unknown; username?: unknown; password?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     // The env lock pins the BIND (mode switch); plain settings stay editable.
@@ -2061,6 +2133,15 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       if (typeof body.memberAgent === 'boolean' && body.memberAgent !== memberAgentEnabled) {
         memberAgentEnabled = body.memberAgent;
         await saveTeamConfig({ memberAgent: memberAgentEnabled });
+      }
+      if (body.memberLock !== undefined) {
+        // null clears the lock; an object must be a fully valid lock.
+        if (body.memberLock !== null && normalizeMemberLock(body.memberLock) === null) {
+          sendJson(res, 400, { error: 'invalid memberLock — expected {thinking: off|low|medium|high, webSearch: boolean} or null' });
+          return;
+        }
+        memberLock = normalizeMemberLock(body.memberLock);
+        await saveTeamConfig({ memberLock });
       }
       if (body.quotas !== undefined && body.quotas !== null && typeof body.quotas === 'object') {
         // Merge per-user daily quotas; non-positive / invalid values clear.
@@ -2138,6 +2219,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       needsSetup: !(await authStore.hasUsers()),
       authed: !!user,
       memberAgent: memberAgentEnabled,
+      // Members read this to gray out + display the forced control values.
+      ...(memberLock ? { memberLock } : {}),
       ...(user ? { username: user.username, role: user.role } : {}),
     });
   }

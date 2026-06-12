@@ -336,6 +336,43 @@ describe('POST /api/agent/chat', () => {
     }
   }, 5000);
 
+  it('pasted images: validation rejects bad payloads; a valid one reaches the provider as an image block', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test-model', apiKey: 'sk-x' } });
+    const { factory, provider } = makeFactory([[
+      { type: 'text_delta', text: '收到圖。' },
+      { type: 'done', stopReason: 'end' },
+    ]]);
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: factory });
+    const post = (body: unknown) => fetch(`http://localhost:${server.port}/api/agent/chat`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    try {
+      // Too many images.
+      const many = await post({ text: 'x', images: Array.from({ length: 4 }, () => ({ mediaType: 'image/png', data: 'aGk=' })) });
+      expect(many.status).toBe(400);
+      // Bad media type.
+      expect((await post({ text: 'x', images: [{ mediaType: 'image/bmp', data: 'aGk=' }] })).status).toBe(400);
+      // data: prefix / non-base64 content.
+      expect((await post({ text: 'x', images: [{ mediaType: 'image/png', data: 'data:image/png;base64,aGk=' }] })).status).toBe(400);
+
+      // Valid image lands in the provider history as a neutral image block.
+      const ok = await post({ text: '這張參考圖', images: [{ mediaType: 'image/png', data: 'aGk=' }] });
+      expect(ok.status).toBe(200);
+      await parseSseResponse(ok);
+      // messages is the session's live array — after the turn the assistant
+      // reply is appended, so assert on the FIRST (user) message.
+      const userMsg = provider.lastRequest!.messages[0];
+      expect(userMsg.role).toBe('user');
+      expect(userMsg.content[0]).toEqual({ type: 'image', mediaType: 'image/png', data: 'aGk=' });
+      expect(userMsg.content[1]).toEqual({ type: 'text', text: '這張參考圖' });
+    } finally {
+      await server.close();
+    }
+  }, 10_000);
+
   it('streams a complete conversation: text + done events parse back to AgentSseEvent', async () => {
     const root = makeTmpRoot();
     writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'claude-opus-4-8', apiKey: 'sk-test' } });

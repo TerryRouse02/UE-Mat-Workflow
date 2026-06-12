@@ -344,6 +344,15 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
   const [webOn, setWebOn] = useState<boolean>(() => {
     try { return localStorage.getItem(WEB_SEARCH_STORAGE_KEY) !== 'off'; } catch { return true; }
   });
+  // Team-mode admin lock: a member's thinking/🌐 controls are forced to the
+  // admin-set values and grayed out (the server enforces them regardless).
+  const memberLock = state.auth?.mode === 'team' && state.auth.role !== 'admin'
+    ? state.auth.memberLock
+    : undefined;
+  const effThinking = memberLock ? memberLock.thinking : thinking;
+  const effWebOn = memberLock ? memberLock.webSearch : webOn;
+  // Images pasted into the input, awaiting the next send (base64, no prefix).
+  const [pendingImages, setPendingImages] = useState<Array<{ mediaType: string; data: string }>>([]);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -555,10 +564,37 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     }
   }, [streaming, sessionId]);
 
+  // Clipboard images → pending attachments. Plain-text pastes keep the
+  // default behaviour (no preventDefault unless an image was actually found).
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter(it => it.kind === 'file' && /^image\/(png|jpeg|webp|gif)$/.test(it.type))
+      .map(it => it.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (files.length === 0) return;
+    e.preventDefault();
+    for (const f of files) {
+      if (f.size > 5 * 1024 * 1024) continue; // server rejects >5MB decoded
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result ?? '');
+        const comma = url.indexOf(',');
+        if (comma < 0) return;
+        const data = url.slice(comma + 1);
+        // Cap at 3 — matches the server-side limit.
+        setPendingImages(prev => (prev.length >= 3 ? prev : [...prev, { mediaType: f.type, data }]));
+      };
+      reader.readAsDataURL(f);
+    }
+  }, []);
+
   const handleSend = useCallback(async (text: string) => {
     if (!text.trim() || streaming) return;
 
     const userText = text.trim();
+    // Snapshot + clear the pending images: they belong to THIS message only.
+    const sendImages = pendingImages;
+    setPendingImages([]);
     setInput('');
     setStreaming(true);
 
@@ -579,7 +615,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       } catch { /* implicit session */ }
     }
 
-    setItems(prev => startUserTurn(prev, userText));
+    setItems(prev => startUserTurn(prev, userText, sendImages.length));
 
     const ac = new AbortController();
     abortRef.current = ac;
@@ -595,9 +631,12 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           text: userText,
           graphPath: currentPath ?? undefined,
           selectedNodeId: selectedNodeId ?? undefined,
-          thinking: thinking !== 'off' ? thinking : undefined,
+          thinking: effThinking !== 'off' ? effThinking : undefined,
           // Absent = on (the default); only the off state is sent explicitly.
-          webSearch: webOn ? undefined : false,
+          webSearch: effWebOn ? undefined : false,
+          images: sendImages.length > 0
+            ? sendImages.map(im => ({ mediaType: im.mediaType, data: im.data }))
+            : undefined,
           sessionId: sid ?? undefined,
         },
         ac.signal,
@@ -636,7 +675,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       // deletion and re-add the dead session; the local filter already removed it).
       if (!sessionClosed) void fetchSessions();
     }
-  }, [streaming, currentPath, selectedNodeId, open, thinking, webOn, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
+  }, [streaming, currentPath, selectedNodeId, open, effThinking, effWebOn, pendingImages, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
 
   // Agent-tab attention cue: pulse while streaming; if a reply finishes while
   // another tab is visible, leave a steady dot until the user opens the tab.
@@ -966,6 +1005,11 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             return (
               <div key={i} className={'agent-bubble agent-item ' + item.role + (isStreamingBubble ? ' streaming' : '')}>
                 <span className="agent-bubble-text">{item.text}</span>
+                {item.images != null && item.images > 0 && (
+                  <span className="agent-bubble-imgs" title="此訊息附帶了圖片">
+                    <Icon name="clip" size={10} /> 圖片 ×{item.images}
+                  </span>
+                )}
               </div>
             );
           }
@@ -1033,6 +1077,24 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
 
       {/* Input area */}
       <div className="agent-input-wrap">
+        {pendingImages.length > 0 && (
+          <div className="agent-img-previews">
+            {pendingImages.map((im, i) => (
+              <span key={i} className="agent-img-chip">
+                <img src={`data:${im.mediaType};base64,${im.data}`} alt={`附圖 ${i + 1}`} />
+                <button
+                  type="button"
+                  aria-label="移除圖片"
+                  title="移除圖片"
+                  onClick={() => setPendingImages(prev => prev.filter((_, j) => j !== i))}
+                >
+                  <Icon name="x" size={9} />
+                </button>
+              </span>
+            ))}
+            <span className="agent-img-note">隨下一則訊息送出（需視覺模型）</span>
+          </div>
+        )}
         <div className="agent-inputbox">
           <div className="agent-quick">
             <button
@@ -1065,10 +1127,11 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           <textarea
             ref={inputRef}
             className="agent-input"
-            placeholder="描述你想要的材質效果…（/ 喚出快捷指令）"
+            placeholder="描述你想要的材質效果…（/ 喚出快捷指令；可直接貼上圖片）"
             value={input}
             rows={1}
             onChange={e => setInput(e.target.value)}
+            onPaste={handlePaste}
             onKeyDown={e => {
               if (e.key === 'Escape' && slashQuery !== null) {
                 e.preventDefault();
@@ -1106,12 +1169,15 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
         </div>
         <div className="agent-input-hint">
           <span className="agent-input-ctrls">
-            <label className="agent-think" title="模型思考程度：越高越深思但越慢、越耗 token">
+            <label
+              className="agent-think"
+              title={memberLock ? '思考程度已由管理員鎖定' : '模型思考程度：越高越深思但越慢、越耗 token'}
+            >
               思考
               <select
-                className={thinking !== 'off' ? 'on' : ''}
-                value={thinking}
-                disabled={streaming}
+                className={effThinking !== 'off' ? 'on' : ''}
+                value={effThinking}
+                disabled={streaming || !!memberLock}
                 onChange={e => changeThinking(e.target.value as AgentThinkingLevel)}
               >
                 {(Object.keys(THINKING_LABELS) as AgentThinkingLevel[]).map(lv => (
@@ -1121,16 +1187,19 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             </label>
             <button
               type="button"
-              className={'agent-web-toggle' + (webOn ? ' on' : '')}
-              disabled={streaming}
+              className={'agent-web-toggle' + (effWebOn ? ' on' : '')}
+              disabled={streaming || !!memberLock}
               onClick={toggleWeb}
-              aria-pressed={webOn}
-              title={webOn
-                ? '聯網搜尋：開——回覆前自判是否需要查網路佐證。點擊關閉（agent 將完全不連網）'
-                : '聯網搜尋：關——web_search／web_fetch 已停用，agent 不會連網。點擊開啟'}
+              aria-pressed={effWebOn}
+              title={memberLock
+                ? '聯網搜尋已由管理員鎖定'
+                : effWebOn
+                  ? '聯網搜尋：開——回覆前自判是否需要查網路佐證。點擊關閉（agent 將完全不連網）'
+                  : '聯網搜尋：關——web_search／web_fetch 已停用，agent 不會連網。點擊開啟'}
             >
-              <Icon name="globe" size={11} /> 聯網搜尋：{webOn ? '開' : '關'}
+              <Icon name="globe" size={11} /> 聯網搜尋：{effWebOn ? '開' : '關'}
             </button>
+            {memberLock && <span className="agent-lock-note" title="思考程度與聯網開關由管理員統一設定"><Icon name="lock" size={10} /> 管理員鎖定</span>}
           </span>
           <span>Enter 送出 · Shift+Enter 換行</span>
           {streaming && <span className="responding">回應中…</span>}

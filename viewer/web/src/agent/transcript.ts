@@ -15,6 +15,8 @@ export interface TextBubble {
   kind: 'text';
   role: MsgRole;
   text: string;
+  /** User bubbles only: number of images attached to this message. */
+  images?: number;
 }
 
 export interface ToolStep {
@@ -133,7 +135,7 @@ export function newTurnFlags(): TurnFlags {
 
 /** Start a user turn: collapse previous-turn cards and add the user bubble.
     A pending crawl proposal is superseded by the new message — deactivate it. */
-export function startUserTurn(items: ChatItem[], userText: string): ChatItem[] {
+export function startUserTurn(items: ChatItem[], userText: string, imageCount?: number): ChatItem[] {
   const collapsed = items.map(it => {
     if (it.kind === 'diff' || it.kind === 'tools') return { ...it, collapsed: true };
     if ((it.kind === 'crawlProposal' || it.kind === 'dbEditProposal') && !it.resolved) return { ...it, resolved: true };
@@ -148,7 +150,10 @@ export function startUserTurn(items: ChatItem[], userText: string): ChatItem[] {
       collapsed: true,
     }];
   }
-  return [...collapsed, { kind: 'text', role: 'user', text: userText }];
+  return [...collapsed, {
+    kind: 'text', role: 'user', text: userText,
+    ...(imageCount && imageCount > 0 ? { images: imageCount } : {}),
+  }];
 }
 
 /** Accumulate a usage event into the running total. */
@@ -320,7 +325,7 @@ export function reduceTranscript(transcript: AgentTranscriptEntry[]): { items: C
 
   for (const entry of transcript) {
     if (entry.kind === 'user') {
-      items = startUserTurn(items, entry.text);
+      items = startUserTurn(items, entry.text, entry.images);
       flags = newTurnFlags();
     } else {
       if (entry.event.type === 'usage') usage = accumulateUsage(usage, entry.event);

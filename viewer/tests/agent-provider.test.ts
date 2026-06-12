@@ -674,6 +674,55 @@ describe('Request-body translation', () => {
     expect((body.stream_options as Record<string, unknown>)?.include_usage).toBe(true);
   });
 
+  it('Anthropic: image block maps to a base64 source block', async () => {
+    const [fn, captured] = captureFetch(makeAnthropicTextFixture());
+    const adapter = new AnthropicAdapter(
+      { provider: 'anthropic', model: 'claude-test', apiKey: 'k' },
+      fn,
+    );
+    const req: ChatRequest = {
+      model: 'claude-test',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', mediaType: 'image/png', data: 'aGVsbG8=' },
+          { type: 'text', text: '這張圖的材質怎麼做？' },
+        ],
+      }],
+    };
+    await collect(adapter.stream(req));
+
+    const msgs = (captured.body as Record<string, unknown>).messages as Array<Record<string, unknown>>;
+    const blocks = msgs[0].content as Array<Record<string, unknown>>;
+    expect(blocks[0]).toEqual({
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' },
+    });
+    expect(blocks[1].type).toBe('text');
+  });
+
+  it('OpenAI: image block maps to an image_url data URI in a content-parts array', async () => {
+    const [fn, captured] = captureFetch(['data: [DONE]\n\n']);
+    const adapter = new OpenAIAdapter({ provider: 'openai-compatible', model: 'test' }, fn);
+    const req: ChatRequest = {
+      model: 'test',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', mediaType: 'image/jpeg', data: 'Zm9v' },
+          { type: 'text', text: '看圖' },
+        ],
+      }],
+    };
+    await collect(adapter.stream(req));
+
+    const msgs = (captured.body as Record<string, unknown>).messages as Array<Record<string, unknown>>;
+    const userMsg = msgs.find(m => m.role === 'user')!;
+    const parts = userMsg.content as Array<Record<string, unknown>>;
+    expect(parts[0]).toEqual({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,Zm9v' } });
+    expect(parts[1]).toEqual({ type: 'text', text: '看圖' });
+  });
+
   it('Anthropic: tools array uses input_schema (not inputSchema)', async () => {
     const [fn, captured] = captureFetch(
       ['event: message_stop\ndata: {"type":"message_stop"}\n\n'],

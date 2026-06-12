@@ -930,6 +930,15 @@ describe('transcript reducer — viewer-action events', () => {
 });
 
 describe('transcript reducer — per-turn usage + db-edit proposal + markdown', () => {
+  it('startUserTurn records the attached-image count on the user bubble', () => {
+    const items = startUserTurn([], '參考這張圖', 2);
+    const bubble = items.at(-1)!;
+    expect(bubble).toMatchObject({ kind: 'text', role: 'user', text: '參考這張圖', images: 2 });
+    // No images → no images field at all (replay stays byte-compatible).
+    const plain = startUserTurn([], '純文字').at(-1)!;
+    expect('images' in plain).toBe(false);
+  });
+
   it('accumulateUsage sums prompt-cache hits from cachedTokens', () => {
     let total = accumulateUsage(null, { inputTokens: 100, outputTokens: 10, estimated: false });
     expect(total.cached).toBe(0);

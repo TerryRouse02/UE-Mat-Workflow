@@ -75,6 +75,9 @@ export interface AuthStatus {
   role?: 'admin' | 'user';
   /** Team mode: the admin switch that lets members run their own agent sessions. */
   memberAgent?: boolean;
+  /** Team mode: when set, member thinking/🌐 controls are forced to these
+      values (UI grays them out; the server enforces regardless). */
+  memberLock?: { thinking: 'off' | 'low' | 'medium' | 'high'; webSearch: boolean };
 }
 
 type Action =

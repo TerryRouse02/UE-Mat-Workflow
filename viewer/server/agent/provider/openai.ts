@@ -70,7 +70,18 @@ function translateMessages(messages: Message[]): unknown[] {
         });
       }
 
-      if (textBlocks.length > 0) {
+      const imageBlocks = msg.content.filter((b) => b.type === 'image');
+      if (imageBlocks.length > 0) {
+        // Multimodal user message: content becomes an array of parts —
+        // images as data-URI image_url entries, the joined text last.
+        const parts: unknown[] = imageBlocks.map((b) => {
+          const ib = b as { mediaType: string; data: string };
+          return { type: 'image_url', image_url: { url: `data:${ib.mediaType};base64,${ib.data}` } };
+        });
+        const text = textBlocks.map((b) => (b as { text: string }).text).join('');
+        if (text) parts.push({ type: 'text', text });
+        out.push({ role: 'user', content: parts });
+      } else if (textBlocks.length > 0) {
         const text = textBlocks.map((b) => (b as { text: string }).text).join('');
         out.push({ role: 'user', content: text });
       }

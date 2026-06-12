@@ -122,7 +122,13 @@ object persists in `local.config.json`.
   adapter sets prompt-cache breakpoints (last tool def / system / last message block)
   and folds `cache_read+cache_creation` back into `inputTokens` so the context gate
   sees the FULL size — never read `usage.input_tokens` alone there; cache hits flow
-  to the UI as `cachedTokens` on the usage SSE event. Viewport state
+  to the UI as `cachedTokens` on the usage SSE event. Pasted images ride
+  `AgentChatRequest.images` (≤3, ≤5MB decoded, validated at the http layer) into
+  neutral `ImageBlock`s; transcripts persist only the count, never the base64.
+  Team mode: longterm memory is per-user (`.agent-memory/users/<name>.md` — one
+  member's notes must never reach another user's prompt), and the admin can lock
+  member thinking/🌐 via `Team.memberLock` (server-enforced in the chat handler,
+  not just grayed in the UI). Viewport state
   (open graph / selected node) is read on demand via the `get_viewport` tool — never
   injected into the prompt. `write_graph` refuses to overwrite files the conversation
   did not create (hard create-vs-modify guard; `overwrite:true` is user-confirmed only);

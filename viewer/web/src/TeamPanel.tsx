@@ -7,16 +7,23 @@ import { useCallback, useEffect, useState } from 'react';
 import { useStore } from './store';
 import { Icon } from './Icon';
 
+interface MemberLock { thinking: 'off' | 'low' | 'medium' | 'high'; webSearch: boolean }
+
 interface TeamInfo {
   mode: 'local' | 'team';
   envLocked: boolean;
   bindHost: string;
   secureCookies: boolean;
   memberAgent?: boolean;
+  memberLock?: MemberLock | null;
   port: number;
   hasUsers: boolean;
   urls: string[];
 }
+
+const LOCK_THINKING_LABELS: Record<MemberLock['thinking'], string> = {
+  off: '關', low: '低', medium: '中', high: '高',
+};
 
 export function TeamPanel() {
   const { state, refreshAuth } = useStore();
@@ -31,6 +38,7 @@ export function TeamPanel() {
   const [confirm, setConfirm] = useState('');
   const [secure, setSecure] = useState(false);
   const [memberAgent, setMemberAgent] = useState(false);
+  const [memberLock, setMemberLock] = useState<MemberLock | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -41,6 +49,7 @@ export function TeamPanel() {
       setInfo(data);
       setSecure(data.secureCookies);
       setMemberAgent(data.memberAgent === true);
+      setMemberLock(data.memberLock ?? null);
       if (data.mode === 'local') setBindHost(data.bindHost === '127.0.0.1' ? '0.0.0.0' : data.bindHost);
     } catch (e) {
       setError((e as Error).message);
@@ -147,6 +156,52 @@ export function TeamPanel() {
             />
             允許成員使用 AI 助手（各自的私人會話；花費伺服器持有的共享 LLM key。爬取與節點 DB 修改仍僅限管理員）
           </label>
+          <label className="team-check">
+            <input
+              type="checkbox"
+              checked={memberLock !== null}
+              disabled={busy}
+              onChange={e => {
+                const next = e.target.checked ? { thinking: 'off' as const, webSearch: true } : null;
+                setMemberLock(next);
+                void post({ memberLock: next });
+              }}
+            />
+            鎖定成員的思考程度與聯網開關（成員的控制項變灰、強制使用以下設定；伺服器端同步強制）
+          </label>
+          {memberLock !== null && (
+            <div className="team-lock-fields">
+              <label>
+                思考程度
+                <select
+                  value={memberLock.thinking}
+                  disabled={busy}
+                  onChange={e => {
+                    const next = { ...memberLock, thinking: e.target.value as MemberLock['thinking'] };
+                    setMemberLock(next);
+                    void post({ memberLock: next });
+                  }}
+                >
+                  {(Object.keys(LOCK_THINKING_LABELS) as MemberLock['thinking'][]).map(lv => (
+                    <option key={lv} value={lv}>{LOCK_THINKING_LABELS[lv]}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={memberLock.webSearch}
+                  disabled={busy}
+                  onChange={e => {
+                    const next = { ...memberLock, webSearch: e.target.checked };
+                    setMemberLock(next);
+                    void post({ memberLock: next });
+                  }}
+                />
+                允許聯網搜尋
+              </label>
+            </div>
+          )}
           <label className="team-check">
             <input
               type="checkbox"

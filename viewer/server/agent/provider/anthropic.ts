@@ -103,6 +103,13 @@ export class AnthropicAdapter implements Provider {
             if (tb.isError !== undefined) out.is_error = tb.isError;
             return out;
           }
+          if (block.type === 'image') {
+            // Neutral image → Anthropic base64 source block.
+            return {
+              type: 'image',
+              source: { type: 'base64', media_type: block.mediaType, data: block.data },
+            };
+          }
           return { ...block };
         }),
     }));

@@ -305,6 +305,16 @@
   cursor: pointer;
 }
 .team-check input { margin-top: 2px; }
+.team-lock-fields {
+  display: flex; align-items: center; gap: 16px;
+  margin: 0 0 8px 24px; font-size: 11px; color: var(--text-dim);
+}
+.team-lock-fields label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.team-lock-fields select {
+  background: var(--bg-panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 5px;
+  font-size: 11px; padding: 2px 6px;
+}
 .team-pwrow { display: flex; gap: 6px; margin-bottom: 4px; }
 .team-pwrow input {
   flex: 1; min-width: 0;

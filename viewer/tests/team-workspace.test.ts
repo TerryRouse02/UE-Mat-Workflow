@@ -45,7 +45,10 @@ const cookieOf = (r: Response) => (r.headers.get('set-cookie') ?? '').match(/uem
 
 class ScriptedProvider implements Provider {
   scripted: StreamEvent[][] = [];
+  /** Every ChatRequest seen — lock tests assert thinking/tool composition. */
+  requests: ChatRequest[] = [];
   async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
+    this.requests.push(req);
     const turn = this.scripted.shift() ?? [
       { type: 'text_delta', text: '完成。' }, { type: 'done', stopReason: 'end' },
     ];
@@ -162,6 +165,49 @@ describe('personal workspaces', () => {
       // And the file truly does not exist.
       const { existsSync } = await import('node:fs');
       expect(existsSync(resolve(h.root, 'graphs/users/bob/hack/hack.matgraph.json'))).toBe(false);
+    } finally {
+      await h.server.close();
+      await rm(h.root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('member agent lock (admin-set thinking/🌐)', () => {
+  it('locked member turns run with the admin values; admin stays free; clearing restores control', async () => {
+    const h = await setup();
+    try {
+      await fetch(`${h.base}/api/team`, json({ memberAgent: true }, h.admin));
+
+      // Invalid lock shape → 400; valid lock persists and is exposed.
+      expect((await fetch(`${h.base}/api/team`, json({ memberLock: { thinking: 'turbo', webSearch: true } }, h.admin))).status).toBe(400);
+      expect((await fetch(`${h.base}/api/team`, json({ memberLock: { thinking: 'off', webSearch: false } }, h.admin))).status).toBe(200);
+      const team = await (await fetch(`${h.base}/api/team`, { headers: { cookie: h.admin } })).json() as { memberLock: unknown };
+      expect(team.memberLock).toEqual({ thinking: 'off', webSearch: false });
+      // Members read the lock from auth status (the UI grays the controls).
+      const st = await (await fetch(`${h.base}/api/auth/status`, { headers: { cookie: h.artist } })).json() as { memberLock?: unknown };
+      expect(st.memberLock).toEqual({ thinking: 'off', webSearch: false });
+
+      // A locked member sends thinking:high + 🌐 on — the server overrides both.
+      const sid = (await (await fetch(`${h.base}/api/agent/sessions`, { method: 'POST', headers: { cookie: h.artist } })).json()).id as string;
+      h.provider.scripted = [[{ type: 'text_delta', text: 'ok' }, { type: 'done', stopReason: 'end' }]];
+      await (await fetch(`${h.base}/api/agent/chat`, json({ text: '測試', sessionId: sid, thinking: 'high' }, h.artist))).text();
+      const memberReq = h.provider.requests.at(-1)!;
+      expect(memberReq.thinking).toBeUndefined();
+      expect((memberReq.tools ?? []).map(t => t.name)).not.toContain('web_search');
+
+      // The admin's own turns are never locked.
+      const asid = (await (await fetch(`${h.base}/api/agent/sessions`, { method: 'POST', headers: { cookie: h.admin } })).json()).id as string;
+      h.provider.scripted = [[{ type: 'text_delta', text: 'ok' }, { type: 'done', stopReason: 'end' }]];
+      await (await fetch(`${h.base}/api/agent/chat`, json({ text: '測試', sessionId: asid, thinking: 'low' }, h.admin))).text();
+      const adminReq = h.provider.requests.at(-1)!;
+      expect(adminReq.thinking).toBe('low');
+      expect((adminReq.tools ?? []).map(t => t.name)).toContain('web_search');
+
+      // memberLock:null clears the lock; member control is restored.
+      expect((await fetch(`${h.base}/api/team`, json({ memberLock: null }, h.admin))).status).toBe(200);
+      h.provider.scripted = [[{ type: 'text_delta', text: 'ok' }, { type: 'done', stopReason: 'end' }]];
+      await (await fetch(`${h.base}/api/agent/chat`, json({ text: '再測', sessionId: sid, thinking: 'high' }, h.artist))).text();
+      expect(h.provider.requests.at(-1)!.thinking).toBe('high');
     } finally {
       await h.server.close();
       await rm(h.root, { recursive: true, force: true });

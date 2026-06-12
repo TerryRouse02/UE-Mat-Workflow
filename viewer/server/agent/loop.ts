@@ -194,6 +194,12 @@ export interface RunAgentOptions {
    * 'propose_db_edit'] — they cannot approve those cards anyway.
    */
   disabledTools?: string[];
+  /**
+   * User-attached images for THIS turn (AgentChatRequest.images — pasted
+   * into the chat box). Prepended to the user message as neutral image
+   * blocks; the http layer has already validated type/size/count.
+   */
+  images?: Array<{ mediaType: string; data: string }>;
 }
 
 const WEB_TOOL_NAMES = new Set(['web_search', 'web_fetch']);
@@ -241,14 +247,16 @@ export async function runAgent(
   // (iter/cost ceiling or abort), the last message is already user-role —
   // append the text into it: Anthropic requires roles to strictly alternate,
   // so a second consecutive user message would fail the next request.
+  // Images first, text last — matches both adapters' multimodal ordering.
+  const userBlocks: ContentBlock[] = [
+    ...(options?.images ?? []).map((im): ContentBlock => ({ type: 'image', mediaType: im.mediaType, data: im.data })),
+    { type: 'text', text: userText },
+  ];
   const lastMsg = session.messages.at(-1);
   if (lastMsg?.role === 'user') {
-    lastMsg.content.push({ type: 'text', text: userText });
+    lastMsg.content.push(...userBlocks);
   } else {
-    session.messages.push({
-      role: 'user',
-      content: [{ type: 'text', text: userText }],
-    });
+    session.messages.push({ role: 'user', content: userBlocks });
   }
   // One checkpoint turn per user turn: every write made while serving this
   // user message shares the id, so a single undo reverts the whole exchange
@@ -603,7 +611,11 @@ export function estimateMessagesTokens(msgs: Message[]): number {
   let chars = 0;
   for (const m of msgs) {
     for (const b of m.content) {
-      if ('text' in b && typeof b.text === 'string') chars += b.text.length;
+      // Images are tokenized as vision tokens (~1.6K each), NOT as their
+      // base64 text — counting data.length would blow the estimate up by
+      // orders of magnitude and trip the ceiling on restored sessions.
+      if (b.type === 'image') chars += 6400;
+      else if ('text' in b && typeof b.text === 'string') chars += b.text.length;
       else if ('content' in b && typeof b.content === 'string') chars += b.content.length;
     }
   }
@@ -616,6 +628,7 @@ function serializeForSummary(msgs: Message[]): string {
   for (const m of msgs) {
     for (const b of m.content) {
       if (b.type === 'text') parts.push(`${m.role === 'user' ? '使用者' : '助手'}：${b.text}`);
+      else if (b.type === 'image') parts.push('[使用者附了一張圖片]');
       else if (b.type === 'tool_use') parts.push(`[工具呼叫 ${b.name}] ${JSON.stringify(b.input).slice(0, 200)}`);
       else if (b.type === 'tool_result') parts.push(`[工具結果${b.isError ? '（錯誤）' : ''}] ${b.content.slice(0, 200)}`);
     }
