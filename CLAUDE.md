@@ -43,7 +43,7 @@ The node **DB is the source of truth**: the AI may only use node types/pins that
 
 ```
 agent-pack/                 SHIPPED product data + agent rules (public, must stay clean)
-  nodes-ue5.7.json          authoring DB — node types/pins/params (296 expressions)
+  nodes-ue5.7.json          authoring DB — node types/pins/params (331 definitions; 342/342 official coverage with special handling)
   nodes-ue5.7.index.json    generated minimal index (~12K tokens); safe to read whole; CI-gated
   nodes-ue5.7.export.json   per-node UE metadata for clipboard export (class paths, GUIDs)
   query.js                  zero-dep lookup CLI: node/mf/search queries against the DB and MF indexes

@@ -50,7 +50,7 @@ plugin-provided expressions (Landscape, …), which then report `class-missing`.
   "schemaVersion": "1.0",
   "kind": "node-selftest",
   "engineVersion": "5.7.4-...",
-  "counts": { "checked": 296, "clean": 290, "withDiffs": 4, "classMissing": 0, "skipped": 2 },
+  "counts": { "checked": 331, "clean": 331, "withDiffs": 0, "classMissing": 0, "skipped": 0 },
   "nodes": {
     "Power": {
       "status": "clean",                  // clean | diff | class-missing | skipped

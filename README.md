@@ -9,7 +9,7 @@ A unified workflow for AI + human collaboration on UE 5.7 material node graphs. 
 ## Why
 
 - **No more text-wall node graphs.** AI describes materials in a strict JSON schema; the viewer renders them as real-looking UE nodes.
-- **No more hallucinated node names.** A pinned UE 5.7 node DB (296 expressions — effectively the full engine set) is the source of truth — AI must use existing types, exact pin names, exact param names. The viewer flags connections that reference a pin which doesn't exist on its node.
+- **No more hallucinated node names.** A pinned UE 5.7 node DB (331 authoring definitions, covering all 342 concrete official expressions together with 13 explicit special-handling records) is the source of truth — AI must use existing types, exact pin names, exact param names. The viewer flags connections that reference a pin which doesn't exist on its node.
 - **Final outputs survive export.** You wire results straight into the `MaterialOutput` node; on export the emitter auto-collects them into a `MakeMaterialAttributes` node, so a pasted material needs one wire in UE instead of one per attribute.
 - **One format across AI tools.** Same `agent-pack/` works in Claude Code, Cursor, Copilot CLI, Gemini CLI, or anything that reads agent rules.
 
@@ -259,7 +259,7 @@ Today that's `nodes-ue5.7.json` + `nodes-ue5.7.export.json`; later `nodes-ue5.8.
 
 ## Adding to the node DB
 
-The DB is version-scoped: edit the pair for the version you target (e.g. `agent-pack/nodes-ue5.7.json`, currently 296 expressions). To add more:
+The DB is version-scoped: edit the pair for the version you target (e.g. `agent-pack/nodes-ue5.7.json`, currently 331 authoring definitions). To add more:
 
 1. Find the node in the [UE Material Expression Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference).
 2. Match the existing entry format under `nodes.<NodeName>` (inputs, outputs, params, category, description).

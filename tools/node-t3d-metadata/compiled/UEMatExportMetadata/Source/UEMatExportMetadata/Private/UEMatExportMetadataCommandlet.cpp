@@ -119,6 +119,11 @@ static TMap<FString, TMap<FString, FString>> BuildParamPropertyOverrides()
     TMap<FString, TMap<FString, FString>> Overrides;
     Overrides.Add(TEXT("Transform"), {{TEXT("Source"), TEXT("TransformSourceType")}, {TEXT("Destination"), TEXT("TransformType")}});
     Overrides.Add(TEXT("TransformPosition"), {{TEXT("Source"), TEXT("TransformSourceType")}, {TEXT("Destination"), TEXT("TransformType")}});
+    Overrides.Add(TEXT("Time"), {{TEXT("IgnorePause"), TEXT("bIgnorePause")}});
+    Overrides.Add(TEXT("StaticBool"), {{TEXT("DefaultValue"), TEXT("Value")}});
+    Overrides.Add(TEXT("TextureSampleParameterSubUV"), {{TEXT("Blend"), TEXT("bBlend")}});
+    Overrides.Add(TEXT("ParticleSubUV"), {{TEXT("Blend"), TEXT("bBlend")}});
+    Overrides.Add(TEXT("Noise"), {{TEXT("Turbulence"), TEXT("bTurbulence")}});
     return Overrides;
 }
 
@@ -1858,11 +1863,15 @@ static TMap<FString, TSharedPtr<FJsonObject>> ReadParamObjects(const TSharedPtr<
     return Params;
 }
 
-static UClass* ResolveExpressionClass(const FString& NodeType)
+static UClass* ResolveExpressionClass(const FString& NodeType, const FString& ExplicitClassPath = FString())
 {
     static const TMap<FString, FString> ClassOverrides = BuildClassOverrides();
 
     TArray<FString> ClassPaths;
+    if (!ExplicitClassPath.IsEmpty())
+    {
+        ClassPaths.Add(ExplicitClassPath);
+    }
     if (const FString* Override = ClassOverrides.Find(NodeType))
     {
         if (Override->StartsWith(TEXT("/Script/")))
@@ -1897,8 +1906,38 @@ static UClass* ResolveExpressionClass(const FString& NodeType)
     return nullptr;
 }
 
+static FString PropertyNameForInputByAddress(UMaterialExpression* Expression, int32 InputIndex)
+{
+    FExpressionInput* Input = Expression->GetInput(InputIndex);
+    if (Input == nullptr)
+    {
+        return FString();
+    }
+
+    for (TFieldIterator<FStructProperty> InputIt(Expression->GetClass(), EFieldIteratorFlags::IncludeSuper, EFieldIteratorFlags::ExcludeDeprecated); InputIt; ++InputIt)
+    {
+        FStructProperty* StructProperty = *InputIt;
+        for (int32 ArrayIndex = 0; ArrayIndex < StructProperty->ArrayDim; ++ArrayIndex)
+        {
+            if (Input == StructProperty->ContainerPtrToValuePtr<FExpressionInput>(Expression, ArrayIndex))
+            {
+                return StructProperty->ArrayDim > 1
+                    ? FString::Printf(TEXT("%s(%d)"), *StructProperty->GetName(), ArrayIndex)
+                    : StructProperty->GetName();
+            }
+        }
+    }
+    return FString();
+}
+
 static FString PropertyNameForInput(UMaterialExpression* Expression, int32 InputIndex, TMap<FString, int32>& PropertyOccurrences)
 {
+    const FString InputPropertyName = PropertyNameForInputByAddress(Expression, InputIndex);
+    if (!InputPropertyName.IsEmpty())
+    {
+        return InputPropertyName;
+    }
+
     TArray<FProperty*> Properties = Expression->GetInputPinProperty(InputIndex);
     if (Properties.Num() == 0 || Properties[0] == nullptr)
     {
@@ -1922,10 +1961,21 @@ static TMap<FString, FString> BuildDisplayInputMap(UMaterialExpression* Expressi
 {
     TMap<FString, FString> Map;
     TMap<FString, int32> PropertyOccurrences;
+    TMap<FString, int32> EngineInputNameOccurrences;
 
     for (int32 InputIndex = 0; Expression->GetInput(InputIndex) != nullptr; ++InputIndex)
     {
-        const FString InputName = Expression->GetInputName(InputIndex).ToString();
+        const FName RawInputName = Expression->GetInputName(InputIndex);
+        FString InputName = RawInputName.IsNone() ? FString() : RawInputName.ToString();
+        if (!InputName.IsEmpty())
+        {
+            int32& Occurrence = EngineInputNameOccurrences.FindOrAdd(InputName);
+            ++Occurrence;
+            if (Occurrence > 1)
+            {
+                InputName += FString::Printf(TEXT("_%d"), Occurrence);
+            }
+        }
         if (!InputName.IsEmpty())
         {
             Map.Add(InputName, PropertyNameForInput(Expression, InputIndex, PropertyOccurrences));
@@ -2037,12 +2087,6 @@ static void SetValueMap(TSharedRef<FJsonObject> ParamMeta, const FString& NodeTy
 static TSharedPtr<FJsonObject> BuildVectorComponents(const FString& NodeType)
 {
     TSharedPtr<FJsonObject> Components = MakeShared<FJsonObject>();
-    if (NodeType == TEXT("Constant2Vector"))
-    {
-        Components->SetStringField(TEXT("R"), TEXT("R"));
-        Components->SetStringField(TEXT("G"), TEXT("G"));
-        return Components;
-    }
     if (NodeType == TEXT("Constant3Vector"))
     {
         Components->SetStringField(TEXT("R"), TEXT("R"));
@@ -2203,7 +2247,12 @@ static FString ExistingSampleFor(const TSharedPtr<FJsonObject>& ExistingRoot, co
 
 static TSharedRef<FJsonObject> BuildNodeEntry(const FString& NodeType, const TSharedPtr<FJsonObject>& NodeObject, const TSharedPtr<FJsonObject>& ExistingRoot, int32& WarningCount)
 {
-    const bool bDynamic = DynamicNodeTypes.Contains(NodeType);
+    bool bDynamic = DynamicNodeTypes.Contains(NodeType);
+    bool bDbDynamic = false;
+    if (NodeObject->TryGetBoolField(TEXT("dynamicPins"), bDbDynamic) && bDbDynamic)
+    {
+        bDynamic = true;
+    }
     static const TMap<FString, FString> FunctionAssetOverrides = BuildFunctionAssetOverrides();
     const FString* FunctionAsset = FunctionAssetOverrides.Find(NodeType);
     if (FunctionAsset != nullptr)
@@ -2237,7 +2286,7 @@ static TSharedRef<FJsonObject> BuildNodeEntry(const FString& NodeType, const TSh
         return Entry;
     }
 
-    UClass* Class = ResolveExpressionClass(NodeType);
+    UClass* Class = ResolveExpressionClass(NodeType, JsonStringField(NodeObject, TEXT("ueClass")));
     UMaterialExpression* Expression = Class != nullptr ? Cast<UMaterialExpression>(Class->GetDefaultObject()) : nullptr;
 
     TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
@@ -2254,7 +2303,9 @@ static TSharedRef<FJsonObject> BuildNodeEntry(const FString& NodeType, const TSh
         Entry->SetObjectField(TEXT("outputs"), BuildOutputsObject(ReadNamesFromArray(NodeObject, TEXT("outputs")), Expression));
     }
 
-    const TMap<FString, TSharedPtr<FJsonObject>> ParamObjects = ExportParamObjectsForNode(NodeType, ReadParamObjects(NodeObject));
+    const TMap<FString, TSharedPtr<FJsonObject>> ParamObjects = bDynamic && NodeType != TEXT("Custom")
+        ? TMap<FString, TSharedPtr<FJsonObject>>()
+        : ExportParamObjectsForNode(NodeType, ReadParamObjects(NodeObject));
     Entry->SetObjectField(TEXT("params"), BuildParamsObject(NodeType, ParamObjects));
     Entry->SetStringField(TEXT("sample"), ExistingSampleFor(ExistingRoot, NodeType, false));
 
@@ -2262,7 +2313,9 @@ static TSharedRef<FJsonObject> BuildNodeEntry(const FString& NodeType, const TSh
     {
         Entry->SetBoolField(TEXT("verified"), false);
         Entry->SetBoolField(TEXT("dynamicExport"), true);
-        Entry->SetStringField(TEXT("note"), TEXT("Dynamic-pin node; static export is intentionally skipped unless a per-instance exporter is implemented."));
+        Entry->SetStringField(TEXT("note"), NodeType == TEXT("Custom")
+            ? TEXT("Inputs and AdditionalOutputs are emitted structurally by the Custom branch in ueT3D.ts; scalar params remain metadata-backed.")
+            : TEXT("Dynamic-pin node; static export is intentionally skipped unless a per-instance exporter is implemented."));
     }
     else if (Class != nullptr)
     {
@@ -2440,6 +2493,7 @@ static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath
 {
     // Known DB keys (optional diff target). Without a DB every class is "missing".
     TSet<FString> DbKeys;
+    TSet<FString> SpecialKeys;
     if (!NodeDbPath.IsEmpty())
     {
         TSharedPtr<FJsonObject> DbRoot;
@@ -2457,6 +2511,14 @@ static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath
                 DbKeys.Add(Pair.Key);
             }
         }
+        const TSharedPtr<FJsonObject>* SpecialObject = nullptr;
+        if (DbRoot->TryGetObjectField(TEXT("officialSpecialTypes"), SpecialObject) && SpecialObject)
+        {
+            for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*SpecialObject)->Values)
+            {
+                SpecialKeys.Add(Pair.Key);
+            }
+        }
     }
 
     // Host material so expressions instantiate with a valid Outer (mirrors the
@@ -2468,9 +2530,11 @@ static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath
 
     TArray<TSharedPtr<FJsonValue>> MissingArray;
     TArray<TSharedPtr<FJsonValue>> DeprecatedArray;
+    TArray<TSharedPtr<FJsonValue>> HandledSpecialArray;
     TSet<FString> MatchedDbKeys;
     int32 ConcreteCount = 0;
     int32 InDbCount = 0;
+    int32 HandledSpecialCount = 0;
 
     for (UClass* Class : DerivedClasses)
     {
@@ -2481,10 +2545,17 @@ static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath
         ++ConcreteCount;
         const bool bDeprecated = Class->HasAnyClassFlags(CLASS_Deprecated | CLASS_NewerVersionExists);
         const bool bInDb = DbKeys.Contains(TypeName);
+        const bool bHandledSpecial = SpecialKeys.Contains(TypeName);
         if (bInDb) { ++InDbCount; MatchedDbKeys.Add(TypeName); }
 
         if (bDeprecated) { DeprecatedArray.Add(MakeShared<FJsonValueString>(TypeName)); continue; }
         if (bInDb) continue; // already covered by the DB
+        if (bHandledSpecial)
+        {
+            ++HandledSpecialCount;
+            HandledSpecialArray.Add(MakeShared<FJsonValueString>(TypeName));
+            continue;
+        }
 
         // Best-effort pin reflection — the same calls the metadata path uses.
         UMaterialExpression* Expr = NewObject<UMaterialExpression>(HostMaterial, Class, NAME_None, RF_Transactional);
@@ -2528,9 +2599,16 @@ static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath
     // DB keys with no concrete engine class (renamed/removed/typo, or overrides
     // whose class suffix differs from the DB key — review these by hand).
     TArray<TSharedPtr<FJsonValue>> OrphanArray;
+    static const TMap<FString, FString> ClassOverrides = BuildClassOverrides();
+    static const TMap<FString, FString> FunctionAssetOverrides = BuildFunctionAssetOverrides();
     for (const FString& Key : DbKeys)
     {
-        if (!MatchedDbKeys.Contains(Key)) OrphanArray.Add(MakeShared<FJsonValueString>(Key));
+        if (!MatchedDbKeys.Contains(Key)
+            && !ClassOverrides.Contains(Key)
+            && !FunctionAssetOverrides.Contains(Key))
+        {
+            OrphanArray.Add(MakeShared<FJsonValueString>(Key));
+        }
     }
 
     TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
@@ -2541,12 +2619,15 @@ static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath
     TSharedRef<FJsonObject> Counts = MakeShared<FJsonObject>();
     Counts->SetNumberField(TEXT("engineExpressions"), ConcreteCount);
     Counts->SetNumberField(TEXT("inDb"), InDbCount);
+    Counts->SetNumberField(TEXT("handledSpecial"), HandledSpecialCount);
+    Counts->SetNumberField(TEXT("covered"), InDbCount + HandledSpecialCount);
     Counts->SetNumberField(TEXT("missing"), MissingArray.Num());
     Counts->SetNumberField(TEXT("deprecated"), DeprecatedArray.Num());
     Counts->SetNumberField(TEXT("orphansInDb"), OrphanArray.Num());
     Root->SetObjectField(TEXT("counts"), Counts);
     Root->SetArrayField(TEXT("missing"), MissingArray);
     Root->SetArrayField(TEXT("deprecated"), DeprecatedArray);
+    Root->SetArrayField(TEXT("handledSpecial"), HandledSpecialArray);
     Root->SetArrayField(TEXT("orphansInDb"), OrphanArray);
 
     FString OutputText;
@@ -2563,8 +2644,8 @@ static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath
         OutError = FString::Printf(TEXT("Node discovery: failed to write %s"), *OutPath);
         return false;
     }
-    UE_LOG(LogTemp, Display, TEXT("Wrote node discovery report: %s (%d engine expressions, %d in DB, %d missing, %d deprecated, %d orphans)"),
-        *OutPath, ConcreteCount, InDbCount, MissingArray.Num(), DeprecatedArray.Num(), OrphanArray.Num());
+    UE_LOG(LogTemp, Display, TEXT("Wrote node discovery report: %s (%d engine expressions, %d in DB, %d handled special, %d covered, %d missing, %d deprecated, %d orphans)"),
+        *OutPath, ConcreteCount, InDbCount, HandledSpecialCount, InDbCount + HandledSpecialCount, MissingArray.Num(), DeprecatedArray.Num(), OrphanArray.Num());
     return true;
 }
 
@@ -2590,7 +2671,9 @@ static void PrepareMaterialGraph(UMaterial* Material);
 // and not representative (none in the current DB; kept as a safety valve).
 static bool ShouldSkipSelfTestT3D(const FString& TypeName)
 {
-    return TypeName == TEXT("Composite") || TypeName == TEXT("PinBase");
+    return TypeName == TEXT("Composite")
+        || TypeName == TEXT("PinBase")
+        || TypeName == TEXT("MaterialLayerOutput");
 }
 
 // Split "Name(3)" into base property name + array index. Returns INDEX_NONE
@@ -2700,6 +2783,11 @@ static bool WriteNodeSelfTest(const FString& OutPath, const FString& NodeDbPath,
     int32 ClassMissingCount = 0;
     int32 SkippedCount = 0;
     TSharedRef<FJsonObject> OutNodes = MakeShared<FJsonObject>();
+    static const TMap<FString, FString> FunctionAssetOverrides = BuildFunctionAssetOverrides();
+    static const TSet<FString> IntentionalOutputlessNodeTypes =
+    {
+        TEXT("NamedRerouteDeclaration")
+    };
 
     for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*DbNodes)->Values)
     {
@@ -2715,7 +2803,10 @@ static bool WriteNodeSelfTest(const FString& OutPath, const FString& NodeDbPath,
         TArray<TSharedPtr<FJsonValue>> Diffs;
         TArray<TSharedPtr<FJsonValue>> TypeNotes;
 
-        UClass* Class = ResolveExpressionClass(NodeType);
+        const bool bFunctionBacked = FunctionAssetOverrides.Contains(NodeType);
+        UClass* Class = bFunctionBacked
+            ? ResolveExpressionClass(TEXT("MaterialFunctionCall"))
+            : ResolveExpressionClass(NodeType, JsonStringField(NodeObject, TEXT("ueClass")));
         if (Class == nullptr)
         {
             ++ClassMissingCount;
@@ -2749,14 +2840,28 @@ static bool WriteNodeSelfTest(const FString& OutPath, const FString& NodeDbPath,
 
         // ---- engine truth: pins -------------------------------------------------
         TArray<FString> EngineInputNames;
+        TArray<FString> EngineInputPropertyNames;
+        TArray<FString> EngineInputTypesByIndex;
         TArray<TSharedPtr<FJsonValue>> EngineInputs;
-        TMap<FString, FString> EngineInputTypes;
+        TMap<FString, int32> InputPropertyOccurrences;
+        TMap<FString, int32> EngineInputNameOccurrences;
         for (int32 i = 0; Expression->GetInput(i) != nullptr; ++i)
         {
-            const FString InputName = Expression->GetInputName(i).ToString();
+            const FName RawInputName = Expression->GetInputName(i);
+            FString InputName = RawInputName.IsNone() ? FString() : RawInputName.ToString();
+            if (!InputName.IsEmpty())
+            {
+                int32& Occurrence = EngineInputNameOccurrences.FindOrAdd(InputName);
+                ++Occurrence;
+                if (Occurrence > 1)
+                {
+                    InputName += FString::Printf(TEXT("_%d"), Occurrence);
+                }
+            }
             const FString InputType = MapMaterialValueType(Expression->GetInputValueType(i));
             EngineInputNames.Add(InputName);
-            EngineInputTypes.Add(InputName, InputType);
+            EngineInputPropertyNames.Add(PropertyNameForInput(Expression, i, InputPropertyOccurrences));
+            EngineInputTypesByIndex.Add(InputType);
             TSharedRef<FJsonObject> Input = MakeShared<FJsonObject>();
             Input->SetStringField(TEXT("name"), InputName);
             Input->SetStringField(TEXT("type"), InputType);
@@ -2768,13 +2873,19 @@ static bool WriteNodeSelfTest(const FString& OutPath, const FString& NodeDbPath,
         TArray<TSharedPtr<FJsonValue>> EngineOutputs;
         for (const FExpressionOutput& Out : Expression->GetOutputs())
         {
-            EngineOutputNames.Add(Out.OutputName.ToString());
-            EngineOutputs.Add(MakeShared<FJsonValueString>(Out.OutputName.ToString()));
+            const FString OutputName = Out.OutputName.IsNone() ? FString() : Out.OutputName.ToString();
+            EngineOutputNames.Add(OutputName);
+            EngineOutputs.Add(MakeShared<FJsonValueString>(OutputName));
         }
         Entry->SetArrayField(TEXT("engineOutputs"), EngineOutputs);
 
+        const TSharedPtr<FJsonObject> ExportEntry =
+            (ExportNodes != nullptr && ExportNodes->IsValid() && (*ExportNodes)->HasField(NodeType))
+                ? (*ExportNodes)->GetObjectField(NodeType)
+                : nullptr;
+
         // ---- pin diff vs DB (skipped for dynamic-pin nodes) ---------------------
-        bool bDynamic = DynamicNodeTypes.Contains(NodeType);
+        bool bDynamic = DynamicNodeTypes.Contains(NodeType) || bFunctionBacked;
         bool bDbDynamic = false;
         if (NodeObject->TryGetBoolField(TEXT("dynamicPins"), bDbDynamic) && bDbDynamic)
         {
@@ -2787,6 +2898,7 @@ static bool WriteNodeSelfTest(const FString& OutPath, const FString& NodeDbPath,
         else
         {
             TArray<FString> DbInputNames;
+            TSet<int32> MatchedEngineInputIndices;
             const TArray<TSharedPtr<FJsonValue>>* DbInputs = nullptr;
             if (NodeObject->TryGetArrayField(TEXT("inputs"), DbInputs) && DbInputs != nullptr)
             {
@@ -2799,26 +2911,45 @@ static bool WriteNodeSelfTest(const FString& OutPath, const FString& NodeDbPath,
                     }
                     const FString DbName = JsonStringField(InputObject, TEXT("name"));
                     DbInputNames.Add(DbName);
-                    if (!EngineInputNames.Contains(DbName))
+                    int32 EngineInputIndex = EngineInputNames.IndexOfByKey(DbName);
+                    if (EngineInputIndex == INDEX_NONE && ExportEntry.IsValid())
+                    {
+                        const TSharedPtr<FJsonObject>* MetaInputs = nullptr;
+                        if (ExportEntry->TryGetObjectField(TEXT("inputs"), MetaInputs)
+                            && MetaInputs != nullptr
+                            && MetaInputs->IsValid()
+                            && (*MetaInputs)->HasField(DbName))
+                        {
+                            const FString PropertyName = JsonStringField((*MetaInputs)->GetObjectField(DbName), TEXT("property"));
+                            EngineInputIndex = EngineInputPropertyNames.IndexOfByKey(PropertyName);
+                            if (EngineInputIndex == INDEX_NONE)
+                            {
+                                EngineInputIndex = EngineInputNames.IndexOfByKey(PropertyName);
+                            }
+                        }
+                    }
+                    if (EngineInputIndex == INDEX_NONE)
                     {
                         Diffs.Add(MakeShared<FJsonValueString>(
                             FString::Printf(TEXT("DB input '%s' has no matching engine pin"), *DbName)));
                     }
                     else
                     {
+                        MatchedEngineInputIndices.Add(EngineInputIndex);
                         const FString DbType = JsonStringField(InputObject, TEXT("type"));
-                        const FString* EngineType = EngineInputTypes.Find(DbName);
-                        if (EngineType != nullptr && !DbType.IsEmpty() && DbType != *EngineType)
+                        const FString& EngineType = EngineInputTypesByIndex[EngineInputIndex];
+                        if (!DbType.IsEmpty() && DbType != EngineType)
                         {
                             TypeNotes.Add(MakeShared<FJsonValueString>(
-                                FString::Printf(TEXT("input '%s': DB type '%s' vs engine '%s'"), *DbName, *DbType, **EngineType)));
+                                FString::Printf(TEXT("input '%s': DB type '%s' vs engine '%s'"), *DbName, *DbType, *EngineType)));
                         }
                     }
                 }
             }
-            for (const FString& EngineName : EngineInputNames)
+            for (int32 EngineInputIndex = 0; EngineInputIndex < EngineInputNames.Num(); ++EngineInputIndex)
             {
-                if (!EngineName.IsEmpty() && !DbInputNames.Contains(EngineName))
+                const FString& EngineName = EngineInputNames[EngineInputIndex];
+                if (!EngineName.IsEmpty() && !MatchedEngineInputIndices.Contains(EngineInputIndex))
                 {
                     Diffs.Add(MakeShared<FJsonValueString>(
                         FString::Printf(TEXT("engine pin '%s' is missing from the DB"), *EngineName)));
@@ -2840,7 +2971,11 @@ static bool WriteNodeSelfTest(const FString& OutPath, const FString& NodeDbPath,
                     }
                 }
             }
-            if (DbOutputNames.Num() != EngineOutputNames.Num())
+            if (IntentionalOutputlessNodeTypes.Contains(NodeType))
+            {
+                Entry->SetBoolField(TEXT("intentionalOutputless"), true);
+            }
+            else if (DbOutputNames.Num() != EngineOutputNames.Num())
             {
                 Diffs.Add(MakeShared<FJsonValueString>(
                     FString::Printf(TEXT("output count: DB %d vs engine %d"), DbOutputNames.Num(), EngineOutputNames.Num())));
@@ -2859,10 +2994,6 @@ static bool WriteNodeSelfTest(const FString& OutPath, const FString& NodeDbPath,
         }
 
         // ---- export metadata property check -------------------------------------
-        const TSharedPtr<FJsonObject> ExportEntry =
-            (ExportNodes != nullptr && ExportNodes->IsValid() && (*ExportNodes)->HasField(NodeType))
-                ? (*ExportNodes)->GetObjectField(NodeType)
-                : nullptr;
         if (ExportEntry.IsValid())
         {
             const TSharedPtr<FJsonObject>* MetaInputs = nullptr;

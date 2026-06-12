@@ -22,7 +22,8 @@ param(
     # expressions - plugin-provided expressions (Landscape, etc.) are excluded, so
     # those DB nodes will report class-missing.
     [switch]$NoEnginePlugins,
-    [switch]$UseProjectPlugin
+    [switch]$UseProjectPlugin,
+    [string[]]$EnablePlugins = @("Interchange", "Paper2D", "VirtualHeightfieldMesh", "RenderTrace")
 )
 
 $ErrorActionPreference = "Stop"
@@ -86,11 +87,9 @@ if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
 if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
     $EngineRoot = Get-LocalConfigValue $BundleRoot "EngineRoot"
 }
-# The self-test spawns engine C++ UMaterialExpression classes in transient materials, so
-# it does not need a real game project. Default to the bundled minimal host, which also
-# disables the few default engine plugins (Metasound/Interchange) that abort the unattended
-# commandlet on some installs without dropping material-expression coverage. Pass
-# -ProjectPath to use your own project instead.
+# The self-test spawns C++ UMaterialExpression classes in transient materials, so it does not
+# need a real game project. Default to the bundled minimal host; the official expression plugins
+# listed in EnablePlugins are then enabled explicitly. Pass -ProjectPath to use your own project.
 if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
     $ProjectPath = Join-Path $BundleRoot "host\NodeDiscoveryHost.uproject"
     if (-not (Test-Path $ProjectPath)) {
@@ -116,8 +115,13 @@ if ([string]::IsNullOrWhiteSpace($Out)) {
 if ([string]::IsNullOrWhiteSpace($NodeDb)) {
     $NodeDb = Join-Path $WorkflowRoot "agent-pack\nodes-ue5.7.json"
 }
-if ($null -eq $ExportMeta) {
+if (-not $PSBoundParameters.ContainsKey("ExportMeta")) {
     $ExportMeta = Join-Path $WorkflowRoot "agent-pack\nodes-ue5.7.export.json"
+}
+$Out = [System.IO.Path]::GetFullPath($Out)
+$NodeDb = (Resolve-Path -LiteralPath $NodeDb).Path
+if (-not [string]::IsNullOrWhiteSpace($ExportMeta)) {
+    $ExportMeta = (Resolve-Path -LiteralPath $ExportMeta).Path
 }
 if ([string]::IsNullOrWhiteSpace($PackageDir)) {
     $PackageDir = Join-Path $BundleRoot "compiled\UEMatExportMetadata"
@@ -187,6 +191,9 @@ if ($NoEnginePlugins) {
     # Bare-editor fallback for installs whose default engine plugins fail to load.
     $args += "-NoEnginePlugins"
     $args += "-EnablePlugins=UEMatExportMetadata"
+}
+elseif ($EnablePlugins.Count -gt 0) {
+    $args += "-EnablePlugins=$($EnablePlugins -join ',')"
 }
 
 & $EditorCmd @args

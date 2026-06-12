@@ -407,7 +407,7 @@ function componentMaskFor(outputPin: string): string {
 // (from params + wires) rather than from static metadata. The exact T3D shape of each
 // was reverse-engineered from real UE 5.7 clipboard fixtures:
 //   ue-set-material-attributes.t3d / ue-get-material-attributes.t3d / ue-landscape-layer-blend.t3d
-const DYNAMIC_SUPPORTED = new Set(['SetMaterialAttributes', 'GetMaterialAttributes', 'LandscapeLayerBlend']);
+const DYNAMIC_SUPPORTED = new Set(['Custom', 'SetMaterialAttributes', 'GetMaterialAttributes', 'LandscapeLayerBlend']);
 
 interface DynPin { name: string; display: string; }              // name = graph pin (PinId/link key); display = UE PinName
 interface SetGetAttr { pin: string; display: string; guid: string; }

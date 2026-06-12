@@ -457,7 +457,7 @@
     "SetMaterialAttributes": {
       "category": "Material Attributes",
       "desc": "Sets selected material attributes on an incoming MaterialAttributes value.",
-      "verified": false,
+      "verified": true,
       "dynamicPins": true
     },
     "BreakMaterialAttributes": {
@@ -468,7 +468,7 @@
     "GetMaterialAttributes": {
       "category": "Material Attributes",
       "desc": "Extracts selected outputs from a MaterialAttributes input.",
-      "verified": false,
+      "verified": true,
       "dynamicPins": true
     },
     "BlendMaterialAttributes": {
@@ -549,7 +549,7 @@
     "LandscapeLayerBlend": {
       "category": "Landscape",
       "desc": "Blends multiple landscape layer inputs into one result.",
-      "verified": false,
+      "verified": true,
       "dynamicPins": true
     },
     "LandscapeLayerCoords": {
@@ -715,527 +715,529 @@
     "LandscapeLayerSample": {
       "category": "Landscape",
       "desc": "Landscape Layer Sample (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "BindlessSwitch": {
       "category": "Utility",
       "desc": "Bindless Switch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "BlackBody": {
       "category": "Utility",
       "desc": "BlackBody (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "Blend": {
       "category": "Utility",
       "desc": "Blend (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "CollectionTransform": {
       "category": "Utility",
       "desc": "(Needs collection) Collection Transform (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ColorRamp": {
       "category": "Utility",
       "desc": "Color Ramp (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "DataDrivenShaderPlatformInfoSwitch": {
       "category": "Utility",
       "desc": "ShaderPlatformInfo Switch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "DBufferTexture": {
       "category": "Texture",
       "desc": "DBufferA (BaseColor) (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "DecalDerivative": {
       "category": "Utility",
       "desc": "Decal Derivative (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "DecalMipmapLevel": {
       "category": "Utility",
       "desc": "Decal Mipmap Level (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "DistanceFieldApproxAO": {
       "category": "Utility",
       "desc": "DistanceFieldApproxAO (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "DistanceFieldsRenderingSwitch": {
       "category": "Utility",
       "desc": "DistanceFieldsRenderingSwitch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "Exponential": {
       "category": "Utility",
       "desc": "Exp (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "Exponential2": {
       "category": "Utility",
       "desc": "Exp2 (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "FloatToUInt": {
       "category": "Utility",
       "desc": "FloatToUInt (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "UIntToFloat": {
       "category": "Utility",
       "desc": "UIntToFloat (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "FontSample": {
       "category": "Utility",
       "desc": "Font Sample (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "HairAttributes": {
       "category": "Utility",
       "desc": "Hair Attributes (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "HairColor": {
       "category": "Utility",
       "desc": "Hair Color (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "HsvToRgb": {
       "category": "Utility",
       "desc": "HSVToRGB (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "IfThenElse": {
       "category": "Utility",
       "desc": "If (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "InverseLinearInterpolate": {
       "category": "Utility",
       "desc": "InvLerp (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "Length": {
       "category": "Utility",
       "desc": "Length (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "LocalPosition": {
       "category": "Utility",
       "desc": "本地位置 (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "Logarithm": {
       "category": "Utility",
       "desc": "Log (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "MapARPassthroughCameraUV": {
       "category": "Utility",
       "desc": "Map AR Passthrough Camera UVs (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "MaterialAttributeLayers": {
       "category": "Utility",
       "desc": "Material Attribute Layers (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "MaterialProxyReplace": {
       "category": "Utility",
       "desc": "MaterialProxyReplace (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "MeshPaintTextureReplace": {
       "category": "Texture",
       "desc": "Mesh Paint Texture Replace (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "Modulo": {
       "category": "Utility",
       "desc": "Modulo (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "NaniteReplace": {
       "category": "Utility",
       "desc": "Nanite Pass Switch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "NeuralNetworkOutput": {
       "category": "Output",
       "desc": "Neural Output (Texture) (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "PathTracingBufferTexture": {
       "category": "Texture",
       "desc": "辐亮度（路径追踪） (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "PathTracingQualitySwitch": {
       "category": "Utility",
       "desc": "PathTracingQualitySwitchReplace (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "PathTracingRayTypeSwitch": {
       "category": "Utility",
       "desc": "PathTracingRayTypeSwitch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "PostVolumeUserFlagTest": {
       "category": "Utility",
       "desc": "TestPostVolumeUserFlag (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "PreSkinnedLocalBounds": {
       "category": "Utility",
       "desc": "Pre-Skinned Local Bounds (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "RayTracingQualitySwitch": {
       "category": "Utility",
       "desc": "RayTracingQualitySwitchReplace (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "RecordTextureStreamingInfo": {
       "category": "Texture",
       "desc": "Record Texture Streaming (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ReflectionCapturePassSwitch": {
       "category": "Utility",
       "desc": "Reflection Capture Pass Switch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "RequiredSamplersSwitch": {
       "category": "Utility",
       "desc": "Required Samplers Switch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "RgbToHsv": {
       "category": "Utility",
       "desc": "RGBToHSV (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "RuntimeVirtualTextureCustomData": {
       "category": "Texture",
       "desc": "RuntimeVirtualTextureCustomData (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "RuntimeVirtualTextureReplace": {
       "category": "Texture",
       "desc": "RuntimeVirtualTextureReplace (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "RuntimeVirtualTextureSample": {
       "category": "Texture",
       "desc": "Runtime Virtual Texture Sample (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SamplePhysicsVectorField": {
       "category": "Utility",
       "desc": "SamplePhysicsVectorField (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SamplePhysicsScalarField": {
       "category": "Utility",
       "desc": "SamplePhysicsScalarField (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SamplePhysicsIntegerField": {
       "category": "Utility",
       "desc": "SamplePhysicsIntegerField (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SceneColor": {
       "category": "Utility",
       "desc": "Scene Color (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SceneDepthWithoutWater": {
       "category": "Utility",
       "desc": "Scene Depth Without Water (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SceneTexture": {
       "category": "Texture",
       "desc": "SceneTexture:场景颜色 (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ShaderStageSwitch": {
       "category": "Utility",
       "desc": "Shader Stage Switch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ShadingModel": {
       "category": "Utility",
       "desc": "默认光照 (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ShadingPathSwitch": {
       "category": "Utility",
       "desc": "Shading Path Switch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ShadowReplace": {
       "category": "Utility",
       "desc": "Shadow Pass Switch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "Sobol": {
       "category": "Utility",
       "desc": "Sobol (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SpeedTree": {
       "category": "Utility",
       "desc": "SpeedTree (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SRGBColorToWorkingColorSpace": {
       "category": "Utility",
       "desc": "sRGBColorToWorkingColorSpace (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "Switch": {
       "category": "Utility",
       "desc": "Switch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "TemporalSobol": {
       "category": "Utility",
       "desc": "Temporal Sobol (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "TextureCollection": {
       "category": "Texture",
       "desc": "Texture Collection (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "TextureObjectFromCollection": {
       "category": "Texture",
       "desc": "Texture Object From Collection (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "TextureProperty": {
       "category": "Texture",
       "desc": "纹理大小 (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "TruncateLWC": {
       "category": "Utility",
       "desc": "TruncateLWC (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "UserSceneTexture": {
       "category": "Texture",
       "desc": "UserSceneTexture:None (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "VirtualTextureFeatureSwitch": {
       "category": "Texture",
       "desc": "VirtualTextureFeatureSwitch (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "VolumetricAdvancedMaterialInput": {
       "category": "Utility",
       "desc": "Volumetric Advanced Input (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "BentNormalCustomOutput": {
       "category": "Output",
       "desc": "BentNormal (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ClearCoatNormalCustomOutput": {
       "category": "Output",
       "desc": "ClearCoatBottomNormal (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "TangentOutput": {
       "category": "Output",
       "desc": "Tangent output (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ThinTranslucentMaterialOutput": {
       "category": "Output",
       "desc": "Thin Translucent Material (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "FirstPersonOutput": {
       "category": "Output",
       "desc": "First Person Output (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "MaterialCache": {
       "category": "Utility",
       "desc": "Material Cache Value (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true,
+      "dynamicPins": true
     },
     "TemporalResponsivenessOutput": {
       "category": "Output",
       "desc": "Temporal Responsiveness (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "MotionVectorWorldOffsetOutput": {
       "category": "Output",
       "desc": "Motion Vector World Offset (Per-Pixel) (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "LandscapeGrassOutput": {
       "category": "Landscape",
       "desc": "Landscape Grass (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true,
+      "dynamicPins": true
     },
     "LandscapePhysicalMaterialOutput": {
       "category": "Landscape",
       "desc": "Landscape Physical Material Output (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "AbsorptionMediumMaterialOutput": {
       "category": "Output",
       "desc": "Absorption Medium (Path Tracer Only) (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "NeuralNetworkInput": {
       "category": "Utility",
       "desc": "Neural Input (Texture) (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "RuntimeVirtualTextureOutput": {
       "category": "Texture",
       "desc": "Runtime Virtual Texture Output (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SingleLayerWaterMaterialOutput": {
       "category": "Output",
       "desc": "Single Layer Water Material (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubsurfaceMediumMaterialOutput": {
       "category": "Output",
       "desc": "Subsurface Medium (Path Tracer Only) (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "VertexInterpolator": {
       "category": "Utility",
       "desc": "VertexInterpolator (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "VolumetricAdvancedMaterialOutput": {
       "category": "Output",
       "desc": "Volumetric Advanced Output (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "VolumetricCloudEmptySpaceSkippingOutput": {
       "category": "Output",
       "desc": "Volumetric Cloud Empty Space Skipping Output <Experimental> (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "AtmosphericLightColor": {
       "category": "Atmosphere",
       "desc": "Atmosphere Sun Light Illuminance On Ground (not per pixel) (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "AtmosphericLightVector": {
       "category": "Atmosphere",
       "desc": "Atmosphere Sun Light Vector (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "Bounds": {
       "category": "Utility",
       "desc": "Bounds (Instance Local) (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "CloudSampleAttribute": {
       "category": "Atmosphere",
       "desc": "Cloud Sample Attributes (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "DecalColor": {
       "category": "Utility",
       "desc": "Decal Color (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "DecalLifetimeOpacity": {
       "category": "Utility",
       "desc": "Decal Lifetime Opacity (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "DeltaTime": {
       "category": "Utility",
       "desc": "DeltaTime (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "EyeAdaptation": {
       "category": "Utility",
       "desc": "EyeAdaptation (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "EyeAdaptationInverse": {
       "category": "Utility",
       "desc": "EyeAdaptationInverse (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "FontSignedDistance": {
       "category": "Utility",
       "desc": "Font Signed Distance (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "IsFirstPerson": {
       "category": "Utility",
       "desc": "IsFirstPerson (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "IsOrthographic": {
       "category": "Utility",
       "desc": "IsOrthographic (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "MeshPaintTextureCoordinateIndex": {
       "category": "Texture",
       "desc": "Mesh Paint Texture Coordinate Index (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "MeshPaintTextureObject": {
       "category": "Texture",
       "desc": "Mesh Paint Texture Object (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ObjectLocalBounds": {
       "category": "Utility",
       "desc": "Object Local Bounds (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ParticleRandom": {
       "category": "Utility",
       "desc": "Particle Random Value (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ParticleSpriteRotation": {
       "category": "Utility",
       "desc": "Particle Sprite Rotation (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ParticleSubUVProperties": {
       "category": "Utility",
       "desc": "Particle SubUV Properties (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "PerInstanceCustomData": {
       "category": "Utility",
       "desc": "PerInstanceCustomData[0] (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "PerInstanceCustomData3Vector": {
       "category": "Utility",
       "desc": "PerInstanceCustomData[0, 1, 2] (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "PreSkinnedNormal": {
       "category": "Vector",
@@ -1250,242 +1252,419 @@
     "SkyAtmosphereLightDirection": {
       "category": "Atmosphere",
       "desc": "SkyAtmosphereLightDirection[0] (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereLightIlluminance": {
       "category": "Atmosphere",
       "desc": "SkyAtmosphereLightIlluminance[0] (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereLightIlluminanceOnGround": {
       "category": "Atmosphere",
       "desc": "SkyAtmosphereLightIlluminanceOnGround[0] (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereLightDiskLuminance": {
       "category": "Atmosphere",
       "desc": "SkyAtmosphereLightDiskLuminance[0] (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereAerialPerspective": {
       "category": "Atmosphere",
       "desc": "SkyAtmosphereAerialPerspective (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereDistantLightScatteredLuminance": {
       "category": "Atmosphere",
       "desc": "SkyAtmosphereDistantLightScatteredLuminance (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereViewLuminance": {
       "category": "Atmosphere",
       "desc": "SkyAtmosphereViewLuminance (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SkyLightEnvMapSample": {
       "category": "Utility",
       "desc": "Sky Light Env Map Sample (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "VolumetricCloudEmptySpaceSkippingInput": {
       "category": "Atmosphere",
       "desc": "Volumetric Cloud Empty Space Skipping Input <Experimental> (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ScalarBlueNoise": {
       "category": "Utility",
       "desc": "Scalar Blue Noise (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "LegacyBlendMaterialAttributes": {
       "category": "Utility",
       "desc": "BlendMaterialAttributes (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "DoubleVectorParameter": {
       "category": "Parameters",
       "desc": "Param (0,0,0,1) (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "MaterialLayerOutput": {
       "category": "Output",
       "desc": "Output Material Attributes (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ConstantDouble": {
       "category": "Utility",
       "desc": "0 (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "LayerStack": {
       "category": "Utility",
       "desc": "Layer Stack (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "RuntimeVirtualTextureSampleParameter": {
       "category": "Texture",
       "desc": "Runtime Virtual Texture Sample Param  (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SparseVolumeTextureObject": {
       "category": "Texture",
       "desc": "SparseVolumeTexture Object (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SparseVolumeTextureSample": {
       "category": "Texture",
       "desc": "Sparse Volume Texture Sample (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "TextureCollectionParameter": {
       "category": "Texture",
       "desc": "Texture Collection Parameter (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateShadingModels": {
       "category": "Substrate",
       "desc": "Substrate Shading Models (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateSlabBSDF": {
       "category": "Substrate",
       "desc": "Substrate Slab BSDF - Simple (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateSimpleClearCoatBSDF": {
       "category": "Substrate",
       "desc": "Substrate Simple Clear Coat (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateVolumetricFogCloudBSDF": {
       "category": "Substrate",
       "desc": "Substrate Volumetric-Fog-Cloud BSDF (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateUnlitBSDF": {
       "category": "Substrate",
       "desc": "Substrate Unlit BSDF (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateHairBSDF": {
       "category": "Substrate",
       "desc": "Substrate Hair BSDF (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateEyeBSDF": {
       "category": "Substrate",
       "desc": "Substrate Eye BSDF (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateSingleLayerWaterBSDF": {
       "category": "Substrate",
       "desc": "Substrate Single Layer Water BSDF (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateLightFunction": {
       "category": "Substrate",
       "desc": "Substrate Light Function (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstratePostProcess": {
       "category": "Substrate",
       "desc": "Substrate Post Process (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateUI": {
       "category": "Substrate",
       "desc": "Substrate UI (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateConvertToDecal": {
       "category": "Substrate",
       "desc": "Substrate Convert To Decal (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateConvertMaterialAttributes": {
       "category": "Substrate",
       "desc": "Substrate Convert Material Attributes (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateHorizontalMixing": {
       "category": "Substrate",
       "desc": "Substrate Horizontal Blend (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateVerticalLayering": {
       "category": "Substrate",
       "desc": "Substrate Vertical Layer (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateAdd": {
       "category": "Substrate",
       "desc": "Substrate Add (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateWeight": {
       "category": "Substrate",
       "desc": "Substrate Coverage Weight (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateSelect": {
       "category": "Substrate",
       "desc": "Substrate Select (Parameter Blend) (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateTransmittanceToMFP": {
       "category": "Substrate",
       "desc": "Substrate Transmittance-To-MeanFreePath (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateMetalnessToDiffuseAlbedoF0": {
       "category": "Substrate",
       "desc": "Substrate Metalness-To-DiffuseAlbedo-F0 (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateHazinessToSecondaryRoughness": {
       "category": "Substrate",
       "desc": "Substrate Haziness-To-Secondary-Roughness (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SubstrateThinFilm": {
       "category": "Substrate",
       "desc": "Substrate Thin-Film (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "ChannelMaskParameter": {
       "category": "Parameters",
       "desc": "Red (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "CurveAtlasRowParameter": {
       "category": "Parameters",
       "desc": "CurveAtlasRowParameter (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SparseVolumeTextureSampleParameter": {
       "category": "Texture",
       "desc": "Sparse Volume Texture Sample Param  (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "TextureSampleParameter2DArray": {
       "category": "Texture",
       "desc": "Param2DArray (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "TextureSampleParameterCubeArray": {
       "category": "Texture",
       "desc": "ParamCubeArray (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "TextureSampleParameterVolume": {
       "category": "Texture",
       "desc": "ParamVolume (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
     },
     "SparseVolumeTextureObjectParameter": {
       "category": "Texture",
       "desc": "Param Tex Object (auto-discovered; verify pins/types).",
-      "verified": false
+      "verified": true
+    },
+    "HeightfieldMinMaxTexture": {
+      "category": "Texture",
+      "desc": "HeightfieldMinMaxTextureObject.",
+      "verified": true
+    },
+    "MaterialXAppend3Vector": {
+      "category": "MaterialX",
+      "desc": "MaterialX Append3.",
+      "verified": true
+    },
+    "MaterialXAppend4Vector": {
+      "category": "MaterialX",
+      "desc": "MaterialX Append4.",
+      "verified": true
+    },
+    "MaterialXBurn": {
+      "category": "MaterialX",
+      "desc": "MaterialX Burn.",
+      "verified": true
+    },
+    "MaterialXContrast": {
+      "category": "MaterialX",
+      "desc": "MaterialX Contrast.",
+      "verified": true
+    },
+    "MaterialXDifference": {
+      "category": "MaterialX",
+      "desc": "MaterialX Difference.",
+      "verified": true
+    },
+    "MaterialXDisjointOver": {
+      "category": "MaterialX",
+      "desc": "MaterialX DisjointOver.",
+      "verified": true
+    },
+    "MaterialXDodge": {
+      "category": "MaterialX",
+      "desc": "MaterialX Dodge.",
+      "verified": true
+    },
+    "MaterialXFractal3D": {
+      "category": "MaterialX",
+      "desc": "MaterialX Fractal3D.",
+      "verified": true
+    },
+    "MaterialXIn": {
+      "category": "MaterialX",
+      "desc": "MaterialX In.",
+      "verified": true
+    },
+    "MaterialXLuminance": {
+      "category": "MaterialX",
+      "desc": "MaterialX Luminance.",
+      "verified": true
+    },
+    "MaterialXMask": {
+      "category": "MaterialX",
+      "desc": "MaterialX Mask.",
+      "verified": true
+    },
+    "MaterialXMatte": {
+      "category": "MaterialX",
+      "desc": "MaterialX Matte.",
+      "verified": true
+    },
+    "MaterialXMinus": {
+      "category": "MaterialX",
+      "desc": "MaterialX Minus.",
+      "verified": true
+    },
+    "MaterialXMod": {
+      "category": "MaterialX",
+      "desc": "MaterialX Mod.",
+      "verified": true
+    },
+    "MaterialXOut": {
+      "category": "MaterialX",
+      "desc": "MaterialX Out.",
+      "verified": true
+    },
+    "MaterialXOver": {
+      "category": "MaterialX",
+      "desc": "MaterialX Over.",
+      "verified": true
+    },
+    "MaterialXOverlay": {
+      "category": "MaterialX",
+      "desc": "MaterialX Overlay.",
+      "verified": true
+    },
+    "MaterialXPlace2D": {
+      "category": "MaterialX",
+      "desc": "MaterialX Place2D.",
+      "verified": true
+    },
+    "MaterialXPlus": {
+      "category": "MaterialX",
+      "desc": "MaterialX Plus.",
+      "verified": true
+    },
+    "MaterialXPremult": {
+      "category": "MaterialX",
+      "desc": "MaterialX Premult.",
+      "verified": true
+    },
+    "MaterialXRamp4": {
+      "category": "MaterialX",
+      "desc": "MaterialX Ramp4.",
+      "verified": true
+    },
+    "MaterialXRampLeftRight": {
+      "category": "MaterialX",
+      "desc": "MaterialX RampLR.",
+      "verified": true
+    },
+    "MaterialXRampTopBottom": {
+      "category": "MaterialX",
+      "desc": "MaterialX RampTB.",
+      "verified": true
+    },
+    "MaterialXRange": {
+      "category": "MaterialX",
+      "desc": "MaterialX Range.",
+      "verified": true
+    },
+    "MaterialXRemap": {
+      "category": "MaterialX",
+      "desc": "MaterialX Remap.",
+      "verified": true
+    },
+    "MaterialXRotate2D": {
+      "category": "MaterialX",
+      "desc": "MaterialX Rotate2D.",
+      "verified": true,
+      "deprecated": true
+    },
+    "MaterialXScreen": {
+      "category": "MaterialX",
+      "desc": "MaterialX Screen.",
+      "verified": true
+    },
+    "MaterialXSplitLeftRight": {
+      "category": "MaterialX",
+      "desc": "MaterialX SplitLR.",
+      "verified": true
+    },
+    "MaterialXSplitTopBottom": {
+      "category": "MaterialX",
+      "desc": "MaterialX SplitTB.",
+      "verified": true
+    },
+    "MaterialXSwizzle": {
+      "category": "MaterialX",
+      "desc": "MaterialX Swizzle.",
+      "verified": true
+    },
+    "MaterialXUnpremult": {
+      "category": "MaterialX",
+      "desc": "MaterialX Unpremult.",
+      "verified": true
+    },
+    "PhysicalMaterialOutput": {
+      "category": "Output",
+      "desc": "Physical Material Output.",
+      "verified": true,
+      "dynamicPins": true
+    },
+    "MaterialXTextureSampleParameterBlur": {
+      "category": "MaterialX",
+      "desc": "MaterialX ParamBlur.",
+      "verified": true
+    },
+    "SpriteTextureSampler": {
+      "category": "Texture",
+      "desc": "Paper2D Sprite.",
+      "verified": true
     }
   }
 }

@@ -12,6 +12,7 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 - `heal-export-meta.js`: re-applies the canonical UE T3D array-element pin properties (`CustomizedUVs(0)`, `Inputs(2)`, …) after a crawl, so re-generation never regresses them. Format-preserving and idempotent; runs automatically in the maintenance flow. `--check` lists drift without writing.
 - `check-public-purity.js`: public-artifact purity gate (run in CI). Fails if a committed agent-pack data file or `stress_*` graph leaks `/Game`/`_project` data, an engine-MF index key isn't `/Engine/`, or a server-only/per-machine/Mac-binary path is git-tracked. Run it after any crawl that regenerates a committed index.
 - `build-db-candidates.js`: turn a node-discovery report into reviewable candidate DB entries.
+- `sync-stress-node-coverage.js`: keep the committed all-node stress graph synchronized with every authoring DB node type.
 - `apply-selftest.js`: consume a node self-test report — summary, `--check` CI gate, `--mark-verified` (flip engine-clean nodes to `verified:true` + regen the index), `--fill-defaults`.
 - `plugin-src/`: UE editor plugin source for the `UEMatExportMetadata` commandlet.
 - `plugin-src/Scripts/Run-NodeDiscovery.ps1`: enumerate engine expressions and diff vs the DB.
@@ -47,7 +48,7 @@ powershell -ExecutionPolicy Bypass -File .\tools\node-t3d-metadata\Invoke-NodeT3
   -EngineRoot <Path\To\UnrealEngine>
 ```
 
-The entrypoint rebuilds the compiled plugin only when it is missing, forced, or older than `plugin-src/`, then regenerates `agent-pack\nodes-ue5.7.export.json`, heals its array-element pin properties, regenerates `agent-pack\nodes-ue5.7.index.json`, audits the metadata, and runs targeted viewer tests.
+The entrypoint rebuilds the compiled plugin only when it is missing, forced, or older than `plugin-src/`, then regenerates `agent-pack\nodes-ue5.7.export.json`, heals its array-element pin properties, regenerates `agent-pack\nodes-ue5.7.index.json`, synchronizes the all-node stress graph, audits the metadata, and runs targeted viewer tests.
 
 ### macOS: build the plugin
 

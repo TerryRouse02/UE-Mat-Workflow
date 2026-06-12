@@ -731,7 +731,7 @@ describe('graphToUET3D', () => {
     // Connected inputs map to real UE FExpressionInput properties, never to the
     // default-constant params (the bug class the raymarch guard also covers).
     expect(text).toContain('A=(Expression=MaterialExpressionConstant_0,OutputIndex=0)');
-    expect(text).toContain('B=(Expression=MaterialExpressionVectorParameter_2,OutputIndex=1)');
+    expect(text).toContain('B=(Expression=MaterialExpressionVectorParameter_2,OutputIndex=0)');
     expect(text).toContain(`Texture="/Script/Engine.Texture2D'/Game/Textures/T_Mask.T_Mask'"`);
     expect(text).not.toMatch(/\bConst[AB]=\(Expression=/);
   });

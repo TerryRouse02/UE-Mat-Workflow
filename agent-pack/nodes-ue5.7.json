@@ -9,6 +9,73 @@
     "FunctionOutput",
     "MaterialFunctionCall"
   ],
+  "officialSpecialTypes": {
+    "Aggregate": {
+      "ueClass": "/Script/Engine.MaterialExpressionAggregate",
+      "handling": "feature-gated",
+      "reason": "Dynamic aggregate node for the new material translator; hidden while r.Material.Translator.EnableNew is disabled and unsafe to reflect from its default instance."
+    },
+    "Comment": {
+      "ueClass": "/Script/Engine.MaterialExpressionComment",
+      "handling": "graph-special",
+      "reason": "Serialized and rendered as a graph comment rather than an authoring expression node."
+    },
+    "Composite": {
+      "ueClass": "/Script/Engine.MaterialExpressionComposite",
+      "handling": "graph-structural",
+      "reason": "Collapsed-graph container backed by PinBase expressions; it is not a portable standalone expression."
+    },
+    "Convert": {
+      "ueClass": "/Script/Engine.MaterialExpressionConvert",
+      "handling": "dynamic-structural",
+      "reason": "Inputs and outputs are defined by dynamic conversion arrays, so no stable static pin contract exists."
+    },
+    "FunctionInput": {
+      "ueClass": "/Script/Engine.MaterialExpressionFunctionInput",
+      "handling": "reserved",
+      "reason": "Handled by the material-function graph format and reserved export metadata."
+    },
+    "FunctionOutput": {
+      "ueClass": "/Script/Engine.MaterialExpressionFunctionOutput",
+      "handling": "reserved",
+      "reason": "Handled by the material-function graph format and reserved export metadata."
+    },
+    "LinearInterpolate": {
+      "ueClass": "/Script/Engine.MaterialExpressionLinearInterpolate",
+      "handling": "alias",
+      "reason": "Exposed in the authoring DB under the canonical friendly name Lerp."
+    },
+    "MaterialFunctionCall": {
+      "ueClass": "/Script/Engine.MaterialExpressionMaterialFunctionCall",
+      "handling": "reserved",
+      "reason": "Handled by MaterialFunctionCall reserved metadata plus EngineMF and WorkMF signatures."
+    },
+    "MaterialSample": {
+      "ueClass": "/Script/Engine.MaterialExpressionMaterialSample",
+      "handling": "disabled-prototype",
+      "reason": "Engine-internal prototype compiled with ENABLE_MATERIAL_SAMPLE_PROTOTYPE=0 in UE 5.7.4."
+    },
+    "Operator": {
+      "ueClass": "/Script/Engine.MaterialExpressionOperator",
+      "handling": "feature-gated",
+      "reason": "Dynamic operator node for the new material translator; hidden while r.Material.Translator.EnableNew is disabled."
+    },
+    "Parameter": {
+      "ueClass": "/Script/Engine.MaterialExpressionParameter",
+      "handling": "editor-base",
+      "reason": "Base parameter class explicitly excluded from the Material Editor creation list; concrete parameter subclasses are covered."
+    },
+    "PinBase": {
+      "ueClass": "/Script/Engine.MaterialExpressionPinBase",
+      "handling": "graph-structural",
+      "reason": "Internal input/output boundary expression used by Composite graphs."
+    },
+    "Reroute": {
+      "ueClass": "/Script/Engine.MaterialExpressionReroute",
+      "handling": "collapsed-on-import",
+      "reason": "Plain reroute knots are collapsed during import because they carry no material semantics."
+    }
+  },
   "nodes": {
     "Custom": {
       "category": "Custom",
@@ -219,8 +286,8 @@
           "required": false
         },
         {
-          "name": "Tex",
-          "type": "Texture2D",
+          "name": "Apply View MipBias",
+          "type": "StaticBool",
           "required": false
         }
       ],
@@ -457,10 +524,6 @@
           "type": "Float4"
         },
         {
-          "name": "RGB",
-          "type": "Float3"
-        },
-        {
           "name": "R",
           "type": "Float1"
         },
@@ -475,6 +538,10 @@
         {
           "name": "A",
           "type": "Float1"
+        },
+        {
+          "name": "RGB",
+          "type": "Float3"
         }
       ],
       "verified": true,
@@ -537,6 +604,10 @@
         {
           "name": "A",
           "type": "Float1"
+        },
+        {
+          "name": "RGBA",
+          "type": "Float4"
         }
       ],
       "verified": true
@@ -549,18 +620,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -609,14 +668,6 @@
         {
           "name": "Size",
           "type": "Float2"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -726,7 +777,11 @@
       "inputs": [],
       "outputs": [
         {
-          "name": "Value",
+          "name": "Property",
+          "type": "Float1|2|3|4"
+        },
+        {
+          "name": "InvProperty",
           "type": "Float1|2|3|4"
         }
       ],
@@ -763,18 +818,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -787,18 +830,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -823,18 +854,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -847,18 +866,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -923,18 +930,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -947,18 +942,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -1039,18 +1022,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -1063,18 +1034,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -1101,12 +1060,8 @@
           "type": "Float3"
         },
         {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
+          "name": "XY",
+          "type": "Float2"
         },
         {
           "name": "Z",
@@ -1146,11 +1101,6 @@
         {
           "name": "Fraction",
           "type": "Float1",
-          "required": false
-        },
-        {
-          "name": "LuminanceFactors",
-          "type": "Float3",
           "required": false
         }
       ],
@@ -1222,7 +1172,7 @@
       "description": "Samples scene depth at the provided UV coordinates.",
       "inputs": [
         {
-          "name": "UVs",
+          "name": "Coordinates",
           "type": "Float2",
           "required": false
         }
@@ -1759,7 +1709,7 @@
       "description": "Returns the base-10 logarithm of the input.",
       "inputs": [
         {
-          "name": "Input",
+          "name": "X",
           "type": "Float1|2|3|4",
           "required": true
         }
@@ -1777,7 +1727,7 @@
       "description": "Returns the base-2 logarithm of the input.",
       "inputs": [
         {
-          "name": "Input",
+          "name": "X",
           "type": "Float1|2|3|4",
           "required": true
         }
@@ -2381,7 +2331,7 @@
           "type": "MaterialAttributes"
         }
       ],
-      "verified": false,
+      "verified": true,
       "params": [
         {
           "name": "AttributeNames",
@@ -2419,6 +2369,10 @@
           "type": "Float1"
         },
         {
+          "name": "Anisotropy",
+          "type": "Float1"
+        },
+        {
           "name": "EmissiveColor",
           "type": "Float3"
         },
@@ -2435,19 +2389,11 @@
           "type": "Float3"
         },
         {
+          "name": "Tangent",
+          "type": "Float3"
+        },
+        {
           "name": "WorldPositionOffset",
-          "type": "Float1"
-        },
-        {
-          "name": "Refraction",
-          "type": "Float1"
-        },
-        {
-          "name": "AmbientOcclusion",
-          "type": "Float1"
-        },
-        {
-          "name": "PixelDepthOffset",
           "type": "Float1"
         },
         {
@@ -2461,6 +2407,58 @@
         {
           "name": "ClearCoatRoughness",
           "type": "Float1"
+        },
+        {
+          "name": "AmbientOcclusion",
+          "type": "Float1"
+        },
+        {
+          "name": "Refraction",
+          "type": "Float1"
+        },
+        {
+          "name": "CustomizedUV0",
+          "type": "Float1|2|3|4"
+        },
+        {
+          "name": "CustomizedUV1",
+          "type": "Float1|2|3|4"
+        },
+        {
+          "name": "CustomizedUV2",
+          "type": "Float1|2|3|4"
+        },
+        {
+          "name": "CustomizedUV3",
+          "type": "Float1|2|3|4"
+        },
+        {
+          "name": "CustomizedUV4",
+          "type": "Float1|2|3|4"
+        },
+        {
+          "name": "CustomizedUV5",
+          "type": "Float1|2|3|4"
+        },
+        {
+          "name": "CustomizedUV6",
+          "type": "Float1|2|3|4"
+        },
+        {
+          "name": "CustomizedUV7",
+          "type": "Float1|2|3|4"
+        },
+        {
+          "name": "PixelDepthOffset",
+          "type": "Float1"
+        },
+        {
+          "name": "ShadingModel",
+          "type": "ShadingModel"
+        },
+        {
+          "name": "Displacement",
+          "type": "Float1|2|3|4"
         }
       ],
       "verified": true
@@ -2489,7 +2487,7 @@
           "type": "Float3"
         }
       ],
-      "verified": false,
+      "verified": true,
       "params": [
         {
           "name": "AttributeNames",
@@ -2571,6 +2569,14 @@
         {
           "name": "Param4",
           "type": "Float1"
+        },
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "RGBA",
+          "type": "Float4"
         }
       ],
       "verified": true,
@@ -2755,10 +2761,6 @@
       "inputs": [],
       "outputs": [
         {
-          "name": "RGBA",
-          "type": "Float4"
-        },
-        {
           "name": "RGB",
           "type": "Float3"
         },
@@ -2777,6 +2779,10 @@
         {
           "name": "A",
           "type": "Float1"
+        },
+        {
+          "name": "RGBA",
+          "type": "Float4"
         }
       ],
       "verified": true,
@@ -2799,7 +2805,18 @@
     "TextureObjectParameter": {
       "category": "Parameters",
       "description": "Texture object parameter for material functions or texture samples.",
-      "inputs": [],
+      "inputs": [
+        {
+          "name": "Coordinates",
+          "type": "Float2",
+          "required": false
+        },
+        {
+          "name": "Apply View MipBias",
+          "type": "StaticBool",
+          "required": false
+        }
+      ],
       "outputs": [
         {
           "name": "Texture",
@@ -2856,6 +2873,11 @@
           "name": "Tex",
           "type": "Texture2D",
           "required": false
+        },
+        {
+          "name": "Apply View MipBias",
+          "type": "StaticBool",
+          "required": false
         }
       ],
       "outputs": [
@@ -2878,6 +2900,10 @@
         {
           "name": "A",
           "type": "Float1"
+        },
+        {
+          "name": "RGBA",
+          "type": "Float4"
         }
       ],
       "verified": true,
@@ -2916,6 +2942,11 @@
           "name": "UVs",
           "type": "Float2",
           "required": false
+        },
+        {
+          "name": "Apply View MipBias",
+          "type": "StaticBool",
+          "required": false
         }
       ],
       "outputs": [
@@ -2938,6 +2969,10 @@
         {
           "name": "A",
           "type": "Float1"
+        },
+        {
+          "name": "RGBA",
+          "type": "Float4"
         }
       ],
       "verified": true,
@@ -2992,8 +3027,8 @@
           "required": false
         },
         {
-          "name": "Tex",
-          "type": "TextureCube",
+          "name": "Apply View MipBias",
+          "type": "StaticBool",
           "required": false
         }
       ],
@@ -3017,6 +3052,10 @@
         {
           "name": "A",
           "type": "Float1"
+        },
+        {
+          "name": "RGBA",
+          "type": "Float4"
         }
       ],
       "verified": true,
@@ -3094,6 +3133,16 @@
           "name": "UVs",
           "type": "Float2",
           "required": false
+        },
+        {
+          "name": "TextureObject",
+          "type": "Texture2D",
+          "required": false
+        },
+        {
+          "name": "Apply View MipBias",
+          "type": "StaticBool",
+          "required": false
         }
       ],
       "outputs": [
@@ -3116,6 +3165,10 @@
         {
           "name": "A",
           "type": "Float1"
+        },
+        {
+          "name": "RGBA",
+          "type": "Float4"
         }
       ],
       "verified": true,
@@ -3172,7 +3225,7 @@
           "type": "matchInput"
         }
       ],
-      "verified": false,
+      "verified": true,
       "params": [
         {
           "name": "Layers",
@@ -3362,6 +3415,11 @@
         {
           "name": "UVs",
           "type": "Float2",
+          "required": false
+        },
+        {
+          "name": "Apply View MipBias",
+          "type": "StaticBool",
           "required": false
         }
       ],
@@ -3913,14 +3971,6 @@
         {
           "name": "RGBA",
           "type": "Float4"
-        },
-        {
-          "name": "RGB",
-          "type": "Float3"
-        },
-        {
-          "name": "A",
-          "type": "Float1"
         }
       ],
       "verified": true,
@@ -4022,18 +4072,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -4046,18 +4084,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -4070,18 +4096,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -4100,18 +4114,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -4126,7 +4128,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "BindlessSwitch": {
       "category": "Utility",
@@ -4149,7 +4151,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "BlackBody": {
       "category": "Utility",
@@ -4167,7 +4169,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Blend": {
       "category": "Utility",
@@ -4195,7 +4197,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "CollectionTransform": {
       "category": "Utility",
@@ -4213,7 +4215,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ColorRamp": {
       "category": "Utility",
@@ -4231,7 +4233,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "DataDrivenShaderPlatformInfoSwitch": {
       "category": "Utility",
@@ -4249,7 +4251,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "DBufferTexture": {
       "category": "Texture",
@@ -4275,7 +4277,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "DecalDerivative": {
       "category": "Utility",
@@ -4291,7 +4293,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "DecalMipmapLevel": {
       "category": "Utility",
@@ -4309,7 +4311,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "DistanceFieldApproxAO": {
       "category": "Utility",
@@ -4342,7 +4344,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "DistanceFieldsRenderingSwitch": {
       "category": "Utility",
@@ -4365,7 +4367,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Exponential": {
       "category": "Utility",
@@ -4383,7 +4385,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Exponential2": {
       "category": "Utility",
@@ -4401,7 +4403,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "FloatToUInt": {
       "category": "Utility",
@@ -4419,7 +4421,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "UIntToFloat": {
       "category": "Utility",
@@ -4437,7 +4439,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "FontSample": {
       "category": "Utility",
@@ -4465,7 +4467,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "HairAttributes": {
       "category": "Utility",
@@ -4537,7 +4539,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "HairColor": {
       "category": "Utility",
@@ -4565,7 +4567,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "HsvToRgb": {
       "category": "Utility",
@@ -4583,7 +4585,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "IfThenElse": {
       "category": "Utility",
@@ -4611,7 +4613,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "InverseLinearInterpolate": {
       "category": "Utility",
@@ -4639,7 +4641,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Length": {
       "category": "Utility",
@@ -4657,7 +4659,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "LocalPosition": {
       "category": "Utility",
@@ -4677,7 +4679,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Logarithm": {
       "category": "Utility",
@@ -4695,7 +4697,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "MapARPassthroughCameraUV": {
       "category": "Utility",
@@ -4713,7 +4715,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "MaterialAttributeLayers": {
       "category": "Utility",
@@ -4725,7 +4727,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "MaterialProxyReplace": {
       "category": "Utility",
@@ -4748,7 +4750,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "MeshPaintTextureReplace": {
       "category": "Texture",
@@ -4771,7 +4773,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Modulo": {
       "category": "Utility",
@@ -4794,7 +4796,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "NaniteReplace": {
       "category": "Utility",
@@ -4817,7 +4819,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "NeuralNetworkOutput": {
       "category": "Output",
@@ -4835,7 +4837,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PathTracingBufferTexture": {
       "category": "Texture",
@@ -4861,7 +4863,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PathTracingQualitySwitch": {
       "category": "Utility",
@@ -4884,7 +4886,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PathTracingRayTypeSwitch": {
       "category": "Utility",
@@ -4922,7 +4924,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PostVolumeUserFlagTest": {
       "category": "Utility",
@@ -4940,7 +4942,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PreSkinnedLocalBounds": {
       "category": "Utility",
@@ -4964,7 +4966,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "RayTracingQualitySwitch": {
       "category": "Utility",
@@ -4987,7 +4989,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "RecordTextureStreamingInfo": {
       "category": "Texture",
@@ -5010,7 +5012,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ReflectionCapturePassSwitch": {
       "category": "Utility",
@@ -5033,7 +5035,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "RequiredSamplersSwitch": {
       "category": "Utility",
@@ -5056,7 +5058,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "RgbToHsv": {
       "category": "Utility",
@@ -5074,7 +5076,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "RuntimeVirtualTextureCustomData": {
       "category": "Texture",
@@ -5086,7 +5088,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "RuntimeVirtualTextureReplace": {
       "category": "Texture",
@@ -5109,7 +5111,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "RuntimeVirtualTextureSample": {
       "category": "Texture",
@@ -5160,7 +5162,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SamplePhysicsVectorField": {
       "category": "Utility",
@@ -5178,7 +5180,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SamplePhysicsScalarField": {
       "category": "Utility",
@@ -5196,7 +5198,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SamplePhysicsIntegerField": {
       "category": "Utility",
@@ -5214,7 +5216,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SceneColor": {
       "category": "Utility",
@@ -5236,7 +5238,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SceneDepthWithoutWater": {
       "category": "Utility",
@@ -5254,7 +5256,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SceneTexture": {
       "category": "Texture",
@@ -5280,7 +5282,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ShaderStageSwitch": {
       "category": "Utility",
@@ -5303,7 +5305,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ShadingModel": {
       "category": "Utility",
@@ -5315,7 +5317,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ShadingPathSwitch": {
       "category": "Utility",
@@ -5348,7 +5350,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ShadowReplace": {
       "category": "Utility",
@@ -5371,7 +5373,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Sobol": {
       "category": "Utility",
@@ -5399,7 +5401,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SpeedTree": {
       "category": "Utility",
@@ -5432,7 +5434,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SRGBColorToWorkingColorSpace": {
       "category": "Utility",
@@ -5450,7 +5452,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Switch": {
       "category": "Utility",
@@ -5473,7 +5475,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "TemporalSobol": {
       "category": "Utility",
@@ -5496,7 +5498,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "TextureCollection": {
       "category": "Texture",
@@ -5512,7 +5514,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "TextureObjectFromCollection": {
       "category": "Texture",
@@ -5535,7 +5537,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "TextureProperty": {
       "category": "Texture",
@@ -5553,7 +5555,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "TruncateLWC": {
       "category": "Utility",
@@ -5571,7 +5573,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "UserSceneTexture": {
       "category": "Texture",
@@ -5597,7 +5599,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "VirtualTextureFeatureSwitch": {
       "category": "Texture",
@@ -5620,7 +5622,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "VolumetricAdvancedMaterialInput": {
       "category": "Utility",
@@ -5636,7 +5638,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "BentNormalCustomOutput": {
       "category": "Output",
@@ -5649,7 +5651,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "ClearCoatNormalCustomOutput": {
       "category": "Output",
@@ -5662,7 +5664,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "TangentOutput": {
       "category": "Output",
@@ -5675,7 +5677,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "ThinTranslucentMaterialOutput": {
       "category": "Output",
@@ -5693,7 +5695,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "FirstPersonOutput": {
       "category": "Output",
@@ -5706,7 +5708,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "MaterialCache": {
       "category": "Utility",
@@ -5769,7 +5771,8 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true,
+      "dynamicPins": true
     },
     "TemporalResponsivenessOutput": {
       "category": "Output",
@@ -5782,7 +5785,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "MotionVectorWorldOffsetOutput": {
       "category": "Output",
@@ -5795,7 +5798,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "LandscapeGrassOutput": {
       "category": "Landscape",
@@ -5808,14 +5811,15 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true,
+      "dynamicPins": true
     },
     "LandscapePhysicalMaterialOutput": {
       "category": "Landscape",
       "description": "Landscape Physical Material Output (auto-discovered; verify pins/types).",
       "inputs": [],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "AbsorptionMediumMaterialOutput": {
       "category": "Output",
@@ -5828,7 +5832,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "NeuralNetworkInput": {
       "category": "Utility",
@@ -5851,7 +5855,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "RuntimeVirtualTextureOutput": {
       "category": "Texture",
@@ -5904,7 +5908,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "SingleLayerWaterMaterialOutput": {
       "category": "Output",
@@ -5932,7 +5936,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "SubsurfaceMediumMaterialOutput": {
       "category": "Output",
@@ -5950,7 +5954,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "VertexInterpolator": {
       "category": "Utility",
@@ -5968,7 +5972,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "VolumetricAdvancedMaterialOutput": {
       "category": "Output",
@@ -6011,7 +6015,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "VolumetricCloudEmptySpaceSkippingOutput": {
       "category": "Output",
@@ -6024,7 +6028,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "AtmosphericLightColor": {
       "category": "Atmosphere",
@@ -6036,7 +6040,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "AtmosphericLightVector": {
       "category": "Atmosphere",
@@ -6048,7 +6052,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "Bounds": {
       "category": "Utility",
@@ -6072,7 +6076,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "CloudSampleAttribute": {
       "category": "Atmosphere",
@@ -6096,7 +6100,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "DecalColor": {
       "category": "Utility",
@@ -6128,7 +6132,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "DecalLifetimeOpacity": {
       "category": "Utility",
@@ -6140,7 +6144,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "DeltaTime": {
       "category": "Utility",
@@ -6152,7 +6156,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "EyeAdaptation": {
       "category": "Utility",
@@ -6164,7 +6168,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "EyeAdaptationInverse": {
       "category": "Utility",
@@ -6187,7 +6191,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "FontSignedDistance": {
       "category": "Utility",
@@ -6211,7 +6215,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "IsFirstPerson": {
       "category": "Utility",
@@ -6223,7 +6227,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "IsOrthographic": {
       "category": "Utility",
@@ -6235,7 +6239,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "MeshPaintTextureCoordinateIndex": {
       "category": "Texture",
@@ -6247,7 +6251,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "MeshPaintTextureObject": {
       "category": "Texture",
@@ -6259,7 +6263,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ObjectLocalBounds": {
       "category": "Utility",
@@ -6283,7 +6287,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ParticleRandom": {
       "category": "Utility",
@@ -6295,7 +6299,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ParticleSpriteRotation": {
       "category": "Utility",
@@ -6311,7 +6315,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ParticleSubUVProperties": {
       "category": "Utility",
@@ -6331,7 +6335,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PerInstanceCustomData": {
       "category": "Utility",
@@ -6349,7 +6353,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PerInstanceCustomData3Vector": {
       "category": "Utility",
@@ -6367,7 +6371,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "PreSkinnedNormal": {
       "category": "Vector",
@@ -6377,18 +6381,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -6401,18 +6393,6 @@
         {
           "name": "XYZ",
           "type": "Float3"
-        },
-        {
-          "name": "X",
-          "type": "Float1"
-        },
-        {
-          "name": "Y",
-          "type": "Float1"
-        },
-        {
-          "name": "Z",
-          "type": "Float1"
         }
       ],
       "verified": true
@@ -6427,7 +6407,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereLightIlluminance": {
       "category": "Atmosphere",
@@ -6445,7 +6425,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereLightIlluminanceOnGround": {
       "category": "Atmosphere",
@@ -6457,7 +6437,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereLightDiskLuminance": {
       "category": "Atmosphere",
@@ -6475,7 +6455,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereAerialPerspective": {
       "category": "Atmosphere",
@@ -6493,7 +6473,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereDistantLightScatteredLuminance": {
       "category": "Atmosphere",
@@ -6505,7 +6485,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SkyAtmosphereViewLuminance": {
       "category": "Atmosphere",
@@ -6523,7 +6503,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SkyLightEnvMapSample": {
       "category": "Utility",
@@ -6546,7 +6526,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "VolumetricCloudEmptySpaceSkippingInput": {
       "category": "Atmosphere",
@@ -6562,7 +6542,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ScalarBlueNoise": {
       "category": "Utility",
@@ -6574,7 +6554,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "LegacyBlendMaterialAttributes": {
       "category": "Utility",
@@ -6597,7 +6577,7 @@
         }
       ],
       "outputs": [],
-      "verified": false
+      "verified": true
     },
     "DoubleVectorParameter": {
       "category": "Parameters",
@@ -6625,7 +6605,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "MaterialLayerOutput": {
       "category": "Output",
@@ -6637,7 +6617,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ConstantDouble": {
       "category": "Utility",
@@ -6649,7 +6629,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "LayerStack": {
       "category": "Utility",
@@ -6661,7 +6641,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "RuntimeVirtualTextureSampleParameter": {
       "category": "Texture",
@@ -6712,7 +6692,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SparseVolumeTextureObject": {
       "category": "Texture",
@@ -6724,7 +6704,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SparseVolumeTextureSample": {
       "category": "Texture",
@@ -6751,7 +6731,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "TextureCollectionParameter": {
       "category": "Texture",
@@ -6767,7 +6747,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateShadingModels": {
       "category": "Substrate",
@@ -6885,7 +6865,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateSlabBSDF": {
       "category": "Substrate",
@@ -6980,11 +6960,6 @@
           "name": "Glint UVs (Disabled)",
           "type": "Float2",
           "required": false
-        },
-        {
-          "name": "Unknown",
-          "type": "Float1|2|3|4",
-          "required": false
         }
       ],
       "outputs": [
@@ -6993,7 +6968,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateSimpleClearCoatBSDF": {
       "category": "Substrate",
@@ -7046,7 +7021,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateVolumetricFogCloudBSDF": {
       "category": "Substrate",
@@ -7079,7 +7054,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateUnlitBSDF": {
       "category": "Substrate",
@@ -7107,7 +7082,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateHairBSDF": {
       "category": "Substrate",
@@ -7155,7 +7130,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateEyeBSDF": {
       "category": "Substrate",
@@ -7208,7 +7183,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateSingleLayerWaterBSDF": {
       "category": "Substrate",
@@ -7276,7 +7251,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateLightFunction": {
       "category": "Substrate",
@@ -7294,7 +7269,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstratePostProcess": {
       "category": "Substrate",
@@ -7317,7 +7292,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateUI": {
       "category": "Substrate",
@@ -7340,7 +7315,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateConvertToDecal": {
       "category": "Substrate",
@@ -7363,7 +7338,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateConvertMaterialAttributes": {
       "category": "Substrate",
@@ -7401,7 +7376,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateHorizontalMixing": {
       "category": "Substrate",
@@ -7429,7 +7404,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateVerticalLayering": {
       "category": "Substrate",
@@ -7457,7 +7432,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateAdd": {
       "category": "Substrate",
@@ -7480,7 +7455,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateWeight": {
       "category": "Substrate",
@@ -7503,7 +7478,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateSelect": {
       "category": "Substrate",
@@ -7531,7 +7506,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateTransmittanceToMFP": {
       "category": "Substrate",
@@ -7558,7 +7533,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateMetalnessToDiffuseAlbedoF0": {
       "category": "Substrate",
@@ -7590,7 +7565,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateHazinessToSecondaryRoughness": {
       "category": "Substrate",
@@ -7617,7 +7592,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SubstrateThinFilm": {
       "category": "Substrate",
@@ -7659,7 +7634,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "ChannelMaskParameter": {
       "category": "Parameters",
@@ -7677,7 +7652,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "CurveAtlasRowParameter": {
       "category": "Parameters",
@@ -7711,7 +7686,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SparseVolumeTextureSampleParameter": {
       "category": "Texture",
@@ -7738,7 +7713,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "TextureSampleParameter2DArray": {
       "category": "Texture",
@@ -7781,7 +7756,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "TextureSampleParameterCubeArray": {
       "category": "Texture",
@@ -7824,7 +7799,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "TextureSampleParameterVolume": {
       "category": "Texture",
@@ -7867,7 +7842,7 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
     },
     "SparseVolumeTextureObjectParameter": {
       "category": "Texture",
@@ -7890,7 +7865,1107 @@
           "type": "Float1|2|3|4"
         }
       ],
-      "verified": false
+      "verified": true
+    },
+    "HeightfieldMinMaxTexture": {
+      "category": "Texture",
+      "description": "HeightfieldMinMaxTextureObject.",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Texture",
+          "type": "Texture2D"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/VirtualHeightfieldMesh.MaterialExpressionHeightfieldMinMaxTexture",
+      "params": [
+        {
+          "name": "MinMaxTexture",
+          "type": "TextureRef"
+        },
+        {
+          "name": "SamplerType",
+          "type": "Enum"
+        }
+      ]
+    },
+    "MaterialXAppend3Vector": {
+      "category": "MaterialX",
+      "description": "MaterialX Append3.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "C",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXAppend3Vector"
+    },
+    "MaterialXAppend4Vector": {
+      "category": "MaterialX",
+      "description": "MaterialX Append4.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "C",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "D",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXAppend4Vector"
+    },
+    "MaterialXBurn": {
+      "category": "MaterialX",
+      "description": "MaterialX Burn.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXBurn"
+    },
+    "MaterialXContrast": {
+      "category": "MaterialX",
+      "description": "MaterialX Contrast.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Amount",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Pivot",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXContrast"
+    },
+    "MaterialXDifference": {
+      "category": "MaterialX",
+      "description": "MaterialX Difference.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXDifference"
+    },
+    "MaterialXDisjointOver": {
+      "category": "MaterialX",
+      "description": "MaterialX DisjointOver.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXDisjointOver"
+    },
+    "MaterialXDodge": {
+      "category": "MaterialX",
+      "description": "MaterialX Dodge.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXDodge"
+    },
+    "MaterialXFractal3D": {
+      "category": "MaterialX",
+      "description": "MaterialX Fractal3D.",
+      "inputs": [
+        {
+          "name": "Position",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Amplitude",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Octaves",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Lacunarity",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Diminish",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXFractal3D"
+    },
+    "MaterialXIn": {
+      "category": "MaterialX",
+      "description": "MaterialX In.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXIn"
+    },
+    "MaterialXLuminance": {
+      "category": "MaterialX",
+      "description": "MaterialX Luminance.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXLuminance"
+    },
+    "MaterialXMask": {
+      "category": "MaterialX",
+      "description": "MaterialX Mask.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXMask"
+    },
+    "MaterialXMatte": {
+      "category": "MaterialX",
+      "description": "MaterialX Matte.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXMatte"
+    },
+    "MaterialXMinus": {
+      "category": "MaterialX",
+      "description": "MaterialX Minus.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXMinus"
+    },
+    "MaterialXMod": {
+      "category": "MaterialX",
+      "description": "MaterialX Mod.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXMod"
+    },
+    "MaterialXOut": {
+      "category": "MaterialX",
+      "description": "MaterialX Out.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXOut"
+    },
+    "MaterialXOver": {
+      "category": "MaterialX",
+      "description": "MaterialX Over.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXOver"
+    },
+    "MaterialXOverlay": {
+      "category": "MaterialX",
+      "description": "MaterialX Overlay.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXOverlay"
+    },
+    "MaterialXPlace2D": {
+      "category": "MaterialX",
+      "description": "MaterialX Place2D.",
+      "inputs": [
+        {
+          "name": "Coordinates",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Pivot",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Scale",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Offset",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "RotationAngle",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXPlace2D"
+    },
+    "MaterialXPlus": {
+      "category": "MaterialX",
+      "description": "MaterialX Plus.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXPlus"
+    },
+    "MaterialXPremult": {
+      "category": "MaterialX",
+      "description": "MaterialX Premult.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXPremult"
+    },
+    "MaterialXRamp4": {
+      "category": "MaterialX",
+      "description": "MaterialX Ramp4.",
+      "inputs": [
+        {
+          "name": "Coordinates",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "C",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "D",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXRamp4"
+    },
+    "MaterialXRampLeftRight": {
+      "category": "MaterialX",
+      "description": "MaterialX RampLR.",
+      "inputs": [
+        {
+          "name": "Coordinates",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXRampLeftRight"
+    },
+    "MaterialXRampTopBottom": {
+      "category": "MaterialX",
+      "description": "MaterialX RampTB.",
+      "inputs": [
+        {
+          "name": "Coordinates",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXRampTopBottom"
+    },
+    "MaterialXRange": {
+      "category": "MaterialX",
+      "description": "MaterialX Range.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "InputLow",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "InputHigh",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "TargetLow",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "TargetHigh",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Gamma",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Clamp",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXRange"
+    },
+    "MaterialXRemap": {
+      "category": "MaterialX",
+      "description": "MaterialX Remap.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "InputLow",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "InputHigh",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "TargetLow",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "TargetHigh",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXRemap"
+    },
+    "MaterialXRotate2D": {
+      "category": "MaterialX",
+      "description": "MaterialX Rotate2D.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "RotationAngle",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXRotate2D",
+      "deprecated": true
+    },
+    "MaterialXScreen": {
+      "category": "MaterialX",
+      "description": "MaterialX Screen.",
+      "inputs": [
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Alpha",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXScreen"
+    },
+    "MaterialXSplitLeftRight": {
+      "category": "MaterialX",
+      "description": "MaterialX SplitLR.",
+      "inputs": [
+        {
+          "name": "Coordinates",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Center",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXSplitLeftRight"
+    },
+    "MaterialXSplitTopBottom": {
+      "category": "MaterialX",
+      "description": "MaterialX SplitTB.",
+      "inputs": [
+        {
+          "name": "Coordinates",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "A",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "B",
+          "type": "Float1|2|3|4",
+          "required": false
+        },
+        {
+          "name": "Center",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXSplitTopBottom"
+    },
+    "MaterialXSwizzle": {
+      "category": "MaterialX",
+      "description": "MaterialX Swizzle.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXSwizzle"
+    },
+    "MaterialXUnpremult": {
+      "category": "MaterialX",
+      "description": "MaterialX Unpremult.",
+      "inputs": [
+        {
+          "name": "Input",
+          "type": "Float1|2|3|4",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Result",
+          "type": "Float1|2|3|4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXUnpremult"
+    },
+    "PhysicalMaterialOutput": {
+      "category": "Output",
+      "description": "Physical Material Output.",
+      "inputs": [],
+      "outputs": [],
+      "verified": true,
+      "ueClass": "/Script/RenderTrace.MaterialExpressionPhysicalMaterialOutput",
+      "dynamicPins": true,
+      "pinInfo": "Inputs are generated from the configured physical-material entries; each entry exposes one scalar weight input."
+    },
+    "MaterialXTextureSampleParameterBlur": {
+      "category": "MaterialX",
+      "description": "MaterialX ParamBlur.",
+      "inputs": [
+        {
+          "name": "Coordinates",
+          "type": "Float2",
+          "required": false
+        },
+        {
+          "name": "Apply View MipBias",
+          "type": "StaticBool",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        },
+        {
+          "name": "RGBA",
+          "type": "Float4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/InterchangeImport.MaterialExpressionMaterialXTextureSampleParameterBlur",
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Texture",
+          "type": "TextureRef"
+        },
+        {
+          "name": "SamplerType",
+          "type": "Enum",
+          "values": [
+            "Color",
+            "LinearColor",
+            "Grayscale",
+            "LinearGrayscale",
+            "Normal",
+            "Alpha",
+            "Masks",
+            "Data",
+            "External",
+            "VirtualColor"
+          ]
+        }
+      ]
+    },
+    "SpriteTextureSampler": {
+      "category": "Texture",
+      "description": "Paper2D Sprite.",
+      "inputs": [
+        {
+          "name": "Coordinates",
+          "type": "Float2",
+          "required": false
+        },
+        {
+          "name": "Apply View MipBias",
+          "type": "StaticBool",
+          "required": false
+        }
+      ],
+      "outputs": [
+        {
+          "name": "RGB",
+          "type": "Float3"
+        },
+        {
+          "name": "R",
+          "type": "Float1"
+        },
+        {
+          "name": "G",
+          "type": "Float1"
+        },
+        {
+          "name": "B",
+          "type": "Float1"
+        },
+        {
+          "name": "A",
+          "type": "Float1"
+        },
+        {
+          "name": "RGBA",
+          "type": "Float4"
+        }
+      ],
+      "verified": true,
+      "ueClass": "/Script/Paper2D.MaterialExpressionSpriteTextureSampler",
+      "params": [
+        {
+          "name": "ParameterName",
+          "type": "Name",
+          "required": true
+        },
+        {
+          "name": "Texture",
+          "type": "TextureRef"
+        },
+        {
+          "name": "SamplerType",
+          "type": "Enum",
+          "values": [
+            "Color",
+            "LinearColor",
+            "Grayscale",
+            "LinearGrayscale",
+            "Normal",
+            "Alpha",
+            "Masks",
+            "Data",
+            "External",
+            "VirtualColor"
+          ]
+        }
+      ]
     }
   }
 }

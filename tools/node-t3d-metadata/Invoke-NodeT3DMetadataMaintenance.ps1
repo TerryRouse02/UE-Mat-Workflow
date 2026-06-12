@@ -214,6 +214,12 @@ Invoke-Step "Regenerate node index" {
     }
 }
 
+Invoke-Step "Sync stress node coverage" {
+    Invoke-External "sync-stress-node-coverage.js" {
+        node (Join-Path $BundleRoot "sync-stress-node-coverage.js") $WorkflowRoot
+    }
+}
+
 if ($CaptureFixtures) {
     Invoke-Step "Capture calibration fixtures" {
         Invoke-External "Capture-MakeMaterialAttributesSample.ps1" {

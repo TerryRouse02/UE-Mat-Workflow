@@ -65,8 +65,9 @@ tools/node-t3d-metadata/compiled/**/Binaries/Mac/
 
 # One-time tool outputs: regenerable reports, not committed. Written next to the
 # tool when you run node discovery / build-db-candidates.
-tools/node-t3d-metadata/node-discovery.json
-tools/node-t3d-metadata/db-candidates.json
+tools/node-t3d-metadata/node-discovery*.json
+tools/node-t3d-metadata/db-candidates*.json
+tools/node-t3d-metadata/node-selftest.json
 
 # UE editor-host scratch generated while running commandlets. Keep ONLY the committed
 # minimal host .uproject; drop everything UE regenerates under it (Config, Saved,
