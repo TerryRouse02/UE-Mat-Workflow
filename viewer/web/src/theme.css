@@ -78,3 +78,9 @@ body { margin: 0; background: var(--bg-app); color: var(--text);
 .ct-count { color: var(--fg-faint); font-size: 11px; }
 .ct-ver { color: var(--fg-dim); font-size: 11px; padding: 1px 6px; border: 1px solid var(--bd); border-radius: 4px; }
 .ct-ver.warn { color: var(--warn); border-color: var(--warn); }
+
+/* Right-panel resize: the wrapper owns the grid column; the Inspector's own
+   .panel.right fills it. overflow visible so the -3px handle stays grabbable. */
+.panel.right-wrap { position: relative; background: none; overflow: visible; flex-direction: row; }
+.panel.right-wrap > .panel.right { flex: 1; min-width: 0; }
+.panel-resizer.left-edge { left: -3px; right: auto; }

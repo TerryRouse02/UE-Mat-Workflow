@@ -54,23 +54,23 @@ function Body() {
   const [rightCollapsed, setRightCollapsed] = useState(false);
   // Agent-tab chat width, user-draggable via the panel edge. Deliberately NOT
   // persisted — a session-local preference only.
-  const [agentW, setAgentW] = useState(430);
+  // Per-tab user-dragged widths (undefined = the tab's adaptive default).
+  // Deliberately NOT persisted — session-local preferences only, like before.
+  const [leftWidths, setLeftWidths] = useState<Partial<Record<AppTab, number>>>({});
+  const [rightW, setRightW] = useState(320);
   const [resizing, setResizing] = useState(false);
-  const startResize = useCallback((e: React.MouseEvent) => {
+  const dragHoriz = useCallback((e: React.MouseEvent, start: number, apply: (w: number) => void, dir: 1 | -1, min: number, max: number) => {
     e.preventDefault();
     const startX = e.clientX;
-    setAgentW(startW => {
-      const move = (ev: MouseEvent) =>
-        setAgentW(Math.max(320, Math.min(800, startW + ev.clientX - startX)));
-      const up = () => {
-        setResizing(false);
-        window.removeEventListener('mousemove', move);
-        window.removeEventListener('mouseup', up);
-      };
-      window.addEventListener('mousemove', move);
-      window.addEventListener('mouseup', up);
-      return startW;
-    });
+    const move = (ev: MouseEvent) =>
+      apply(Math.max(min, Math.min(max, start + dir * (ev.clientX - startX))));
+    const up = () => {
+      setResizing(false);
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
     setResizing(true);
   }, []);
   // Two independent crawl scopes (separate UE content roots):
@@ -233,10 +233,16 @@ function Body() {
   // inputs, the env checklist, and the crawl buttons; wider still while a crawl
   // runs so the live log has room. Agent gets extra room for chat bubbles,
   // tool-step cards, and diff blocks.
-  const leftW = tab === 'config' && state.crawl.status === 'running' ? 560
+  // Adaptive defaults per tab; a user drag on that tab overrides them.
+  const defaultLeftW = tab === 'config' && state.crawl.status === 'running' ? 560
     : tab === 'config' ? 384
-    : tab === 'agent' ? agentW
+    : tab === 'agent' ? 430
     : 290;
+  const leftW = leftWidths[tab] ?? defaultLeftW;
+  const startLeftResize = (e: React.MouseEvent) =>
+    dragHoriz(e, leftW, w => setLeftWidths(m => ({ ...m, [tab]: w })), 1, 220, 800);
+  const startRightResize = (e: React.MouseEvent) =>
+    dragHoriz(e, rightW, w => setRightW(w), -1, 240, 640);
 
   return (
     <div className="app">
@@ -253,7 +259,7 @@ function Body() {
         dismissed={bannerDismissed}
         onDismiss={() => setBannerDismissed(true)}
       />
-      <div className={'body' + (resizing ? ' resizing' : '')} style={{ '--left': (leftCollapsed ? 0 : leftW) + 'px', '--right': (rightCollapsed ? 0 : 320) + 'px' } as React.CSSProperties}>
+      <div className={'body' + (resizing ? ' resizing' : '')} style={{ '--left': (leftCollapsed ? 0 : leftW) + 'px', '--right': (rightCollapsed ? 0 : rightW) + 'px' } as React.CSSProperties}>
         <div className="panel left">
           <Sidebar
             tab={tab}
@@ -265,11 +271,11 @@ function Body() {
             matRoot={matRoot}
             setMatRoot={setMatRoot}
           />
-          {tab === 'agent' && !leftCollapsed && (
+          {!leftCollapsed && (
             <div
               className={'panel-resizer' + (resizing ? ' active' : '')}
-              title="拖曳調整對話寬度"
-              onMouseDown={startResize}
+              title="拖曳調整側欄寬度"
+              onMouseDown={startLeftResize}
             />
           )}
         </div>
@@ -309,7 +315,15 @@ function Body() {
             ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={selectNode} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} agentHighlight={agentHl} />
             : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
-        <Inspector
+        <div className="panel right-wrap">
+          {!rightCollapsed && (
+            <div
+              className={'panel-resizer left-edge' + (resizing ? ' active' : '')}
+              title="拖曳調整檢視器寬度"
+              onMouseDown={startRightResize}
+            />
+          )}
+          <Inspector
           graph={payload?.graph}
           selectedNodeId={selectedNodeId}
           derivedPins={payload?.derivedPins}
@@ -321,7 +335,8 @@ function Body() {
             const root = k === 'workmf' ? mfRoot : k === 'projectmat' ? matRoot : undefined;
             void startCrawl(k, root);
           }}
-        />
+          />
+        </div>
       </div>
 
       {importOpen && (

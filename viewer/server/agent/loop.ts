@@ -467,7 +467,10 @@ export async function runAgent(
             Array.isArray(parsed.changedNodeIds) && parsed.changedNodeIds.length > 0
               ? (parsed.changedNodeIds as unknown[]).map(String)
               : undefined;
-          emit({ type: 'graph_written', path: inp.path, changedNodeIds });
+          // Prefer the tool-reported path: write_graph may reroute a member's
+          // new graph into their personal workspace (users/<name>/...).
+          const writtenPath = typeof parsed.path === 'string' && parsed.path ? parsed.path : inp.path;
+          emit({ type: 'graph_written', path: writtenPath, changedNodeIds });
         }
         if (call.name === 'rename_graph' && parsed.ok && typeof parsed.to === 'string') {
           emit({ type: 'graph_written', path: parsed.to });

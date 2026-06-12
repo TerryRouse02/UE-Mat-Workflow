@@ -28,7 +28,9 @@ export function ImportModal({ exportMeta, open, pushToast, onClose }: ImportModa
   const canExplain = state.connection === 'live';
   // Team mode: import into the shared root or your own graphs/users/<me>/.
   const isTeam = state.auth?.mode === 'team' && state.auth.authed;
-  const [dest, setDest] = useState<'shared' | 'personal'>('shared');
+  // Members default into their own workspace; admins default shared.
+  const [dest, setDest] = useState<'shared' | 'personal'>(
+    state.auth?.mode === 'team' && state.auth.role !== 'admin' ? 'personal' : 'shared');
 
   const doImport = async () => {
     if (busy) return;

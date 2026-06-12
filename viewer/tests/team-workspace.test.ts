@@ -166,6 +166,36 @@ describe('personal workspaces', () => {
   });
 });
 
+describe('member agent default write target', () => {
+  it('a NEW graph from a member agent lands in users/<member>/, not the shared root', async () => {
+    const h = await setup();
+    try {
+      await fetch(`${h.base}/api/team`, json({ memberAgent: true }, h.admin));
+      const sid = (await (await fetch(`${h.base}/api/agent/sessions`, { method: 'POST', headers: { cookie: h.artist } })).json()).id as string;
+      h.provider.scripted = [
+        [
+          { type: 'tool_use', id: 'w2', name: 'write_graph', input: {
+            path: 'metal/metal.matgraph.json',
+            graph: { type: 'Material', name: 'metal', ueVersion: '5.7', schemaVersion: '1.0', nodes: [{ id: 'OUT', type: 'MaterialOutput', params: {} }], connections: [] },
+          } },
+          { type: 'done', stopReason: 'tool_use' },
+        ],
+        [{ type: 'text_delta', text: '已寫入你的工作區。' }, { type: 'done', stopReason: 'end' }],
+      ];
+      const r = await fetch(`${h.base}/api/agent/chat`, json({ text: '做一個金屬材質', sessionId: sid }, h.artist));
+      const body = await r.text();
+      expect(body).toContain('users/artist/metal/metal.matgraph.json');
+
+      const { existsSync } = await import('node:fs');
+      expect(existsSync(resolve(h.root, 'graphs/users/artist/metal/metal.matgraph.json'))).toBe(true);
+      expect(existsSync(resolve(h.root, 'graphs/metal/metal.matgraph.json'))).toBe(false);
+    } finally {
+      await h.server.close();
+      await rm(h.root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('系統主Agent live stream', () => {
   it('viewers receive publicAgentDelta events while the designated session streams', async () => {
     const h = await setup();

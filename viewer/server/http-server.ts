@@ -1861,6 +1861,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       getCrawlLog: () => runner.lastLog(),
       viewport,
       sessionCreatedPaths: active.createdPaths,
+      personalRoot: isMember && user ? `users/${user.username}` : undefined,
       // signal lets web_fetch/web_search abort promptly on stop; config carries
       // the user's search backend / proxy settings (read fresh per request).
       web: { signal: ac.signal, config: await readWebConfig() },

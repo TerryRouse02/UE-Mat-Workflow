@@ -24,6 +24,13 @@ import * as QB from './query-bridge.js';
 export interface ToolContext {
   repoRoot: string;
   graphsRoot: string;            // resolve(repoRoot, 'graphs')
+  /**
+   * Team-mode member sessions: 'users/<username>' — NEW graphs written
+   * outside users/ are rerouted into this personal workspace so a member's
+   * creations do not land in the shared root. Edits to existing files keep
+   * their path (the beforeWrite guard still blocks foreign personal dirs).
+   */
+  personalRoot?: string;
   ueVersion: string;             // session version — all DB lookups use this
   workMfIndexPath?: string;      // server-only; absent → work MFs unavailable
   /**
@@ -1042,6 +1049,20 @@ async function toolWriteGraph(
   inp: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ content: string; isError?: boolean }> {
+  // Member personal workspace: a NEW file targeted outside users/ lands in
+  // the member's own dir instead of the shared root. Existing files (and
+  // explicit users/ paths) keep their address.
+  if (ctx.personalRoot && typeof inp.path === 'string' && !inp.path.startsWith('users/')) {
+    const sharedGuard = await guardPath(inp.path, ctx.graphsRoot);
+    if (!('error' in sharedGuard)) {
+      try {
+        await readFile(sharedGuard.abs, 'utf-8'); // exists → keep shared path
+      } catch {
+        inp = { ...inp, path: `${ctx.personalRoot}/${inp.path}` };
+      }
+    }
+  }
+
   const guard = await guardPath(inp.path, ctx.graphsRoot);
   if ('error' in guard) return { content: guard.error, isError: true };
 
@@ -1121,6 +1142,9 @@ async function toolWriteGraph(
   return {
     content: JSON.stringify({
       ok: true,
+      // The ACTUAL path written — may differ from the model's input when a
+      // member's new graph was rerouted into their personal workspace.
+      path: String(inp.path),
       warnings: report.warnings,
       unresolvedMfPins: report.unresolvedPins,
       changedNodeIds: changed,
