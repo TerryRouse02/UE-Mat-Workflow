@@ -2569,6 +2569,462 @@ static bool WriteNodeDiscovery(const FString& OutPath, const FString& NodeDbPath
 }
 
 // ===========================================================================
+// Node self-test — engine round-trip verification of the authoring DB.
+//
+// For every node in agent-pack/nodes-ue<v>.json this mode spawns the real
+// UMaterialExpression in a transient material and machine-checks the DB's
+// structural claims against the live engine:
+//   1. pin diff      — DB input/output names vs GetInputName()/GetOutputs()
+//   2. T3D round-trip — export the single node to clipboard T3D, re-import it,
+//                       and confirm the same expression class comes back
+//   3. property check — every export-metadata input/param property must exist
+//                       on the class (array pins must fit the property ArrayDim)
+//   4. defaults       — engine default values for DB params, exported as text
+// The report is consumed by tools/node-t3d-metadata/apply-selftest.js, which
+// summarizes diffs and can flip clean nodes to verified:true in the DB.
+
+// Defined later in this file (the project-materials section).
+static void PrepareMaterialGraph(UMaterial* Material);
+
+// T3D-phase skip list: types whose lone-node paste path is graph-structural
+// and not representative (none in the current DB; kept as a safety valve).
+static bool ShouldSkipSelfTestT3D(const FString& TypeName)
+{
+    return TypeName == TEXT("Composite") || TypeName == TEXT("PinBase");
+}
+
+// Split "Name(3)" into base property name + array index. Returns INDEX_NONE
+// for plain names.
+static void SplitArrayPinProperty(const FString& PropertyName, FString& OutBase, int32& OutIndex)
+{
+    OutBase = PropertyName;
+    OutIndex = INDEX_NONE;
+    int32 OpenParen = INDEX_NONE;
+    if (PropertyName.EndsWith(TEXT(")")) && PropertyName.FindChar(TEXT('('), OpenParen) && OpenParen > 0)
+    {
+        const FString IndexText = PropertyName.Mid(OpenParen + 1, PropertyName.Len() - OpenParen - 2);
+        if (IndexText.IsNumeric())
+        {
+            OutBase = PropertyName.Left(OpenParen);
+            OutIndex = FCString::Atoi(*IndexText);
+        }
+    }
+}
+
+// Round-trip one expression instance through clipboard T3D: export its graph
+// node to text, import the text into a fresh transient material, and confirm
+// an expression of the same class arrives. Returns "ok" or an error message.
+static FString SelfTestT3DRoundTrip(UMaterialExpression* Expression, UClass* Class)
+{
+    UEdGraphNode* GraphNode = Cast<UEdGraphNode>(Expression->GraphNode);
+    if (GraphNode == nullptr)
+    {
+        return TEXT("expression has no graph node after RebuildGraph");
+    }
+
+    GraphNode->PrepareForCopying();
+    FString ExportedText;
+    TSet<UObject*> NodesToExport;
+    NodesToExport.Add(GraphNode);
+    FEdGraphUtilities::ExportNodesToText(NodesToExport, ExportedText);
+    if (UMaterialGraphNode* MaterialNode = Cast<UMaterialGraphNode>(GraphNode))
+    {
+        MaterialNode->PostCopyNode();
+    }
+    if (ExportedText.IsEmpty())
+    {
+        return TEXT("exported T3D text is empty");
+    }
+
+    UMaterial* ImportMaterial = NewObject<UMaterial>(GetTransientPackage(), NAME_None, RF_Transient | RF_Transactional);
+    if (ImportMaterial == nullptr)
+    {
+        return TEXT("failed to create import material");
+    }
+    ImportMaterial->bUseMaterialAttributes = true;
+    ImportMaterial->MaterialGraph = CastChecked<UMaterialGraph>(FBlueprintEditorUtils::CreateNewGraph(
+        ImportMaterial, NAME_None, UMaterialGraph::StaticClass(), UMaterialGraphSchema::StaticClass()));
+    ImportMaterial->MaterialGraph->Material = ImportMaterial;
+    ImportMaterial->MaterialGraph->RebuildGraph();
+
+    if (!FEdGraphUtilities::CanImportNodesFromText(ImportMaterial->MaterialGraph, ExportedText))
+    {
+        return TEXT("UE rejected the exported T3D in CanImportNodesFromText");
+    }
+
+    TSet<UEdGraphNode*> ImportedNodes;
+    FEdGraphUtilities::ImportNodesFromText(ImportMaterial->MaterialGraph, ExportedText, ImportedNodes);
+    for (UEdGraphNode* Node : ImportedNodes)
+    {
+        UMaterialGraphNode* MaterialNode = Cast<UMaterialGraphNode>(Node);
+        UMaterialExpression* Imported = MaterialNode != nullptr ? MaterialNode->MaterialExpression : nullptr;
+        if (Imported != nullptr && Imported->GetClass() == Class)
+        {
+            return TEXT("ok");
+        }
+    }
+    return FString::Printf(TEXT("import returned %d node(s) but none of class %s"), ImportedNodes.Num(), *Class->GetName());
+}
+
+static bool WriteNodeSelfTest(const FString& OutPath, const FString& NodeDbPath, const FString& ExportMetaPath, FString& OutError)
+{
+    TSharedPtr<FJsonObject> DbRoot;
+    if (!LoadJsonFile(NodeDbPath, DbRoot, OutError))
+    {
+        return false;
+    }
+    const TSharedPtr<FJsonObject>* DbNodes = nullptr;
+    if (!DbRoot->TryGetObjectField(TEXT("nodes"), DbNodes) || DbNodes == nullptr || !DbNodes->IsValid())
+    {
+        OutError = FString::Printf(TEXT("Self-test: node DB is missing the top-level 'nodes' object: %s"), *NodeDbPath);
+        return false;
+    }
+
+    // Export metadata is optional; without it the property check is skipped.
+    TSharedPtr<FJsonObject> ExportRoot;
+    const TSharedPtr<FJsonObject>* ExportNodes = nullptr;
+    if (!ExportMetaPath.IsEmpty())
+    {
+        FString LoadError;
+        if (!LoadJsonFile(ExportMetaPath, ExportRoot, LoadError))
+        {
+            OutError = FString::Printf(TEXT("Self-test: failed to load ExportMeta '%s': %s"), *ExportMetaPath, *LoadError);
+            return false;
+        }
+        ExportRoot->TryGetObjectField(TEXT("nodes"), ExportNodes);
+    }
+
+    int32 CheckedCount = 0;
+    int32 CleanCount = 0;
+    int32 DiffCount = 0;
+    int32 ClassMissingCount = 0;
+    int32 SkippedCount = 0;
+    TSharedRef<FJsonObject> OutNodes = MakeShared<FJsonObject>();
+
+    for (const TPair<FString, TSharedPtr<FJsonValue>>& Pair : (*DbNodes)->Values)
+    {
+        const FString& NodeType = Pair.Key;
+        const TSharedPtr<FJsonObject> NodeObject = Pair.Value.IsValid() ? Pair.Value->AsObject() : nullptr;
+        if (!NodeObject.IsValid())
+        {
+            continue;
+        }
+        ++CheckedCount;
+
+        TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+        TArray<TSharedPtr<FJsonValue>> Diffs;
+        TArray<TSharedPtr<FJsonValue>> TypeNotes;
+
+        UClass* Class = ResolveExpressionClass(NodeType);
+        if (Class == nullptr)
+        {
+            ++ClassMissingCount;
+            Entry->SetStringField(TEXT("status"), TEXT("class-missing"));
+            OutNodes->SetObjectField(NodeType, Entry);
+            continue;
+        }
+        Entry->SetStringField(TEXT("ueClass"), Class->GetPathName());
+
+        if (ShouldSkipInputReflection(NodeType))
+        {
+            ++SkippedCount;
+            Entry->SetStringField(TEXT("status"), TEXT("skipped"));
+            OutNodes->SetObjectField(NodeType, Entry);
+            continue;
+        }
+
+        // Host material + graph so the expression carries a real graph node for
+        // the T3D phase (mirrors the clipboard fixture writers above).
+        UMaterial* HostMaterial = NewObject<UMaterial>(GetTransientPackage(), NAME_None, RF_Transient | RF_Transactional);
+        UMaterialExpression* Expression = NewObject<UMaterialExpression>(HostMaterial, Class, NAME_None, RF_Transactional);
+        if (Expression == nullptr)
+        {
+            ++SkippedCount;
+            Entry->SetStringField(TEXT("status"), TEXT("skipped"));
+            OutNodes->SetObjectField(NodeType, Entry);
+            continue;
+        }
+        AddExpressionToMaterial(HostMaterial, Expression, 0, 0);
+        PrepareMaterialGraph(HostMaterial);
+
+        // ---- engine truth: pins -------------------------------------------------
+        TArray<FString> EngineInputNames;
+        TArray<TSharedPtr<FJsonValue>> EngineInputs;
+        TMap<FString, FString> EngineInputTypes;
+        for (int32 i = 0; Expression->GetInput(i) != nullptr; ++i)
+        {
+            const FString InputName = Expression->GetInputName(i).ToString();
+            const FString InputType = MapMaterialValueType(Expression->GetInputValueType(i));
+            EngineInputNames.Add(InputName);
+            EngineInputTypes.Add(InputName, InputType);
+            TSharedRef<FJsonObject> Input = MakeShared<FJsonObject>();
+            Input->SetStringField(TEXT("name"), InputName);
+            Input->SetStringField(TEXT("type"), InputType);
+            EngineInputs.Add(MakeShared<FJsonValueObject>(Input));
+        }
+        Entry->SetArrayField(TEXT("engineInputs"), EngineInputs);
+
+        TArray<FString> EngineOutputNames;
+        TArray<TSharedPtr<FJsonValue>> EngineOutputs;
+        for (const FExpressionOutput& Out : Expression->GetOutputs())
+        {
+            EngineOutputNames.Add(Out.OutputName.ToString());
+            EngineOutputs.Add(MakeShared<FJsonValueString>(Out.OutputName.ToString()));
+        }
+        Entry->SetArrayField(TEXT("engineOutputs"), EngineOutputs);
+
+        // ---- pin diff vs DB (skipped for dynamic-pin nodes) ---------------------
+        bool bDynamic = DynamicNodeTypes.Contains(NodeType);
+        bool bDbDynamic = false;
+        if (NodeObject->TryGetBoolField(TEXT("dynamicPins"), bDbDynamic) && bDbDynamic)
+        {
+            bDynamic = true;
+        }
+        if (bDynamic)
+        {
+            Entry->SetBoolField(TEXT("dynamicPins"), true);
+        }
+        else
+        {
+            TArray<FString> DbInputNames;
+            const TArray<TSharedPtr<FJsonValue>>* DbInputs = nullptr;
+            if (NodeObject->TryGetArrayField(TEXT("inputs"), DbInputs) && DbInputs != nullptr)
+            {
+                for (const TSharedPtr<FJsonValue>& Value : *DbInputs)
+                {
+                    const TSharedPtr<FJsonObject> InputObject = Value.IsValid() ? Value->AsObject() : nullptr;
+                    if (!InputObject.IsValid())
+                    {
+                        continue;
+                    }
+                    const FString DbName = JsonStringField(InputObject, TEXT("name"));
+                    DbInputNames.Add(DbName);
+                    if (!EngineInputNames.Contains(DbName))
+                    {
+                        Diffs.Add(MakeShared<FJsonValueString>(
+                            FString::Printf(TEXT("DB input '%s' has no matching engine pin"), *DbName)));
+                    }
+                    else
+                    {
+                        const FString DbType = JsonStringField(InputObject, TEXT("type"));
+                        const FString* EngineType = EngineInputTypes.Find(DbName);
+                        if (EngineType != nullptr && !DbType.IsEmpty() && DbType != *EngineType)
+                        {
+                            TypeNotes.Add(MakeShared<FJsonValueString>(
+                                FString::Printf(TEXT("input '%s': DB type '%s' vs engine '%s'"), *DbName, *DbType, **EngineType)));
+                        }
+                    }
+                }
+            }
+            for (const FString& EngineName : EngineInputNames)
+            {
+                if (!EngineName.IsEmpty() && !DbInputNames.Contains(EngineName))
+                {
+                    Diffs.Add(MakeShared<FJsonValueString>(
+                        FString::Printf(TEXT("engine pin '%s' is missing from the DB"), *EngineName)));
+                }
+            }
+
+            // Outputs: many expressions expose a single unnamed engine output that the
+            // DB names (usually "Result"); a 1:1 count match is accepted as-is then.
+            TArray<FString> DbOutputNames;
+            const TArray<TSharedPtr<FJsonValue>>* DbOutputs = nullptr;
+            if (NodeObject->TryGetArrayField(TEXT("outputs"), DbOutputs) && DbOutputs != nullptr)
+            {
+                for (const TSharedPtr<FJsonValue>& Value : *DbOutputs)
+                {
+                    const TSharedPtr<FJsonObject> OutputObject = Value.IsValid() ? Value->AsObject() : nullptr;
+                    if (OutputObject.IsValid())
+                    {
+                        DbOutputNames.Add(JsonStringField(OutputObject, TEXT("name")));
+                    }
+                }
+            }
+            if (DbOutputNames.Num() != EngineOutputNames.Num())
+            {
+                Diffs.Add(MakeShared<FJsonValueString>(
+                    FString::Printf(TEXT("output count: DB %d vs engine %d"), DbOutputNames.Num(), EngineOutputNames.Num())));
+            }
+            else
+            {
+                for (int32 i = 0; i < EngineOutputNames.Num(); ++i)
+                {
+                    if (!EngineOutputNames[i].IsEmpty() && DbOutputNames[i] != EngineOutputNames[i])
+                    {
+                        Diffs.Add(MakeShared<FJsonValueString>(
+                            FString::Printf(TEXT("output %d: DB '%s' vs engine '%s'"), i, *DbOutputNames[i], *EngineOutputNames[i])));
+                    }
+                }
+            }
+        }
+
+        // ---- export metadata property check -------------------------------------
+        const TSharedPtr<FJsonObject> ExportEntry =
+            (ExportNodes != nullptr && ExportNodes->IsValid() && (*ExportNodes)->HasField(NodeType))
+                ? (*ExportNodes)->GetObjectField(NodeType)
+                : nullptr;
+        if (ExportEntry.IsValid())
+        {
+            const TSharedPtr<FJsonObject>* MetaInputs = nullptr;
+            if (ExportEntry->TryGetObjectField(TEXT("inputs"), MetaInputs) && MetaInputs != nullptr && MetaInputs->IsValid())
+            {
+                for (const TPair<FString, TSharedPtr<FJsonValue>>& InputPair : (*MetaInputs)->Values)
+                {
+                    const TSharedPtr<FJsonObject> InputMeta = InputPair.Value.IsValid() ? InputPair.Value->AsObject() : nullptr;
+                    if (!InputMeta.IsValid())
+                    {
+                        continue;
+                    }
+                    const FString PropertyName = JsonStringField(InputMeta, TEXT("property"));
+                    if (PropertyName.IsEmpty())
+                    {
+                        continue;
+                    }
+                    FString BaseName;
+                    int32 ArrayIndex = INDEX_NONE;
+                    SplitArrayPinProperty(PropertyName, BaseName, ArrayIndex);
+                    const FProperty* Property = Class->FindPropertyByName(*BaseName);
+                    if (Property == nullptr)
+                    {
+                        Diffs.Add(MakeShared<FJsonValueString>(
+                            FString::Printf(TEXT("export-meta input '%s': property '%s' not found on class"), *InputPair.Key, *PropertyName)));
+                    }
+                    else if (ArrayIndex != INDEX_NONE && ArrayIndex >= Property->ArrayDim && !CastField<FArrayProperty>(Property))
+                    {
+                        Diffs.Add(MakeShared<FJsonValueString>(
+                            FString::Printf(TEXT("export-meta input '%s': array index %d out of range for '%s' (ArrayDim %d)"), *InputPair.Key, ArrayIndex, *BaseName, Property->ArrayDim)));
+                    }
+                }
+            }
+            const TSharedPtr<FJsonObject>* MetaParams = nullptr;
+            if (ExportEntry->TryGetObjectField(TEXT("params"), MetaParams) && MetaParams != nullptr && MetaParams->IsValid())
+            {
+                for (const TPair<FString, TSharedPtr<FJsonValue>>& ParamPair : (*MetaParams)->Values)
+                {
+                    const TSharedPtr<FJsonObject> ParamMeta = ParamPair.Value.IsValid() ? ParamPair.Value->AsObject() : nullptr;
+                    if (!ParamMeta.IsValid())
+                    {
+                        continue;
+                    }
+                    const FString PropertyName = JsonStringField(ParamMeta, TEXT("property"));
+                    if (!PropertyName.IsEmpty() && Class->FindPropertyByName(*PropertyName) == nullptr)
+                    {
+                        Diffs.Add(MakeShared<FJsonValueString>(
+                            FString::Printf(TEXT("export-meta param '%s': property '%s' not found on class"), *ParamPair.Key, *PropertyName)));
+                    }
+                }
+            }
+        }
+
+        // ---- engine default values for DB params --------------------------------
+        TSharedRef<FJsonObject> Defaults = MakeShared<FJsonObject>();
+        const TArray<TSharedPtr<FJsonValue>>* DbParams = nullptr;
+        if (NodeObject->TryGetArrayField(TEXT("params"), DbParams) && DbParams != nullptr)
+        {
+            for (const TSharedPtr<FJsonValue>& Value : *DbParams)
+            {
+                const TSharedPtr<FJsonObject> ParamObject = Value.IsValid() ? Value->AsObject() : nullptr;
+                if (!ParamObject.IsValid())
+                {
+                    continue;
+                }
+                const FString ParamName = JsonStringField(ParamObject, TEXT("name"));
+                FString PropertyName = ResolveParamProperty(NodeType, ParamName);
+                if (ExportEntry.IsValid())
+                {
+                    const TSharedPtr<FJsonObject>* MetaParams = nullptr;
+                    if (ExportEntry->TryGetObjectField(TEXT("params"), MetaParams) && MetaParams != nullptr && MetaParams->IsValid() && (*MetaParams)->HasField(ParamName))
+                    {
+                        const FString MetaProperty = JsonStringField((*MetaParams)->GetObjectField(ParamName), TEXT("property"));
+                        if (!MetaProperty.IsEmpty())
+                        {
+                            PropertyName = MetaProperty;
+                        }
+                    }
+                }
+                const FProperty* Property = Class->FindPropertyByName(*PropertyName);
+                if (Property == nullptr)
+                {
+                    continue;
+                }
+                FString ValueText;
+                Property->ExportTextItem_Direct(ValueText, Property->ContainerPtrToValuePtr<void>(Expression), nullptr, Expression, PPF_None);
+                Defaults->SetStringField(ParamName, ValueText);
+            }
+        }
+        if (Defaults->Values.Num() > 0)
+        {
+            Entry->SetObjectField(TEXT("defaults"), Defaults);
+        }
+
+        // ---- T3D round-trip ------------------------------------------------------
+        FString T3DResult;
+        if (ShouldSkipSelfTestT3D(NodeType))
+        {
+            T3DResult = TEXT("skipped");
+        }
+        else
+        {
+            T3DResult = SelfTestT3DRoundTrip(Expression, Class);
+            if (T3DResult != TEXT("ok"))
+            {
+                Diffs.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("T3D round-trip: %s"), *T3DResult)));
+            }
+        }
+        Entry->SetStringField(TEXT("t3dRoundTrip"), T3DResult);
+
+        Entry->SetArrayField(TEXT("diffs"), Diffs);
+        if (TypeNotes.Num() > 0)
+        {
+            Entry->SetArrayField(TEXT("typeNotes"), TypeNotes);
+        }
+        if (Diffs.Num() == 0)
+        {
+            ++CleanCount;
+            Entry->SetStringField(TEXT("status"), TEXT("clean"));
+        }
+        else
+        {
+            ++DiffCount;
+            Entry->SetStringField(TEXT("status"), TEXT("diff"));
+        }
+        OutNodes->SetObjectField(NodeType, Entry);
+    }
+
+    TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+    Root->SetStringField(TEXT("schemaVersion"), TEXT("1.0"));
+    Root->SetStringField(TEXT("kind"), TEXT("node-selftest"));
+    Root->SetStringField(TEXT("engineVersion"), FEngineVersion::Current().ToString());
+    Root->SetStringField(TEXT("generatedAt"), FDateTime::UtcNow().ToIso8601());
+    TSharedRef<FJsonObject> Counts = MakeShared<FJsonObject>();
+    Counts->SetNumberField(TEXT("checked"), CheckedCount);
+    Counts->SetNumberField(TEXT("clean"), CleanCount);
+    Counts->SetNumberField(TEXT("withDiffs"), DiffCount);
+    Counts->SetNumberField(TEXT("classMissing"), ClassMissingCount);
+    Counts->SetNumberField(TEXT("skipped"), SkippedCount);
+    Root->SetObjectField(TEXT("counts"), Counts);
+    Root->SetObjectField(TEXT("nodes"), OutNodes);
+
+    FString OutputText;
+    const TSharedRef<TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>> Writer =
+        TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>::Create(&OutputText);
+    if (!FJsonSerializer::Serialize(Root, Writer))
+    {
+        OutError = TEXT("Self-test: failed to serialize JSON.");
+        return false;
+    }
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutPath), true);
+    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+    {
+        OutError = FString::Printf(TEXT("Self-test: failed to write %s"), *OutPath);
+        return false;
+    }
+    UE_LOG(LogTemp, Display, TEXT("Wrote node self-test report: %s (%d checked, %d clean, %d with diffs, %d class missing, %d skipped)"),
+        *OutPath, CheckedCount, CleanCount, DiffCount, ClassMissingCount, SkippedCount);
+    return true;
+}
+
+// ===========================================================================
 // WorkMF Phase 2 — crawl the user's OWN project Material Functions.
 //
 // Writes agent-pack/workmf-index.json: the call signature (pin names + order) of
@@ -3234,6 +3690,31 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         return 0;
     }
 
+    FString SelfTestOutPath;
+    if (FParse::Value(*Params, TEXT("SelfTestOut="), SelfTestOutPath))
+    {
+        SelfTestOutPath = ToAbsolutePath(SelfTestOutPath);
+        FString SelfTestNodeDb;
+        if (!FParse::Value(*Params, TEXT("NodeDb="), SelfTestNodeDb) || SelfTestNodeDb.IsEmpty())
+        {
+            UE_LOG(LogTemp, Error, TEXT("NodeDb is required when using SelfTestOut."));
+            return 19;
+        }
+        SelfTestNodeDb = ToAbsolutePath(SelfTestNodeDb);
+        FString SelfTestExportMeta;
+        if (FParse::Value(*Params, TEXT("ExportMeta="), SelfTestExportMeta) && !SelfTestExportMeta.IsEmpty())
+        {
+            SelfTestExportMeta = ToAbsolutePath(SelfTestExportMeta);
+        }
+        FString Error;
+        if (!WriteNodeSelfTest(SelfTestOutPath, SelfTestNodeDb, SelfTestExportMeta, Error))
+        {
+            UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
+            return 19;
+        }
+        return 0;
+    }
+
     FString NodeDbPath;
     FString OutPath;
     const bool bHasNodeDb = FParse::Value(*Params, TEXT("NodeDb="), NodeDbPath);
@@ -3244,6 +3725,7 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
     {
         UE_LOG(LogTemp, Error, TEXT("Usage: -run=UEMatExportMetadata -NodeDb=<nodes-ue5.7.json> -Out=<nodes-ue5.7.export.json> [-Strict]"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -DiscoverNodesOut=<discovery.json> [-NodeDb=<nodes-ue5.7.json>]"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -SelfTestOut=<selftest.json> -NodeDb=<nodes-ue5.7.json> [-ExportMeta=<nodes-ue5.7.export.json>]"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -MakeMaterialAttributesSampleOut=<fixture.t3d>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -CoreClipboardOut=<fixture.t3d> -TextureAsset=<Texture2D object path>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -TextureSampleSourcesOut=<fixture.t3d> -TextureAsset=<Texture2D object path>"));

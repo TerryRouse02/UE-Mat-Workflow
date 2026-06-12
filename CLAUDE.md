@@ -194,7 +194,9 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
 ## Common changes (recipes)
 
 - **Add/fix a node in the DB:** edit `agent-pack/nodes-ue5.7.json` (`nodes.<Name>`: inputs/outputs/
-  params/category/description). `verified: true` only after hand-checking against UE. Then run
+  params/category/description). `verified: true` only after checking against UE — by hand, or via
+  the node self-test (`Run-NodeSelfTest.ps1` on the UE machine + `apply-selftest.js --mark-verified`;
+  see `tools/node-t3d-metadata/docs/SELF_TEST.md`). Then run
   `node tools/node-t3d-metadata/gen-node-index.js` to regenerate the index (CI's parity audit fails
   on index drift). Run `pnpm test`.
 - **Support a new UE version:** it's a *data drop* — generate `nodes-ue<v>.json` + `.export.json`

@@ -12,14 +12,17 @@ This folder is the self-contained maintenance bundle for UE material node T3D/ex
 - `heal-export-meta.js`: re-applies the canonical UE T3D array-element pin properties (`CustomizedUVs(0)`, `Inputs(2)`, …) after a crawl, so re-generation never regresses them. Format-preserving and idempotent; runs automatically in the maintenance flow. `--check` lists drift without writing.
 - `check-public-purity.js`: public-artifact purity gate (run in CI). Fails if a committed agent-pack data file or `stress_*` graph leaks `/Game`/`_project` data, an engine-MF index key isn't `/Engine/`, or a server-only/per-machine/Mac-binary path is git-tracked. Run it after any crawl that regenerates a committed index.
 - `build-db-candidates.js`: turn a node-discovery report into reviewable candidate DB entries.
+- `apply-selftest.js`: consume a node self-test report — summary, `--check` CI gate, `--mark-verified` (flip engine-clean nodes to `verified:true` + regen the index), `--fill-defaults`.
 - `plugin-src/`: UE editor plugin source for the `UEMatExportMetadata` commandlet.
 - `plugin-src/Scripts/Run-NodeDiscovery.ps1`: enumerate engine expressions and diff vs the DB.
+- `plugin-src/Scripts/Run-NodeSelfTest.ps1`: machine-verify every DB node against the live engine (pin diff, T3D round-trip, property check, engine defaults).
 - `plugin-src/Scripts/Run-WorkMfIndex.ps1`: index a project's own Material Functions (WorkMF).
 - `plugin-src/Scripts/Run-EngineMfIndex.ps1`: index the official `/Engine/Functions` Material Functions into a committed index.
 - `compiled/UEMatExportMetadata/`: compiled Win64 plugin package usable without adding a project plugin.
 - `host/NodeDiscoveryHost.uproject`: bundled minimal UE host project for node discovery (no game project needed; disables the fragile default engine plugins).
 - `docs/AGENT_WORKFLOW.md`: agent-facing workflow for updating `agent-pack\nodes-ue5.7.export.json`.
 - `docs/NODE_DISCOVERY.md`: find which engine expressions the DB is missing (node discovery).
+- `docs/SELF_TEST.md`: machine-verify the DB's claims about every node against the live engine (the verification-convergence pipeline).
 - `docs/WORKMF.md`: WorkMF mode — index the project's own Material Functions into `agent-pack\workmf-index.json` (local, gitignored).
 - `docs/ENGINE_MF.md`: index the official `/Engine/Functions` Material Functions (committed).
 - `docs/PROJECT_MATERIALS.md`: ProjectMat mode — export `/Game` UMaterials as T3D dumps so the viewer can open them.
@@ -127,6 +130,10 @@ The same commandlet/plugin powers additional modes (each with a one-command runn
 - **Node discovery** — enumerate every `UMaterialExpression` the engine compiles in and diff
   it against the authoring DB, so you get a report of exactly which nodes are missing. Run
   `plugin-src\Scripts\Run-NodeDiscovery.ps1`; details in `docs\NODE_DISCOVERY.md`.
+- **Node self-test** — the inverse of discovery: machine-verify what the DB *claims* about
+  every node against the live engine (pin names, T3D round-trip, export-metadata properties,
+  engine defaults), then let `apply-selftest.js --mark-verified` flip engine-clean nodes to
+  `verified:true`. Run `plugin-src\Scripts\Run-NodeSelfTest.ps1`; details in `docs\SELF_TEST.md`.
 - **WorkMF** — index a project's own Material Functions (by UE asset path) so the viewer,
   exporter, and authoring agent can use them. Run `plugin-src\Scripts\Run-WorkMfIndex.ps1`;
   details in `docs\WORKMF.md`. The output stays local and gitignored.

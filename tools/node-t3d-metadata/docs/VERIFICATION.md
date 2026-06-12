@@ -2,6 +2,10 @@
 
 Run these commands from the workflow repo root.
 
+> Verifying the *content* of the node DB (are the DB's pins/properties/defaults true in
+> the engine?) is the node self-test's job — see `SELF_TEST.md`. This file covers the
+> repo-side gates: packaging, audits, and viewer tests.
+
 ## One-Command Verification
 
 On Windows (Windows PowerShell 5.1):
