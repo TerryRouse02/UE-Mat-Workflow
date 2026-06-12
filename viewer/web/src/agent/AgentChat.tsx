@@ -93,7 +93,9 @@ function fmtTokens(n: number): string {
 
 function sessionLabel(s: AgentSessionMeta): string {
   const title = s.title || '（未命名）';
-  return s.updatedAt ? `${title} · ${relTimeMinutes(s.updatedAt)}` : title;
+  // Team mode: the admin's list spans every member — prefix the owner.
+  const owned = s.owner ? `[${s.owner}] ${title}` : title;
+  return s.updatedAt ? `${owned} · ${relTimeMinutes(s.updatedAt)}` : owned;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -789,7 +791,11 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     if (c.kind === 'regen') return streaming || !sessionId || items.length === 0;
     if (c.kind === 'undo') return streaming;
     if (c.kind === 'new') return streaming;
-    if (c.kind === 'crawlmf') return state.crawl.status === 'running' || !state.env?.ready;
+    if (c.kind === 'crawlmf') {
+      // Crawls are admin-only in team mode — a member's request would 403.
+      if (state.auth?.mode === 'team' && state.auth.role !== 'admin') return true;
+      return state.crawl.status === 'running' || !state.env?.ready;
+    }
     return items.length === 0; // md
   };
   const runQuickCommand = (c: QuickCommand) => {
@@ -897,7 +903,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             <option key={s.id} value={s.id}>{sessionLabel(s)}</option>
           ))}
         </select>
-        {sessionId !== null && !streaming && state.auth?.mode === 'team' && (
+        {sessionId !== null && !streaming && state.auth?.mode === 'team' && state.auth.role === 'admin' && (
           <button
             className={'agent-bar-btn' + (state.publicAgent.id === sessionId ? ' on' : '')}
             onClick={() => void togglePublic()}

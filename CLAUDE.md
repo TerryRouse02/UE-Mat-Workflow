@@ -72,8 +72,13 @@ creates the admin in the SAME request, then live re-binds the listener on the sa
 disabling keeps the on-disk accounts) or locked by `BIND_HOST=<non-loopback>` (Docker —
 `envLocked`, the web switch then 409s). In team mode every `/api` route and the WS upgrade
 require a 7-day token (HttpOnly cookie or Bearer), with the dangerous surface
-(`/api/config`, `/api/crawl*`, `/api/team`, all `/api/agent/*` except
-`status`/`explain`/`public-session`, `/api/auth/users*`) admin-only (`isAdminOnly`).
+(`/api/config`, `/api/crawl*`, `/api/team`, `/api/agent/db-edit|test|web-test`,
+session announce, `/api/auth/users*`) admin-only (`isAdminOnly`); the rest of the
+agent surface opens to members when the admin flips `Team.memberAgent` (sessions are
+then owner-isolated — members see only their own, admins see all — and member turns
+lose the `request_crawl`/`propose_db_edit` tools). Chat single-flight is PER SESSION
+(sessions stream in parallel); `/api/auth/password` is every member's own-password
+change.
 Local mode constructs no auth store and skips every gate — behavior unchanged. `mode`,
 `authStore`, `secureCookies`, and `currentBindHost` are mutable runtime state; the `Team`
 object persists in `local.config.json`.

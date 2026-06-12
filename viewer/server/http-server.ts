@@ -137,7 +137,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // the Config tab (POST /api/team): the saved `Team` object in
   // local.config.json decides the initial bind, and a live re-bind flips it.
   const envLocked = opts.mode !== undefined || (typeof opts.bindHost === 'string' && opts.bindHost.trim() !== '');
-  interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean }
+  interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean; memberAgent?: boolean }
   async function readTeamConfig(): Promise<TeamConfig> {
     try {
       const parsed = JSON.parse(await readFile(localConfigPath, 'utf-8')) as { Team?: TeamConfig };
@@ -162,6 +162,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   let mode: ServerMode = opts.mode ?? resolveMode(currentBindHost);
   let authStore = mode === 'team' ? createAuthStore(resolve(opts.repoRoot, 'viewer')) : null;
   let secureCookies = opts.secureCookies ?? savedTeam.secureCookies ?? false;
+  // Admin switch: members may use the agent with their OWN sessions (spends
+  // the shared server-held LLM key, hence default off). Persists in Team
+  // config; changeable even when the bind itself is env-locked.
+  let memberAgentEnabled = savedTeam.memberAgent ?? false;
   const loginLimiter = createLoginLimiter();
   const COOKIE_NAME = 'uemw_token';
 
@@ -203,8 +207,16 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (urlPath === '/api/team') return true;
     if (urlPath === '/api/auth/users' || urlPath.startsWith('/api/auth/users/')) return true;
     if (urlPath.startsWith('/api/agent/')) {
-      return urlPath !== '/api/agent/status' && urlPath !== '/api/agent/explain'
-        && urlPath !== '/api/agent/public-session';
+      // Open to every member regardless of the agent switch:
+      if (urlPath === '/api/agent/status' || urlPath === '/api/agent/explain'
+        || urlPath === '/api/agent/public-session') return false;
+      // Hard admin-only: public-data writes, config verification, announcing.
+      if (urlPath === '/api/agent/db-edit' || urlPath === '/api/agent/test'
+        || urlPath === '/api/agent/web-test') return true;
+      if (/^\/api\/agent\/sessions\/[A-Za-z0-9_-]{1,64}\/public$/.test(urlPath)) return true;
+      // chat / undo / regenerate / reset / sessions CRUD: members when the
+      // admin switch is on (handlers enforce per-session ownership).
+      return !memberAgentEnabled;
     }
     return false;
   }
@@ -234,26 +246,40 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
      * conservatively forgets them, so old files regain overwrite protection.
      */
     createdPaths: Set<string>;
+    /** Team mode: username that owns this conversation (absent = local/legacy). */
+    owner?: string;
+    // ── Per-session concurrency. Sessions run in PARALLEL (team members chat
+    //    simultaneously); within one session the invariants are unchanged:
+    //    at most one streaming turn, one history mutation, runs serialized
+    //    through `unwind` so an aborted generator never clobbers a new run.
+    /** True while a chat turn streams on THIS session (409 guard). */
+    streaming: boolean;
+    /** AbortController of the in-flight turn (reset/disconnect aborts it). */
+    abort: AbortController | null;
+    /** Single-flight for undo/regenerate on this session's history. */
+    mutating: boolean;
+    /** Resolves when the most recent run on this session has FULLY unwound
+     *  (finally ran, session persisted). The streaming lock is released the
+     *  moment the client disconnects so a re-send never 409s, but the aborted
+     *  generator can take seconds to unwind — the next chat/undo/regenerate
+     *  on this session awaits this. */
+    unwind: Promise<void>;
   }
   const activeSessions = new Map<string, ActiveSession>();
   // The session an id-less chat/undo/reset request applies to. The web UI
   // always sends explicit session ids; this pointer keeps the legacy flow
   // (and the M3/M4 tests) working.
   let currentSessionId: string | null = null;
-  // True while a chat is actively streaming. Guards the 409 single-flight.
-  let agentStreaming = false;
-  // AbortController for the currently-streaming chat (if any).
-  const agentAbortRef = { current: null as AbortController | null };
-  // Resolves when the most recent chat run has FULLY unwound (its finally ran,
-  // session persisted). The streaming lock is released the moment the client
-  // disconnects (stop button) so a re-send never 409s, but the aborted
-  // generator can take seconds to unwind — the next chat/undo/regenerate
-  // awaits this so two runs never mutate the same session concurrently.
-  let chatUnwind: Promise<void> = Promise.resolve();
-  // Single-flight for history-mutating endpoints (undo / regenerate): the
-  // entry check alone left every await window open to a concurrent second
-  // mutation of the same session history.
-  let agentMutating = false;
+  /**
+   * Ownership gate for a session in team mode: members touch only their own
+   * sessions; admins see everything ("admin 看全部" alignment). Local mode
+   * (or a legacy session without owner, for admins) is unrestricted.
+   */
+  function canTouchSession(user: AuthUser | null, owner: string | undefined): boolean {
+    if (mode !== 'team' || user === null) return true;
+    if (user.role === 'admin') return true;
+    return owner !== undefined && owner === user.username;
+  }
   // Provider factory — default pickProvider, overridable for tests.
   const makeProvider = opts.providerFactory ?? pickProvider;
 
@@ -266,7 +292,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     return versions.length > 0 ? versions[versions.length - 1] : '5.7';
   }
 
-  function createActiveSession(id: string, ueVersion: string, graphPath?: string): ActiveSession {
+  function createActiveSession(id: string, ueVersion: string, graphPath?: string, owner?: string): ActiveSession {
     const active: ActiveSession = {
       loop: createSession(id, ueVersion, graphPath),
       checkpoint: createCheckpointStore(resolve(opts.repoRoot, 'viewer'), id),
@@ -274,6 +300,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       transcript: [],
       title: '',
       createdAt: new Date().toISOString(),
+      owner,
+      streaming: false,
+      abort: null,
+      mutating: false,
+      unwind: Promise.resolve(),
       createdPaths: new Set<string>(),
     };
     // Never re-cache a session whose files are mid-deletion: the stale cache
@@ -307,6 +338,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       transcript: persisted.transcript,
       title: persisted.title,
       createdAt: persisted.createdAt,
+      owner: persisted.owner,
+      streaming: false,
+      abort: null,
+      mutating: false,
+      unwind: Promise.resolve(),
       createdPaths: new Set<string>(),
     };
     // Never re-cache a session whose files are mid-deletion: the stale cache
@@ -326,6 +362,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         createdAt: active.createdAt,
         updatedAt: new Date().toISOString(),
         ueVersion: active.loop.ueVersion,
+        owner: active.owner,
         totalTokens: Math.round(active.loop.totalTokens),
         turnSeq: active.loop.turnSeq,
         offTopicStrikes: active.loop.offTopicStrikes,
@@ -861,44 +898,44 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   }
 
   /** POST /api/agent/undo — restore the previous checkpoint turn (body may carry sessionId). */
-  async function handleAgentUndo(req: IncomingMessage, res: import('node:http').ServerResponse) {
+  async function handleAgentUndo(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
 
-    // 409 if an agent is actively streaming — cannot undo while writing.
-    if (agentStreaming) {
+    // Optional body { sessionId } — absent falls back to the current session.
+    let sessionId = currentSessionId;
+    try {
+      const raw = await readBody(req);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { sessionId?: unknown };
+        if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
+          sessionId = parsed.sessionId;
+        }
+      }
+    } catch { /* empty/invalid body → current session */ }
+
+    const active = sessionId ? await resumeSession(sessionId) : null;
+    // Foreign sessions answer exactly like missing ones — no existence leak.
+    if (!active || !canTouchSession(user, active.owner)) {
+      sendJson(res, 200, { ok: false, reason: 'nothing-to-undo' } satisfies AgentUndoResponse);
+      return;
+    }
+    // 409 if THIS session is streaming — cannot undo while writing.
+    if (active.streaming) {
       sendJson(res, 409, { error: '對話進行中，無法還原。請等待完成後再試。' });
       return;
     }
-    // Single-flight with regenerate/undo: the entry check above is not enough —
-    // every await below is a window for a concurrent second mutation.
-    if (agentMutating) {
+    // Single-flight with regenerate/undo on this session: the entry check
+    // alone is not enough — every await below is a window for a second
+    // concurrent mutation of the same history.
+    if (active.mutating) {
       sendJson(res, 409, { error: '另一個還原／重新生成正在進行中，請稍候。' });
       return;
     }
-    agentMutating = true;
+    active.mutating = true;
     try {
       // A stopped chat releases the streaming lock before its generator has
       // fully unwound — wait it out so undo never races an in-flight write.
-      await chatUnwind;
-
-      // Optional body { sessionId } — absent falls back to the current session.
-      let sessionId = currentSessionId;
-      try {
-        const raw = await readBody(req);
-        if (raw) {
-          const parsed = JSON.parse(raw) as { sessionId?: unknown };
-          if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
-            sessionId = parsed.sessionId;
-          }
-        }
-      } catch { /* empty/invalid body → current session */ }
-
-      const active = sessionId ? await resumeSession(sessionId) : null;
-      if (!active) {
-        const body: AgentUndoResponse = { ok: false, reason: 'nothing-to-undo' };
-        sendJson(res, 200, body);
-        return;
-      }
+      await active.unwind;
 
       const restored = await active.checkpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'));
 
@@ -916,7 +953,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       const body: AgentUndoResponse = { ok: true, restored: relPaths };
       sendJson(res, 200, body);
     } finally {
-      agentMutating = false;
+      active.mutating = false;
     }
   }
 
@@ -926,35 +963,41 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
    * turn from the message history and the transcript, return the user text.
    * turnSeq is NOT decremented — checkpoint turn ids must stay monotonic.
    */
-  async function handleAgentRegenerate(req: IncomingMessage, res: import('node:http').ServerResponse) {
+  async function handleAgentRegenerate(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    if (agentStreaming) {
+
+    let sessionId = currentSessionId;
+    try {
+      const raw = await readBody(req);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { sessionId?: unknown };
+        if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
+          sessionId = parsed.sessionId;
+        }
+      }
+    } catch { /* empty/invalid body → current session */ }
+
+    const active = sessionId ? await resumeSession(sessionId) : null;
+    if (active && !canTouchSession(user, active.owner)) {
+      // Foreign session — answer like a missing one (no existence leak).
+      sendJson(res, 200, { ok: false, reason: 'nothing-to-regenerate' } satisfies AgentRegenerateResponse);
+      return;
+    }
+    if (active?.streaming) {
       sendJson(res, 409, { error: '對話進行中，無法重新生成。請等待完成或停止後再試。' });
       return;
     }
-    // Single-flight: two concurrent regenerates would each rewind the same
-    // history once — the entry check alone leaves the await windows open.
-    if (agentMutating) {
+    // Single-flight per session: two concurrent regenerates would each rewind
+    // the same history once — the entry check alone leaves the await windows open.
+    if (active?.mutating) {
       sendJson(res, 409, { error: '另一個還原／重新生成正在進行中，請稍候。' });
       return;
     }
-    agentMutating = true;
+    if (active) active.mutating = true;
     try {
       // Wait out a stopped chat's unwind (see handleAgentUndo).
-      await chatUnwind;
+      if (active) await active.unwind;
 
-      let sessionId = currentSessionId;
-      try {
-        const raw = await readBody(req);
-        if (raw) {
-          const parsed = JSON.parse(raw) as { sessionId?: unknown };
-          if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
-            sessionId = parsed.sessionId;
-          }
-        }
-      } catch { /* empty/invalid body → current session */ }
-
-      const active = sessionId ? await resumeSession(sessionId) : null;
       const lastUserIdx = active
         ? active.transcript.map(e => e.kind).lastIndexOf('user')
         : -1;
@@ -1002,7 +1045,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       await persistSession(active);
       sendJson(res, 200, { ok: true, text: userText } satisfies AgentRegenerateResponse);
     } finally {
-      agentMutating = false;
+      if (active) active.mutating = false;
     }
   }
 
@@ -1039,29 +1082,47 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }
 
-  /** POST /api/agent/reset — abort any in-flight chat and detach the current session. */
-  async function handleAgentReset(req: IncomingMessage, res: import('node:http').ServerResponse) {
+  /** POST /api/agent/reset — abort the session's in-flight chat and detach it
+   *  (body may carry sessionId; absent = the current session). */
+  async function handleAgentReset(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    if (agentMutating) {
+
+    let sessionId = currentSessionId;
+    try {
+      const raw = await readBody(req, 64_000);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { sessionId?: unknown };
+        if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
+          sessionId = parsed.sessionId;
+        }
+      }
+    } catch { /* empty/invalid body → current session */ }
+
+    const active = sessionId ? activeSessions.get(sessionId) : null;
+    if (active && !canTouchSession(user, active.owner)) {
+      // Foreign session — reset is a no-op for this caller.
+      sendJson(res, 200, { ok: true } satisfies AgentResetResponse);
+      return;
+    }
+    if (active?.mutating) {
       sendJson(res, 409, { error: '正在還原／重新生成，請稍候再試。' });
       return;
     }
 
-    // Abort any in-flight streaming chat.
-    agentAbortRef.current?.abort();
-    agentAbortRef.current = null;
-    // Clear the streaming flag immediately so the next POST /api/agent/chat on
-    // this server instance does not receive a spurious 409.  The flag is also
-    // cleared in handleAgentChat's finally block, but that fires only after the
-    // aborted generator fully unwinds — which is asynchronous and can take
-    // several seconds with a real LLM provider.
-    agentStreaming = false;
-
-    // Drop the current session's undo history (stale pre-images are dead
-    // weight) and detach it. The session FILE persists — reset means "start
-    // clean", not "destroy history"; deletion is DELETE /api/agent/sessions/:id.
-    const active = currentSessionId ? activeSessions.get(currentSessionId) : null;
     if (active) {
+      // Abort the in-flight streaming chat (if any) and clear the streaming
+      // flag immediately so the next POST /api/agent/chat does not receive a
+      // spurious 409. The chat's finally also clears it, but only after the
+      // aborted generator fully unwinds — which can take seconds with a real
+      // LLM provider. Nulling `abort` makes the old run's ownership check
+      // fail, so its unwind cannot clobber a NEW run's lock.
+      active.abort?.abort();
+      active.abort = null;
+      active.streaming = false;
+
+      // Drop the session's undo history (stale pre-images are dead weight)
+      // and detach it. The session FILE persists — reset means "start clean",
+      // not "destroy history"; deletion is DELETE /api/agent/sessions/:id.
       try {
         await rm(active.checkpoint.sessionDir, { recursive: true, force: true });
       } catch {
@@ -1069,7 +1130,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       }
       activeSessions.delete(active.loop.id);
     }
-    currentSessionId = null;
+    if (sessionId === currentSessionId) currentSessionId = null;
 
     const body: AgentResetResponse = { ok: true };
     sendJson(res, 200, body);
@@ -1077,14 +1138,19 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   // ─── M7 session endpoints ───────────────────────────────────────────────────
 
-  /** GET /api/agent/sessions — list persisted sessions, newest first. */
-  async function handleAgentSessionsList(res: import('node:http').ServerResponse) {
-    const sessions = await sessionStore.list();
+  /** GET /api/agent/sessions — list persisted sessions, newest first.
+   *  Team mode: members see only their own; admins see everyone's (the meta
+   *  carries `owner` + token totals, so spend stays visible). */
+  async function handleAgentSessionsList(res: import('node:http').ServerResponse, user: AuthUser | null) {
+    let sessions = await sessionStore.list();
+    if (mode === 'team' && user && user.role !== 'admin') {
+      sessions = sessions.filter((m) => m.owner === user.username);
+    }
     sendJson(res, 200, { sessions } satisfies AgentSessionsListResponse);
   }
 
   /** POST /api/agent/sessions — create a fresh persistent session. */
-  async function handleAgentSessionsCreate(req: IncomingMessage, res: import('node:http').ServerResponse) {
+  async function handleAgentSessionsCreate(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
     let ueVersion: string | undefined;
     try {
@@ -1096,16 +1162,20 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     } catch { /* empty body is fine */ }
 
     const id = newAgentSessionId();
-    const active = createActiveSession(id, ueVersion ?? defaultUeVersion());
+    const active = createActiveSession(
+      id, ueVersion ?? defaultUeVersion(), undefined,
+      mode === 'team' ? user?.username : undefined,
+    );
     currentSessionId = id;
     await persistSession(active);
     sendJson(res, 200, { id } satisfies AgentSessionCreateResponse);
   }
 
   /** GET /api/agent/sessions/:id — replayable transcript + meta. */
-  async function handleAgentSessionDetail(id: string, res: import('node:http').ServerResponse) {
+  async function handleAgentSessionDetail(id: string, res: import('node:http').ServerResponse, user: AuthUser | null) {
     const active = await resumeSession(id);
-    if (!active) { sendJson(res, 404, { error: '找不到指定的會話。' }); return; }
+    // Foreign sessions 404 exactly like missing ones — no existence leak.
+    if (!active || !canTouchSession(user, active.owner)) { sendJson(res, 404, { error: '找不到指定的會話。' }); return; }
     sendJson(res, 200, {
       id: active.loop.id,
       title: active.title,
@@ -1116,13 +1186,18 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   }
 
   /** DELETE /api/agent/sessions/:id — remove the session file + checkpoints. */
-  async function handleAgentSessionDelete(id: string, req: IncomingMessage, res: import('node:http').ServerResponse) {
+  async function handleAgentSessionDelete(id: string, req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    if (agentStreaming && currentSessionId === id) {
+    const target = activeSessions.get(id) ?? await resumeSession(id);
+    if (!target || !canTouchSession(user, target.owner)) {
+      sendJson(res, 404, { error: '找不到指定的會話。' });
+      return;
+    }
+    if (target.streaming) {
       sendJson(res, 409, { error: '對話進行中，無法刪除。請先停止。' });
       return;
     }
-    if (agentMutating) {
+    if (target.mutating) {
       sendJson(res, 409, { error: '正在還原／重新生成，請稍候再試。' });
       return;
     }
@@ -1150,7 +1225,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         return;
       }
       await sessionStore.setPublicId(id);
-      broadcastPublicAgent(id, agentStreaming && currentSessionId === id);
+      broadcastPublicAgent(id, activeSessions.get(id)?.streaming === true);
     } else {
       if ((await sessionStore.getPublicId()) === id) {
         await sessionStore.setPublicId(null);
@@ -1176,7 +1251,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         title: active.title,
         ueVersion: active.loop.ueVersion,
         updatedAt: new Date().toISOString(),
-        streaming: agentStreaming && currentSessionId === id,
+        streaming: active.streaming,
         transcript: active.transcript,
       } satisfies AgentPublicSessionResponse);
       return;
@@ -1287,43 +1362,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   }
 
   /** POST /api/agent/chat — SSE stream of AgentSseEvents. */
-  async function handleAgentChat(req: IncomingMessage, res: import('node:http').ServerResponse) {
+  async function handleAgentChat(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
 
-    // Single-flight: reject concurrent chats (and chats during undo/regenerate).
-    // IMPORTANT: set the flag here, synchronously, before any await — otherwise a
-    // second request can arrive during readBody/readLlmConfig and pass the guard (TOCTOU).
-    if (agentStreaming) {
-      sendJson(res, 409, { error: '目前已有對話進行中，請等待完成或停止後再試。' });
-      return;
-    }
-    if (agentMutating) {
-      sendJson(res, 409, { error: '正在還原／重新生成，請稍候再試。' });
-      return;
-    }
-    agentStreaming = true;
-
-    // Serialize against the previous run's unwind: a stopped chat releases the
-    // streaming lock immediately (socket close), but its generator may still
-    // be unwinding (a tool call in flight) — wait for it to fully finish
-    // (including persistSession) before touching any session state, so an
-    // aborted old run can never interleave with or clobber this run.
-    const prevUnwind = chatUnwind;
-    let releaseUnwind!: () => void;
-    chatUnwind = new Promise<void>((r) => { releaseUnwind = r; });
-    try {
-      await prevUnwind;
-      await handleAgentChatInner(req, res);
-    } finally {
-      releaseUnwind();
-    }
-  }
-
-  async function handleAgentChatInner(req: IncomingMessage, res: import('node:http').ServerResponse) {
     let body: AgentChatRequest;
     try { body = JSON.parse(await readBody(req)) as AgentChatRequest; }
     catch (e) {
-      agentStreaming = false;
       sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` });
       return;
     }
@@ -1331,7 +1375,6 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // Read LLM config fresh on each request.
     const llmConfig = await readLlmConfig();
     if (!llmConfig) {
-      agentStreaming = false;
       // Return SSE error event with zh-TW guidance.
       res.writeHead(200, {
         'Content-Type': 'text/event-stream; charset=utf-8',
@@ -1352,28 +1395,71 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // Resolve the target session (M7): explicit sessionId binds exactly; an
     // id-less request continues the current session or creates a fresh one —
     // so a reloaded UI that binds explicitly can never inherit stale context.
+    // Team mode: members reach only their own sessions (foreign ids 404 like
+    // missing ones); new sessions are stamped with their username.
     let active: ActiveSession;
     if (typeof body.sessionId === 'string' && body.sessionId) {
       if (!SESSION_ID_RE.test(body.sessionId)) {
-        agentStreaming = false;
         sendJson(res, 400, { error: 'invalid sessionId' });
         return;
       }
       const resumed = await resumeSession(body.sessionId);
-      if (!resumed) {
-        agentStreaming = false;
+      if (!resumed || !canTouchSession(user, resumed.owner)) {
         sendJson(res, 404, { error: '找不到指定的會話，請重新整理會話列表。' });
         return;
       }
       active = resumed;
     } else {
       const current = currentSessionId ? await resumeSession(currentSessionId) : null;
-      active = current ?? createActiveSession(
+      // An id-less request continues the pointer session only when it belongs
+      // to the SAME identity — an admin "can touch" a member's session, but
+      // silently appending to it would be wrong; explicit ids only for that.
+      const sameIdentity = current !== null && (mode !== 'team' || current.owner === user?.username);
+      active = (current && sameIdentity) ? current : createActiveSession(
         newAgentSessionId(),
         body.ueVersion ?? defaultUeVersion(),
         body.graphPath ?? undefined,
+        mode === 'team' ? user?.username : undefined,
       );
     }
+
+    // Per-session single-flight: the check-and-set below is synchronous (no
+    // await between), so a concurrent chat on the SAME session cannot slip
+    // through; chats on different sessions run in parallel by design.
+    if (active.streaming) {
+      sendJson(res, 409, { error: '目前已有對話進行中，請等待完成或停止後再試。' });
+      return;
+    }
+    if (active.mutating) {
+      sendJson(res, 409, { error: '正在還原／重新生成，請稍候再試。' });
+      return;
+    }
+    active.streaming = true;
+
+    // Serialize against this SESSION's previous run: a stopped chat releases
+    // the streaming lock immediately (socket close), but its generator may
+    // still be unwinding (a tool call in flight) — wait for it to fully finish
+    // (including persistSession) before touching any session state, so an
+    // aborted old run can never interleave with or clobber this run.
+    const prevUnwind = active.unwind;
+    let releaseUnwind!: () => void;
+    active.unwind = new Promise<void>((r) => { releaseUnwind = r; });
+    try {
+      await prevUnwind;
+      await runChatTurn(req, res, body, active, llmConfig, user);
+    } finally {
+      releaseUnwind();
+    }
+  }
+
+  async function runChatTurn(
+    req: IncomingMessage,
+    res: import('node:http').ServerResponse,
+    body: AgentChatRequest,
+    active: ActiveSession,
+    llmConfig: LLMConfig,
+    user: AuthUser | null,
+  ) {
     currentSessionId = active.loop.id;
 
     // Announcement channel: tell every viewer a new turn started streaming here.
@@ -1391,7 +1477,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     try {
       provider = makeProvider(llmConfig);
     } catch (e) {
-      agentStreaming = false;
+      active.streaming = false;
       sendJson(res, 500, { error: `failed to build provider: ${(e as Error).message}` });
       return;
     }
@@ -1404,14 +1490,15 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     });
 
     const ac = new AbortController();
-    agentAbortRef.current = ac;
+    active.abort = ac;
 
     // Abort when the client disconnects (stop button = fetch abort = socket
     // close), and release the single-flight lock IMMEDIATELY: the aborted
     // generator only notices the abort at its next event boundary and can take
     // seconds to unwind — without this, an instant re-send hits a spurious
-    // 409. The next chat serializes behind chatUnwind, so the early release
-    // can never let two runs mutate the same session concurrently.
+    // 409. The next chat serializes behind the session's unwind promise, so
+    // the early release can never let two runs mutate the same session
+    // concurrently.
     //
     // NOTE: mid-response disconnects surface on the RESPONSE ('close' with
     // writableEnded still false) — the request stream completed long ago at
@@ -1419,9 +1506,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     const onClientGone = () => {
       if (res.writableEnded) return; // normal completion, nothing to abort
       ac.abort();
-      if (agentAbortRef.current === ac) {
-        agentStreaming = false;
-        agentAbortRef.current = null;
+      if (active.abort === ac) {
+        active.streaming = false;
+        active.abort = null;
       }
     };
     req.on('close', onClientGone);
@@ -1506,6 +1593,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           tokenCeiling: llmConfig.contextLimit,
           // 🌐 switch: absent = on (the loop removes the web tools when false).
           webToolsEnabled: body.webSearch !== false,
+          // Team members cannot approve crawl/DB-edit cards (those endpoints
+          // are admin-only), so their agent never gets the proposal tools —
+          // a card that can only 403 is worse than no card.
+          disabledTools: mode === 'team' && user && user.role !== 'admin'
+            ? ['request_crawl', 'propose_db_edit']
+            : undefined,
         },
       );
     } catch (e) {
@@ -1530,9 +1623,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       // unconditionally here would break the newer run's single-flight lock
       // and null out its abort controller — only the run that still owns the
       // abort ref may clear them.
-      if (agentAbortRef.current === ac) {
-        agentStreaming = false;
-        agentAbortRef.current = null;
+      if (active.abort === ac) {
+        active.streaming = false;
+        active.abort = null;
       }
       if (sessionClosed) {
         // Off-topic strike limit: delete instead of persist — the session and
@@ -1606,6 +1699,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       envLocked,
       bindHost: currentBindHost,
       secureCookies,
+      memberAgent: memberAgentEnabled,
       port: boundPort,
       hasUsers: await store.hasUsers(),
       urls: mode === 'team' ? teamUrls() : [],
@@ -1614,16 +1708,24 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   async function handleTeamPost(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    let body: { enabled?: unknown; bindHost?: unknown; secureCookies?: unknown; username?: unknown; password?: unknown };
+    let body: { enabled?: unknown; bindHost?: unknown; secureCookies?: unknown; memberAgent?: unknown; username?: unknown; password?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
-    if (envLocked) { sendJson(res, 409, { error: '綁定位址由 BIND_HOST 環境變數鎖定，請在啟動環境調整。' }); return; }
+    // The env lock pins the BIND (mode switch); plain settings stay editable.
+    if (envLocked && typeof body.enabled === 'boolean') {
+      sendJson(res, 409, { error: '綁定位址由 BIND_HOST 環境變數鎖定，請在啟動環境調整。' });
+      return;
+    }
     if (teamSwitching) { sendJson(res, 409, { error: '正在切換模式，請稍候。' }); return; }
     teamSwitching = true;
     try {
       if (typeof body.secureCookies === 'boolean' && body.secureCookies !== secureCookies) {
         secureCookies = body.secureCookies;
         await saveTeamConfig({ secureCookies });
+      }
+      if (typeof body.memberAgent === 'boolean' && body.memberAgent !== memberAgentEnabled) {
+        memberAgentEnabled = body.memberAgent;
+        await saveTeamConfig({ memberAgent: memberAgentEnabled });
       }
 
       if (body.enabled === true && mode === 'local') {
@@ -1668,7 +1770,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       }
 
       // No mode change requested (or already in that mode) — report state.
-      sendJson(res, 200, { ok: true, mode, bindHost: currentBindHost, secureCookies, port: boundPort, urls: mode === 'team' ? teamUrls() : [] });
+      sendJson(res, 200, { ok: true, mode, bindHost: currentBindHost, secureCookies, memberAgent: memberAgentEnabled, port: boundPort, urls: mode === 'team' ? teamUrls() : [] });
     } finally {
       teamSwitching = false;
     }
@@ -1688,6 +1790,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       mode: 'team',
       needsSetup: !(await authStore.hasUsers()),
       authed: !!user,
+      memberAgent: memberAgentEnabled,
       ...(user ? { username: user.username, role: user.role } : {}),
     });
   }
@@ -1775,6 +1878,24 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     sendJson(res, 200, { ok: true });
   }
 
+  /** POST /api/auth/password — change YOUR OWN password (any authed user).
+   *  Verifies the old password, rotates the hash, revokes every existing
+   *  token, then re-issues one so this browser stays logged in. */
+  async function handleAuthSelfPassword(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
+    if (!authStore || !user) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    let body: { oldPassword?: unknown; newPassword?: unknown };
+    try { body = JSON.parse(await readBody(req, 64_000)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    const verified = await authStore.verifyPassword(user.username, String(body.oldPassword ?? ''));
+    if (!verified) { sendJson(res, 401, { error: '舊密碼不正確' }); return; }
+    const r = await authStore.setPassword(user.username, String(body.newPassword ?? ''));
+    if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
+    const token = await authStore.issueToken(user.username);
+    setAuthCookie(res, token);
+    sendJson(res, 200, { ok: true, token });
+  }
+
   // Track all open HTTP sockets so we can destroy them during forced shutdown.
   // Without this, http.close() only stops accepting new connections but waits
   // for existing keep-alive connections to drain — which can take up to 300 s on
@@ -1806,13 +1927,22 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
 
     // ── Team gate: every other /api route needs a valid token; the dangerous
-    //    surface additionally needs the admin role. Local mode: no-op. ────────
+    //    surface additionally needs the admin role. Local mode: no-op
+    //    (gateUser stays null = unrestricted). Ownership-aware agent handlers
+    //    receive gateUser to scope members to their own sessions. ────────────
+    let gateUser: AuthUser | null = null;
     if (mode === 'team' && urlPath.startsWith('/api/')) {
-      let user: AuthUser | null = null;
-      try { user = await authenticate(req); }
+      try { gateUser = await authenticate(req); }
       catch (e) { console.error('authenticate error:', e); }
-      if (!user) { sendJson(res, 401, { error: '需要登入' }); return; }
-      if (isAdminOnly(urlPath) && user.role !== 'admin') { sendJson(res, 403, { error: '需要管理員權限' }); return; }
+      if (!gateUser) { sendJson(res, 401, { error: '需要登入' }); return; }
+      if (isAdminOnly(urlPath) && gateUser.role !== 'admin') { sendJson(res, 403, { error: '需要管理員權限' }); return; }
+    }
+
+    // ── Self-service password change (any authed user; gated above) ─────────
+    if (req.method === 'POST' && urlPath === '/api/auth/password') {
+      try { await handleAuthSelfPassword(req, res, gateUser); }
+      catch (e) { console.error('auth password error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
     }
 
     // ── User management (admin-gated above) ─────────────────────────────────
@@ -1902,7 +2032,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/chat') {
-      try { await handleAgentChat(req, res); }
+      try { await handleAgentChat(req, res, gateUser); }
       catch (e) { console.error('agent chat handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
@@ -1913,12 +2043,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
     if (urlPath === '/api/agent/sessions') {
       if (req.method === 'GET') {
-        try { await handleAgentSessionsList(res); }
+        try { await handleAgentSessionsList(res, gateUser); }
         catch (e) { console.error('agent sessions list error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
         return;
       }
       if (req.method === 'POST') {
-        try { await handleAgentSessionsCreate(req, res); }
+        try { await handleAgentSessionsCreate(req, res, gateUser); }
         catch (e) { console.error('agent sessions create error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
         return;
       }
@@ -1941,12 +2071,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       if (m) {
         const sid = m[1];
         if (req.method === 'GET') {
-          try { await handleAgentSessionDetail(sid, res); }
+          try { await handleAgentSessionDetail(sid, res, gateUser); }
           catch (e) { console.error('agent session detail error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
           return;
         }
         if (req.method === 'DELETE') {
-          try { await handleAgentSessionDelete(sid, req, res); }
+          try { await handleAgentSessionDelete(sid, req, res, gateUser); }
           catch (e) { console.error('agent session delete error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
           return;
         }
@@ -1963,17 +2093,17 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/undo') {
-      try { await handleAgentUndo(req, res); }
+      try { await handleAgentUndo(req, res, gateUser); }
       catch (e) { console.error('agent undo handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/regenerate') {
-      try { await handleAgentRegenerate(req, res); }
+      try { await handleAgentRegenerate(req, res, gateUser); }
       catch (e) { console.error('agent regenerate handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/reset') {
-      try { await handleAgentReset(req, res); }
+      try { await handleAgentReset(req, res, gateUser); }
       catch (e) { console.error('agent reset handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
@@ -2191,7 +2321,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       }
       // Replay the announcement-channel pointer so a late joiner can render it.
       const publicId = await sessionStore.getPublicId();
-      if (publicId) send(ws, { kind: 'publicAgent', id: publicId, streaming: agentStreaming && currentSessionId === publicId });
+      if (publicId) send(ws, { kind: 'publicAgent', id: publicId, streaming: activeSessions.get(publicId)?.streaming === true });
     } catch (e) {
       console.error('connection handler error:', e);
     }

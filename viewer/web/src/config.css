@@ -316,3 +316,23 @@
 }
 .team-pwrow input:focus { border-color: var(--accent-dim); }
 .team-toggle-btn { width: 100%; padding: 7px 0; font-size: 12px; margin-top: 2px; }
+
+/* ── My account (self-service password change) ───────────────────────────── */
+.myacct-form { display: flex; flex-direction: column; gap: 6px; }
+.myacct-form input {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  color: var(--text); font-size: 12px;
+  padding: 6px 9px; outline: none;
+}
+.myacct-form input:focus { border-color: var(--accent-dim); }
+.myacct-form .ua-btn { align-self: flex-start; padding: 5px 12px; }
+.myacct-ok {
+  margin-top: 8px;
+  font-size: 12px; color: var(--ok);
+  background: rgba(78, 196, 110, .1);
+  border: 1px solid rgba(78, 196, 110, .35);
+  border-radius: var(--chip-radius);
+  padding: 6px 9px;
+}

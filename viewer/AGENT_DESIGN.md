@@ -460,12 +460,15 @@ interface AgentChatRequest {
   每輪 token 用量＋累計消費顯示；Markdown 匯出。
 - **快捷指令**：⚡ 選單或輸入 `/` 篩選執行（11 個，含 /crawlmf 直接爬取並回報）。
 - **體驗**：Agent 分頁 keep-alive＋注意力小點、欄寬拖曳、思考程度旋鈕（off/low/medium/high）。
-- **團隊模式（BIND_HOST 非 loopback）**：整個 agent 面是 admin 專屬（gate 在
+- **團隊模式（BIND_HOST 非 loopback 或 web 切換）**：預設 agent 面是 admin 專屬（gate 在
   http-server 的 `isAdminOnly`，例外只有 status/explain/public-session）。admin 可把任一
   會話「設為公告」（POST /api/agent/sessions/:id/public → `.public-session.json` 指標）；
   成員在 Agent 分頁以 `PublicAgentView` 唯讀圍觀（GET /api/agent/public-session ＋
-  WS `publicAgent` 廣播：指定/清除、turn 開始串流、turn 落盤→重抓）。LLM key 一直在
-  伺服器端（local.config.json），任何角色的瀏覽器都拿不到。
+  WS `publicAgent` 廣播：指定/清除、turn 開始串流、turn 落盤→重抓）。
+  admin 開啟 `Team.memberAgent` 後成員獲得自己的私人會話（owner 隔離：成員只見自己的、
+  admin 看全部含用量；成員 turn 拿不到 request_crawl/propose_db_edit）。chat 單飛降為
+  **per-session**（不同會話並行串流；同一會話內 streaming/mutating/unwind 不變式照舊）。
+  LLM key 一直在伺服器端（local.config.json），任何角色的瀏覽器都拿不到。
 
 ---
 *v0.2 · 2026-06-10 · 分支 `feat/material-agent` · 對齊記錄見 session（verified 覆蓋

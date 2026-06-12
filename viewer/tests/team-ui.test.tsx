@@ -11,6 +11,7 @@ import { Login } from '../web/src/Login.js';
 import { PublicAgentView } from '../web/src/agent/PublicAgentView.js';
 import { UserAdminSection } from '../web/src/UserAdmin.js';
 import { TeamPanel } from '../web/src/TeamPanel.js';
+import { MyAccountSection } from '../web/src/MyAccount.js';
 
 // ---------------------------------------------------------------------------
 // Store mock (mutable snapshot + spied auth actions)
@@ -191,6 +192,17 @@ describe('TeamPanel', () => {
     expect(JSON.parse(String(calls[0].init!.body))).toMatchObject({ enabled: true });
   });
 
+  it('team mode: the member-agent switch posts through /api/team', async () => {
+    const calls = mockTeamApi(teamInfo({ mode: 'team', bindHost: '0.0.0.0', hasUsers: true, urls: ['http://10.0.0.5:5790'] }));
+    render(<TeamPanel />);
+    expect(await screen.findByText('運作中')).toBeTruthy();
+    const box = screen.getByText(/允許成員使用 AI 助手/).querySelector('input') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    fireEvent.click(box);
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(JSON.parse(String(calls[0].init!.body))).toEqual({ memberAgent: true });
+  });
+
   it('team mode: shows share URLs and disables after confirm', async () => {
     const calls = mockTeamApi(teamInfo({
       mode: 'team', bindHost: '0.0.0.0', hasUsers: true,
@@ -211,6 +223,36 @@ describe('TeamPanel', () => {
     render(<TeamPanel />);
     expect(await screen.findByText(/BIND_HOST/)).toBeTruthy();
     expect(screen.queryByText(/關閉團隊模式/)).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MyAccountSection (self-service password change)
+// ---------------------------------------------------------------------------
+
+describe('MyAccountSection', () => {
+  it('posts old+new password and reports success; mismatched confirm never fires', async () => {
+    mockAuth = { mode: 'team', needsSetup: false, authed: true, username: 'artist', role: 'user' };
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    }) as never;
+
+    render(<MyAccountSection />);
+    fireEvent.change(screen.getByPlaceholderText('目前密碼'), { target: { value: 'password1' } });
+    fireEvent.change(screen.getByPlaceholderText('新密碼（至少 8 字元）'), { target: { value: 'password2' } });
+    fireEvent.change(screen.getByPlaceholderText('確認新密碼'), { target: { value: 'different' } });
+    fireEvent.click(screen.getByText('更改密碼'));
+    expect(await screen.findByText('兩次輸入的新密碼不一致')).toBeTruthy();
+    expect(calls.length).toBe(0);
+
+    fireEvent.change(screen.getByPlaceholderText('確認新密碼'), { target: { value: 'password2' } });
+    fireEvent.click(screen.getByText('更改密碼'));
+    await waitFor(() => expect(calls.length).toBe(1));
+    expect(calls[0].url).toBe('/api/auth/password');
+    expect(JSON.parse(String(calls[0].init!.body))).toEqual({ oldPassword: 'password1', newPassword: 'password2' });
+    expect(await screen.findByText(/密碼已更新/)).toBeTruthy();
   });
 });
 

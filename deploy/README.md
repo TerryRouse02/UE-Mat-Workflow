@@ -29,9 +29,17 @@ is active and no login screen ever appears.
 | Browse graphs, WS live sync, node explain (深入解說) | ✓ | ✓ |
 | Import from UE / export to UE clipboard | ✓ | ✓ |
 | Read the public **announcement agent session** | ✓ | ✓ |
-| Agent chat, sessions, undo, DB-edit approvals | | ✓ |
+| Change own password (Config → 我的帳號) | ✓ | ✓ |
+| Own private agent sessions | opt-in¹ | ✓ |
+| Crawl / DB-edit approvals, announce a session | | ✓ |
 | Crawls, UE paths, LLM provider/key (`/api/config`) | | ✓ |
 | User management (create/delete/reset password) | | ✓ |
+
+¹ Config → 團隊 → 「允許成員使用 AI 助手」(default off — member chats spend
+the shared key). Member sessions are owner-isolated (admins can read all of
+them, with per-session token totals); members' agents can write the shared
+graphs but never get the crawl/DB-edit proposal tools. Sessions stream **in
+parallel** — one member's chat no longer blocks another's.
 
 The LLM API key is held by the server (`tools/node-t3d-metadata/local.config.json`)
 and is never sent to any browser. Team members spend the shared key only

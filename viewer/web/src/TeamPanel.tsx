@@ -12,6 +12,7 @@ interface TeamInfo {
   envLocked: boolean;
   bindHost: string;
   secureCookies: boolean;
+  memberAgent?: boolean;
   port: number;
   hasUsers: boolean;
   urls: string[];
@@ -29,6 +30,7 @@ export function TeamPanel() {
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [secure, setSecure] = useState(false);
+  const [memberAgent, setMemberAgent] = useState(false);
   const [copied, setCopied] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -38,6 +40,7 @@ export function TeamPanel() {
       const data = (await r.json()) as TeamInfo;
       setInfo(data);
       setSecure(data.secureCookies);
+      setMemberAgent(data.memberAgent === true);
       if (data.mode === 'local') setBindHost(data.bindHost === '127.0.0.1' ? '0.0.0.0' : data.bindHost);
     } catch (e) {
       setError((e as Error).message);
@@ -130,6 +133,15 @@ export function TeamPanel() {
               </div>
             ))}
           </div>
+          <label className="team-check">
+            <input
+              type="checkbox"
+              checked={memberAgent}
+              disabled={busy}
+              onChange={e => { setMemberAgent(e.target.checked); void post({ memberAgent: e.target.checked }); }}
+            />
+            允許成員使用 AI 助手（各自的私人會話；花費伺服器持有的共享 LLM key。爬取與節點 DB 修改仍僅限管理員）
+          </label>
           <label className="team-check">
             <input
               type="checkbox"

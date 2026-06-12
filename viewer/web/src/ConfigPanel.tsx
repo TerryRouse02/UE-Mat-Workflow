@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useStore } from './store';
 import { UserAdminSection } from './UserAdmin';
 import { TeamPanel } from './TeamPanel';
+import { MyAccountSection } from './MyAccount';
 import type { CrawlKind } from './crawlRequest';
 import { diagnoseCrawl } from './crawlDiagnosis';
 import { Icon } from './Icon';
@@ -1075,13 +1076,14 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
     );
   }
 
-  // ── team mode, member role: the whole panel is admin-managed ─────────────
+  // ── team mode, member role: my-account self service + an admin-managed note ──
   if (state.auth?.mode === 'team' && state.auth.role !== 'admin') {
     return (
       <div className="cfg">
+        <MyAccountSection />
         <div className="cfg-notice">
           <div className="ni"><Icon name="settings" size={20} /></div>
-          <div className="nt">此區由管理員管理</div>
+          <div className="nt">其餘設定由管理員管理</div>
           <div className="nd">
             UE 路徑、爬取與 LLM 設定屬於伺服器端設定，僅管理員可變更。
             {crawl.status === 'running' && ' 目前有一個爬取正在進行。'}
@@ -1146,6 +1148,7 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
         <>
           <TeamPanel />
           {state.auth?.mode === 'team' && state.auth.role === 'admin' && <UserAdminSection />}
+          {state.auth?.mode === 'team' && state.auth.authed && <MyAccountSection />}
         </>
       )}
     </div>

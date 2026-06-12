@@ -8,3 +8,20 @@
 .sidebar-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; }
 /* Keep-alive wrapper for AgentChat — display toggled inline by Sidebar.tsx */
 .agent-keepalive { flex: 1; min-height: 0; flex-direction: column; }
+
+/* Member agent area: 我的對話 / 公告 toggle (team mode, member role) */
+.member-agent-toggle {
+  display: flex; gap: 2px;
+  padding: 4px 6px 0;
+}
+.member-agent-toggle .mat-btn {
+  flex: 1;
+  padding: 4px 0;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+}
+.member-agent-toggle .mat-btn.on { background: var(--bg-elev); color: var(--text); font-weight: 600; }

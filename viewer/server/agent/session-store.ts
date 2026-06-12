@@ -24,6 +24,8 @@ export interface PersistedSession {
   createdAt: string;
   updatedAt: string;
   ueVersion: string;
+  /** Team mode: username that owns this conversation (absent = local/legacy). */
+  owner?: string;
   totalTokens: number;
   turnSeq: number;
   /** Cumulative off-topic strikes (absent in pre-fence session files → 0). */
@@ -74,6 +76,7 @@ function toMeta(s: PersistedSession): AgentSessionMeta {
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
     ueVersion: s.ueVersion,
+    owner: s.owner,
     totalTokens: s.totalTokens,
     turns: s.transcript.filter((e) => e.kind === 'user').length,
   };

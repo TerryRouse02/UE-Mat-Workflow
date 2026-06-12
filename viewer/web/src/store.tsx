@@ -63,6 +63,8 @@ export interface AuthStatus {
   authed: boolean;
   username?: string;
   role?: 'admin' | 'user';
+  /** Team mode: the admin switch that lets members run their own agent sessions. */
+  memberAgent?: boolean;
 }
 
 type Action =

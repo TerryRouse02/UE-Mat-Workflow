@@ -112,6 +112,8 @@ export interface AgentSessionMeta {
   createdAt: string;   // ISO timestamp
   updatedAt: string;   // ISO timestamp
   ueVersion: string;
+  /** Team mode: owning username (admins see everyone's sessions). */
+  owner?: string;
   totalTokens: number;
   /** Completed user turns. */
   turns: number;

@@ -188,6 +188,12 @@ export interface RunAgentOptions {
    * web this turn.
    */
   webToolsEnabled?: boolean;
+  /**
+   * Tools to withhold this turn (removed from the provider's tool list AND
+   * refused at dispatch). Team members get ['request_crawl',
+   * 'propose_db_edit'] — they cannot approve those cards anyway.
+   */
+  disabledTools?: string[];
 }
 
 const WEB_TOOL_NAMES = new Set(['web_search', 'web_fetch']);
@@ -211,7 +217,9 @@ export async function runAgent(
   const tokenCeiling = options?.tokenCeiling ?? TOKEN_CEILING;
   const maxTokens = options?.maxTokens ?? 8192;
   const webEnabled = options?.webToolsEnabled !== false;
-  const turnToolDefs = webEnabled ? toolDefs : toolDefs.filter(t => !WEB_TOOL_NAMES.has(t.name));
+  const disabledTools = new Set(options?.disabledTools ?? []);
+  if (!webEnabled) for (const n of WEB_TOOL_NAMES) disabledTools.add(n);
+  const turnToolDefs = toolDefs.filter(t => !disabledTools.has(t.name));
 
   // Compaction runs BEFORE the memory read so the freshly-written summary is
   // part of this turn's system prompt.
@@ -398,6 +406,10 @@ export async function runAgent(
             // The tool was not offered this turn — a stray call (hallucinated
             // or replayed from history) must not reach the network.
             ? { content: '聯網功能已由使用者關閉（輸入框旁的 🌐 開關）。請基於本地節點 DB 與既有知識回答，不確定的部分明確說明。', isError: true }
+          : disabledTools.has(call.name)
+            // Withheld this turn (e.g. member sessions lose the proposal
+            // tools) — a stray call must not slip through either.
+            ? { content: '此工具在目前的使用者權限下不可用，請改用其他方式完成任務或直接說明限制。', isError: true }
             : await dispatchTool(call.name, call.input, turnCtx);
 
       if (call.name === 'report_off_topic' && session.offTopicStrikes >= OFF_TOPIC_LIMIT) {

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { useStore } from './store';
 import { Icon } from './Icon';
 import { FileList } from './FileList';
@@ -34,8 +35,12 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
   // Agent tab is hidden in snapshot mode (same as ConfigPanel behaviour).
   const isSnapshot = state.connection === 'snapshot';
   // Team mode, member role: the agent surface is the read-only announcement
-  // channel — the full chat (and its keep-alive cost) is admin-only.
+  // channel, plus their OWN chat when the admin enabled the member-agent
+  // switch (a small 我的對話/公告 toggle swaps the two).
   const memberView = state.auth?.mode === 'team' && state.auth.role !== 'admin';
+  const memberChat = memberView && state.auth?.memberAgent === true;
+  const [memberAgentView, setMemberAgentView] = useState<'chat' | 'public'>('chat');
+  const chatVisible = tab === 'agent' && (!memberView || (memberChat && memberAgentView === 'chat'));
   // Pulse while the agent streams; steady dot when a reply finished off-tab.
   const agentCue: 'run' | 'new' | null =
     state.agentActivity === 'busy' ? 'run' : state.agentActivity === 'unseen' ? 'new' : null;
@@ -95,12 +100,25 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
         {/* AgentChat stays MOUNTED across tab switches (hidden, never unmounted):
             the pending crawl-report, an in-flight stream, and unsent input must
             survive the user watching crawl progress in the Config tab. */}
-        {!isSnapshot && !memberView && (
-          <div className="agent-keepalive" style={{ display: tab === 'agent' ? 'flex' : 'none' }}>
-            <AgentChat onGotoConfig={onGotoConfig} active={tab === 'agent'} />
+        {!isSnapshot && memberChat && tab === 'agent' && (
+          <div className="member-agent-toggle">
+            {([['chat', '我的對話'], ['public', '公告']] as const).map(([k, label]) => (
+              <button
+                key={k}
+                className={'mat-btn' + (memberAgentView === k ? ' on' : '')}
+                onClick={() => setMemberAgentView(k)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         )}
-        {!isSnapshot && memberView && tab === 'agent' && <PublicAgentView />}
+        {!isSnapshot && (!memberView || memberChat) && (
+          <div className="agent-keepalive" style={{ display: chatVisible ? 'flex' : 'none' }}>
+            <AgentChat onGotoConfig={onGotoConfig} active={chatVisible} />
+          </div>
+        )}
+        {!isSnapshot && memberView && tab === 'agent' && (!memberChat || memberAgentView === 'public') && <PublicAgentView />}
       </div>
     </div>
   );
