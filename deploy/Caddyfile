@@ -1,0 +1,7 @@
+# deploy/Caddyfile — HTTPS reverse proxy for the team-mode viewer.
+# Caddy provisions certificates automatically and proxies WebSockets without
+# extra configuration. Remember to start the viewer with COOKIE_SECURE=1.
+
+mat.example.com {
+	reverse_proxy 127.0.0.1:5790
+}

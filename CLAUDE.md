@@ -63,10 +63,15 @@ tools/node-t3d-metadata/    UE commandlet (C++) + PowerShell runners + compiled 
 README.md / README.zh-TW.md user-facing docs (EN is source of truth; zh-TW mirrors it)
 ```
 
-## viewer/server (native http + ws, loopback only)
+## viewer/server (native http + ws, loopback by default)
 
 Entry `index.ts` → `http-server.ts` (`startServer`). Binds **127.0.0.1** (base port 5790,
 auto-tries 5790–5799). One WebSocket carries everything live.
+**Team mode:** `BIND_HOST=<non-loopback>` flips `resolveMode()` to `'team'` — every `/api`
+route and the WS upgrade then require a 7-day token (HttpOnly cookie or Bearer), with the
+dangerous surface (`/api/config`, `/api/crawl*`, all `/api/agent/*` except
+`status`/`explain`/`public-session`, `/api/auth/users*`) admin-only (`isAdminOnly`).
+Local mode constructs no auth store and skips every gate — behavior unchanged.
 
 - `http-server.ts` — routes + WS. HTTP: `GET /api/env`, `GET /api/agent-pack/:file`
   (filename allowlist), `GET /api/workmf`, `POST /api/config` (extended with optional `Llm`
@@ -80,9 +85,15 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   `POST /api/agent/reset` (abort in-flight chat + clear session; sameOrigin),
   `POST /api/agent/test` (verify the SAVED LLM config with one minimal request; sameOrigin),
   `POST /api/agent/web-test` (one real search with the SAVED Web config; sameOrigin),
-  `GET/POST /api/agent/sessions` + `GET/DELETE /api/agent/sessions/:id` (persistent sessions: list/create/replay/delete);
+  `GET/POST /api/agent/sessions` + `GET/DELETE /api/agent/sessions/:id` (persistent sessions: list/create/replay/delete),
+  `POST /api/agent/sessions/:id/public` (designate the team announcement session) + `GET /api/agent/public-session` (its transcript — the one member-readable agent surface),
+  `/api/auth/*` (status/setup/login/logout public; users CRUD admin-only — see `auth.ts`);
   static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
-  `listFiles`, crawl progress broadcast.
+  `listFiles`, crawl progress broadcast, `publicAgent` announcement pointer broadcast.
+- `auth.ts` — team-mode primitives: `resolveMode(BIND_HOST)`, scrypt user store +
+  sha256-hashed 7-day tokens under `viewer/.auth/` (gitignored), login rate limiter.
+  Plaintext passwords/tokens are never stored; deleting a user / resetting a password
+  revokes their tokens.
 - `server/agent/` — the built-in conversational material agent (providers, 25-tool loop,
   checkpoints/undo, sessions, memory, compaction, web access, DB-edit apply). The design
   contract + per-file map live in `viewer/AGENT_DESIGN.md` — read that before touching it.
@@ -116,13 +127,17 @@ auto-tries 5790–5799). One WebSocket carries everything live.
 
 - `store.tsx` — global state: reducer + WS client + crawl lifecycle + `saveConfig`.
   Connection is `live | reconnecting | snapshot` (snapshot = exported HTML, no server).
+  Probes `/api/auth/status` BEFORE opening the WS (a team-mode upgrade without a token is
+  rejected); `auth` + `publicAgent` state drive the team UI (`Login.tsx` via App's AuthGate,
+  `UserAdmin.tsx` in Config, `agent/PublicAgentView.tsx` — the members' read-only
+  announcement view that re-fetches on every `publicAgent` WS bump).
 - `dbContext.tsx` — derives the active node DB / export metadata / engine-MF / work-MF for the
   open graph's `ueVersion`. **Baked at build time** (`dbRegistry.ts`, `engineMfRegistry.ts` via
   `import.meta.glob`) so snapshot/offline renders; **re-fetched at runtime** in live mode
   (`agentPackClient.ts`) so a crawl refreshes without a rebuild.
 - `Graph.tsx` + `layout.ts` — React Flow render; dagre auto-layout (no x/y in the JSON).
   Hover (≈500ms) on a node opens `NodeExplainPopover`; pane-click / Escape closes it.
-- `Sidebar.tsx` — four tabs: **Files** (`FileList`), **Nodes** (`NodeLibrary`), **Config** (`ConfigPanel`), **Agent** (`AgentChat` — hidden in snapshot mode; in live mode it stays MOUNTED across tab switches via a display-toggled keep-alive wrapper so pending crawl reports / in-flight streams survive).
+- `Sidebar.tsx` — four tabs: **Files** (`FileList`), **Nodes** (`NodeLibrary`), **Config** (`ConfigPanel`), **Agent** (`AgentChat` — hidden in snapshot mode; in live mode it stays MOUNTED across tab switches via a display-toggled keep-alive wrapper so pending crawl reports / in-flight streams survive). Team-mode member role swaps AgentChat for the read-only `PublicAgentView`.
 - `Header.tsx` — export to UE (`export/ueT3D.ts`) + import from UE (`ImportModal`).
 - `crawlRequest.ts` — POST /api/crawl + the `CrawlKind` union (web side).
 - `web/src/agent/AgentChat.tsx` — 4th Sidebar tab: conversational material agent UI (M3+M4+M5).
@@ -153,6 +168,10 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
    types: `ws-protocol.ts` ↔ `web/src/protocol.ts` (mirror). Node-free shared types
    (`crawl-types.ts`, `workmf-types.ts`) exist so the web tsc program never pulls in `node:` typings.
 6. **No `x`/`y` positions in `.matgraph.json`.** Layout is dagre's job.
+7. **Auth secrets stay server-side and out of git.** `viewer/.auth/` (scrypt hashes +
+   hashed tokens) is gitignored like `local.config.json` (LLM key); neither may ever be
+   echoed in an HTTP response, baked into a bundle, or committed. Local mode must stay
+   auth-free — never let a team-mode gate run when `BIND_HOST` is loopback/unset.
 
 ## Common changes (recipes)
 

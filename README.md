@@ -112,6 +112,27 @@ contract lives in [`viewer/AGENT_DESIGN.md`](./viewer/AGENT_DESIGN.md).
 
 ---
 
+## Team mode (share one viewer with your team)
+
+By default the viewer binds `127.0.0.1` and has no login — nothing changes for
+solo use. Set `BIND_HOST=0.0.0.0` and the same server becomes a team
+workspace:
+
+- **Login + roles** — username/password with 7-day tokens (HttpOnly cookie).
+  First visit creates the admin; members are added in Config → 使用者管理.
+- **admin** keeps the full surface (agent chat, crawls, LLM key, user
+  management); **user** gets the shared graphs, import/export, node explain —
+  and a read-only view of the **announcement agent session** the admin
+  designates with one click (設為公告), streamed live to everyone.
+- The LLM API key stays server-side; no browser ever receives it.
+
+Docker / docker-compose / Caddy / nginx examples and the full ops guide live
+in [`deploy/`](./deploy/README.md). UE crawls still need a workstation with
+Unreal installed — run team mode bare-metal there, or generate the indexes on
+a workstation and mount them into the container.
+
+---
+
 ## Use with AI tools
 
 The `agent-pack/` directory contains the spec, node DB, examples, and rule files for every popular AI coding tool. Point your tool at this repo and start prompting.
