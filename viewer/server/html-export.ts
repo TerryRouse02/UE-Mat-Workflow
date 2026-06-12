@@ -87,7 +87,7 @@ export async function buildSnapshot(opts: BuildSnapshotOptions): Promise<string>
   return inlined.replace('</body>', `${dataInject}</body>`);
 }
 
-async function main() {
+export async function runHtmlExportCli() {
   const fullArgs = process.argv.slice(2);
   if (fullArgs[0] !== 'export' || !fullArgs[1]) {
     console.error('Usage: ue-mat-viewer export <name> [--out <path>]');
@@ -139,11 +139,4 @@ async function inlineAssets(html: string, distDir: string): Promise<string> {
     } catch { /* ignore */ }
   }
   return result;
-}
-
-// Guard: only run when this file is executed directly as a CLI entrypoint.
-// VITEST is set to 'true' by vitest when running tests, so we skip auto-run.
-// This lets test files `import { buildSnapshot }` without triggering the CLI.
-if (!process.env.VITEST) {
-  main().catch((e) => { console.error(e); process.exit(1); });
 }
