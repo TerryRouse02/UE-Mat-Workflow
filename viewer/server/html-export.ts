@@ -4,7 +4,7 @@ import { loadGraph } from './graph-loader.js';
 import { materialStructureWarnings } from './schema.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
 import { loadWorkMfIndex } from './workmf-index.js';
-import { isInside } from './http-server.js';
+import { isInside } from './graph-write.js';
 
 export interface BuildSnapshotOptions {
   /** Absolute path to the repo root (contains graphs/ and agent-pack/). */

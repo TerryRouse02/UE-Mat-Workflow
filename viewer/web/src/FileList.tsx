@@ -17,6 +17,38 @@ interface FileRowProps {
 function FileRow({ entry, onLargeGraph }: FileRowProps) {
   const { state, open } = useStore();
   const active = state.breadcrumb[0] === entry.path;
+  const [menuOpen, setMenuOpen] = useState(false);
+  const live = state.connection === 'live';
+
+  // Human file management: thin client over POST /api/files; the server-side
+  // watcher refreshes every client's list, so no local state to fix up.
+  const fileOp = async (op: 'rename' | 'duplicate' | 'delete') => {
+    setMenuOpen(false);
+    let to: string | undefined;
+    if (op !== 'delete') {
+      const suggested = op === 'duplicate'
+        ? entry.path.replace(/\.matgraph\.json$/, '-copy.matgraph.json')
+        : entry.path;
+      const input = window.prompt(op === 'rename' ? '新路徑（含 .matgraph.json）：' : '複製到（含 .matgraph.json）：', suggested);
+      if (!input || input === entry.path) return;
+      to = input.trim();
+    } else if (!window.confirm(`刪除「${entry.path}」？此操作無法還原。`)) {
+      return;
+    }
+    try {
+      const r = await fetch('/api/files', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ op, path: entry.path, ...(to ? { to } : {}) }),
+      });
+      if (!r.ok) {
+        const e = (await r.json().catch(() => ({}))) as { error?: string };
+        window.alert(`操作失敗：${e.error || `HTTP ${r.status}`}`);
+      }
+    } catch (e) {
+      window.alert(`操作失敗：${(e as Error).message}`);
+    }
+  };
   const loaded = state.graphs[entry.path];
   const errored = (state.errors[entry.path]?.length ?? 0) > 0;
   // Opened files use their live status (most current); unopened files fall back to
@@ -76,6 +108,25 @@ function FileRow({ entry, onLargeGraph }: FileRowProps) {
         {isBig && <span className="bigmark" title="大型圖">300+</span>}
         {displayCount != null && <span className="nc">{displayCount}</span>}
         {status && <span className={'sdot ' + status} title={status} />}
+        {live && !isCrawled && (
+          <span className="fops" onClick={e => e.stopPropagation()}>
+            <button
+              className="fops-btn"
+              title="檔案操作"
+              onClick={() => setMenuOpen(o => !o)}
+              onKeyDown={e => e.stopPropagation()}
+            >
+              <Icon name="more" size={12} />
+            </button>
+            {menuOpen && (
+              <span className="fops-menu" onMouseLeave={() => setMenuOpen(false)}>
+                <button onClick={() => void fileOp('rename')}>改名／移動</button>
+                <button onClick={() => void fileOp('duplicate')}>建立副本</button>
+                <button className="danger" onClick={() => void fileOp('delete')}>刪除</button>
+              </span>
+            )}
+          </span>
+        )}
       </span>
     </div>
   );

@@ -99,12 +99,19 @@ export function Chrome({ graph, onPalette, onImport, onExport, onSettings }: Chr
             <div className="menu-label">分享 / 離線</div>
             <button
               className="menu-item"
-              disabled
-              title="需要 CLI：ue-mat-viewer export <name>"
-              onClick={() => setMoreOpen(false)}
+              disabled={conn !== 'live' || !state.currentPath}
+              title={state.currentPath ? '下載目前材質的單檔離線快照' : '先開啟一個材質'}
+              onClick={() => {
+                setMoreOpen(false);
+                const name = (state.currentPath ?? '').replace(/\.matgraph\.json$/, '');
+                const a = document.createElement('a');
+                a.href = `/api/export-html?name=${encodeURIComponent(name)}`;
+                a.download = '';
+                a.click();
+              }}
             >
               <Icon name="download" size={14} /> 匯出離線 HTML 快照
-              <span className="mi-hint">需要 CLI</span>
+              <span className="mi-hint">{state.currentPath ? '' : '先開圖'}</span>
             </button>
             <div className="menu-div" />
             <button className="menu-item" onClick={() => { setMoreOpen(false); onPalette(); }}>

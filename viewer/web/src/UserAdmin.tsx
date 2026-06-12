@@ -18,6 +18,10 @@ export function UserAdminSection() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Daily token quotas + today's spend (from GET /api/team).
+  const [quotas, setQuotas] = useState<Record<string, number>>({});
+  const [usageToday, setUsageToday] = useState<Record<string, number>>({});
+  const [quotaDraft, setQuotaDraft] = useState<Record<string, string>>({});
 
   // Create form
   const [newName, setNewName] = useState('');
@@ -33,6 +37,12 @@ export function UserAdminSection() {
       const r = await fetch('/api/auth/users', { cache: 'no-store' });
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       setUsers(((await r.json()) as { users: UserRow[] }).users);
+      const t = await fetch('/api/team', { cache: 'no-store' });
+      if (t.ok) {
+        const team = (await t.json()) as { quotas?: Record<string, number>; usageToday?: Record<string, number> };
+        setQuotas(team.quotas ?? {});
+        setUsageToday(team.usageToday ?? {});
+      }
       setError(null);
     } catch (e) {
       setError((e as Error).message);
@@ -75,6 +85,18 @@ export function UserAdminSection() {
     await post(`/api/auth/users/${encodeURIComponent(name)}`, { method: 'DELETE' });
   };
 
+  const saveQuota = async (name: string) => {
+    const raw = (quotaDraft[name] ?? '').trim();
+    const n = raw === '' ? 0 : Number(raw);
+    if (raw !== '' && (!Number.isFinite(n) || n < 0)) { setError('配額需為正整數（留空＝不限）'); return; }
+    await post('/api/team', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ quotas: { [name]: n } }),
+    });
+    setQuotaDraft(d => { const next = { ...d }; delete next[name]; return next; });
+  };
+
   const resetPassword = async (name: string) => {
     const ok = await post(`/api/auth/users/${encodeURIComponent(name)}/password`, {
       method: 'POST',
@@ -100,6 +122,20 @@ export function UserAdminSection() {
             <div className="ua-main">
               <span className="ua-name">{u.username}{u.username === me && <span className="ua-me">（你）</span>}</span>
               <span className={'ua-role' + (u.role === 'admin' ? ' admin' : '')}>{u.role}</span>
+              {u.role !== 'admin' && (
+                <span className="ua-quota" title="今日用量／每日 token 配額（留空＝不限）">
+                  <span className="ua-used mono">{(usageToday[u.username] ?? 0).toLocaleString()}</span>
+                  <span className="ua-slash">/</span>
+                  <input
+                    className="ua-quota-input mono"
+                    placeholder="不限"
+                    value={quotaDraft[u.username] ?? (quotas[u.username] ? String(quotas[u.username]) : '')}
+                    onChange={e => setQuotaDraft(d => ({ ...d, [u.username]: e.target.value }))}
+                    onBlur={() => { if (u.username in quotaDraft) void saveQuota(u.username); }}
+                    onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+                  />
+                </span>
+              )}
               <span className="ua-actions">
                 <button
                   className="ua-btn"

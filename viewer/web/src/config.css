@@ -369,3 +369,16 @@
 }
 .tu-session .tu-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tu-session .ua-btn { padding: 1px 6px; font-size: 10px; }
+
+/* per-user daily quota (UserAdmin row) */
+.ua-quota { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-mute); }
+.ua-used { color: var(--text-dim); }
+.ua-quota-input {
+  width: 64px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text); font-size: 11px;
+  padding: 2px 6px; outline: none;
+}
+.ua-quota-input:focus { border-color: var(--accent-dim); }

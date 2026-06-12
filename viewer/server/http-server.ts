@@ -26,7 +26,9 @@ import { webSearch, type WebSearchConfig } from './agent/web-tools.js';
 import { applyDbEdit } from './agent/db-edit.js';
 import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/session-store.js';
 import { createMemoryStore } from './agent/memory-store.js';
+import { createUsageStore } from './agent/usage-store.js';
 import { explainNode, buildGraphContext, RESERVED_NODE_DESCRIPTIONS } from './agent/explain.js';
+import { buildSnapshot } from './html-export.js';
 import type { LLMConfig, ProviderStatus } from './agent/provider/types.js';
 import {
   resolveMode, createAuthStore, createLoginLimiter, validateCredentials,
@@ -137,7 +139,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // the Config tab (POST /api/team): the saved `Team` object in
   // local.config.json decides the initial bind, and a live re-bind flips it.
   const envLocked = opts.mode !== undefined || (typeof opts.bindHost === 'string' && opts.bindHost.trim() !== '');
-  interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean; memberAgent?: boolean }
+  interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean; memberAgent?: boolean; quotas?: Record<string, number> }
   async function readTeamConfig(): Promise<TeamConfig> {
     try {
       const parsed = JSON.parse(await readFile(localConfigPath, 'utf-8')) as { Team?: TeamConfig };
@@ -166,6 +168,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // the shared server-held LLM key, hence default off). Persists in Team
   // config; changeable even when the bind itself is env-locked.
   let memberAgentEnabled = savedTeam.memberAgent ?? false;
+  // Per-user daily token quotas (0/absent = unlimited) + the spend ledger.
+  // Enforced for member turns only; admins are never blocked but ARE counted,
+  // so the dashboard shows everyone's spend.
+  let quotas: Record<string, number> = savedTeam.quotas ?? {};
+  const usageStore = createUsageStore(resolve(opts.repoRoot, 'viewer'));
   const loginLimiter = createLoginLimiter();
   const COOKIE_NAME = 'uemw_token';
 
@@ -412,6 +419,59 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     res.end(JSON.stringify(body));
   };
 
+  /**
+   * POST /api/files — human file management for the graphs workspace:
+   * { op: 'rename' | 'duplicate' | 'delete', path, to? }. Paths are
+   * graphsRoot-relative .matgraph.json files; rename/duplicate rewrite the
+   * graph's internal `name` to the new base (folder = material = file
+   * convention). The watcher broadcasts the change to every client.
+   */
+  async function handleFilesOp(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    let body: { op?: unknown; path?: unknown; to?: unknown };
+    try { body = JSON.parse(await readBody(req, 64_000)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+
+    const op = body.op;
+    if (op !== 'rename' && op !== 'duplicate' && op !== 'delete') {
+      sendJson(res, 400, { error: 'op must be rename | duplicate | delete' });
+      return;
+    }
+    const graphsRoot = resolve(opts.repoRoot, 'graphs');
+    const checkRel = (p: unknown): string | null => {
+      if (typeof p !== 'string' || !p.endsWith('.matgraph.json')) return null;
+      const abs = resolve(graphsRoot, p);
+      return isInside(graphsRoot, abs) ? abs : null;
+    };
+    const src = checkRel(body.path);
+    if (!src) { sendJson(res, 400, { error: 'invalid path' }); return; }
+    if (!(await pathExists(src))) { sendJson(res, 404, { error: '找不到檔案' }); return; }
+
+    if (op === 'delete') {
+      await rm(src, { force: true });
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    const dst = checkRel(body.to);
+    if (!dst || dst === src) { sendJson(res, 400, { error: 'invalid target path' }); return; }
+    if (await pathExists(dst)) { sendJson(res, 409, { error: '目標檔案已存在' }); return; }
+
+    // Keep the internal name aligned with the new file base; unparseable
+    // files fall back to a raw byte move so odd files are never bricked.
+    const raw = await readFile(src, 'utf-8');
+    let out = raw;
+    try {
+      const parsed = JSON.parse(raw) as { name?: unknown };
+      parsed.name = body.to!.toString().split('/').pop()!.replace(/\.matgraph\.json$/, '');
+      out = JSON.stringify(parsed, null, 2) + '\n';
+    } catch { /* raw move */ }
+    await mkdir(dirname(dst), { recursive: true });
+    await writeFile(dst, out, 'utf-8');
+    if (op === 'rename') await rm(src, { force: true });
+    sendJson(res, 200, { ok: true, path: toPosixPath(relative(graphsRoot, dst)) });
+  }
+
   // Persist a reverse-imported graph (parsed client-side from UE T3D) as a new
   // project folder under graphs/. The existing watcher then picks it up and the
   // client navigates to it. This is the ONLY write path the server exposes.
@@ -436,6 +496,39 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       sendJson(res, 500, { error: `failed to write file: ${(e as Error).message}` }); return;
     }
     sendJson(res, 200, { path: relPath, name: finalName });
+  }
+
+  /**
+   * GET /api/export-html?name=<graph path, no extension> — bake the
+   * self-contained offline snapshot in the server and download it. Reuses the
+   * CLI's buildSnapshot, which by design never embeds the work-MF index's
+   * /Game asset paths (see html-export.ts) — safe to hand to anyone.
+   */
+  async function handleExportHtml(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    const name = (url.searchParams.get('name') ?? '').trim();
+    const graphsRoot = resolve(opts.repoRoot, 'graphs');
+    const target = resolve(graphsRoot, `${name}.matgraph.json`);
+    if (!name || !isInside(graphsRoot, target)) {
+      sendJson(res, 400, { error: 'invalid graph name' });
+      return;
+    }
+    try {
+      const html = await buildSnapshot({
+        repoRoot: opts.repoRoot,
+        name,
+        ...(opts.webDist ? { distDir: opts.webDist } : {}),
+      });
+      const base = name.split('/').pop() ?? 'snapshot';
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${encodeURIComponent(base)}.html"`,
+        'Cache-Control': 'no-store',
+      });
+      res.end(html);
+    } catch (e) {
+      sendJson(res, 500, { error: `快照產生失敗：${(e as Error).message}` });
+    }
   }
 
   // Serve a committed agent-pack data file so the web can re-fetch it at runtime
@@ -1423,6 +1516,31 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       );
     }
 
+    // Daily quota: enforced for member turns only (admins are counted but
+    // never blocked). Answered as a normal SSE error so the chat UI shows it
+    // inline instead of a transport failure.
+    if (mode === 'team' && user && user.role !== 'admin') {
+      const quota = quotas[user.username] ?? 0;
+      if (quota > 0) {
+        const used = await usageStore.usedToday(user.username);
+        if (used >= quota) {
+          res.writeHead(200, {
+            'Content-Type': 'text/event-stream; charset=utf-8',
+            'Cache-Control': 'no-cache',
+            Connection: 'keep-alive',
+          });
+          const ev: AgentSseEvent = {
+            type: 'error',
+            message: `今日 AI 用量已達配額（${used.toLocaleString()} / ${quota.toLocaleString()} tokens）。明天會重置，或請管理員調整配額。`,
+          };
+          res.write(`data: ${JSON.stringify(ev)}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'done' } satisfies AgentSseEvent)}\n\n`);
+          res.end();
+          return;
+        }
+      }
+    }
+
     // Per-session single-flight: the check-and-set below is synchronous (no
     // await between), so a concurrent chat on the SAME session cannot slip
     // through; chats on different sessions run in parallel by design.
@@ -1461,6 +1579,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     user: AuthUser | null,
   ) {
     currentSessionId = active.loop.id;
+    // Spend accounting baseline — the finally below records this turn's delta.
+    const tokensBefore = active.loop.totalTokens;
 
     // Announcement channel: tell every viewer a new turn started streaming here.
     if ((await sessionStore.getPublicId()) === active.loop.id) broadcastPublicAgent(active.loop.id, true);
@@ -1627,6 +1747,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         active.streaming = false;
         active.abort = null;
       }
+      // Daily spend ledger (team mode): booked BEFORE the response ends so a
+      // client acting on stream end always sees the post-turn totals.
+      if (mode === 'team' && user) {
+        try { await usageStore.add(user.username, active.loop.totalTokens - tokensBefore); }
+        catch (e) { console.error('usage accounting failed:', e); }
+      }
       if (sessionClosed) {
         // Off-topic strike limit: delete instead of persist — the session and
         // all its artifacts (checkpoints, memory) are gone for good. Deleting
@@ -1642,7 +1768,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         // Persist the turn (messages + transcript + meta). Best-effort: an
         // aborted turn is still saved — synthetic tool_results keep it legal.
         await persistSession(active);
-        // Announcement channel: turn persisted → viewers re-fetch the transcript.
+          // Announcement channel: turn persisted → viewers re-fetch the transcript.
         try {
           if ((await sessionStore.getPublicId()) === active.loop.id) broadcastPublicAgent(active.loop.id, false);
         } catch (e) { console.error('public-agent broadcast failed:', e); }
@@ -1700,6 +1826,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       bindHost: currentBindHost,
       secureCookies,
       memberAgent: memberAgentEnabled,
+      quotas,
+      usageToday: await usageStore.today(),
       port: boundPort,
       hasUsers: await store.hasUsers(),
       urls: mode === 'team' ? teamUrls() : [],
@@ -1708,7 +1836,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   async function handleTeamPost(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    let body: { enabled?: unknown; bindHost?: unknown; secureCookies?: unknown; memberAgent?: unknown; username?: unknown; password?: unknown };
+    let body: { enabled?: unknown; bindHost?: unknown; secureCookies?: unknown; memberAgent?: unknown; quotas?: unknown; username?: unknown; password?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     // The env lock pins the BIND (mode switch); plain settings stay editable.
@@ -1726,6 +1854,18 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       if (typeof body.memberAgent === 'boolean' && body.memberAgent !== memberAgentEnabled) {
         memberAgentEnabled = body.memberAgent;
         await saveTeamConfig({ memberAgent: memberAgentEnabled });
+      }
+      if (body.quotas !== undefined && body.quotas !== null && typeof body.quotas === 'object') {
+        // Merge per-user daily quotas; non-positive / invalid values clear.
+        const next = { ...quotas };
+        for (const [name, v] of Object.entries(body.quotas as Record<string, unknown>)) {
+          if (!USERNAME_RE.test(name)) continue;
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 0) next[name] = Math.round(n);
+          else delete next[name];
+        }
+        quotas = next;
+        await saveTeamConfig({ quotas });
       }
 
       if (body.enabled === true && mode === 'local') {
@@ -1987,6 +2127,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       }
     }
 
+    if (req.method === 'POST' && urlPath === '/api/files') {
+      try { await handleFilesOp(req, res); }
+      catch (e) { console.error('files op error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
     if (req.method === 'POST' && urlPath === '/api/import') {
       try { await handleImport(req, res); }
       catch (e) { console.error('import handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
@@ -2003,6 +2148,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'GET' && urlPath.startsWith('/api/agent-pack/')) {
       try { await handleAgentPack(urlPath, res); }
       catch (e) { console.error('agent-pack handler error:', e); if (!res.headersSent) { res.writeHead(500); res.end(); } }
+      return;
+    }
+    if (req.method === 'GET' && urlPath === '/api/export-html') {
+      try { await handleExportHtml(req, res); }
+      catch (e) { console.error('export-html error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'GET' && urlPath === '/api/workmf') {
