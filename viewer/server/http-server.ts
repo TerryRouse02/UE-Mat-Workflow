@@ -27,11 +27,26 @@ import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/ses
 import { createMemoryStore } from './agent/memory-store.js';
 import { explainNode, buildGraphContext, RESERVED_NODE_DESCRIPTIONS } from './agent/explain.js';
 import type { LLMConfig, ProviderStatus } from './agent/provider/types.js';
+import {
+  resolveMode, createAuthStore, createLoginLimiter, validateCredentials,
+  USERNAME_RE, TOKEN_TTL_MS,
+  type ServerMode, type AuthUser, type Role,
+} from './auth.js';
 
 export interface ServerOpts {
   repoRoot: string;     // contains graphs/
   port: number;         // 0 = auto
   webDist: string;      // path to built web files (empty for test)
+  /**
+   * Host to bind. Default 127.0.0.1 (local mode, no auth — unchanged classic
+   * behavior). A non-loopback host (e.g. 0.0.0.0) switches the server into
+   * TEAM mode: username/password auth, 7-day tokens, admin/user roles.
+   */
+  bindHost?: string;
+  /** Test override: force team mode while still binding loopback. */
+  mode?: ServerMode;
+  /** Add `Secure` to auth cookies (set when serving behind an HTTPS proxy). */
+  secureCookies?: boolean;
   /**
    * Optional override for the LLM provider factory — injected by tests so they
    * can substitute a FakeProvider without monkey-patching pickProvider.
@@ -108,6 +123,59 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // JSON. Fixed path (no user-controlled segment), and gitignored.
   const localConfigPath = resolve(opts.repoRoot, 'tools', 'node-t3d-metadata', 'local.config.json');
   const runner = createCrawlRunner(opts.repoRoot);
+
+  // ─── Mode + auth (team collaboration) ───────────────────────────────────────
+  // Local mode (loopback bind) constructs NO auth store and skips every gate —
+  // classic single-user behavior is untouched. Team mode (non-loopback bind)
+  // requires a valid token cookie (or Bearer header) on every /api route and
+  // the WebSocket upgrade, with the dangerous surface admin-only.
+  const mode: ServerMode = opts.mode ?? resolveMode(opts.bindHost);
+  const teamMode = mode === 'team';
+  const authStore = teamMode ? createAuthStore(resolve(opts.repoRoot, 'viewer')) : null;
+  const loginLimiter = createLoginLimiter();
+  const COOKIE_NAME = 'uemw_token';
+
+  /** Token from `Authorization: Bearer` (scripts) or the auth cookie (browser+WS). */
+  function readAuthToken(req: IncomingMessage): string | null {
+    const header = req.headers.authorization;
+    if (typeof header === 'string' && header.startsWith('Bearer ')) return header.slice(7).trim();
+    const cookie = req.headers.cookie;
+    if (!cookie) return null;
+    for (const part of cookie.split(';')) {
+      const eq = part.indexOf('=');
+      if (eq < 0) continue;
+      if (part.slice(0, eq).trim() === COOKIE_NAME) return part.slice(eq + 1).trim();
+    }
+    return null;
+  }
+
+  async function authenticate(req: IncomingMessage): Promise<AuthUser | null> {
+    if (!authStore) return null;
+    const token = readAuthToken(req);
+    return token ? authStore.validateToken(token) : null;
+  }
+
+  /** Set (raw != null) or clear (raw == null) the HttpOnly auth cookie. */
+  function setAuthCookie(res: import('node:http').ServerResponse, raw: string | null): void {
+    const maxAge = raw ? Math.floor(TOKEN_TTL_MS / 1000) : 0;
+    let cookie = `${COOKIE_NAME}=${raw ?? ''}; HttpOnly; SameSite=Strict; Path=/; Max-Age=${maxAge}`;
+    if (opts.secureCookies) cookie += '; Secure';
+    res.setHeader('Set-Cookie', cookie);
+  }
+
+  // Admin-only surface in team mode: anything that changes server state,
+  // spawns processes, spends LLM budget, or manages users. Regular members
+  // keep the read/collaborate surface (graphs, WS, import/export, node
+  // explain) — the agent itself is admin-only by design (one announcement
+  // session is the team-visible window, added with the public-session API).
+  function isAdminOnly(urlPath: string): boolean {
+    if (urlPath === '/api/config' || urlPath === '/api/crawl' || urlPath === '/api/crawl/cancel') return true;
+    if (urlPath === '/api/auth/users' || urlPath.startsWith('/api/auth/users/')) return true;
+    if (urlPath.startsWith('/api/agent/')) {
+      return urlPath !== '/api/agent/status' && urlPath !== '/api/agent/explain';
+    }
+    return false;
+  }
 
   // ─── Agent state (M7: persistent multi-session) ────────────────────────────
   // Sessions persist under viewer/.agent-sessions/ and are resumed on demand.
@@ -1357,6 +1425,107 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }
 
+  // ─── /api/auth/* handlers (team mode; 404 in local mode) ───────────────────
+
+  async function handleAuthStatus(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!authStore) {
+      // Local mode: the single local user owns the box — report as an
+      // implicitly-authed admin so the web client can branch on one shape.
+      sendJson(res, 200, { mode: 'local', needsSetup: false, authed: true, role: 'admin' });
+      return;
+    }
+    const user = await authenticate(req);
+    sendJson(res, 200, {
+      mode: 'team',
+      needsSetup: !(await authStore.hasUsers()),
+      authed: !!user,
+      ...(user ? { username: user.username, role: user.role } : {}),
+    });
+  }
+
+  /** First-boot bootstrap: creates the initial ADMIN account, then logs it in. */
+  async function handleAuthSetup(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    if (await authStore.hasUsers()) { sendJson(res, 409, { error: 'already set up' }); return; }
+    let body: { username?: unknown; password?: unknown };
+    try { body = JSON.parse(await readBody(req, 64_000)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    const created = await authStore.createUser(String(body.username ?? ''), String(body.password ?? ''), 'admin');
+    if (!created.ok) { sendJson(res, 400, { error: created.error }); return; }
+    const username = String(body.username);
+    const token = await authStore.issueToken(username);
+    setAuthCookie(res, token);
+    sendJson(res, 200, { authed: true, username, role: 'admin', token });
+  }
+
+  async function handleAuthLogin(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    const ip = req.socket.remoteAddress ?? 'unknown';
+    if (loginLimiter.blocked(ip)) { sendJson(res, 429, { error: 'too many failed logins — try again later' }); return; }
+    let body: { username?: unknown; password?: unknown };
+    try { body = JSON.parse(await readBody(req, 64_000)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    const user = await authStore.verifyPassword(String(body.username ?? ''), String(body.password ?? ''));
+    if (!user) {
+      loginLimiter.fail(ip);
+      sendJson(res, 401, { error: '帳號或密碼錯誤' });
+      return;
+    }
+    loginLimiter.succeed(ip);
+    // The raw token is also returned in the body for script/CLI use
+    // (Authorization: Bearer) — the browser flow relies on the cookie alone.
+    const token = await authStore.issueToken(user.username);
+    setAuthCookie(res, token);
+    sendJson(res, 200, { authed: true, username: user.username, role: user.role, token });
+  }
+
+  async function handleAuthLogout(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    const token = readAuthToken(req);
+    if (token) await authStore.revokeToken(token);
+    setAuthCookie(res, null);
+    sendJson(res, 200, { authed: false });
+  }
+
+  // User management (admin-only; the team gate enforces the role before these run).
+  async function handleAuthUsersList(res: import('node:http').ServerResponse) {
+    if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+    sendJson(res, 200, { users: await authStore.listUsers() });
+  }
+
+  async function handleAuthUsersCreate(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+    let body: { username?: unknown; password?: unknown; role?: unknown };
+    try { body = JSON.parse(await readBody(req, 64_000)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    const role: Role = body.role === 'admin' ? 'admin' : 'user';
+    const r = await authStore.createUser(String(body.username ?? ''), String(body.password ?? ''), role);
+    if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
+    sendJson(res, 200, { ok: true, username: String(body.username), role });
+  }
+
+  async function handleAuthUserDelete(name: string, res: import('node:http').ServerResponse) {
+    if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+    const r = await authStore.deleteUser(name);
+    if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
+    sendJson(res, 200, { ok: true });
+  }
+
+  async function handleAuthUserPassword(name: string, req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+    let body: { password?: unknown };
+    try { body = JSON.parse(await readBody(req, 64_000)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    const v = validateCredentials(name, body.password);
+    if (!v.ok) { sendJson(res, 400, { error: v.error }); return; }
+    const r = await authStore.setPassword(name, String(body.password));
+    if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
+    sendJson(res, 200, { ok: true });
+  }
+
   // Track all open HTTP sockets so we can destroy them during forced shutdown.
   // Without this, http.close() only stops accepting new connections but waits
   // for existing keep-alive connections to drain — which can take up to 300 s on
@@ -1364,6 +1533,68 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   const openSockets = new Set<import('node:net').Socket>();
   const http: Server = createServer(async (req, res) => {
     const urlPath = (req.url || '/').split('?')[0];
+
+    // ── Public auth endpoints (usable before login; 404 in local mode) ──────
+    if (req.method === 'GET' && urlPath === '/api/auth/status') {
+      try { await handleAuthStatus(req, res); }
+      catch (e) { console.error('auth status error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/auth/setup') {
+      try { await handleAuthSetup(req, res); }
+      catch (e) { console.error('auth setup error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/auth/login') {
+      try { await handleAuthLogin(req, res); }
+      catch (e) { console.error('auth login error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/auth/logout') {
+      try { await handleAuthLogout(req, res); }
+      catch (e) { console.error('auth logout error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+
+    // ── Team gate: every other /api route needs a valid token; the dangerous
+    //    surface additionally needs the admin role. Local mode: no-op. ────────
+    if (teamMode && urlPath.startsWith('/api/')) {
+      let user: AuthUser | null = null;
+      try { user = await authenticate(req); }
+      catch (e) { console.error('authenticate error:', e); }
+      if (!user) { sendJson(res, 401, { error: '需要登入' }); return; }
+      if (isAdminOnly(urlPath) && user.role !== 'admin') { sendJson(res, 403, { error: '需要管理員權限' }); return; }
+    }
+
+    // ── User management (admin-gated above) ─────────────────────────────────
+    if (urlPath === '/api/auth/users') {
+      if (req.method === 'GET') {
+        try { await handleAuthUsersList(res); }
+        catch (e) { console.error('auth users list error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+        return;
+      }
+      if (req.method === 'POST') {
+        try { await handleAuthUsersCreate(req, res); }
+        catch (e) { console.error('auth users create error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+        return;
+      }
+    }
+    {
+      const m = urlPath.match(/^\/api\/auth\/users\/([A-Za-z0-9_.-]{1,32})(\/password)?$/);
+      if (m && USERNAME_RE.test(m[1])) {
+        if (req.method === 'DELETE' && !m[2]) {
+          try { await handleAuthUserDelete(m[1], res); }
+          catch (e) { console.error('auth user delete error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+          return;
+        }
+        if (req.method === 'POST' && m[2]) {
+          try { await handleAuthUserPassword(m[1], req, res); }
+          catch (e) { console.error('auth user password error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+          return;
+        }
+      }
+    }
+
     if (req.method === 'POST' && urlPath === '/api/import') {
       try { await handleImport(req, res); }
       catch (e) { console.error('import handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
@@ -1638,6 +1869,14 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // without this any page the user visits could open ws://127.0.0.1 and read the
     // file list + every graph in graphs/. The loopback bind only stops remote hosts.
     if (!sameOrigin(req)) { ws.close(1008, 'cross-origin'); return; }
+    // Team mode: the upgrade request carries the HttpOnly auth cookie — no
+    // token, no socket (the WS streams every graph + the file list).
+    if (teamMode) {
+      let user: AuthUser | null = null;
+      try { user = await authenticate(req); }
+      catch (e) { console.error('ws authenticate error:', e); }
+      if (!user) { ws.close(4401, 'authentication required'); return; }
+    }
     // Guard the handler body: a thrown error here would otherwise become an
     // unhandledRejection and can crash the process.
     try {
@@ -1698,9 +1937,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     sock.once('close', () => openSockets.delete(sock));
   });
 
-  // Local-first: bind loopback only. The crawl endpoint spawns UnrealEditor-Cmd.exe,
-  // so the server must not be reachable from other machines on the network.
-  await new Promise<void>((res) => http.listen(opts.port, '127.0.0.1', res));
+  // Local-first: bind loopback unless BIND_HOST opts into team mode. The crawl
+  // endpoint spawns UnrealEditor-Cmd.exe, so a non-loopback bind is only safe
+  // because the team gate above puts that surface behind admin auth.
+  await new Promise<void>((res, rej) => {
+    http.once('error', rej);
+    http.listen(opts.port, opts.bindHost ?? '127.0.0.1', () => { http.removeListener('error', rej); res(); });
+  });
   const addr = http.address();
   const actualPort = typeof addr === 'object' && addr ? addr.port : opts.port;
 

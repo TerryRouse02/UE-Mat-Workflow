@@ -57,6 +57,8 @@ tools/node-t3d-metadata/local.config.json
 viewer/.agent-checkpoints/
 viewer/.agent-sessions/
 viewer/.agent-memory/
+# Team-mode credentials (scrypt password hashes + hashed tokens) — never commit.
+viewer/.auth/
 
 # Locally-built macOS plugin binary (D2: Mac plugin stays local; Win64 stays committed)
 tools/node-t3d-metadata/compiled/**/Binaries/Mac/
