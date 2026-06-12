@@ -48,8 +48,11 @@ export type StreamEvent =
   | { type: 'thinking_block'; block: ThinkingBlock | RedactedThinkingBlock }
   // Emitted only after the complete argument JSON parses successfully.
   | { type: 'tool_use'; id: string; name: string; input: unknown }
-  // Optional — compat servers may omit usage entirely.
-  | { type: 'usage'; inputTokens: number; outputTokens: number }
+  // Optional — compat servers may omit usage entirely. inputTokens is the
+  // FULL context size (cached portions included); cacheReadTokens /
+  // cacheCreationTokens break out the prompt-cache share when present
+  // (Anthropic adapter only — omitted when zero).
+  | { type: 'usage'; inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number }
   | { type: 'error'; message: string }
   | { type: 'done'; stopReason: 'end' | 'tool_use' | 'max_tokens' };
 

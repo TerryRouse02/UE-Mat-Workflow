@@ -11,7 +11,7 @@ import type { AgentSseEvent } from '../web/src/agent/protocol.js';
 // Since AgentChat calls useStore, we need to mock the store module.
 import { AgentChat } from '../web/src/agent/AgentChat.js';
 import { Sidebar } from '../web/src/Sidebar.js';
-import { applyAgentEvent, newTurnFlags, startUserTurn, transcriptToMarkdown } from '../web/src/agent/transcript.js';
+import { accumulateUsage, applyAgentEvent, newTurnFlags, startUserTurn, transcriptToMarkdown } from '../web/src/agent/transcript.js';
 
 // ---------------------------------------------------------------------------
 // Mock the store module
@@ -930,6 +930,13 @@ describe('transcript reducer — viewer-action events', () => {
 });
 
 describe('transcript reducer — per-turn usage + db-edit proposal + markdown', () => {
+  it('accumulateUsage sums prompt-cache hits from cachedTokens', () => {
+    let total = accumulateUsage(null, { inputTokens: 100, outputTokens: 10, estimated: false });
+    expect(total.cached).toBe(0);
+    total = accumulateUsage(total, { inputTokens: 120, outputTokens: 10, estimated: false, cachedTokens: 90 });
+    expect(total).toEqual({ input: 220, output: 20, estimated: false, cached: 90 });
+  });
+
   it('flushes accumulated usage into a turnUsage item on done', () => {
     const flags = newTurnFlags();
     let items = startUserTurn([], '做個材質');

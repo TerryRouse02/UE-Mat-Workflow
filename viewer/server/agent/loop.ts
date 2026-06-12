@@ -458,11 +458,13 @@ export async function runAgent(
           // Non-JSON result — nothing to fan out.
         }
 
-        if (parsed.ok && Array.isArray(parsed.diff) && parsed.diff.length > 0) {
+        // dryRun results carry the same diff/changedNodeIds but wrote nothing —
+        // emitting diff/graph_written would show a change that never happened.
+        if (parsed.ok && !parsed.dryRun && Array.isArray(parsed.diff) && parsed.diff.length > 0) {
           emit({ type: 'diff', lines: parsed.diff as string[] });
         }
 
-        if (writeTools.has(call.name) && typeof inp.path === 'string') {
+        if (writeTools.has(call.name) && !parsed.dryRun && typeof inp.path === 'string') {
           const changedNodeIds =
             Array.isArray(parsed.changedNodeIds) && parsed.changedNodeIds.length > 0
               ? (parsed.changedNodeIds as unknown[]).map(String)
@@ -810,8 +812,9 @@ async function handleStreamEvent(
 
     case 'usage': {
       session.totalTokens += event.inputTokens + event.outputTokens;
-      // inputTokens covers the full re-sent context → this round's in+out is
-      // the current context size (NOT additive across rounds).
+      // inputTokens covers the full re-sent context (the Anthropic adapter
+      // already folds cached portions back in) → this round's in+out is the
+      // current context size (NOT additive across rounds).
       session.contextTokens = event.inputTokens + event.outputTokens;
       setUsageEmitted();
       emit({
@@ -819,6 +822,8 @@ async function handleStreamEvent(
         inputTokens: event.inputTokens,
         outputTokens: event.outputTokens,
         estimated: false,
+        // Prompt-cache hits: the share of inputTokens billed at ~10%.
+        ...(event.cacheReadTokens ? { cachedTokens: event.cacheReadTokens } : {}),
       });
       break;
     }
@@ -849,7 +854,8 @@ function toolSummary(call: ToolUseBlock): string {
     case 'get_mf_signature':  return `查詢 MF 簽名：${String(inp.assetPath ?? '')}`;
     case 'read_graph':        return `讀取圖形：${String(inp.path ?? '')}`;
     case 'write_graph':       return `寫入圖形：${String(inp.path ?? '')}`;
-    case 'patch_graph':       return `修改圖形：${String(inp.path ?? '')}`;
+    case 'patch_graph':
+      return `${inp.dryRun === true ? '預覽修改' : '修改圖形'}：${String(inp.path ?? '')}`;
     case 'validate_graph':    return `驗證圖形：${typeof inp.path === 'string' ? inp.path : '(inline)'}`;
     case 'get_graph_errors':  return `取得圖形錯誤：${String(inp.path ?? '')}`;
     case 'list_graphs':       return '列出現有圖形檔案';
@@ -873,10 +879,17 @@ function toolSummary(call: ToolUseBlock): string {
   }
 }
 
-function toolEndSummary(toolName: string, _content: string): string | undefined {
+function toolEndSummary(toolName: string, content: string): string | undefined {
   switch (toolName) {
     case 'write_graph':     return '圖形已寫入';
-    case 'patch_graph':     return '圖形已更新';
+    case 'patch_graph': {
+      try {
+        if ((JSON.parse(content) as { dryRun?: unknown }).dryRun === true) {
+          return '預覽完成（未寫入）';
+        }
+      } catch { /* non-JSON content — fall through to the written summary */ }
+      return '圖形已更新';
+    }
     case 'update_memory':   return '記憶已更新';
     case 'compact_context': return '上下文已壓縮';
     default:                return undefined;

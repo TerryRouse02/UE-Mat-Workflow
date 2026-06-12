@@ -118,12 +118,21 @@ object persists in `local.config.json`.
   contract + per-file map live in `viewer/AGENT_DESIGN.md` — read that before touching it.
   Key invariants: the agent only PROPOSES crawls/DB edits; user-approved cards call the
   state-changing endpoints. `contextTokens` (last round in+out) gates compaction and the
-  context ceiling; `totalTokens` is cumulative spend for display only. Viewport state
+  context ceiling; `totalTokens` is cumulative spend for display only. The Anthropic
+  adapter sets prompt-cache breakpoints (last tool def / system / last message block)
+  and folds `cache_read+cache_creation` back into `inputTokens` so the context gate
+  sees the FULL size — never read `usage.input_tokens` alone there; cache hits flow
+  to the UI as `cachedTokens` on the usage SSE event. Viewport state
   (open graph / selected node) is read on demand via the `get_viewport` tool — never
   injected into the prompt. `write_graph` refuses to overwrite files the conversation
   did not create (hard create-vs-modify guard; `overwrite:true` is user-confirmed only);
-  modifications go through `patch_graph` incremental ops (9 ops + snake_case aliases,
-  the op list lives in the tool schema). The write gate validates connection pin names
+  modifications go through `patch_graph` incremental ops (10 ops + snake_case aliases,
+  the op list lives in the tool schema; failures return ALL failing ops at once as
+  `applyErrors`, addNode/insertNode auto-generate ids when omitted → `assignedIds`,
+  `insertNode` splices into an existing connection with DB-inferred pins,
+  `removeNode heal:true` splices the upstream source onto fed pins, and
+  `dryRun:true` previews without writing — the loop suppresses diff/graph_written
+  fan-out for dry runs). The write gate validates connection pin names
   against the DB (`agent/pin-validate.ts`, mirroring web `validate.ts` semantics — keep
   the two in sync). Off-topic fence: `report_off_topic` strikes (persisted per session)
   escalate remind → refuse → `session_closed` + server-side session deletion.

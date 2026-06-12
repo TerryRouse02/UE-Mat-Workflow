@@ -19,7 +19,7 @@ export type AgentSseEvent =
   | { type: 'export_request'; path: string }                         // UI copies this graph to the clipboard as UE T3D
   | { type: 'crawl_proposal'; kind: 'workmf' | 'projectmat'; contentRoot: string; pendingApproval?: boolean } // UI shows a confirm card; user approves via POST /api/crawl
   | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; create: boolean; patch: Record<string, unknown>; rationale: string; pendingApproval?: boolean } // UI shows a confirm card; user approves via POST /api/agent/db-edit
-  | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
+  | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean; cachedTokens?: number } // cachedTokens = prompt-cache hits within inputTokens (billed ~10%)
   | { type: 'compacted'; message: string }                           // old turns summarized into session memory
   | { type: 'limit'; kind: 'iters' | 'cost' | 'failures'; message: string }
   | { type: 'session_closed'; message: string }                      // off-topic strike limit — server deletes the session after the stream

@@ -112,6 +112,8 @@ export interface UsageTotal {
   input: number;
   output: number;
   estimated: boolean;
+  /** Prompt-cache hits within input — billed ~10%, so bigger is cheaper. */
+  cached: number;
 }
 
 // ─── Per-turn reducer flags ──────────────────────────────────────────────────
@@ -150,11 +152,12 @@ export function startUserTurn(items: ChatItem[], userText: string): ChatItem[] {
 }
 
 /** Accumulate a usage event into the running total. */
-export function accumulateUsage(prev: UsageTotal | null, event: { inputTokens: number; outputTokens: number; estimated: boolean }): UsageTotal {
+export function accumulateUsage(prev: UsageTotal | null, event: { inputTokens: number; outputTokens: number; estimated: boolean; cachedTokens?: number }): UsageTotal {
   return {
     input: (prev?.input ?? 0) + event.inputTokens,
     output: (prev?.output ?? 0) + event.outputTokens,
     estimated: (prev?.estimated ?? false) || event.estimated,
+    cached: (prev?.cached ?? 0) + (event.cachedTokens ?? 0),
   };
 }
 

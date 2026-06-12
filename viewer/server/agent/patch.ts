@@ -12,15 +12,41 @@ export type { MatGraph, Node, Connection };
 
 export interface AddNodeOp {
   op: 'addNode';
-  id: string;
+  /** Omitted → an id is auto-generated from the type ("multiply_1", …) and
+      reported back via ApplyResult.assignedIds. Supply an explicit id when a
+      later op in the same batch needs to reference the new node. */
+  id?: string;
   type: string;
   params?: Record<string, unknown>;
+  why?: string;
+}
+
+export interface InsertNodeOp {
+  op: 'insertNode';
+  /** EXISTING connection to splice into — it is replaced by
+      between.from → new:inputPin and new:outputPin → between.to. */
+  between: { from: string; to: string };
+  type: string;
+  /** Omitted → auto-generated like addNode. */
+  id?: string;
+  params?: Record<string, unknown>;
+  /** Omitted → first input pin of the type's DB signature (needs pinLookup). */
+  inputPin?: string;
+  /** Omitted → first output pin of the type's DB signature (needs pinLookup). */
+  outputPin?: string;
   why?: string;
 }
 
 export interface RemoveNodeOp {
   op: 'removeNode';
   id: string;
+  /** true → splice the node's upstream source directly onto every pin the
+      node fed (chain stays intact). Requires ≥1 incoming connection, and all
+      outgoing connections must leave from ONE output pin. */
+  heal?: boolean;
+  /** When several input pins are wired, names the input pin whose source
+      survives the heal. */
+  healFrom?: string;
   why?: string;
 }
 
@@ -75,6 +101,7 @@ export interface SetDescriptionOp {
 
 export type PatchOp =
   | AddNodeOp
+  | InsertNodeOp
   | RemoveNodeOp
   | SetParamOp
   | RemoveParamOp
@@ -86,14 +113,25 @@ export type PatchOp =
 
 /** Canonical op names, in the order the tool docstring lists them. */
 export const SUPPORTED_OPS = [
-  'addNode', 'removeNode', 'setParam', 'removeParam', 'setNodeType',
+  'addNode', 'insertNode', 'removeNode', 'setParam', 'removeParam', 'setNodeType',
   'renameNode', 'connect', 'disconnect', 'setDescription',
 ] as const;
+
+/**
+ * Static pin signature for a node type, in DB declaration order — lets
+ * insertNode infer pins. null = no static signature (unknown type, dynamic
+ * pins, MaterialFunctionCall): explicit inputPin/outputPin required then.
+ * Injected by the caller (tools.ts builds it from the version DB) so this
+ * module stays pure.
+ */
+export type PinLookup = (type: string) => { inputs: string[]; outputs: string[] } | null;
 
 // LLMs routinely emit snake_case (and the JSON-Patch-ish verbs from other
 // ecosystems) — accept them as aliases instead of failing the whole patch.
 const OP_ALIASES: Record<string, PatchOp['op']> = {
   add_node: 'addNode',
+  insert_node: 'insertNode',
+  insert_between: 'insertNode',
   remove_node: 'removeNode',
   delete_node: 'removeNode',
   set_param: 'setParam',
@@ -120,29 +158,86 @@ export function normalizeOp(op: PatchOp): PatchOp {
 // Result types
 // ---------------------------------------------------------------------------
 
+export interface PatchOpError {
+  opIndex: number;
+  message: string;
+}
+
 export type ApplyResult =
-  | { ok: true; graph: MatGraph; diff: string[] }
-  | { ok: false; opIndex: number; applyError: string };
+  | {
+      ok: true;
+      graph: MatGraph;
+      diff: string[];
+      /** opIndex → auto-generated node id, for addNode ops that omitted `id`. */
+      assignedIds: Record<number, string>;
+      /** Ops after normalization + auto-id resolution — feed these (not the
+          raw input) to changedNodeIds. */
+      resolvedOps: PatchOp[];
+    }
+  | {
+      ok: false;
+      /** EVERY failing op, so the model fixes the whole batch in one retry
+          instead of replaying one round-trip per error. */
+      errors: PatchOpError[];
+      /** First error, kept for callers/tests that only need fail-fast info. */
+      opIndex: number;
+      applyError: string;
+    };
 
 // ---------------------------------------------------------------------------
 // applyPatch
 // ---------------------------------------------------------------------------
 
-export function applyPatch(graph: MatGraph, ops: PatchOp[]): ApplyResult {
+/** Smallest "<type>_n" id not colliding with any existing node. */
+function autoNodeId(g: MatGraph, type: unknown): string {
+  const base = String(type ?? '').toLowerCase().replace(/[^a-z0-9]/g, '') || 'node';
+  for (let n = 1; ; n++) {
+    const id = `${base}_${n}`;
+    if (!g.nodes.some(nd => nd.id === id)) return id;
+  }
+}
+
+export interface ApplyPatchOpts {
+  pinLookup?: PinLookup;
+}
+
+export function applyPatch(graph: MatGraph, ops: PatchOp[], opts?: ApplyPatchOpts): ApplyResult {
   // Never mutate the input.
   let g: MatGraph = structuredClone(graph);
   const diff: string[] = [];
+  const errors: PatchOpError[] = [];
+  const assignedIds: Record<number, string> = {};
+  const resolvedOps: PatchOp[] = [];
 
   for (let i = 0; i < ops.length; i++) {
-    const op = normalizeOp(ops[i]);
+    let op = normalizeOp(ops[i]);
+    if (
+      (op.op === 'addNode' || op.op === 'insertNode') &&
+      (op.id === undefined || op.id === null || op.id === '')
+    ) {
+      const id = autoNodeId(g, op.type);
+      op = { ...op, id };
+      assignedIds[i] = id;
+    }
+    resolvedOps.push(op);
     const why = op.why ? `（${op.why}）` : '';
-    const err = applyOp(g, op, diff, why);
+    const err = applyOp(g, op, diff, why, opts?.pinLookup);
     if (err !== null) {
-      return { ok: false, opIndex: i, applyError: err };
+      errors.push({ opIndex: i, message: err });
+      // Anti-cascade phantom: a failed addNode/insertNode whose id never
+      // landed would make every later op referencing it fail spuriously
+      // ("not found"). Insert the node anyway — the graph is discarded on
+      // error, so this only exists to keep the remaining reports meaningful.
+      if ((op.op === 'addNode' || op.op === 'insertNode') && op.id && !g.nodes.some(n => n.id === op.id)) {
+        g.nodes.push({ id: op.id, type: op.type });
+      }
     }
   }
 
-  return { ok: true, graph: g, diff };
+  if (errors.length > 0) {
+    return { ok: false, errors, opIndex: errors[0].opIndex, applyError: errors[0].message };
+  }
+  return { ok: true, graph: g, diff, assignedIds, resolvedOps };
 }
 
 /**
@@ -157,6 +252,17 @@ export function changedNodeIds(ops: PatchOp[]): string[] {
     const op = normalizeOp(raw);
     switch (op.op) {
       case 'addNode':
+        if (op.id) ids.add(op.id);
+        break;
+      case 'insertNode':
+        if (op.id) ids.add(op.id);
+        if (op.between && typeof op.between.from === 'string' && op.between.from.includes(':')) {
+          ids.add(op.between.from.slice(0, op.between.from.indexOf(':')));
+        }
+        if (op.between && typeof op.between.to === 'string' && op.between.to.includes(':')) {
+          ids.add(op.between.to.slice(0, op.between.to.indexOf(':')));
+        }
+        break;
       case 'setParam':
       case 'removeParam':
       case 'setNodeType':
@@ -178,9 +284,10 @@ export function changedNodeIds(ops: PatchOp[]): string[] {
 }
 
 // Applies a single op to graph in place. Returns null on success, error string on failure.
-function applyOp(g: MatGraph, op: PatchOp, diff: string[], why: string): string | null {
+function applyOp(g: MatGraph, op: PatchOp, diff: string[], why: string, pinLookup?: PinLookup): string | null {
   switch (op.op) {
     case 'addNode':    return applyAddNode(g, op, diff, why);
+    case 'insertNode': return applyInsertNode(g, op, diff, why, pinLookup);
     case 'removeNode': return applyRemoveNode(g, op, diff, why);
     case 'setParam':   return applySetParam(g, op, diff, why);
     case 'removeParam': return applyRemoveParam(g, op, diff, why);
@@ -198,6 +305,11 @@ function applyOp(g: MatGraph, op: PatchOp, diff: string[], why: string): string 
 }
 
 function applyAddNode(g: MatGraph, op: AddNodeOp, diff: string[], why: string): string | null {
+  if (!op.id) {
+    // Unreachable through applyPatch (auto-id resolution runs first) — guard
+    // for direct callers.
+    return 'addNode: id missing';
+  }
   if (op.id.includes(':')) {
     return `addNode: id "${op.id}" must not contain ':'`;
   }
@@ -232,13 +344,120 @@ function applyRemoveNode(g: MatGraph, op: RemoveNodeOp, diff: string[], why: str
     }
   }
 
+  // heal: splice the node's upstream source onto every pin it fed, so the
+  // chain stays intact. Refused when the choice is ambiguous.
+  let healSource: string | null = null;
+  let healTargets: Connection[] = [];
+  if (op.heal) {
+    const incoming = removed.filter(c => c.to.startsWith(op.id + ':') && !c.from.startsWith(op.id + ':'));
+    const outgoing = removed.filter(c => c.from.startsWith(op.id + ':') && !c.to.startsWith(op.id + ':'));
+    if (incoming.length === 0) {
+      return `removeNode: heal requested but "${op.id}" has no incoming connection — use removeNode without heal`;
+    }
+    let survivor: Connection;
+    if (incoming.length === 1) {
+      survivor = incoming[0];
+    } else {
+      const pins = incoming.map(c => c.to.slice(c.to.indexOf(':') + 1));
+      if (!op.healFrom) {
+        return `removeNode: "${op.id}" has ${incoming.length} incoming connections (input pins: ${pins.join(', ')}) — pass healFrom:"<inputPin>" to choose which source survives the heal`;
+      }
+      const match = incoming.find(c => c.to === `${op.id}:${op.healFrom}`);
+      if (!match) {
+        return `removeNode: healFrom "${op.healFrom}" matches no incoming connection on "${op.id}" (wired input pins: ${pins.join(', ')})`;
+      }
+      survivor = match;
+    }
+    const outPins = new Set(outgoing.map(c => c.from.slice(c.from.indexOf(':') + 1)));
+    if (outPins.size > 1) {
+      return `removeNode: heal is ambiguous — "${op.id}" feeds downstream from ${outPins.size} different output pins (${[...outPins].join(', ')}); rewire manually instead`;
+    }
+    healSource = survivor.from;
+    healTargets = outgoing;
+  }
+
   g.nodes.splice(idx, 1);
   g.connections = kept;
+
+  if (healSource !== null && healTargets.length > 0) {
+    for (const out of healTargets) {
+      g.connections.push({ from: healSource, to: out.to });
+    }
+    diff.push(`移除了節點「\`${op.id}\`」並把 ${healSource} 縫合到其 ${healTargets.length} 個下游針腳${why}`);
+    for (const out of healTargets) {
+      diff.push(`　└ 接回 ${healSource} → ${out.to}`);
+    }
+    return null;
+  }
 
   diff.push(`移除了節點「\`${op.id}\`」及其 ${removed.length} 條連線${why}`);
   for (const c of removed) {
     diff.push(`　└ 斷開 ${c.from} → ${c.to}`);
   }
+  return null;
+}
+
+function applyInsertNode(
+  g: MatGraph,
+  op: InsertNodeOp,
+  diff: string[],
+  why: string,
+  pinLookup?: PinLookup,
+): string | null {
+  if (!op.id) {
+    // Unreachable through applyPatch (auto-id resolution runs first).
+    return 'insertNode: id missing';
+  }
+  if (op.id.includes(':')) {
+    return `insertNode: id "${op.id}" must not contain ':'`;
+  }
+  if (g.nodes.some(n => n.id === op.id)) {
+    return `insertNode: node id "${op.id}" already exists`;
+  }
+  const b = op.between;
+  if (
+    !b || typeof b !== 'object' ||
+    typeof b.from !== 'string' || !isValidEnd(b.from) ||
+    typeof b.to !== 'string' || !isValidEnd(b.to)
+  ) {
+    return 'insertNode: between must be {from:"nodeId:pin", to:"nodeId:pin"}';
+  }
+  const connIdx = g.connections.findIndex(c => c.from === b.from && c.to === b.to);
+  if (connIdx === -1) {
+    return `insertNode: connection ${b.from} → ${b.to} not found — insertNode splices into an EXISTING connection`;
+  }
+
+  // Pin inference: explicit beats signature; signature = first pin in DB
+  // order. No signature (unknown/dynamic-pin/MF type) → explicit required.
+  const sig = pinLookup ? pinLookup(op.type) : null;
+  let inputPin = op.inputPin;
+  if (!inputPin) {
+    if (!sig || sig.inputs.length === 0) {
+      return `insertNode: cannot infer an input pin for type "${op.type}" — pass inputPin explicitly (unknown, dynamic-pin and MaterialFunctionCall types have no static signature)`;
+    }
+    inputPin = sig.inputs[0];
+  }
+  let outputPin = op.outputPin;
+  if (!outputPin) {
+    if (!sig || sig.outputs.length === 0) {
+      return `insertNode: cannot infer an output pin for type "${op.type}" — pass outputPin explicitly (unknown, dynamic-pin and MaterialFunctionCall types have no static signature)`;
+    }
+    outputPin = sig.outputs[0];
+  }
+
+  const node: Node = { id: op.id, type: op.type };
+  if (op.params && Object.keys(op.params).length > 0) {
+    node.params = op.params;
+  }
+  g.connections.splice(connIdx, 1);
+  g.nodes.push(node);
+  g.connections.push({ from: b.from, to: `${op.id}:${inputPin}` });
+  g.connections.push({ from: `${op.id}:${outputPin}`, to: b.to });
+
+  diff.push(
+    `在 ${b.from} → ${b.to} 之間插入了 \`${op.type}\` 節點「\`${op.id}\`」` +
+    `（${b.from} → ${op.id}:${inputPin}，${op.id}:${outputPin} → ${b.to}）${why}`,
+  );
   return null;
 }
 

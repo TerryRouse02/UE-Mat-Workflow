@@ -29,6 +29,7 @@
   padding:2px 7px; border:1px solid var(--border); border-radius:999px;
   white-space:nowrap; cursor:default;
 }
+.agent-usage-cached { margin-left:5px; color:var(--accent); }
 .agent-bar-btn {
   display:inline-flex; align-items:center; gap:4px;
   padding:3px 8px; border-radius:6px; border:1px solid transparent;

@@ -640,3 +640,296 @@ describe('unknown op error lists supported ops', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Batch error collection — every failing op reported, one retry fixes all
+// ---------------------------------------------------------------------------
+
+describe('batch error collection', () => {
+  it('reports EVERY failing op with its own opIndex; first error mirrored in opIndex/applyError', () => {
+    const g = baseGraph();
+    const r = applyPatch(g, [
+      { op: 'addNode', id: 'A', type: 'Add' },                  // 0: duplicate id
+      { op: 'setParam', id: 'B', key: 'ConstB', value: 1 },     // 1: ok
+      { op: 'removeNode', id: 'ghost' },                        // 2: not found
+      { op: 'connect', from: 'B:Result', to: 'noColon' },       // 3: malformed endpoint
+    ]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors.map(e => e.opIndex)).toEqual([0, 2, 3]);
+    expect(r.errors[0].message).toMatch(/already exists/);
+    expect(r.errors[1].message).toMatch(/not found/);
+    expect(r.errors[2].message).toMatch(/nodeId:pinName/);
+    // Back-compat mirror of the first error
+    expect(r.opIndex).toBe(0);
+    expect(r.applyError).toMatch(/already exists/);
+  });
+
+  it('anti-cascade: a failed addNode still registers its id so later ops do not all spuriously fail', () => {
+    const g = baseGraph();
+    const r = applyPatch(g, [
+      { op: 'addNode', id: 'bad:id', type: 'Add' },             // 0: colon — fails
+      { op: 'setParam', id: 'bad:id', key: 'ConstA', value: 1 }, // 1: would be "not found" without the phantom
+    ]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0].opIndex).toBe(0);
+  });
+
+  it('input graph is untouched after a multi-error batch', () => {
+    const g = baseGraph();
+    const before = structuredClone(g);
+    const r = applyPatch(g, [
+      { op: 'removeNode', id: 'nope1' },
+      { op: 'removeNode', id: 'nope2' },
+    ]);
+    expect(r.ok).toBe(false);
+    expect(g).toEqual(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// addNode auto-id
+// ---------------------------------------------------------------------------
+
+describe('addNode auto-id', () => {
+  it('omitted id is generated from the type and reported in assignedIds + resolvedOps', () => {
+    const g = baseGraph();
+    const r = applyPatch(g, [{ op: 'addNode', type: 'Multiply' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.assignedIds).toEqual({ 0: 'multiply_1' });
+    expect(r.graph.nodes.some(n => n.id === 'multiply_1')).toBe(true);
+    const resolved = r.resolvedOps[0];
+    expect(resolved.op === 'addNode' && resolved.id).toBe('multiply_1');
+    expect(changedNodeIds(r.resolvedOps)).toContain('multiply_1');
+  });
+
+  it('suffix counts past existing ids — two unnamed Lerps after node lerp_1', () => {
+    const g = baseGraph();
+    g.nodes.push({ id: 'lerp_1', type: 'Lerp' });
+    const r = applyPatch(g, [
+      { op: 'addNode', type: 'Lerp' },
+      { op: 'addNode', type: 'Lerp' },
+    ]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.assignedIds).toEqual({ 0: 'lerp_2', 1: 'lerp_3' });
+  });
+
+  it('type is sanitized to lowercase alphanumerics for the id base', () => {
+    const r = applyPatch(baseGraph(), [{ op: 'addNode', type: 'Constant3Vector' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.assignedIds[0]).toBe('constant3vector_1');
+  });
+
+  it('explicit ids still collide as before; assignedIds stays empty', () => {
+    const r = applyPatch(baseGraph(), [{ op: 'addNode', id: 'A', type: 'Add' }]);
+    expect(r.ok).toBe(false);
+    if (!r.ok) return;
+    expect(r.errors[0].message).toMatch(/already exists/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// insertNode — splice into an existing connection in one op
+// ---------------------------------------------------------------------------
+
+const PIN_LOOKUP = (type: string) =>
+  type === 'Multiply' ? { inputs: ['A', 'B'], outputs: ['Result'] } :
+  type === 'Lerp' ? { inputs: ['A', 'B', 'Alpha'], outputs: ['Result'] } :
+  null;
+
+describe('insertNode', () => {
+  it('explicit pins: replaces the connection with two and adds the node', () => {
+    const g = baseGraph(); // A:Result → B:A
+    const r = applyPatch(g, [{
+      op: 'insertNode', between: { from: 'A:Result', to: 'B:A' },
+      type: 'Multiply', id: 'boost', inputPin: 'A', outputPin: 'Result',
+    }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.nodes.some(n => n.id === 'boost')).toBe(true);
+    expect(r.graph.connections).toContainEqual({ from: 'A:Result', to: 'boost:A' });
+    expect(r.graph.connections).toContainEqual({ from: 'boost:Result', to: 'B:A' });
+    expect(r.graph.connections).not.toContainEqual({ from: 'A:Result', to: 'B:A' });
+    expect(r.diff[0]).toContain('插入了');
+    expect(r.diff[0]).toContain('boost');
+  });
+
+  it('pins inferred from pinLookup (first input / first output) when omitted', () => {
+    const g = baseGraph();
+    const r = applyPatch(
+      g,
+      [{ op: 'insertNode', between: { from: 'A:Result', to: 'B:A' }, type: 'Lerp', id: 'mix' }],
+      { pinLookup: PIN_LOOKUP },
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.connections).toContainEqual({ from: 'A:Result', to: 'mix:A' });
+    expect(r.graph.connections).toContainEqual({ from: 'mix:Result', to: 'B:A' });
+  });
+
+  it('auto-id works for insertNode too', () => {
+    const g = baseGraph();
+    const r = applyPatch(
+      g,
+      [{ op: 'insertNode', between: { from: 'A:Result', to: 'B:A' }, type: 'Multiply' }],
+      { pinLookup: PIN_LOOKUP },
+    );
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.assignedIds).toEqual({ 0: 'multiply_1' });
+    expect(r.graph.connections).toContainEqual({ from: 'A:Result', to: 'multiply_1:A' });
+  });
+
+  it('no signature and no explicit pins → clear error naming the missing pin', () => {
+    const g = baseGraph();
+    const r = applyPatch(
+      g,
+      [{ op: 'insertNode', between: { from: 'A:Result', to: 'B:A' }, type: 'CustomThing', id: 'c1' }],
+      { pinLookup: PIN_LOOKUP }, // returns null for CustomThing
+    );
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors[0].message).toMatch(/inputPin explicitly/);
+  });
+
+  it('between connection not found → error', () => {
+    const g = baseGraph();
+    const r = applyPatch(g, [{
+      op: 'insertNode', between: { from: 'A:Result', to: 'B:Alpha' },
+      type: 'Multiply', id: 'x', inputPin: 'A', outputPin: 'Result',
+    }]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors[0].message).toMatch(/not found/);
+    expect(r.errors[0].message).toMatch(/EXISTING connection/);
+  });
+
+  it('malformed between → error', () => {
+    const r = applyPatch(baseGraph(), [
+      { op: 'insertNode', between: { from: 'A:Result', to: 'noColon' }, type: 'Multiply', id: 'x' },
+    ]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors[0].message).toMatch(/between must be/);
+  });
+
+  it('insert_node / insert_between aliases map to insertNode', () => {
+    const g = baseGraph();
+    const ops = [
+      { op: 'insert_node', between: { from: 'A:Result', to: 'B:A' }, type: 'Multiply', id: 'm1', inputPin: 'A', outputPin: 'Result' },
+    ] as unknown as PatchOp[];
+    const r = applyPatch(g, ops);
+    expect(r.ok).toBe(true);
+  });
+
+  it('changedNodeIds covers the new node and both neighbours', () => {
+    const ids = changedNodeIds([
+      { op: 'insertNode', between: { from: 'A:Result', to: 'B:A' }, type: 'Multiply', id: 'mid' },
+    ]);
+    expect(ids.sort()).toEqual(['A', 'B', 'mid']);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// removeNode heal — splice upstream source onto fed pins
+// ---------------------------------------------------------------------------
+
+describe('removeNode heal', () => {
+  /** A:Result → B:A, B:Result → C:A and C:B (B is the removable middleman). */
+  function chainGraph(): MatGraph {
+    return {
+      schemaVersion: '1.0',
+      ueVersion: '5.7',
+      type: 'Material',
+      name: 'chain',
+      nodes: [
+        { id: 'A', type: 'Multiply' },
+        { id: 'B', type: 'Saturate' },
+        { id: 'C', type: 'Lerp' },
+      ],
+      connections: [
+        { from: 'A:Result', to: 'B:Input' },
+        { from: 'B:Result', to: 'C:A' },
+        { from: 'B:Result', to: 'C:B' },
+      ],
+    };
+  }
+
+  it('1 incoming, 2 outgoing from one pin → both rewired to the source', () => {
+    const r = applyPatch(chainGraph(), [{ op: 'removeNode', id: 'B', heal: true }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.nodes.some(n => n.id === 'B')).toBe(false);
+    expect(r.graph.connections).toContainEqual({ from: 'A:Result', to: 'C:A' });
+    expect(r.graph.connections).toContainEqual({ from: 'A:Result', to: 'C:B' });
+    expect(r.graph.connections).toHaveLength(2);
+    expect(r.diff[0]).toContain('縫合');
+  });
+
+  it('no incoming → error suggesting plain removeNode', () => {
+    const g = chainGraph();
+    g.connections = g.connections.filter(c => c.to !== 'B:Input');
+    const r = applyPatch(g, [{ op: 'removeNode', id: 'B', heal: true }]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors[0].message).toMatch(/no incoming/);
+  });
+
+  it('several incoming without healFrom → error listing the wired input pins', () => {
+    const g = chainGraph();
+    g.connections.push({ from: 'C:Result', to: 'B:Extra' });
+    const r = applyPatch(g, [{ op: 'removeNode', id: 'B', heal: true }]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors[0].message).toMatch(/healFrom/);
+    expect(r.errors[0].message).toContain('Input');
+    expect(r.errors[0].message).toContain('Extra');
+  });
+
+  it('several incoming with healFrom → the chosen source survives', () => {
+    const g = chainGraph();
+    g.connections.push({ from: 'C:Result', to: 'B:Extra' });
+    const r = applyPatch(g, [{ op: 'removeNode', id: 'B', heal: true, healFrom: 'Extra' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.connections).toContainEqual({ from: 'C:Result', to: 'C:A' });
+    expect(r.graph.connections).toContainEqual({ from: 'C:Result', to: 'C:B' });
+  });
+
+  it('healFrom naming an unwired pin → error', () => {
+    const g = chainGraph();
+    g.connections.push({ from: 'C:Result', to: 'B:Extra' });
+    const r = applyPatch(g, [{ op: 'removeNode', id: 'B', heal: true, healFrom: 'Nope' }]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors[0].message).toMatch(/matches no incoming/);
+  });
+
+  it('outgoing from two different output pins → ambiguous, refused', () => {
+    const g = chainGraph();
+    g.connections = [
+      { from: 'A:Result', to: 'B:Input' },
+      { from: 'B:Result', to: 'C:A' },
+      { from: 'B:Other', to: 'C:B' },
+    ];
+    const r = applyPatch(g, [{ op: 'removeNode', id: 'B', heal: true }]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.errors[0].message).toMatch(/ambiguous/);
+  });
+
+  it('heal with zero outgoing degenerates to a plain remove', () => {
+    const g = chainGraph();
+    g.connections = [{ from: 'A:Result', to: 'B:Input' }];
+    const r = applyPatch(g, [{ op: 'removeNode', id: 'B', heal: true }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.connections).toHaveLength(0);
+    expect(r.diff[0]).toContain('移除了節點');
+  });
+});

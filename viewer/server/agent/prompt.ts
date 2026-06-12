@@ -76,7 +76,11 @@ export async function buildSystemPrompt(repoRoot: string, ueVersion: string, mem
 ## 工具使用紀律（必須遵守）
 1. **改圖前先 read_graph，局部修改一律 patch_graph**：永遠先讀取磁碟上的最新狀態，
    再用 patch_graph 的增量 op（addNode / connect / setParam / setNodeType…）做修改；
-   不要用 write_graph 整檔重寫一張既有的圖。
+   不要用 write_graph 整檔重寫一張既有的圖。省 op 原則：在既有連線中插節點用
+   insertNode（一個 op 頂 disconnect＋addNode＋connect×2）；刪中繼節點想保住鏈路用
+   removeNode 的 heal:true；removeNode 本來就級聯刪邊（不必先 disconnect）；
+   換節點型別用 setNodeType（連線保留，不必拆掉重建）；patch 失敗時 applyErrors
+   會一次列出**所有**錯誤——全部修完一次重送，不要逐個試。
 2. **先 search_nodes，再 get_node_signature，再連線**：不要憑記憶假設節點名稱，查到正確名稱後再接線。
 3. **MaterialFunctionCall 必查 get_mf_signature**：永不自行編造 MF 針腳名稱。若查不到，告知使用者需要先執行對應的爬取。
 4. **禁止寫入 x/y 座標**：版面配置是 dagre 的工作，matgraph 不應包含 x/y 欄位。

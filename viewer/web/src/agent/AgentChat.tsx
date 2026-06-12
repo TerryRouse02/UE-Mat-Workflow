@@ -870,9 +870,10 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
         {usage && (
           <span
             className="agent-usage"
-            title={`輸入 ${fmtTokens(usage.input)} · 輸出 ${fmtTokens(usage.output)} tokens${usage.estimated ? '（估算值）' : ''}`}
+            title={`輸入 ${fmtTokens(usage.input)} · 輸出 ${fmtTokens(usage.output)} tokens${usage.cached > 0 ? ` · 快取命中 ${fmtTokens(usage.cached)}（約 1 折計費）` : ''}${usage.estimated ? '（估算值）' : ''}`}
           >
             {usage.estimated ? '約 ' : ''}{fmtTokens(usageTotal)} tokens
+            {usage.cached > 0 && <span className="agent-usage-cached">⚡{fmtTokens(usage.cached)}</span>}
           </span>
         )}
         {!streaming && (
