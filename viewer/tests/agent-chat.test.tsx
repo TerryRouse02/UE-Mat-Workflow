@@ -918,7 +918,7 @@ describe('transcript reducer — viewer-action events', () => {
     expect((items[0] as { message: string }).message).toContain('剪貼簿');
 
     items = applyAgentEvent(items, { type: 'crawl_proposal', kind: 'workmf', contentRoot: '/Game' }, flags);
-    expect(items[1]).toEqual({ kind: 'crawlProposal', crawlKind: 'workmf', contentRoot: '/Game', resolved: false });
+    expect(items[1]).toEqual({ kind: 'crawlProposal', crawlKind: 'workmf', contentRoot: '/Game', resolved: false, pendingApproval: false });
   });
 
   it('a new user turn deactivates a pending crawl proposal', () => {
