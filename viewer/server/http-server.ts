@@ -245,7 +245,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       createdAt: new Date().toISOString(),
       createdPaths: new Set<string>(),
     };
-    activeSessions.set(id, active);
+    // Never re-cache a session whose files are mid-deletion: the stale cache
+    // entry would outlive destroySession and resurrect the session. Serving
+    // this one read uncached keeps the response consistent with the disk state
+    // the load actually saw.
+    if (!destroyingSessions.has(id)) activeSessions.set(id, active);
     return active;
   }
 
@@ -274,7 +278,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       createdAt: persisted.createdAt,
       createdPaths: new Set<string>(),
     };
-    activeSessions.set(id, active);
+    // Never re-cache a session whose files are mid-deletion: the stale cache
+    // entry would outlive destroySession and resurrect the session. Serving
+    // this one read uncached keeps the response consistent with the disk state
+    // the load actually saw.
+    if (!destroyingSessions.has(id)) activeSessions.set(id, active);
     return active;
   }
 
@@ -303,19 +311,32 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
    * and per-session memory (longterm memory is shared and untouched). Used by
    * DELETE /api/agent/sessions/:id and the off-topic session_closed path.
    */
+  // Sessions mid-destruction: a concurrent resumeSession must not re-cache one
+  // from disk while its files are being deleted — the stale cache entry would
+  // outlive the deletion and resurrect the session (e.g. a client polling
+  // GET /api/agent/sessions/:id right after the session_closed event).
+  const destroyingSessions = new Set<string>();
   async function destroySession(id: string): Promise<void> {
-    const active = activeSessions.get(id);
-    activeSessions.delete(id);
-    if (currentSessionId === id) currentSessionId = null;
-    await sessionStore.remove(id);
+    destroyingSessions.add(id);
     try {
-      const cpDir = active?.checkpoint.sessionDir
-        ?? resolve(opts.repoRoot, 'viewer', '.agent-checkpoints', id);
-      await rm(cpDir, { recursive: true, force: true });
-    } catch { /* non-fatal */ }
-    try {
-      await rm(resolve(opts.repoRoot, 'viewer', '.agent-sessions', `${id}.memory.md`), { force: true });
-    } catch { /* non-fatal */ }
+      const active = activeSessions.get(id);
+      activeSessions.delete(id);
+      if (currentSessionId === id) currentSessionId = null;
+      await sessionStore.remove(id);
+      try {
+        const cpDir = active?.checkpoint.sessionDir
+          ?? resolve(opts.repoRoot, 'viewer', '.agent-checkpoints', id);
+        await rm(cpDir, { recursive: true, force: true });
+      } catch { /* non-fatal */ }
+      try {
+        await rm(resolve(opts.repoRoot, 'viewer', '.agent-sessions', `${id}.memory.md`), { force: true });
+      } catch { /* non-fatal */ }
+      // A resumeSession that loaded the file just before its deletion may have
+      // re-cached the session — drop it again now that the files are gone.
+      activeSessions.delete(id);
+    } finally {
+      destroyingSessions.delete(id);
+    }
   }
 
   const sendJson = (res: import('node:http').ServerResponse, status: number, body: unknown) => {
