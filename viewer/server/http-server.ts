@@ -20,7 +20,7 @@ import { runAgent, createSession, estimateMessagesTokens, VIEW_CONTEXT_PREFIX, t
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
-import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentRegenerateResponse, AgentTestResponse, AgentWebTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse, AgentDbEditRequest, AgentDbEditResponse } from './agent/agent-types.js';
+import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentRegenerateResponse, AgentTestResponse, AgentWebTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse, AgentDbEditRequest, AgentDbEditResponse, AgentPublicSessionResponse } from './agent/agent-types.js';
 import { webSearch, type WebSearchConfig } from './agent/web-tools.js';
 import { applyDbEdit } from './agent/db-edit.js';
 import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/session-store.js';
@@ -172,9 +172,16 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (urlPath === '/api/config' || urlPath === '/api/crawl' || urlPath === '/api/crawl/cancel') return true;
     if (urlPath === '/api/auth/users' || urlPath.startsWith('/api/auth/users/')) return true;
     if (urlPath.startsWith('/api/agent/')) {
-      return urlPath !== '/api/agent/status' && urlPath !== '/api/agent/explain';
+      return urlPath !== '/api/agent/status' && urlPath !== '/api/agent/explain'
+        && urlPath !== '/api/agent/public-session';
     }
     return false;
+  }
+
+  /** Tell every WS client where the announcement channel points + whether it is mid-turn. */
+  function broadcastPublicAgent(id: string | null, streaming: boolean): void {
+    const msg: ServerMessage = { kind: 'publicAgent', id, streaming };
+    for (const ws of wss.clients) safeSend(ws, msg);
   }
 
   // ─── Agent state (M7: persistent multi-session) ────────────────────────────
@@ -1067,8 +1074,71 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       sendJson(res, 409, { error: '正在還原／重新生成，請稍候再試。' });
       return;
     }
+    // Check BEFORE destroy — sessionStore.remove clears the pointer itself.
+    const wasPublic = (await sessionStore.getPublicId()) === id;
     await destroySession(id);
     sendJson(res, 200, { ok: true });
+    if (wasPublic) broadcastPublicAgent(null, false);
+  }
+
+  /**
+   * POST /api/agent/sessions/:id/public — designate (or clear) the single
+   * team-visible announcement session. Admin-only via the team gate.
+   */
+  async function handleAgentSessionPublic(id: string, req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    let makePublic = true;
+    try {
+      const raw = await readBody(req, 64_000);
+      if (raw) makePublic = (JSON.parse(raw) as { public?: unknown }).public !== false;
+    } catch { /* empty body = set public */ }
+    if (makePublic) {
+      if (!(await sessionStore.load(id)) && !activeSessions.has(id)) {
+        sendJson(res, 404, { error: '找不到指定的會話。' });
+        return;
+      }
+      await sessionStore.setPublicId(id);
+      broadcastPublicAgent(id, agentStreaming && currentSessionId === id);
+    } else {
+      if ((await sessionStore.getPublicId()) === id) {
+        await sessionStore.setPublicId(null);
+        broadcastPublicAgent(null, false);
+      }
+    }
+    sendJson(res, 200, { ok: true, publicId: makePublic ? id : null });
+  }
+
+  /**
+   * GET /api/agent/public-session — the announcement channel's replayable
+   * transcript. Deliberately NOT admin-only: this is the one agent surface
+   * every team member can read (and the only one — raw messages stay private).
+   */
+  async function handleAgentPublicSession(res: import('node:http').ServerResponse) {
+    const id = await sessionStore.getPublicId();
+    if (!id) { sendJson(res, 200, { id: null } satisfies AgentPublicSessionResponse); return; }
+    // Prefer the in-memory session: mid-turn its transcript is ahead of disk.
+    const active = activeSessions.get(id);
+    if (active) {
+      sendJson(res, 200, {
+        id,
+        title: active.title,
+        ueVersion: active.loop.ueVersion,
+        updatedAt: new Date().toISOString(),
+        streaming: agentStreaming && currentSessionId === id,
+        transcript: active.transcript,
+      } satisfies AgentPublicSessionResponse);
+      return;
+    }
+    const persisted = await sessionStore.load(id);
+    if (!persisted) { sendJson(res, 200, { id: null } satisfies AgentPublicSessionResponse); return; }
+    sendJson(res, 200, {
+      id,
+      title: persisted.title,
+      ueVersion: persisted.ueVersion,
+      updatedAt: persisted.updatedAt,
+      streaming: false,
+      transcript: persisted.transcript,
+    } satisfies AgentPublicSessionResponse);
   }
 
   /** POST /api/agent/explain — one-shot LLM node explanation (JSON, not SSE). */
@@ -1254,6 +1324,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
     currentSessionId = active.loop.id;
 
+    // Announcement channel: tell every viewer a new turn started streaming here.
+    if ((await sessionStore.getPublicId()) === active.loop.id) broadcastPublicAgent(active.loop.id, true);
+
     const session = active.loop;
     const checkpointStore = active.checkpoint;
 
@@ -1414,13 +1487,20 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         // all its artifacts (checkpoints, memory) are gone for good. Deleting
         // BEFORE ending the response makes "stream closed ⇒ session gone" hold
         // (clients acting on the done EVENT may still race by a few ms).
+        const wasPublic = (await sessionStore.getPublicId()) === active.loop.id;
         await destroySession(active.loop.id);
         if (!res.writableEnded) res.end();
+        // A destroyed announcement session must vanish for viewers too.
+        if (wasPublic) broadcastPublicAgent(null, false);
       } else {
         if (!res.writableEnded) res.end();
         // Persist the turn (messages + transcript + meta). Best-effort: an
         // aborted turn is still saved — synthetic tool_results keep it legal.
         await persistSession(active);
+        // Announcement channel: turn persisted → viewers re-fetch the transcript.
+        try {
+          if ((await sessionStore.getPublicId()) === active.loop.id) broadcastPublicAgent(active.loop.id, false);
+        } catch (e) { console.error('public-agent broadcast failed:', e); }
       }
     }
   }
@@ -1661,6 +1741,19 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         return;
       }
     }
+    if (req.method === 'GET' && urlPath === '/api/agent/public-session') {
+      try { await handleAgentPublicSession(res); }
+      catch (e) { console.error('agent public-session error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    {
+      const m = urlPath.match(/^\/api\/agent\/sessions\/([A-Za-z0-9_-]{1,64})\/public$/);
+      if (m && req.method === 'POST') {
+        try { await handleAgentSessionPublic(m[1], req, res); }
+        catch (e) { console.error('agent session public error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+        return;
+      }
+    }
     {
       const m = urlPath.match(/^\/api\/agent\/sessions\/([A-Za-z0-9_-]{1,64})$/);
       if (m) {
@@ -1891,6 +1984,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       } else if ((cs.status === 'success' || cs.status === 'error') && cs.jobId) {
         send(ws, { kind: 'crawlDone', jobId: cs.jobId, status: cs.status, exitCode: cs.exitCode ?? null });
       }
+      // Replay the announcement-channel pointer so a late joiner can render it.
+      const publicId = await sessionStore.getPublicId();
+      if (publicId) send(ws, { kind: 'publicAgent', id: publicId, streaming: agentStreaming && currentSessionId === publicId });
     } catch (e) {
       console.error('connection handler error:', e);
     }

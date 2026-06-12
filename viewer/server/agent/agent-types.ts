@@ -140,6 +140,20 @@ export interface AgentSessionsListResponse {
   sessions: AgentSessionMeta[];
 }
 
+/**
+ * Response from GET /api/agent/public-session (readable by every team member).
+ * id === null means no announcement session is designated.
+ */
+export interface AgentPublicSessionResponse {
+  id: string | null;
+  title?: string;
+  ueVersion?: string;
+  updatedAt?: string;
+  /** True while the admin's chat on this session is still streaming. */
+  streaming?: boolean;
+  transcript?: AgentTranscriptEntry[];
+}
+
 /** Response from POST /api/agent/sessions */
 export interface AgentSessionCreateResponse {
   id: string;

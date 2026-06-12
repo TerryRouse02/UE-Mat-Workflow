@@ -52,7 +52,11 @@ export type ServerMessage =
   | { kind: 'graphError'; path: string; errors: string[] }
   | { kind: 'crawlStarted'; jobId: string; crawlKind: string }
   | { kind: 'crawlLog'; jobId: string; line: string }
-  | { kind: 'crawlDone'; jobId: string; status: 'success' | 'error'; exitCode: number | null };
+  | { kind: 'crawlDone'; jobId: string; status: 'success' | 'error'; exitCode: number | null }
+  // Announcement-channel signal (team mode): the public agent session changed
+  // (id), started streaming, or finished a turn (streaming false -> viewers
+  // re-fetch GET /api/agent/public-session). Sent on connect + on change.
+  | { kind: 'publicAgent'; id: string | null; streaming: boolean };
 
 export type ClientMessage =
   | { kind: 'open'; path: string }
