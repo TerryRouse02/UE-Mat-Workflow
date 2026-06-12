@@ -38,7 +38,12 @@ export type ServerMessage =
   | { kind: 'proposals'; pending: number }
   // A server-side report was injected into this session (approval outcome) -
   // the session's open chat view re-fetches its transcript.
-  | { kind: 'sessionBumped'; id: string };
+  | { kind: 'sessionBumped'; id: string }
+  // Team mode: who currently holds an open WS connection (unique usernames).
+  | { kind: 'online'; users: string[] }
+  // Live delta from the 系統主Agent (public) session while its turn streams -
+  // viewers append it without waiting for the end-of-turn re-fetch.
+  | { kind: 'publicAgentDelta'; id: string; event: unknown };
 
 export interface GraphPayload {
   graph: MatGraph;

@@ -464,7 +464,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
    * graph's internal `name` to the new base (folder = material = file
    * convention). The watcher broadcasts the change to every client.
    */
-  async function handleFilesOp(req: IncomingMessage, res: import('node:http').ServerResponse) {
+  async function handleFilesOp(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
     let body: { op?: unknown; path?: unknown; to?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
@@ -483,6 +483,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     };
     const src = checkRel(body.path);
     if (!src) { sendJson(res, 400, { error: 'invalid path' }); return; }
+    // Personal-workspace guard: members manage their own dir + shared space.
+    const relSrc = String(body.path);
+    const relDst = typeof body.to === 'string' ? body.to : '';
+    if (!canSeePath(user, relSrc) || (relDst && !canSeePath(user, relDst))) {
+      sendJson(res, 403, { error: '不能操作其他成員的個人工作區。' });
+      return;
+    }
     if (!(await pathExists(src))) { sendJson(res, 404, { error: '找不到檔案' }); return; }
 
     if (op === 'delete') {
@@ -513,23 +520,30 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // Persist a reverse-imported graph (parsed client-side from UE T3D) as a new
   // project folder under graphs/. The existing watcher then picks it up and the
   // client navigates to it. This is the ONLY write path the server exposes.
-  async function handleImport(req: IncomingMessage, res: import('node:http').ServerResponse) {
-    let payload: { name?: unknown; graph?: unknown };
+  async function handleImport(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
+    let payload: { name?: unknown; graph?: unknown; dest?: unknown };
     try { payload = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
 
     const graph = payload.graph;
     if (!isMatGraph(graph)) { sendJson(res, 400, { error: 'invalid graph: expected a Material/MaterialFunction with a nodes array' }); return; }
 
+    // dest 'personal' (team mode) lands under graphs/users/<username>/ —
+    // the importer's own workspace; default stays the shared root.
+    const personal = payload.dest === 'personal' && mode === 'team' && user;
+    const baseRel = personal ? `users/${user.username}` : '';
+
     const slug = slugifyGraphName(payload.name ?? graph.name);
-    const finalName = await freeProjectName(graphsRoot, slug);
+    const finalName = await freeProjectName(
+      personal ? resolve(graphsRoot, baseRel) : graphsRoot, slug);
     // Keep the graph's internal name aligned with its folder/file (convention:
     // folder name = material name = file base name).
     graph.name = finalName;
 
     let relPath: string;
     try {
-      relPath = await writeGraph(graphsRoot, finalName, finalName, graph);
+      const folderRel = personal ? `${baseRel}/${finalName}` : finalName;
+      relPath = await writeGraph(graphsRoot, folderRel, finalName, graph);
     } catch (e) {
       sendJson(res, 500, { error: `failed to write file: ${(e as Error).message}` }); return;
     }
@@ -542,13 +556,17 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
    * CLI's buildSnapshot, which by design never embeds the work-MF index's
    * /Game asset paths (see html-export.ts) — safe to hand to anyone.
    */
-  async function handleExportHtml(req: IncomingMessage, res: import('node:http').ServerResponse) {
+  async function handleExportHtml(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     const url = new URL(req.url ?? '/', 'http://localhost');
     const name = (url.searchParams.get('name') ?? '').trim();
     const graphsRoot = resolve(opts.repoRoot, 'graphs');
     const target = resolve(graphsRoot, `${name}.matgraph.json`);
     if (!name || !isInside(graphsRoot, target)) {
       sendJson(res, 400, { error: 'invalid graph name' });
+      return;
+    }
+    if (!canSeePath(user, `${name}.matgraph.json`)) {
+      sendJson(res, 403, { error: '不能匯出其他成員的個人工作區檔案。' });
       return;
     }
     try {
@@ -1717,8 +1735,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // the chat renders a submitted-state card instead of approve buttons.
     const isMember = mode === 'team' && user !== null && user.role !== 'admin';
 
-    // Announcement channel: tell every viewer a new turn started streaming here.
-    if ((await sessionStore.getPublicId()) === active.loop.id) broadcastPublicAgent(active.loop.id, true);
+    // 系統主Agent channel: tell every viewer a new turn started streaming here;
+    // the emit hook below also live-forwards this turn's display events.
+    const isPublicTurn = (await sessionStore.getPublicId()) === active.loop.id;
+    if (isPublicTurn) broadcastPublicAgent(active.loop.id, true);
 
     const session = active.loop;
     const checkpointStore = active.checkpoint;
@@ -1799,6 +1819,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       }
       if (res.writableEnded) return;
       const out = event.type === 'error' ? { ...event, message: withToolHint(event.message) } : event;
+      // 系統主Agent live stream: mirror this turn's events to every viewer so
+      // members watch deltas in real time (the end-of-turn publicAgent
+      // broadcast still triggers the authoritative transcript re-fetch).
+      if (isPublicTurn) {
+        const dmsg: ServerMessage = { kind: 'publicAgentDelta', id: active.loop.id, event: out };
+        for (const c of wss.clients) safeSend(c, dmsg);
+      }
       res.write(`data: ${JSON.stringify(out)}\n\n`);
       // Mirror every emitted event into the replayable transcript (text and
       // thinking deltas coalesce inside appendTranscript).
@@ -1822,6 +1849,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       ueVersion: session.ueVersion,
       workMfIndexPath: resolve(agentPackRoot, 'workmf-index.json'),
       beforeWrite: async (absPath: string, turnId: string) => {
+        // Personal-workspace guard: a member's agent must not write into
+        // another member's graphs/users/<name>/ dir (shared space is fine).
+        const rel = toPosixPath(relative(graphsRoot, absPath));
+        if (!canSeePath(user, rel)) {
+          throw new Error('不能寫入其他成員的個人工作區（graphs/users/…）。');
+        }
         await checkpointStore.snapshotFile(turnId, absPath);
       },
       memory: active.memory,
@@ -1968,6 +2001,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       memberAgent: memberAgentEnabled,
       quotas,
       usageToday: await usageStore.today(),
+      online: mode === 'team' ? onlineUsers() : [],
       port: boundPort,
       hasUsers: await store.hasUsers(),
       urls: mode === 'team' ? teamUrls() : [],
@@ -2268,12 +2302,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
 
     if (req.method === 'POST' && urlPath === '/api/files') {
-      try { await handleFilesOp(req, res); }
+      try { await handleFilesOp(req, res, gateUser); }
       catch (e) { console.error('files op error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/import') {
-      try { await handleImport(req, res); }
+      try { await handleImport(req, res, gateUser); }
       catch (e) { console.error('import handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
@@ -2291,7 +2325,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
     if (req.method === 'GET' && urlPath === '/api/export-html') {
-      try { await handleExportHtml(req, res); }
+      try { await handleExportHtml(req, res, gateUser); }
       catch (e) { console.error('export-html error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
@@ -2579,6 +2613,32 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     safeSend(ws, await buildGraphMessage(relPath));
   }
 
+  // ── Personal workspaces + presence ─────────────────────────────────────────
+  // graphs/users/<username>/ is each member's personal area. In team mode a
+  // member's file list and graph reads exclude OTHER members' personal dirs;
+  // admins (and local mode) see everything. The same per-socket identity map
+  // also powers the online-presence list.
+  const wsIdentity = new Map<WebSocket, AuthUser | null>();
+  const PERSONAL_PREFIX = 'users/';
+  function canSeePath(user: AuthUser | null, relPath: string): boolean {
+    if (mode !== 'team' || !user || user.role === 'admin') return true;
+    if (!relPath.startsWith(PERSONAL_PREFIX)) return true;
+    return relPath.startsWith(`${PERSONAL_PREFIX}${user.username}/`);
+  }
+  function filesFor(user: AuthUser | null, files: FileEntry[]): FileEntry[] {
+    return files.filter((f) => canSeePath(user, f.path));
+  }
+  function onlineUsers(): string[] {
+    const names = new Set<string>();
+    for (const u of wsIdentity.values()) if (u) names.add(u.username);
+    return [...names].sort();
+  }
+  function broadcastOnline(): void {
+    if (mode !== 'team') return;
+    const msg: ServerMessage = { kind: 'online', users: onlineUsers() };
+    for (const ws of wss.clients) safeSend(ws, msg);
+  }
+
   wss.on('connection', async (ws, req) => {
     // Same-origin guard, mirroring POST /api/crawl. A WS upgrade bypasses CORS, so
     // without this any page the user visits could open ws://127.0.0.1 and read the
@@ -2586,12 +2646,15 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (!sameOrigin(req)) { ws.close(1008, 'cross-origin'); return; }
     // Team mode: the upgrade request carries the HttpOnly auth cookie — no
     // token, no socket (the WS streams every graph + the file list).
+    let wsUser: AuthUser | null = null;
     if (mode === 'team') {
-      let user: AuthUser | null = null;
-      try { user = await authenticate(req); }
+      try { wsUser = await authenticate(req); }
       catch (e) { console.error('ws authenticate error:', e); }
-      if (!user) { ws.close(4401, 'authentication required'); return; }
+      if (!wsUser) { ws.close(4401, 'authentication required'); return; }
     }
+    wsIdentity.set(ws, wsUser);
+    ws.once('close', () => { wsIdentity.delete(ws); broadcastOnline(); });
+    broadcastOnline();
     // Register the inbound handler before sending hello. A fast client can
     // answer hello with `open` immediately; registering afterward creates a
     // race where that first request is lost.
@@ -2600,8 +2663,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         let msg: ClientMessage;
         try { msg = JSON.parse(raw.toString()); } catch { return; }
         if (msg.kind === 'listFiles') {
-          send(ws, { kind: 'fileList', files: await listFiles() });
+          send(ws, { kind: 'fileList', files: filesFor(wsUser, await listFiles()) });
         } else if (msg.kind === 'open') {
+          if (!canSeePath(wsUser, msg.path)) {
+            send(ws, { kind: 'graphError', path: msg.path, errors: ['這是其他成員的個人工作區檔案。'] });
+            return;
+          }
           await sendGraph(ws, msg.path);
         }
       } catch (e) {
@@ -2611,7 +2678,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // Guard the handler body: a thrown error here would otherwise become an
     // unhandledRejection and can crash the process.
     try {
-      const files = await listFiles();
+      const files = filesFor(wsUser, await listFiles());
       send(ws, { kind: 'hello', graphsRoot, files });
       // Replay current crawl state: the progress broadcast only reaches clients
       // connected at the time, so a client that connects/reconnects mid- or
@@ -2636,7 +2703,6 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // Guard the whole callback: a throw here would become an unhandledRejection.
     try {
       const files = await listFiles();
-      const fileListMsg: ServerMessage = { kind: 'fileList', files };
       // Resolve each changed graph ONCE, then fan out. (Removed/unlinked paths
       // are intentionally not re-sent as graphs — the fileList refresh already
       // tells clients they are gone.)
@@ -2646,8 +2712,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         graphMsgs.push(await buildGraphMessage(rel));
       }
       for (const ws of wss.clients) {
-        safeSend(ws, fileListMsg);
-        for (const msg of graphMsgs) safeSend(ws, msg);
+        const u = wsIdentity.get(ws) ?? null;
+        safeSend(ws, { kind: 'fileList', files: filesFor(u, files) });
+        for (const msg of graphMsgs) {
+          if (!canSeePath(u, msg.kind === 'graph' || msg.kind === 'graphError' ? msg.path : '')) continue;
+          safeSend(ws, msg);
+        }
       }
     } catch (e) {
       console.error('watch broadcast error:', e);

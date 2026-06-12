@@ -31,6 +31,10 @@ vi.mock('../web/src/store.tsx', () => ({
       auth: mockAuth,
       publicAgent: mockPublicAgent,
       crawl: { status: 'idle', kind: null, jobId: null, logs: [], exitCode: null },
+      onlineUsers: [],
+      publicDelta: null,
+      proposalsPending: 0,
+      sessionBump: null,
     },
     login: loginFn,
     setupAdmin: setupFn,
@@ -107,7 +111,7 @@ describe('PublicAgentView', () => {
       new Response(JSON.stringify({ id: null }), { status: 200 }),
     ) as never;
     render(<PublicAgentView />);
-    expect(await screen.findByText('尚無公告頻道')).toBeTruthy();
+    expect(await screen.findByText('尚無系統主Agent')).toBeTruthy();
   });
 
   it('renders user + assistant bubbles and re-fetches when the WS version bumps', async () => {

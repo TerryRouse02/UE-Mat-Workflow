@@ -14,6 +14,13 @@ interface FileRowProps {
   onLargeGraph?(file: FileEntry): void;
 }
 
+/** users/<name>/<proj> → 「<name> 的工作區 / <proj>」 (personal dirs). */
+function groupTitle(folder: string): string {
+  const m = folder.match(/^users\/([^/]+)(?:\/(.+))?$/);
+  if (!m) return folder;
+  return m[2] ? `${m[1]} 的工作區 / ${m[2]}` : `${m[1]} 的工作區`;
+}
+
 function FileRow({ entry, onLargeGraph }: FileRowProps) {
   const { state, open } = useStore();
   const active = state.breadcrumb[0] === entry.path;
@@ -232,7 +239,7 @@ export function FileList({ onGotoConfig, onLargeGraph }: FileListProps = {}) {
         <span className="badge">{projectShown}</span>
       </div>
       {visibleProjects.map(p => (
-        <Group key={p.folder} title={p.folder} count={p.files.length}>
+        <Group key={p.folder} title={groupTitle(p.folder)} count={p.files.length}>
           {p.files.map(f => (
             <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} />
           ))}

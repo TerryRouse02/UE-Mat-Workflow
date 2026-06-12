@@ -19,7 +19,7 @@ interface TeamInfo {
 }
 
 export function TeamPanel() {
-  const { refreshAuth } = useStore();
+  const { state, refreshAuth } = useStore();
   const [info, setInfo] = useState<TeamInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -133,6 +133,11 @@ export function TeamPanel() {
               </div>
             ))}
           </div>
+          {state.onlineUsers.length > 0 && (
+            <div className="note" style={{ marginBottom: 6 }}>
+              在線：{state.onlineUsers.join('、')}
+            </div>
+          )}
           <label className="team-check">
             <input
               type="checkbox"

@@ -4,7 +4,7 @@
 // `publicAgent` WS broadcast bumps the store version (designation changes,
 // a turn starts streaming, a turn lands).
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useStore } from '../store';
 import { Icon } from '../Icon';
 import { SYSTEM_REPORT_PREFIX } from './transcript';
@@ -45,6 +45,10 @@ export function PublicAgentView() {
   const { id, streaming, version } = state.publicAgent;
   const [data, setData] = useState<AgentPublicSessionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Live deltas appended between transcript re-fetches (cleared on each fetch
+  // — the server transcript is authoritative).
+  const [live, setLive] = useState<AgentTranscriptEntry[]>([]);
+  const lastSeqRef = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -53,7 +57,7 @@ export function PublicAgentView() {
         const r = await fetch('/api/agent/public-session', { cache: 'no-store' });
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
         const body = (await r.json()) as AgentPublicSessionResponse;
-        if (!cancelled) { setData(body); setError(null); }
+        if (!cancelled) { setData(body); setLive([]); setError(null); }
       } catch (e) {
         if (!cancelled) setError((e as Error).message);
       }
@@ -62,25 +66,47 @@ export function PublicAgentView() {
     // version bumps on every publicAgent WS broadcast → re-fetch.
   }, [id, version]);
 
+  // Real-time stream: append each forwarded event, coalescing consecutive
+  // text/thinking chunks (same rule as the server-side transcript).
+  useEffect(() => {
+    const d = state.publicDelta;
+    if (!d || d.seq === lastSeqRef.current || d.id !== id) return;
+    lastSeqRef.current = d.seq;
+    const ev = d.event as { type?: string; text?: string };
+    if (!ev || typeof ev.type !== 'string') return;
+    setLive(prev => {
+      const last = prev[prev.length - 1];
+      if (
+        (ev.type === 'text' || ev.type === 'thinking') &&
+        last?.kind === 'event' && last.event.type === ev.type
+      ) {
+        const merged = { kind: 'event' as const, event: { type: ev.type, text: (last.event as { text: string }).text + (ev.text ?? '') } };
+        return [...prev.slice(0, -1), merged as AgentTranscriptEntry];
+      }
+      return [...prev, { kind: 'event', event: ev } as AgentTranscriptEntry];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.publicDelta, id]);
+
   if (error) {
-    return <div className="pubagent-empty"><Icon name="x" size={18} /> 無法載入公告：{error}</div>;
+    return <div className="pubagent-empty"><Icon name="x" size={18} /> 無法載入系統主Agent：{error}</div>;
   }
   if (!data || data.id === null) {
     return (
       <div className="pubagent-empty">
         <Icon name="chip" size={22} />
-        <div className="pubagent-empty-title">尚無公告頻道</div>
-        <div className="pubagent-empty-sub">管理員可在 Agent 分頁將一個會話設為公告，全員即可在此圍觀。</div>
+        <div className="pubagent-empty-title">尚無系統主Agent</div>
+        <div className="pubagent-empty-sub">管理員可在 Agent 分頁將一個會話設為系統主Agent，全員即可在此即時圍觀。</div>
       </div>
     );
   }
 
-  const entries = data.transcript ?? [];
+  const entries = [...(data.transcript ?? []), ...live];
   return (
     <div className="pubagent">
       <div className="pubagent-head">
         <Icon name="chip" size={12} />
-        <span className="pubagent-title">{data.title || '公告頻道'}</span>
+        <span className="pubagent-title">{data.title || '系統主Agent'}</span>
         {streaming
           ? <span className="pubagent-live"><span className="dot" /> 廣播中…</span>
           : <span className="pubagent-ro">唯讀</span>}

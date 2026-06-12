@@ -36,10 +36,20 @@ is active and no login screen ever appears.
 | User management (create/delete/reset password) | | ✓ |
 
 ¹ Config → 團隊 → 「允許成員使用 AI 助手」(default off — member chats spend
-the shared key). Member sessions are owner-isolated (admins can read all of
-them, with per-session token totals); members' agents can write the shared
-graphs but never get the crawl/DB-edit proposal tools. Sessions stream **in
-parallel** — one member's chat no longer blocks another's.
+the shared key; per-user daily token quotas live in 使用者管理). Member
+sessions are owner-isolated (admins read all of them, with per-session token
+totals and a usage dashboard); member crawl/DB-edit proposals divert into the
+admin **approval inbox** (Config → 團隊) and the outcome is reported back into
+the member's session. Sessions stream **in parallel**.
+
+**Personal workspaces**: `graphs/users/<username>/` is each member's own area
+— other members never see it (admins do); imports can target it, and a
+member's agent cannot write into someone else's. Everything else under
+`graphs/` stays the shared team workspace.
+
+**系統主Agent**: the admin designates one session (Agent tab → 設為主Agent);
+every member watches it live (delta streaming) read-only in their Agent tab.
+The 團隊 panel also shows who is online.
 
 The LLM API key is held by the server (`tools/node-t3d-metadata/local.config.json`)
 and is never sent to any browser. Team members spend the shared key only

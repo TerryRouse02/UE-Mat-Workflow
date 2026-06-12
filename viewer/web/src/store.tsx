@@ -60,6 +60,11 @@ interface State {
   // A server-side report landed in this session (approval outcome): the open
   // chat re-fetches its transcript when the version bumps.
   sessionBump: { id: string; version: number } | null;
+  // Team mode: usernames with an open WS connection right now.
+  onlineUsers: string[];
+  // Live event from the 系統主Agent's streaming turn (members append it
+  // without waiting for the end-of-turn transcript re-fetch).
+  publicDelta: { id: string; event: unknown; seq: number } | null;
 }
 
 export interface AuthStatus {
@@ -94,6 +99,8 @@ type Action =
   | { type: 'publicAgent'; id: string | null; streaming: boolean }
   | { type: 'proposals'; pending: number }
   | { type: 'sessionBumped'; id: string }
+  | { type: 'online'; users: string[] }
+  | { type: 'publicDelta'; id: string; event: unknown }
   | { type: 'crawlReset' }
   | CrawlAction;
 
@@ -107,6 +114,7 @@ const initial: State = {
   selectedNodeId: null, agentAsk: null, agentActivity: 'idle',
   auth: null, publicAgent: { id: null, streaming: false, version: 0 },
   proposalsPending: 0, sessionBump: null,
+  onlineUsers: [], publicDelta: null,
 };
 
 function reducer(s: State, a: Action): State {
@@ -150,6 +158,10 @@ function reducer(s: State, a: Action): State {
       return s.proposalsPending === a.pending ? s : { ...s, proposalsPending: a.pending };
     case 'sessionBumped':
       return { ...s, sessionBump: { id: a.id, version: (s.sessionBump?.version ?? 0) + 1 } };
+    case 'online':
+      return { ...s, onlineUsers: a.users };
+    case 'publicDelta':
+      return { ...s, publicDelta: { id: a.id, event: a.event, seq: (s.publicDelta?.seq ?? 0) + 1 } };
     case 'crawlReset':
       return { ...s, crawl: idleCrawl };
     case 'crawlStarted':
@@ -288,6 +300,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         else if (m.kind === 'publicAgent') dispatch({ type: 'publicAgent', id: m.id, streaming: m.streaming });
         else if (m.kind === 'proposals') dispatch({ type: 'proposals', pending: m.pending });
         else if (m.kind === 'sessionBumped') dispatch({ type: 'sessionBumped', id: m.id });
+        else if (m.kind === 'online') dispatch({ type: 'online', users: m.users });
+        else if (m.kind === 'publicAgentDelta') dispatch({ type: 'publicDelta', id: m.id, event: m.event });
       },
     });
     wsRef.current = ws;

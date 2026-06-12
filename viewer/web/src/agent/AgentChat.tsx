@@ -925,10 +925,10 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             className={'agent-bar-btn' + (state.publicAgent.id === sessionId ? ' on' : '')}
             onClick={() => void togglePublic()}
             title={state.publicAgent.id === sessionId
-              ? '取消公告：成員將看不到此會話'
-              : '設為公告：全體成員可唯讀圍觀此會話'}
+              ? '取消系統主Agent：成員將看不到此會話'
+              : '設為系統主Agent：全體成員可即時唯讀圍觀此會話'}
           >
-            <Icon name="eye" size={11} /> {state.publicAgent.id === sessionId ? '公告中' : '設為公告'}
+            <Icon name="eye" size={11} /> {state.publicAgent.id === sessionId ? '主Agent' : '設為主Agent'}
           </button>
         )}
         {sessionId !== null && !streaming && (

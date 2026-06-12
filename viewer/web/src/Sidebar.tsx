@@ -105,7 +105,7 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
             survive the user watching crawl progress in the Config tab. */}
         {!isSnapshot && memberChat && tab === 'agent' && (
           <div className="member-agent-toggle">
-            {([['chat', '我的對話'], ['public', '公告']] as const).map(([k, label]) => (
+            {([['chat', '我的對話'], ['public', '系統主Agent']] as const).map(([k, label]) => (
               <button
                 key={k}
                 className={'mat-btn' + (memberAgentView === k ? ' on' : '')}

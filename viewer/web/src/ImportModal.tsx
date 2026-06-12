@@ -26,6 +26,9 @@ export function ImportModal({ exportMeta, open, pushToast, onClose }: ImportModa
   // Post-import AI walkthrough — only offered in live mode with a server.
   const [explain, setExplain] = useState(false);
   const canExplain = state.connection === 'live';
+  // Team mode: import into the shared root or your own graphs/users/<me>/.
+  const isTeam = state.auth?.mode === 'team' && state.auth.authed;
+  const [dest, setDest] = useState<'shared' | 'personal'>('shared');
 
   const doImport = async () => {
     if (busy) return;
@@ -44,7 +47,7 @@ export function ImportModal({ exportMeta, open, pushToast, onClose }: ImportModa
       const resp = await fetch('/api/import', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() || graph.name, graph }),
+        body: JSON.stringify({ name: name.trim() || graph.name, graph, ...(isTeam ? { dest } : {}) }),
       });
       if (!resp.ok) {
         const err = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }));
@@ -87,6 +90,15 @@ export function ImportModal({ exportMeta, open, pushToast, onClose }: ImportModa
           <span>UE 剪貼板內容（T3D）</span>
           <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Begin Object Class=/Script/UnrealEd.MaterialGraphNode ..." spellCheck={false} />
         </label>
+        {isTeam && (
+          <label className="import-field">
+            <span>匯入到</span>
+            <select value={dest} onChange={e => setDest(e.target.value as 'shared' | 'personal')}>
+              <option value="shared">共享工作區（全隊可見）</option>
+              <option value="personal">我的工作區（users/{state.auth?.username}/，僅自己與管理員可見）</option>
+            </select>
+          </label>
+        )}
         <div className="import-actions">
           {canExplain && (
             <label className="import-explain" title="導入成功後自動切到 Agent 分頁，請 AI 解說這張圖">

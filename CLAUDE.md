@@ -78,7 +78,13 @@ agent surface opens to members when the admin flips `Team.memberAgent` (sessions
 then owner-isolated — members see only their own, admins see all — and member turns
 lose the `request_crawl`/`propose_db_edit` tools). Chat single-flight is PER SESSION
 (sessions stream in parallel); `/api/auth/password` is every member's own-password
-change.
+change. Member proposals divert into `/api/agent/proposals` (admin approve/deny →
+outcome injected into the requester's session); per-user daily quotas live in
+`Team.quotas` + `viewer/.auth/usage.json`; `graphs/users/<name>/` are owner-private
+personal workspaces (WS file list + reads filtered per socket identity); the
+public session (系統主Agent) live-streams deltas over `publicAgentDelta`;
+`GET /api/export-html` bakes snapshots server-side; `POST /api/files` is human
+rename/duplicate/delete.
 Local mode constructs no auth store and skips every gate — behavior unchanged. `mode`,
 `authStore`, `secureCookies`, and `currentBindHost` are mutable runtime state; the `Team`
 object persists in `local.config.json`.
