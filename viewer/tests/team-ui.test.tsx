@@ -12,6 +12,7 @@ import { PublicAgentView } from '../web/src/agent/PublicAgentView.js';
 import { UserAdminSection } from '../web/src/UserAdmin.js';
 import { TeamPanel } from '../web/src/TeamPanel.js';
 import { MyAccountSection } from '../web/src/MyAccount.js';
+import { TeamUsageSection } from '../web/src/TeamUsage.js';
 
 // ---------------------------------------------------------------------------
 // Store mock (mutable snapshot + spied auth actions)
@@ -253,6 +254,47 @@ describe('MyAccountSection', () => {
     expect(calls[0].url).toBe('/api/auth/password');
     expect(JSON.parse(String(calls[0].init!.body))).toEqual({ oldPassword: 'password1', newPassword: 'password2' });
     expect(await screen.findByText(/密碼已更新/)).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TeamUsageSection (admin usage overview)
+// ---------------------------------------------------------------------------
+
+describe('TeamUsageSection', () => {
+  it('aggregates sessions per owner, expands to detail, deletes with confirm', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      calls.push({ url, init });
+      if (init?.method === 'DELETE') return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      return new Response(JSON.stringify({
+        sessions: [
+          { id: 's1', title: '玻璃材質', createdAt: '', updatedAt: '2026-06-12T01:00:00Z', ueVersion: '5.7', owner: 'artist', totalTokens: 12_000, turns: 4 },
+          { id: 's2', title: '金屬', createdAt: '', updatedAt: '2026-06-12T02:00:00Z', ueVersion: '5.7', owner: 'artist', totalTokens: 3_000, turns: 1 },
+          { id: 's3', title: '公告', createdAt: '', updatedAt: '2026-06-12T03:00:00Z', ueVersion: '5.7', owner: 'admin', totalTokens: 40_000, turns: 9 },
+        ],
+      }), { status: 200 });
+    }) as never;
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+
+    render(<TeamUsageSection />);
+    // Aggregate rows, sorted by spend: admin (40K) first, then artist (15K).
+    expect(await screen.findByText('admin')).toBeTruthy();
+    expect(screen.getByText('artist')).toBeTruthy();
+    expect(screen.getByText('15.0K tok')).toBeTruthy();
+    expect(screen.getByText(/累計 55.0K tokens/)).toBeTruthy();
+    expect(screen.getByText('2 會話')).toBeTruthy();
+
+    // Expand artist → both sessions; delete one.
+    fireEvent.click(screen.getByText('artist'));
+    expect(await screen.findByText('玻璃材質')).toBeTruthy();
+    const delButtons = screen.getAllByText('刪除');
+    fireEvent.click(delButtons[0]);
+    await waitFor(() => {
+      const del = calls.find(c => c.init?.method === 'DELETE');
+      expect(del).toBeTruthy();
+      expect(del!.url).toMatch(/^\/api\/agent\/sessions\/s[12]$/);
+    });
   });
 });
 

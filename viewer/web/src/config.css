@@ -336,3 +336,36 @@
   border-radius: var(--chip-radius);
   padding: 6px 9px;
 }
+
+/* ── Team usage overview (admin) ─────────────────────────────────────────── */
+.teamusage-refresh { margin-left: auto; padding: 2px 7px; }
+.teamusage-list { display: flex; flex-direction: column; gap: 4px; }
+.teamusage-owner {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  overflow: hidden;
+}
+.tu-row {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 7px 9px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); font-size: 12px; text-align: left;
+}
+.tu-row:hover { background: var(--bg-elev); }
+.tu-name { color: var(--text); font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tu-stat { color: var(--text-mute); font-size: 11px; flex: 0 0 auto; }
+.tu-tokens { color: var(--accent); font-size: 11px; flex: 0 0 auto; }
+.tu-when { color: var(--text-mute); font-size: 11px; flex: 0 0 auto; min-width: 56px; text-align: right; }
+.tu-sessions {
+  border-top: 1px solid var(--hairline);
+  padding: 4px 9px 8px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.tu-session {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--text-dim);
+  padding: 3px 0;
+}
+.tu-session .tu-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tu-session .ua-btn { padding: 1px 6px; font-size: 10px; }

@@ -640,9 +640,12 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       // scroll done off-tab landed at 0 — re-pin once when the tab opens.
       const el = scrollRef.current;
       if (el) el.scrollTop = el.scrollHeight;
+      // Team mode: other people create sessions while this tab is hidden —
+      // refresh the list on every open so the admin's dropdown never goes stale.
+      void fetchSessions();
     }
     prevActiveRef.current = active;
-  }, [active, state.agentActivity, setAgentActivity]);
+  }, [active, state.agentActivity, setAgentActivity, fetchSessions]);
 
   // Crawl-result feedback loop: a crawl approved from an agent proposal card
   // reports its outcome (status + log tail) back into the conversation once it
