@@ -207,7 +207,10 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
    even "guard" checks that would reveal a private naming scheme.
 3. **`workmf-index.json` is server-only.** Never `import.meta.glob` it, never bake it into a bundle
    or the HTML export — that would leak a user's `/Game` asset paths into shipped files.
-4. **`.ps1` files stay pure ASCII.** Windows PowerShell 5.1 mis-reads non-BOM UTF-8 (em-dash, ellipsis).
+4. **`.ps1` files stay pure ASCII** — *or* UTF-8 **with a BOM** when they must carry CJK UX strings
+   (e.g. the standalone `tools/viewer-https/` HTTPS helper). Windows PowerShell 5.1 mis-reads
+   *non-BOM* UTF-8 (em-dash, ellipsis); the BOM is what lets it decode CJK correctly. Never commit
+   non-BOM UTF-8, and keep non-ASCII out of syntax positions (string/comment literals only).
 5. **Single sources of truth.** Crawl commands: `crawl-runner.ts` `defaultCommandFor` only. Wire
    types: `ws-protocol.ts` ↔ `web/src/protocol.ts` (mirror). Node-free shared types
    (`crawl-types.ts`, `workmf-types.ts`) exist so the web tsc program never pulls in `node:` typings.

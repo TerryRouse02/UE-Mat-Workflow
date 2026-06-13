@@ -86,7 +86,7 @@ Assert-True ($installer -match 'LastIndexOf\(\$m\)') 'shipped installer extracts
 $firstMatchPayload = $installer.Substring($installer.IndexOf($payloadMarker) + $payloadMarker.Length).Trim()
 $indexOfWouldFail = $false
 try { [void][Convert]::FromBase64String($firstMatchPayload) } catch { $indexOfWouldFail = $true }
-Assert-True $indexOfWouldFail 'first-match (IndexOf) extraction is invalid base64 — proves LastIndexOf is required'
+Assert-True $indexOfWouldFail 'first-match (IndexOf) extraction is invalid base64; proves LastIndexOf is required'
 
 $elevationArgs = New-ViewerHttpsElevationArguments -ScriptPath 'D:\Repo\tools\viewer-https\Manage-ViewerHttps.ps1' -Command 'install' -BoundParameters @{ AddressMode = 'ip'; Address = '192.168.71.92'; DryRun = [Management.Automation.SwitchParameter]::new($true) }
 Assert-Equal '-NoProfile' $elevationArgs[0] 'elevation starts without profile'
@@ -99,6 +99,14 @@ $managerPath = Join-Path $PSScriptRoot '..\Manage-ViewerHttps.ps1'
 $launcherPath = Join-Path $PSScriptRoot '..\Manage-ViewerHttps.bat'
 $managerSource = [IO.File]::ReadAllText($managerPath)
 $launcherSource = [IO.File]::ReadAllText($launcherPath)
+
+# These tool scripts deliberately ship as UTF-8 WITH a BOM so Windows PowerShell 5.1 decodes
+# their Traditional Chinese UX strings correctly (the CLAUDE.md rule 4 BOM exception). Guard the
+# BOM: an editor or tool that strips it would silently corrupt every CJK string on PS 5.1.
+foreach ($bomFile in @($managerPath, $modulePath, $PSCommandPath)) {
+    $head = [IO.File]::ReadAllBytes($bomFile)
+    Assert-True ($head.Length -ge 3 -and $head[0] -eq 0xEF -and $head[1] -eq 0xBB -and $head[2] -eq 0xBF) "tool script keeps its UTF-8 BOM: $bomFile"
+}
 
 Assert-False ($launcherSource -match '(?im)^\s*start\s') 'BAT must not leave a detached launcher window'
 Assert-False ($launcherSource -match '(?i)-NoExit') 'BAT must close after the user acknowledges the result'

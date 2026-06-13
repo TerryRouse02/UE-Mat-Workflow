@@ -460,7 +460,7 @@ function RepairLegacyCaddyDeploymentAcl {
     } else {
         # Remove the stale partial files and rebuild the unreadable private CA dir FIRST,
         # and only then drop the old trusted root. If a file/ACL step throws, the previous
-        # CA is still trusted (recoverable) instead of being removed with no rollback —
+        # CA is still trusted (recoverable) instead of being removed with no rollback;
         # this cert removal runs before the protective try-block in Invoke-Install.
         foreach ($partialFile in @($candidateCaddyfilePath, $caddyfilePath, $runnerPath, $configPath, $installerPath)) {
             Remove-ViewerHttpsPartialInstallFile $partialFile
