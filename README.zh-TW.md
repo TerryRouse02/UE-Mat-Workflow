@@ -75,6 +75,8 @@ macOS 用 PowerShell Core 7（`pwsh`，透過官方 PowerShell `.pkg` 或 `brew 
 
 在 Config 分頁填入 `ProjectPath` + `EngineRoot` 按 **儲存設定**（它會幫你寫好
 `tools/node-t3d-metadata/local.config.json`，免改 JSON），看環境檢查清單變綠，再按爬取按鈕即可。
+若 **已編譯外掛** 那一項是紅色（macOS 第一次跑、或升級 UE 之後），環境檢查那一步的 **編譯插件** 按鈕
+會替你的作業系統建出二進位（Win64 `.dll` / Mac `.dylib`）——同樣免終端機。
 完整步驟見 [`tools/node-t3d-metadata/README.zh-TW.md`](./tools/node-t3d-metadata/README.zh-TW.md)
 的「從 web viewer 觸發爬取」一節。
 

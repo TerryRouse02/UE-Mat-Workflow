@@ -77,7 +77,10 @@ PowerShell Core 7 (`pwsh`, installed via the official PowerShell `.pkg` or `brew
 
 In the Config tab you type your `ProjectPath` + `EngineRoot` and click **Save** (it writes
 `tools/node-t3d-metadata/local.config.json` for you — no JSON editing), watch the environment
-checklist turn green, then click the crawl buttons. The full walkthrough is in
+checklist turn green, then click the crawl buttons. If the **compiled plugin** check is red
+(first run on macOS, or after a UE upgrade), the environment-check step's **Compile Plugin**
+button builds the binary for your OS (Win64 `.dll` / Mac `.dylib`) — also no terminal. The full
+walkthrough is in
 [`tools/node-t3d-metadata/README.md`](./tools/node-t3d-metadata/README.md#trigger-a-crawl-from-the-web-viewer-no-terminal).
 
 ---

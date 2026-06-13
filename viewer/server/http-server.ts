@@ -12,7 +12,6 @@ import { loadWorkMfIndex } from './workmf-index.js';
 import { probeEnv } from './crawl-env.js';
 import { loadFreshness, recordFreshness } from './crawl-freshness.js';
 import { createCrawlRunner, type CrawlEvent, PROJECTMAT_STAGING_REL } from './crawl-runner.js';
-import type { CrawlFreshness } from './crawl-types.js';
 import type { ServerMessage, ClientMessage, FileEntry } from './ws-protocol.js';
 import { isInside, toPosixPath, slugifyGraphName, writeGraph, isEditableParamValue } from './graph-write.js';
 export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
@@ -1013,7 +1012,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     try { body = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     const kind = body.kind;
-    if (kind !== 'export' && kind !== 'enginemf' && kind !== 'workmf' && kind !== 'projectmat') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
+    if (kind !== 'export' && kind !== 'enginemf' && kind !== 'workmf' && kind !== 'projectmat' && kind !== 'compile') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
+    // contentRoots scopes an editor crawl (workmf/projectmat). 'compile' is a plugin
+    // build that takes no scope — reject it explicitly so the contract is unambiguous.
+    if (kind === 'compile' && body.contentRoots !== undefined) { sendJson(res, 400, { error: 'contentRoots is not accepted for the compile kind' }); return; }
     // contentRoots (workmf only) becomes a literal arg to the spawned editor. Constrain it
     // to a single UE content root — leading '/', word segments — so it can never start with
     // '-' (PowerShell param injection) or carry shell/path-escape chars (no comma → no second arg).
@@ -1039,7 +1041,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
    * already running (single-job lock).
    */
   function startCrawlJob(
-    kind: 'export' | 'enginemf' | 'workmf' | 'projectmat',
+    kind: 'export' | 'enginemf' | 'workmf' | 'projectmat' | 'compile',
     contentRoots: string | undefined,
     onDone?: (status: 'success' | 'error', exitCode: number | null) => void,
   ): string {
@@ -1052,9 +1054,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       if (kind === 'projectmat' && e.type === 'done' && e.status === 'success') {
         void importStagedProjectMaterials(e.jobId);
       }
-      // Record freshness timestamp after any successful crawl.
-      if (e.type === 'done' && e.status === 'success') {
-        void recordFreshness(opts.repoRoot, kind as keyof CrawlFreshness, new Date().toISOString());
+      // Record freshness timestamp after any successful crawl. 'compile' is a plugin
+      // build, not a data crawl — it refreshes no agent-pack file, so it gets no
+      // freshness entry (and narrowing it out makes kind exactly keyof CrawlFreshness).
+      if (e.type === 'done' && e.status === 'success' && kind !== 'compile') {
+        void recordFreshness(opts.repoRoot, kind, new Date().toISOString());
       }
       if (e.type === 'done') onDone?.(e.status, e.exitCode ?? null);
     }, contentRoots ? { contentRoots } : undefined);

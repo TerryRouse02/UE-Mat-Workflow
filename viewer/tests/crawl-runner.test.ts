@@ -127,6 +127,23 @@ describe('createCrawlRunner', () => {
     expect(projectmatCmd.args).toContain('-StagingDir');
   });
 
+  it('maps the compile kind to Package-Plugin.ps1 (powershell on Windows, pwsh on macOS)', () => {
+    // 'compile' is a plugin BUILD, not a data crawl: it spawns Package-Plugin.ps1
+    // (RunUAT BuildPlugin) with no editor content-root args on either platform.
+    const win = defaultCommandFor('/repo', 'compile', undefined, 'win32');
+    expect(win.command).toBe('powershell');
+    expect(win.args).toEqual(expect.arrayContaining(['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File']));
+    expect(win.args.join(' ')).toMatch(/Package-Plugin\.ps1/);
+    expect(win.args).not.toContain('-ContentRoots');
+    expect(win.args).not.toContain('-StagingDir');
+
+    const mac = defaultCommandFor('/repo', 'compile', undefined, 'darwin');
+    expect(mac.command).toBe('pwsh');
+    expect(mac.args).toEqual(expect.arrayContaining(['-NoProfile', '-File']));
+    expect(mac.args).not.toContain('-ExecutionPolicy');
+    expect(mac.args.join(' ')).toMatch(/Package-Plugin\.ps1/);
+  });
+
   it('rejects a second crawl while one is running (single-job lock)', async () => {
     const commandFor: CommandFor = () => ({ command: NODE, args: ['-e', 'setTimeout(() => {}, 300)'] });
     const runner = createCrawlRunner(tmpdir(), { commandFor });

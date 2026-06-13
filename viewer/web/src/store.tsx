@@ -189,8 +189,9 @@ function reducer(s: State, a: Action): State {
         // export/enginemf rewrite the public agent-pack files → bump so dbContext
         // re-fetches. workmf rewrites the gitignored project-MF index, which is applied
         // server-side at graph-open (not via agent-pack) → don't bump; its live refresh
-        // is the graph re-resolve effect below.
-        metadataVersion: a.status === 'success' && s.crawl.kind !== 'workmf' ? s.metadataVersion + 1 : s.metadataVersion,
+        // is the graph re-resolve effect below. compile only builds the plugin binary
+        // (no agent-pack file changes) → don't bump; its live refresh is refreshEnv().
+        metadataVersion: a.status === 'success' && s.crawl.kind !== 'workmf' && s.crawl.kind !== 'compile' ? s.metadataVersion + 1 : s.metadataVersion,
         // A successful workmf crawl rewrote the project-MF index → bump so dbContext
         // re-fetches it for the Nodes-tab "Project Material Functions" browser.
         workMfVersion: a.status === 'success' && s.crawl.kind === 'workmf' ? s.workMfVersion + 1 : s.workMfVersion,
