@@ -84,7 +84,10 @@ outcome injected into the requester's session); per-user daily quotas live in
 personal workspaces (WS file list + reads filtered per socket identity); the
 public session (系統主Agent) live-streams deltas over `publicAgentDelta`;
 `GET /api/export-html` bakes snapshots server-side; `POST /api/files` is human
-rename/duplicate/delete.
+rename/duplicate/delete + the `param` op (Inspector value-only param write-back —
+number/colour/bool/enum, re-validated then watcher-broadcast). `GET /api/fs/list`
+is the Config-tab path picker's directory lister (LOCAL mode only — 403s in team
+mode, never exposes a server's filesystem to remote members).
 Local mode constructs no auth store and skips every gate — behavior unchanged. `mode`,
 `authStore`, `secureCookies`, and `currentBindHost` are mutable runtime state; the `Team`
 object persists in `local.config.json`.
@@ -92,7 +95,9 @@ object persists in `local.config.json`.
 - `http-server.ts` — routes + WS. HTTP: `GET /api/env`, `GET /api/agent-pack/:file`
   (filename allowlist), `GET /api/workmf`,
   `GET /api/graph?path=` (stateless resolved-graph fetch — powers the web compare view;
-  canSeePath-guarded in team mode), `POST /api/config` (extended with optional `Llm`
+  canSeePath-guarded in team mode), `GET /api/fs/list?path=` (local-mode-only host
+  directory lister for the Config path picker; same-origin, 403 in team mode),
+  `POST /api/config` (extended with optional `Llm`
   object for AI config), `POST /api/crawl`, `POST /api/import`,
   `POST /api/agent/chat` (SSE — agent conversation loop),
   `GET /api/agent/status` (ProviderStatus — never contains apiKey),

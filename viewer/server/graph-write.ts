@@ -32,6 +32,20 @@ export function slugifyGraphName(raw: unknown): string {
   return s || 'imported';
 }
 
+// Guard for the inspector's "tweak a value" param edit (POST /api/files op
+// 'param'). Only scalar value types — number, boolean, string, or a short
+// numeric array (a color/vector like [r,g,b,a]) — may be written in place.
+// Structural params (arrays of objects, nested objects) are rejected so a
+// human param edit can never reshape a node's pin set or asset wiring.
+export function isEditableParamValue(v: unknown): boolean {
+  if (typeof v === 'number') return Number.isFinite(v);
+  if (typeof v === 'boolean' || typeof v === 'string') return true;
+  if (Array.isArray(v)) {
+    return v.length >= 1 && v.length <= 4 && v.every(e => typeof e === 'number' && Number.isFinite(e));
+  }
+  return false;
+}
+
 // Write a graph object to <graphsRoot>/<folderRel>/<baseName>.matgraph.json
 // (UTF-8 without BOM, trailing newline — matches authored files). `folderRel`
 // may contain nested segments (e.g. "_project/M_Rock"). Re-asserts the resolved

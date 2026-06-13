@@ -12,6 +12,7 @@ import './config.css';
 import { fmtTimeCompact as fmtTime, relTimeMinutes as relTime } from './timeUtils';
 import { parseLogLine } from './uiHelpers';
 import type { ProviderStatus } from './agent/protocol';
+import { FsBrowser } from './FsBrowser';
 
 // ─── CRAWL_KIND_META ────────────────────────────────────────────────────────
 
@@ -92,13 +93,17 @@ interface PathsSectionProps {
   saveConfig: (p: string, e: string) => Promise<{ ok: boolean; error?: string }>;
   initialProjectPath: string;
   initialEngineRoot: string;
+  /** Local mode only — the host file picker is hidden in team mode. */
+  allowBrowse: boolean;
 }
 
-function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot }: PathsSectionProps) {
+function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot, allowBrowse }: PathsSectionProps) {
   const [projectPath, setProjectPath] = useState(initialProjectPath);
   const [engineRoot, setEngineRoot] = useState(initialEngineRoot);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Which field's host-directory picker is open (null = none).
+  const [browsing, setBrowsing] = useState<'project' | 'engine' | null>(null);
 
   // Seed once from env, never clobber an edit in progress
   const seededRef = useRef(false);
@@ -135,6 +140,11 @@ function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot }: Pat
             placeholder="C:\Path\To\Project.uproject"
             onChange={e => setProjectPath(e.target.value)}
           />
+          {allowBrowse && (
+            <button className="inp-browse" title="瀏覽選取 .uproject 檔案" onClick={() => setBrowsing('project')}>
+              瀏覽
+            </button>
+          )}
         </div>
       </div>
       <div className="field">
@@ -147,8 +157,33 @@ function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot }: Pat
             placeholder="C:\Program Files\Epic Games\UE_5.7"
             onChange={e => setEngineRoot(e.target.value)}
           />
+          {allowBrowse && (
+            <button className="inp-browse" title="瀏覽選取引擎根目錄" onClick={() => setBrowsing('engine')}>
+              瀏覽
+            </button>
+          )}
         </div>
       </div>
+
+      {browsing === 'project' && (
+        <FsBrowser
+          pick="file"
+          fileExt="uproject"
+          initialPath={projectPath}
+          title="選取 .uproject 專案檔"
+          onPick={p => { setProjectPath(p); setBrowsing(null); }}
+          onClose={() => setBrowsing(null)}
+        />
+      )}
+      {browsing === 'engine' && (
+        <FsBrowser
+          pick="dir"
+          initialPath={engineRoot}
+          title="選取 UE 引擎根目錄"
+          onPick={p => { setEngineRoot(p); setBrowsing(null); }}
+          onClose={() => setBrowsing(null)}
+        />
+      )}
       <button
         className="btn sm"
         style={{ marginTop: 2 }}
@@ -1132,6 +1167,7 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
             saveConfig={saveConfig}
             initialProjectPath={env?.projectPath ?? ''}
             initialEngineRoot={env?.engineRoot ?? ''}
+            allowBrowse={state.auth?.mode !== 'team'}
           />
           <EnvSection env={env} refreshEnv={() => void refreshEnv()} />
           <CrawlOpsSection

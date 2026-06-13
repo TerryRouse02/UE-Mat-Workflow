@@ -1,12 +1,12 @@
 import { createServer, type Server, type IncomingMessage } from 'node:http';
-import { networkInterfaces } from 'node:os';
-import { readFile, readdir, mkdir, writeFile, access, rm } from 'node:fs/promises';
+import { networkInterfaces, homedir } from 'node:os';
+import { readFile, readdir, mkdir, writeFile, access, rm, stat } from 'node:fs/promises';
 import { resolve, join, extname, relative, dirname } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { watchGraphs } from './watcher.js';
 import { loadGraph } from './graph-loader.js';
 import { evaluateGraphPreview, type PreviewGraph } from './graph-preview.js';
-import { materialStructureWarnings } from './schema.js';
+import { materialStructureWarnings, validateGraph } from './schema.js';
 import { resolveMaterialFunctions } from './mf-resolver.js';
 import { loadWorkMfIndex } from './workmf-index.js';
 import { probeEnv } from './crawl-env.js';
@@ -14,7 +14,7 @@ import { loadFreshness, recordFreshness } from './crawl-freshness.js';
 import { createCrawlRunner, type CrawlEvent, PROJECTMAT_STAGING_REL } from './crawl-runner.js';
 import type { CrawlFreshness } from './crawl-types.js';
 import type { ServerMessage, ClientMessage, FileEntry } from './ws-protocol.js';
-import { isInside, toPosixPath, slugifyGraphName, writeGraph } from './graph-write.js';
+import { isInside, toPosixPath, slugifyGraphName, writeGraph, isEditableParamValue } from './graph-write.js';
 export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
 import { importProjectMaterials, PROJECT_DIR } from './projectmat-importer.js';
 import type { ExportMeta } from '../web/src/export/export-meta-types.js';
@@ -491,13 +491,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
    */
   async function handleFilesOp(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    let body: { op?: unknown; path?: unknown; to?: unknown };
+    let body: { op?: unknown; path?: unknown; to?: unknown; nodeId?: unknown; key?: unknown; value?: unknown; remove?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
 
     const op = body.op;
-    if (op !== 'rename' && op !== 'duplicate' && op !== 'delete') {
-      sendJson(res, 400, { error: 'op must be rename | duplicate | delete' });
+    if (op !== 'rename' && op !== 'duplicate' && op !== 'delete' && op !== 'param') {
+      sendJson(res, 400, { error: 'op must be rename | duplicate | delete | param' });
       return;
     }
     const graphsRoot = resolve(opts.repoRoot, 'graphs');
@@ -516,6 +516,43 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
     if (!(await pathExists(src))) { sendJson(res, 404, { error: '找不到檔案' }); return; }
+
+    // op 'param' — edit a single node parameter VALUE in place (the human/TA
+    // "tweak a number/color/toggle" path). Deliberately value-only: structural
+    // params (arrays of objects, asset refs the inspector renders read-only) are
+    // never written here. The whole graph is re-validated before it touches disk,
+    // and the watcher then broadcasts the reload to every client.
+    if (op === 'param') {
+      const nodeId = body.nodeId;
+      const key = body.key;
+      if (typeof nodeId !== 'string' || !nodeId || typeof key !== 'string' || !key) {
+        sendJson(res, 400, { error: 'param edit requires a node id and key' });
+        return;
+      }
+      const removing = body.remove === true;
+      if (!removing && !isEditableParamValue(body.value)) {
+        sendJson(res, 400, { error: 'param value must be a number, boolean, string, or numeric array' });
+        return;
+      }
+      let parsed: { nodes?: Array<{ id?: unknown; params?: Record<string, unknown> }> };
+      try { parsed = JSON.parse(await readFile(src, 'utf-8')); }
+      catch { sendJson(res, 422, { error: '檔案無法解析，無法編輯參數' }); return; }
+      const node = Array.isArray(parsed.nodes) ? parsed.nodes.find(n => n?.id === nodeId) : undefined;
+      if (!node) { sendJson(res, 404, { error: `找不到節點 ${nodeId}` }); return; }
+      if (removing) {
+        if (node.params && typeof node.params === 'object') delete node.params[key];
+      } else {
+        if (!node.params || typeof node.params !== 'object') node.params = {};
+        node.params[key] = body.value;
+      }
+      const { errors } = validateGraph(parsed);
+      if (errors.length) { sendJson(res, 400, { error: '驗證失敗：' + errors.join('; ') }); return; }
+      // Authored .matgraph.json files are 2-space indented with a trailing
+      // newline — same as graph-write's writeGraph — so this round-trips cleanly.
+      await writeFile(src, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
+      sendJson(res, 200, { ok: true });
+      return;
+    }
 
     if (op === 'delete') {
       await rm(src, { force: true });
@@ -573,6 +610,68 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       sendJson(res, 500, { error: `failed to write file: ${(e as Error).message}` }); return;
     }
     sendJson(res, 200, { path: relPath, name: finalName });
+  }
+
+  /**
+   * GET /api/fs/list?path=<abs dir> — host directory lister that powers the
+   * Config tab's UE-path picker (the 「瀏覽」 buttons). LOCAL MODE ONLY: a
+   * team server must never expose its filesystem to remote members, so this
+   * 403s whenever mode === 'team'. The loopback bind + same-origin check are
+   * the trust boundary, exactly like POST /api/config.
+   *
+   * Returns the resolved directory, its parent (null at the root), the
+   * platform separator, any Windows drive roots, and the child entries
+   * (dirs first, dotfiles hidden).
+   */
+  async function handleFsList(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (mode === 'team') { sendJson(res, 403, { error: '團隊模式不提供主機檔案瀏覽，請手動輸入路徑。' }); return; }
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    const raw = (url.searchParams.get('path') ?? '').trim();
+
+    // Windows drive roots so the picker can hop between C:\, D:\… On POSIX the
+    // single '/' is reachable by walking up with `parent`, so no roots needed.
+    const roots: string[] = [];
+    if (process.platform === 'win32') {
+      for (const letter of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+        try { await access(`${letter}:\\`); roots.push(`${letter}:\\`); } catch { /* no such drive */ }
+      }
+    }
+
+    // Empty path → start at the user's home dir (a friendly, always-readable spot).
+    let dir = raw || homedir();
+    try {
+      const st = await stat(dir);
+      if (!st.isDirectory()) dir = dirname(dir); // a file path was passed → list its folder
+    } catch {
+      sendJson(res, 400, { error: `無法存取路徑：${dir}` });
+      return;
+    }
+
+    const entries: Array<{ name: string; dir: boolean }> = [];
+    try {
+      for (const d of await readdir(dir, { withFileTypes: true })) {
+        if (d.name.startsWith('.')) continue; // hide dotfiles — noise for a path picker
+        let isDir = d.isDirectory();
+        if (d.isSymbolicLink()) {
+          try { isDir = (await stat(join(dir, d.name))).isDirectory(); } catch { continue; }
+        }
+        entries.push({ name: d.name, dir: isDir });
+      }
+    } catch (e) {
+      sendJson(res, 403, { error: `無法讀取資料夾：${(e as Error).message}` });
+      return;
+    }
+    entries.sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
+
+    const parent = dirname(dir);
+    sendJson(res, 200, {
+      path: dir,
+      parent: parent === dir ? null : parent,
+      sep: process.platform === 'win32' ? '\\' : '/',
+      roots,
+      entries,
+    });
   }
 
   /**
@@ -2485,6 +2584,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'GET' && urlPath === '/api/graph') {
       try { await handleGraphGet(req, res, gateUser); }
       catch (e) { console.error('graph fetch error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'GET' && urlPath === '/api/fs/list') {
+      try { await handleFsList(req, res); }
+      catch (e) { console.error('fs list error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'GET' && urlPath === '/api/workmf') {

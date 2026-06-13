@@ -166,12 +166,16 @@ function Body() {
   const prevCurrentRef = useRef(current);
   useEffect(() => {
     const samePath = prevCurrentRef.current === current;
-    if (samePath && prevPayloadRef.current && payload && prevPayloadRef.current !== payload && state.connection === 'live') {
+    // An Inspector param edit echoes back as a disk reload within a beat —
+    // skip the "reloaded from disk" notice for our own recent writes.
+    const recentSelfEdit = current ? Date.now() - (state.selfEditAt[current] ?? 0) < 3000 : false;
+    if (samePath && prevPayloadRef.current && payload && prevPayloadRef.current !== payload
+        && state.connection === 'live' && !recentSelfEdit) {
       pushToast({ variant: 'info', title: 'Graph updated', message: `${current} reloaded from disk.` });
     }
     prevPayloadRef.current = payload;
     prevCurrentRef.current = current;
-  }, [payload, current, state.connection, pushToast]);
+  }, [payload, current, state.connection, state.selfEditAt, pushToast]);
 
   // Crawl completion toast
   const prevCrawlRef = useRef(state.crawl.status);

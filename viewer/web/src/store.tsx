@@ -65,6 +65,11 @@ interface State {
   // Live event from the 系統主Agent's streaming turn (members append it
   // without waiting for the end-of-turn transcript re-fetch).
   publicDelta: { id: string; event: unknown; seq: number } | null;
+  // path → timestamp of the last param edit WE wrote (POST /api/files op
+  // 'param'). The watcher echoes our own write straight back as a 'graph'
+  // reload; App reads this to suppress the "reloaded from disk" toast (and any
+  // jump) for a brief window after our own edit.
+  selfEditAt: Record<string, number>;
 }
 
 export interface AuthStatus {
@@ -104,6 +109,7 @@ type Action =
   | { type: 'sessionBumped'; id: string }
   | { type: 'online'; users: string[] }
   | { type: 'publicDelta'; id: string; event: unknown }
+  | { type: 'selfEdit'; path: string }
   | { type: 'crawlReset' }
   | CrawlAction;
 
@@ -117,7 +123,7 @@ const initial: State = {
   selectedNodeId: null, agentAsk: null, agentActivity: 'idle',
   auth: null, publicAgent: { id: null, streaming: false, version: 0 },
   proposalsPending: 0, sessionBump: null,
-  onlineUsers: [], publicDelta: null,
+  onlineUsers: [], publicDelta: null, selfEditAt: {},
 };
 
 function reducer(s: State, a: Action): State {
@@ -165,6 +171,8 @@ function reducer(s: State, a: Action): State {
       return { ...s, onlineUsers: a.users };
     case 'publicDelta':
       return { ...s, publicDelta: { id: a.id, event: a.event, seq: (s.publicDelta?.seq ?? 0) + 1 } };
+    case 'selfEdit':
+      return { ...s, selfEditAt: { ...s.selfEditAt, [a.path]: Date.now() } };
     case 'crawlReset':
       return { ...s, crawl: idleCrawl };
     case 'crawlStarted':
@@ -228,6 +236,12 @@ interface Ctx {
   logout(): Promise<void>;
   /** Re-fetch /api/auth/status (after a web-driven mode switch). */
   refreshAuth(): Promise<void>;
+  /** Write a single node param VALUE back to its .matgraph.json (Inspector
+      "tweak a value" edit). `remove` deletes the key instead. The server
+      re-validates the whole graph; the watcher then broadcasts the reload. */
+  setNodeParam(
+    path: string, nodeId: string, key: string, value: unknown, remove?: boolean,
+  ): Promise<{ ok: boolean; error?: string }>;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -460,7 +474,32 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     } catch { /* keep the current auth state */ }
   }, []);
 
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth]);
+  const setNodeParam = useCallback(async (
+    path: string, nodeId: string, key: string, value: unknown, remove?: boolean,
+  ) => {
+    try {
+      const r = await fetch('/api/files', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(
+          remove
+            ? { op: 'param', path, nodeId, key, remove: true }
+            : { op: 'param', path, nodeId, key, value },
+        ),
+      });
+      if (!r.ok) {
+        const e = (await r.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: e.error || `HTTP ${r.status}` };
+      }
+      // Mark our own write so the incoming watcher reload doesn't pop a toast.
+      dispatch({ type: 'selfEdit', path });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }, []);
+
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth, setNodeParam }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth, setNodeParam]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 
