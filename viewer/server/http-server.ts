@@ -22,7 +22,7 @@ import { runAgent, createSession, estimateMessagesTokens, VIEW_CONTEXT_PREFIX, t
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
-import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentRegenerateResponse, AgentTestResponse, AgentWebTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse, AgentDbEditRequest, AgentDbEditResponse, AgentPublicSessionResponse } from './agent/agent-types.js';
+import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentRedoResponse, AgentResetResponse, AgentRegenerateResponse, AgentTestResponse, AgentWebTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse, AgentDbEditRequest, AgentDbEditResponse, AgentPublicSessionResponse } from './agent/agent-types.js';
 import { webSearch, type WebSearchConfig } from './agent/web-tools.js';
 import { applyDbEdit } from './agent/db-edit.js';
 import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/session-store.js';
@@ -401,8 +401,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     loop.offTopicStrikes = persisted.offTopicStrikes ?? 0;
     const active: ActiveSession = {
       loop,
-      // NOTE: the checkpoint turn stack is in-memory — undo history does not
-      // survive a server restart (pre-images on disk are simply orphaned).
+      // The checkpoint store rebuilds its undo/redo stacks from disk
+      // (.agent-checkpoints/<id>/.stack.json) on first use, so undo/redo
+      // history survives a server restart.
       checkpoint: createCheckpointStore(resolve(opts.repoRoot, 'viewer'), id),
       memory: createMemoryStore(resolve(opts.repoRoot, 'viewer'), id, persisted.owner),
       transcript: persisted.transcript,
@@ -1256,7 +1257,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       // fully unwound — wait it out so undo never races an in-flight write.
       await active.unwind;
 
-      const restored = await active.checkpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'));
+      // redoable: keep the turn's pre-image and capture a post-image so the
+      // user can redo. (regenerate's destructive rewind passes no opts.)
+      const restored = await active.checkpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'), { redoable: true });
 
       if (restored === null) {
         const body: AgentUndoResponse = { ok: false, reason: 'nothing-to-undo' };
@@ -1269,7 +1272,68 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         .filter(p => !p.startsWith('!SKIPPED:'))
         .map(p => relative(resolve(opts.repoRoot, 'graphs'), p));
 
-      const body: AgentUndoResponse = { ok: true, restored: relPaths };
+      const body: AgentUndoResponse = {
+        ok: true, restored: relPaths,
+        canUndo: active.checkpoint.canUndo(), canRedo: active.checkpoint.canRedo(),
+      };
+      sendJson(res, 200, body);
+    } finally {
+      active.mutating = false;
+    }
+  }
+
+  /**
+   * POST /api/agent/redo — re-apply the last undone turn's file writes. The
+   * mirror of handleAgentUndo: file-state only, the conversation history is
+   * untouched (undo/redo here are pure file reverts, not history rewinds).
+   */
+  async function handleAgentRedo(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+
+    let sessionId = currentSessionId;
+    try {
+      const raw = await readBody(req);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { sessionId?: unknown };
+        if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
+          sessionId = parsed.sessionId;
+        }
+      }
+    } catch { /* empty/invalid body → current session */ }
+
+    const active = sessionId ? await resumeSession(sessionId) : null;
+    // Foreign sessions answer exactly like missing ones — no existence leak.
+    if (!active || !canTouchSession(user, active.owner)) {
+      sendJson(res, 200, { ok: false, reason: 'nothing-to-redo' } satisfies AgentRedoResponse);
+      return;
+    }
+    if (active.streaming) {
+      sendJson(res, 409, { error: '對話進行中，無法重做。請等待完成後再試。' });
+      return;
+    }
+    if (active.mutating) {
+      sendJson(res, 409, { error: '另一個還原／重做正在進行中，請稍候。' });
+      return;
+    }
+    active.mutating = true;
+    try {
+      // Wait out a stopped chat's unwind (see handleAgentUndo).
+      await active.unwind;
+
+      const redone = await active.checkpoint.redoLastTurn(resolve(opts.repoRoot, 'graphs'));
+      if (redone === null) {
+        sendJson(res, 200, { ok: false, reason: 'nothing-to-redo' } satisfies AgentRedoResponse);
+        return;
+      }
+
+      const relPaths = redone
+        .filter(p => !p.startsWith('!SKIPPED:'))
+        .map(p => relative(resolve(opts.repoRoot, 'graphs'), p));
+
+      const body: AgentRedoResponse = {
+        ok: true, redone: relPaths,
+        canUndo: active.checkpoint.canUndo(), canRedo: active.checkpoint.canRedo(),
+      };
       sendJson(res, 200, body);
     } finally {
       active.mutating = false;
@@ -2694,6 +2758,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'POST' && urlPath === '/api/agent/undo') {
       try { await handleAgentUndo(req, res, gateUser); }
       catch (e) { console.error('agent undo handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/agent/redo') {
+      try { await handleAgentRedo(req, res, gateUser); }
+      catch (e) { console.error('agent redo handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/regenerate') {

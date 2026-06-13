@@ -12,7 +12,7 @@ import { createServer as createHttpServer } from 'node:http';
 import { resolve, join, dirname } from 'node:path';
 import { startServer } from '../server/http-server.js';
 import type { Provider, StreamEvent, ChatRequest, LLMConfig } from '../server/agent/provider/types.js';
-import type { AgentSseEvent, AgentUndoResponse, AgentResetResponse } from '../server/agent/agent-types.js';
+import type { AgentSseEvent, AgentUndoResponse, AgentRedoResponse, AgentResetResponse } from '../server/agent/agent-types.js';
 
 // ---------------------------------------------------------------------------
 // FakeProvider (mirrors agent-loop.test.ts pattern)
@@ -830,6 +830,87 @@ describe('POST /api/agent/undo', () => {
       await server.close();
     }
   }, 30000);
+
+  it('end-to-end redo: chat writes V2, undo restores V1, redo re-applies V2', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test', apiKey: 'sk-x' } });
+    const graphRelPath = 'redo_e2e/test.matgraph.json';
+    const graphAbsPath = resolve(root, 'graphs', graphRelPath);
+
+    const multiProvider = new FakeProvider([
+      [{ type: 'tool_use', id: 't1', name: 'write_graph', input: { path: graphRelPath, graph: VALID_GRAPH_V1 } },
+       { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '已建立。' }, { type: 'done', stopReason: 'end' }],
+      [{ type: 'tool_use', id: 't2', name: 'write_graph', input: { path: graphRelPath, graph: VALID_GRAPH_V2, overwrite: true } },
+       { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '已修改。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const server = await startServer({
+      repoRoot: root, port: 0, webDist: '',
+      providerFactory: (_cfg: LLMConfig) => multiProvider,
+    });
+    try {
+      const r1 = await fetch(`http://localhost:${server.port}/api/agent/chat`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '建立圖 V1' }),
+      });
+      await parseSseResponse(r1, 12000);
+      const r2 = await fetch(`http://localhost:${server.port}/api/agent/chat`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '修改圖 V2' }),
+      });
+      await parseSseResponse(r2, 12000);
+      expect(JSON.parse(readFileSync(graphAbsPath, 'utf-8')).nodes).toHaveLength(1); // V2
+
+      // Undo → V1, and redo becomes available.
+      const undo = await fetch(`http://localhost:${server.port}/api/agent/undo`, { method: 'POST' });
+      const u = await undo.json() as AgentUndoResponse;
+      expect(u.ok).toBe(true);
+      if (u.ok) expect(u.canRedo).toBe(true);
+      expect(JSON.parse(readFileSync(graphAbsPath, 'utf-8')).nodes).toEqual([]); // V1
+
+      // Redo → V2 again.
+      const redo = await fetch(`http://localhost:${server.port}/api/agent/redo`, { method: 'POST' });
+      expect(redo.status).toBe(200);
+      const rd = await redo.json() as AgentRedoResponse;
+      expect(rd.ok).toBe(true);
+      if (rd.ok) {
+        expect(rd.redone.length).toBeGreaterThan(0);
+        expect(rd.canRedo).toBe(false);
+        expect(rd.canUndo).toBe(true);
+      }
+      expect(JSON.parse(readFileSync(graphAbsPath, 'utf-8')).nodes).toHaveLength(1); // V2
+
+      // Nothing left to redo.
+      const redo2 = await fetch(`http://localhost:${server.port}/api/agent/redo`, { method: 'POST' });
+      const rd2 = await redo2.json() as AgentRedoResponse;
+      expect(rd2.ok).toBe(false);
+      if (!rd2.ok) expect(rd2.reason).toBe('nothing-to-redo');
+    } finally {
+      await server.close();
+    }
+  }, 30000);
+
+  it('POST /api/agent/redo: sameOrigin guard + nothing-to-redo', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test', apiKey: 'sk-x' } });
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '' });
+    try {
+      const xo = await fetch(`http://localhost:${server.port}/api/agent/redo`, {
+        method: 'POST',
+        headers: { origin: 'http://evil.example.com', host: `localhost:${server.port}` },
+      });
+      expect(xo.status).toBe(403);
+
+      const r = await fetch(`http://localhost:${server.port}/api/agent/redo`, { method: 'POST' });
+      expect(r.status).toBe(200);
+      const body = await r.json() as AgentRedoResponse;
+      expect(body.ok).toBe(false);
+      if (!body.ok) expect(body.reason).toBe('nothing-to-redo');
+    } finally {
+      await server.close();
+    }
+  }, 5000);
 
   it('confinement: snapshot entry with out-of-graphsRoot path is skipped', async () => {
     // Hand-craft a checkpoint snapshot whose encoded path points outside graphsRoot.
