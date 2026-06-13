@@ -85,7 +85,8 @@ personal workspaces (WS file list + reads filtered per socket identity); the
 public session (系統主Agent) live-streams deltas over `publicAgentDelta`;
 `GET /api/export-html` bakes snapshots server-side; `POST /api/files` is human
 rename/duplicate/delete + the `param` op (Inspector value-only param write-back —
-number/colour/bool/enum, re-validated then watcher-broadcast). `GET /api/fs/list`
+number/colour/bool/enum, re-validated then watcher-broadcast) + the `layout` op
+(「儲存版面」: writes each node's `pos`, re-validated then watcher-broadcast). `GET /api/fs/list`
 is the Config-tab path picker's directory lister (LOCAL mode only — 403s in team
 mode, never exposes a server's filesystem to remote members).
 Local mode constructs no auth store and skips every gate — behavior unchanged. `mode`,
@@ -176,7 +177,8 @@ object persists in `local.config.json`.
   open graph's `ueVersion`. **Baked at build time** (`dbRegistry.ts`, `engineMfRegistry.ts` via
   `import.meta.glob`) so snapshot/offline renders; **re-fetched at runtime** in live mode
   (`agentPackClient.ts`) so a crawl refreshes without a rebuild.
-- `Graph.tsx` + `layout.ts` — React Flow render; dagre auto-layout (no x/y in the JSON).
+- `Graph.tsx` + `layout.ts` — React Flow render; **hybrid layout** — honours stored `pos`
+  (UE-imported / user-saved), dagre-places the rest (invariant #6).
   Hover (≈500ms) on a node opens `NodeExplainPopover`; pane-click / Escape closes it.
 - `diff.ts` — pure graph-diff (`computeGraphDiff`/`buildDiffPayload`): union graph + per-node
   (added/removed/changed) and per-connection statuses. FileList's 「與目前圖比較」menu item
@@ -220,7 +222,14 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
 5. **Single sources of truth.** Crawl commands: `crawl-runner.ts` `defaultCommandFor` only. Wire
    types: `ws-protocol.ts` ↔ `web/src/protocol.ts` (mirror). Node-free shared types
    (`crawl-types.ts`, `workmf-types.ts`) exist so the web tsc program never pulls in `node:` typings.
-6. **No `x`/`y` positions in `.matgraph.json`.** Layout is dagre's job.
+6. **Node positions in `.matgraph.json` are OPTIONAL (`pos:{x,y}`, UE integer space).** Present on
+   UE-imported / user-saved graphs so they render at their authored layout and round-trip back to UE
+   unchanged; absent on AI-authored graphs. The viewer's **hybrid layout** (`layout.ts`) honours stored
+   positions and dagre-places only the nodes that lack one — a graph with NO `pos` lays out exactly as
+   before. Keep `pos` OPTIONAL on every producer (never require it). Dragging never auto-persists:
+   positions are written only by the explicit「儲存版面」button (`POST /api/files` op `layout`) or the
+   agent's `setPosition` / `addNode` / `insertNode` (auto-midpoint) `pos` ops — so a stray drag can
+   never dirty a committed graph.
 7. **Auth secrets stay server-side and out of git.** `viewer/.auth/` (scrypt hashes +
    hashed tokens) is gitignored like `local.config.json` (LLM key); neither may ever be
    echoed in an HTTP response, baked into a bundle, or committed. Local mode must stay

@@ -491,13 +491,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
    */
   async function handleFilesOp(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    let body: { op?: unknown; path?: unknown; to?: unknown; nodeId?: unknown; key?: unknown; value?: unknown; remove?: unknown };
+    let body: { op?: unknown; path?: unknown; to?: unknown; nodeId?: unknown; key?: unknown; value?: unknown; remove?: unknown; positions?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
 
     const op = body.op;
-    if (op !== 'rename' && op !== 'duplicate' && op !== 'delete' && op !== 'param') {
-      sendJson(res, 400, { error: 'op must be rename | duplicate | delete | param' });
+    if (op !== 'rename' && op !== 'duplicate' && op !== 'delete' && op !== 'param' && op !== 'layout') {
+      sendJson(res, 400, { error: 'op must be rename | duplicate | delete | param | layout' });
       return;
     }
     const graphsRoot = resolve(opts.repoRoot, 'graphs');
@@ -551,6 +551,36 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       // newline — same as graph-write's writeGraph — so this round-trips cleanly.
       await writeFile(src, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
       sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // op 'layout' — persist node POSITIONS (the human "儲存版面" path). Writes each
+    // node's pos:{x,y} from the supplied map; value-only, never reshapes the graph.
+    // Like 'param' it re-validates before touching disk and the watcher broadcasts
+    // the reload. AI/snapshot graphs without positions simply never send this op.
+    if (op === 'layout') {
+      const positions = body.positions;
+      if (!positions || typeof positions !== 'object' || Array.isArray(positions)) {
+        sendJson(res, 400, { error: 'layout edit requires a positions map { nodeId: {x,y} }' });
+        return;
+      }
+      const posMap = positions as Record<string, unknown>;
+      let parsed: { nodes?: Array<{ id?: unknown; pos?: { x: number; y: number } }> };
+      try { parsed = JSON.parse(await readFile(src, 'utf-8')); }
+      catch { sendJson(res, 422, { error: '檔案無法解析，無法儲存版面' }); return; }
+      if (!Array.isArray(parsed.nodes)) { sendJson(res, 422, { error: '檔案沒有 nodes，無法儲存版面' }); return; }
+      let applied = 0;
+      for (const node of parsed.nodes) {
+        const p = posMap[String(node?.id)] as { x?: unknown; y?: unknown } | undefined;
+        if (p && typeof p === 'object' && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+          node.pos = { x: Math.round(p.x as number), y: Math.round(p.y as number) };
+          applied++;
+        }
+      }
+      const { errors } = validateGraph(parsed);
+      if (errors.length) { sendJson(res, 400, { error: '驗證失敗：' + errors.join('; ') }); return; }
+      await writeFile(src, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
+      sendJson(res, 200, { ok: true, applied });
       return;
     }
 

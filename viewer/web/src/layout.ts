@@ -166,7 +166,22 @@ export function applyLayout(
   nodes: Node[],
   edges: Edge[],
   clusters?: { id: string; childNodeIds: string[] }[],
+  storedPos?: Record<string, { x: number; y: number }>,
 ): ApplyLayoutResult {
+  // Hybrid layout (CLAUDE.md invariant #6): honour stored per-node positions when
+  // present, so UE-imported / user-saved layouts render and round-trip faithfully,
+  // and only auto-place the nodes that lack one. A graph with NO stored positions
+  // (AI-authored, or any positionless file) falls through to pure dagre, unchanged.
+  const stored = storedPos ?? {};
+  if (nodes.some(n => stored[n.id])) {
+    const positions = placeWithStored(nodes, edges, stored);
+    return {
+      // Comment boxes derive from live node rects (Graph.tsx), so the stored path
+      // needs no dagre cluster bounds.
+      nodes: nodes.map(n => ({ ...n, position: positions[n.id] ?? { x: 0, y: 0 } })),
+      clusterBounds: {},
+    };
+  }
   const result = autoLayout({
     nodes: nodes.map(n => ({
       id: n.id,
@@ -181,4 +196,64 @@ export function applyLayout(
     nodes: nodes.map(n => ({ ...n, position: result.positions[n.id] ?? { x: 0, y: 0 } })),
     clusterBounds: result.clusterBounds,
   };
+}
+
+// Mixed-position placement (the 甲 rule): nodes with a stored position stay exactly
+// where they are; nodes without one are placed near their already-positioned
+// neighbours so an AI-added node lands by its wiring instead of at the origin.
+// Everything stays in the stored (UE) coordinate space — dagre's space is never
+// mixed in. Used only when at least one node has a stored position.
+function placeWithStored(
+  nodes: Node[],
+  edges: Edge[],
+  stored: Record<string, { x: number; y: number }>,
+): Record<string, { x: number; y: number }> {
+  const pos: Record<string, { x: number; y: number }> = {};
+  for (const n of nodes) if (stored[n.id]) pos[n.id] = stored[n.id];
+
+  const loose = nodes.filter(n => !pos[n.id]).map(n => n.id);
+  if (loose.length === 0) return pos;
+
+  const neighbours = new Map<string, string[]>();
+  const link = (a: string, b: string) => {
+    const l = neighbours.get(a);
+    if (l) l.push(b); else neighbours.set(a, [b]);
+  };
+  for (const e of edges) { link(e.source, e.target); link(e.target, e.source); }
+
+  // A few passes so a loose node wired only to other loose nodes settles once its
+  // neighbours have been placed. Siblings that share one anchor centroid are fanned
+  // downward by a PER-ANCHOR counter (not the global index) so any number of them
+  // stay clear of each other.
+  const fanCount = new Map<string, number>();
+  for (let pass = 0; pass < 4; pass++) {
+    let progressed = false;
+    for (const id of loose) {
+      if (pos[id]) continue;
+      const placed = (neighbours.get(id) ?? []).filter(nid => pos[nid]);
+      if (placed.length === 0) continue;
+      const cx = placed.reduce((s, nid) => s + pos[nid].x, 0) / placed.length;
+      const cy = placed.reduce((s, nid) => s + pos[nid].y, 0) / placed.length;
+      const key = `${Math.round(cx)}:${Math.round(cy)}`;
+      const n = fanCount.get(key) ?? 0;
+      fanCount.set(key, n + 1);
+      // Right of the neighbour centroid, fanned downward per shared anchor.
+      pos[id] = { x: cx + NODE_W + 60, y: cy + n * (NODE_H + 24) };
+      progressed = true;
+    }
+    if (!progressed) break;
+  }
+
+  // Isolated loose nodes (no positioned neighbour at all): stack them just below
+  // the existing layout so they stay visible and never overlap the graph. Seed the
+  // reduces with ±Infinity, not 0 — UE coordinates are routinely negative, so a 0
+  // seed would anchor the stack at the origin instead of the real layout edge.
+  const stackX = Object.values(pos).reduce((m, p) => Math.min(m, p.x), Infinity);
+  let stackY = Object.values(pos).reduce((m, p) => Math.max(m, p.y), -Infinity) + NODE_H + 60;
+  for (const id of loose) {
+    if (pos[id]) continue;
+    pos[id] = { x: stackX, y: stackY };
+    stackY += NODE_H + 24;
+  }
+  return pos;
 }

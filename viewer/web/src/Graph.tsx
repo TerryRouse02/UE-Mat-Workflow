@@ -298,7 +298,13 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
       childNodeIds: c.contains,
     }));
 
-    const result = applyLayout(diffedNodes, rfEdges, clusters);
+    // Stored per-node positions (UE-imported or user-saved) drive the hybrid
+    // layout. In compare/diff view the payload is a synthetic union of two graphs,
+    // so ignore stored positions and let dagre lay the merged graph out cleanly.
+    const storedPos: Record<string, { x: number; y: number }> = {};
+    if (!diff) for (const n of graph.nodes) if (n.pos) storedPos[n.id] = n.pos;
+
+    const result = applyLayout(diffedNodes, rfEdges, clusters, storedPos);
     return { nodes: result.nodes, edges: rfEdges, clusterBounds: result.clusterBounds };
   }, [graph, derivedPins, db, onEnterMF, basePath, diff]);
 

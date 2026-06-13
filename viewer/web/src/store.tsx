@@ -243,6 +243,9 @@ interface Ctx {
   setNodeParam(
     path: string, nodeId: string, key: string, value: unknown, remove?: boolean,
   ): Promise<{ ok: boolean; error?: string }>;
+  saveLayout(
+    path: string, positions: Record<string, { x: number; y: number }>,
+  ): Promise<{ ok: boolean; error?: string }>;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -500,7 +503,30 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth, setNodeParam }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth, setNodeParam]);
+  // Persist node positions back to a .matgraph.json (the human "儲存版面" path).
+  // Mirrors setNodeParam: value-only POST /api/files, self-edit marked so the
+  // watcher echo doesn't toast. Explicit only — dragging never auto-saves.
+  const saveLayout = useCallback(async (
+    path: string, positions: Record<string, { x: number; y: number }>,
+  ) => {
+    try {
+      const r = await fetch('/api/files', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ op: 'layout', path, positions }),
+      });
+      if (!r.ok) {
+        const e = (await r.json().catch(() => ({}))) as { error?: string };
+        return { ok: false, error: e.error || `HTTP ${r.status}` };
+      }
+      dispatch({ type: 'selfEdit', path });
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }, []);
+
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth, setNodeParam, saveLayout }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth, setNodeParam, saveLayout]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

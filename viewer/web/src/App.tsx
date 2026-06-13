@@ -42,7 +42,7 @@ function srcToKind(src: string): 'workmf' | 'projectmat' | 'enginemf' | 'export'
 }
 
 function Body() {
-  const { state, open, enterMF, startCrawl, selectNode } = useStore();
+  const { state, open, enterMF, startCrawl, selectNode, saveLayout } = useStore();
   const { db, exportMeta, supported } = useDb();
 
   // ─── Lifted cross-cutting state ────────────────────────────────────────────
@@ -190,7 +190,9 @@ function Body() {
 
   // ─── Export ─────────────────────────────────────────────────────────────────
   const doExport = useCallback(async () => {
-    if (!payload?.graph || !payload?.derivedPins || !supported) return;
+    // Guard against an empty positions map (one-frame window on first render before
+    // Graph's onPositions fires): exporting then would stack every node at UE origin.
+    if (!payload?.graph || !payload?.derivedPins || !supported || Object.keys(positions).length === 0) return;
     const { text, warnings } = graphToUET3D(payload.graph, positions, exportMeta, payload.derivedPins, { mfContentRoot: mfRoot });
     const count = text ? (text.match(/^Begin Object Class=\/Script\/UnrealEd\.MaterialGraphNode/gm)?.length ?? 0) : 0;
     try {
@@ -205,6 +207,18 @@ function Body() {
       console.log(text);
     }
   }, [payload, supported, exportMeta, positions, mfRoot, pushToast]);
+
+  // ─── Save layout ─────────────────────────────────────────────────────────────
+  // Persist the current canvas node positions back into the open .matgraph.json
+  // (CLAUDE.md invariant #6): the graph then reopens at this layout and exports to
+  // UE unchanged. Explicit (button) only — dragging never auto-writes, so a stray
+  // drag can never dirty a committed graph. Live mode only.
+  const doSaveLayout = useCallback(async () => {
+    if (!current || Object.keys(positions).length === 0) return;
+    const r = await saveLayout(current, positions);
+    if (r.ok) pushToast({ variant: 'success', title: '版面已儲存', message: '節點位置已寫回檔案，並會忠實匯出回 UE。' });
+    else pushToast({ variant: 'error', title: '儲存版面失敗', message: r.error ?? '未知錯誤' });
+  }, [current, positions, saveLayout, pushToast]);
 
   // Agent-requested clipboard export (export_to_clipboard tool): runs the same
   // doExport as the header button, but only once the requested graph is the
@@ -345,6 +359,13 @@ function Body() {
                 <span className="ct-title">{payload.graph.name}</span>
               </div>
               <div className="ct-right">
+                {state.connection === 'live' && current && !diffData && (
+                  <button
+                    className="btn sm"
+                    title="把目前畫布上的節點位置存回這個 .matgraph.json（下次開啟保留此版面，並忠實匯出回 UE）"
+                    onClick={() => void doSaveLayout()}
+                  >儲存版面</button>
+                )}
                 {(errs.length + warns.length) > 0 && (
                   <span className="ct-warn" title={[...errs, ...warns].join('\n')}>
                     ! {errs.length} error{errs.length !== 1 ? 's' : ''} · {warns.length} warning{warns.length !== 1 ? 's' : ''}

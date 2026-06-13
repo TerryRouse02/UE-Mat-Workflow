@@ -87,7 +87,7 @@ Do **not** share MaterialFunctions across projects — copy them into each proje
 
 3. **Pin names must match the DB exactly.** Look up `inputs[].name` and `outputs[].name` for the node type (via `query.js node`) before writing a connection.
 
-4. **Do not write `x`/`y` positions.** Layout is automatic (dagre).
+4. **Node positions (`pos:{x,y}`) are OPTIONAL.** Positions are honored if present (UE-imported / user-saved graphs render at their authored layout); absent for AI-authored graphs, dagre auto-lays them out. Always omit positions unless authoring a round-trip import.
 
 5. **Use `"node:pin"` strings, never objects.**
 
@@ -177,7 +177,7 @@ Default: read only `agent-pack/examples/01_basic_pbr/01_basic_pbr.matgraph.json`
 
 - Inventing node names (e.g., "MultiplyVector3" — the real node is just `Multiply`)
 - Writing connections with `node-pin` (dash) instead of `node:pin` (colon)
-- Writing position fields like `x`, `y`, `position`
+- Writing BARE top-level `x`/`y`/`position` on a node — the position field is `pos:{x,y}`, and it is OPTIONAL (omit it unless authoring a round-trip import; see rule 4)
 - Reusing the same `id` for two nodes
 - Referencing a `MaterialFunction` file before writing it (you can write both in any order, viewer waits with 300ms debounce — but both must exist eventually)
 - Reading `nodes-ue*.json` / `*.export.json` / `enginemf-index-ue*.json` wholesale — use the index + `query.js` protocol above

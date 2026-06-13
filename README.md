@@ -55,10 +55,15 @@ The sidebar has four tabs:
 
 The viewer hot-reloads when files change.
 
-**Preview swatches** — materials whose BaseColor (or Emissive) chain folds to a constant
-(constants, parameters, lerp/multiply/etc.) show a color swatch in the file list and the
-canvas topbar. Chains through textures or Material Functions honestly show nothing rather
-than a guess.
+**Canvas topbar** — the toolbar above the node graph includes:
+- **Preview swatch** (if the graph folds to a constant) — materials whose BaseColor (or Emissive) chain folds to a constant (constants, parameters, lerp/multiply/etc.) show a color chip. Chains through textures or Material Functions honestly show nothing rather than a guess.
+- **Export button** — copy the graph as paste-ready UE T3D.
+- **Save layout button** (儲存版面) — in live mode, write each node's current position back into the open `.matgraph.json`. Dragging nodes does NOT persist positions on its own; you must click this button after moving them. Graphs imported from UE or previously saved automatically restore at their authored layout.
+
+**Node layout (hybrid)** — the viewer uses a hybrid layout system:
+- **Authored positions** — nodes with stored `pos:{x,y}` (from UE imports or manual "Save layout") render at their exact positions.
+- **Auto-layout** — nodes without positions are placed automatically by dagre, as before.
+Mixing both is safe: dragging any node updates its position, and "Save layout" persists ALL current positions.
 
 **Compare two graphs** — open one file, then pick **與目前圖比較 (Compare with open
 graph)** from any other file's `⋯` menu. The canvas shows the union with green = added,
@@ -238,10 +243,10 @@ Produces a single self-contained `.html` file. Double-click to view.
 The clipboard bridge is **bidirectional**. In the viewer, click **導入 (Import)**, then
 paste a UE material selection — select nodes in the Material Editor, `Ctrl+C`, and paste
 into the box. The viewer reconstructs a `.matgraph.json` (node types, params, connections,
-comments, and reroutes) **fully locally — no Unreal needed**, writes it as a new project
+comments, reroutes, and **node positions**) **fully locally — no Unreal needed**, writes it as a new project
 folder under `graphs/`, and opens it.
 
-Anything it can't map — a UE class not in the node DB, or a Material Function whose pin
+The imported graph preserves each node's editor position, so it renders at its authored layout and exports back to UE unchanged (**faithful round-trip**). Anything it can't map — a UE class not in the node DB, or a Material Function whose pin
 names need its definition — is surfaced as a warning, never invented. (Reroute "knot" nodes
 are collapsed: the wire is re-pointed at the reroute's real source so nothing dangles.)
 

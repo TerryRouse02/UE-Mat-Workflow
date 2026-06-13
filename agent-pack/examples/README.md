@@ -24,8 +24,9 @@ Key rules (full details in [`../SPEC.md`](../SPEC.md)):
 - Node `type` must exist in the version-matched node DB (`../nodes-ue5.7.json`) or be a
   reserved type (`MaterialOutput`, `FunctionInput`, `FunctionOutput`, `MaterialFunctionCall`).
   Pin names must match the DB exactly.
-- Connections are `"node:pin"` strings (colon, never dash); never write `x`/`y` positions
-  (layout is automatic).
+- Connections are `"node:pin"` strings (colon, never dash). Node positions (`pos:{x,y}`) are
+  OPTIONAL — omit them on AI-authored graphs (dagre lays them out); include `pos` only when
+  authoring a round-trip import from UE (see SPEC.md rule 4).
 - Each `Material` has exactly one `MaterialOutput` (id `OUT`); you wire results into its
   attribute pins (`BaseColor`, `Roughness`, …). On UE export those are funneled through a
   single synthesized `MakeMaterialAttributes` node — the enforced **Use Material Attributes**

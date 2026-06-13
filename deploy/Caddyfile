@@ -1,7 +1,12 @@
 # deploy/Caddyfile — HTTPS reverse proxy for the team-mode viewer.
 # Caddy provisions certificates automatically and proxies WebSockets without
 # extra configuration. Remember to start the viewer with COOKIE_SECURE=1.
+#
+# Both knobs have defaults, so this file works as-is for a host-run Caddy in
+# front of a loopback-published viewer. docker-compose.prod.yml overrides them
+# via env (VIEWER_DOMAIN=your domain, VIEWER_UPSTREAM=ue-mat-viewer:5790) so the
+# SAME file also drives the bundled-Caddy production stack.
 
-mat.example.com {
-	reverse_proxy 127.0.0.1:5790
+{$VIEWER_DOMAIN:mat.example.com} {
+	reverse_proxy {$VIEWER_UPSTREAM:127.0.0.1:5790}
 }

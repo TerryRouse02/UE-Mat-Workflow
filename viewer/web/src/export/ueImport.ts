@@ -649,7 +649,16 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
     type: graphType,
     name: opts.name ?? 'imported',
     nodes: [
-      ...importNodes.map(n => (Object.keys(n.params).length ? { id: n.id, type: n.type, params: n.params } : { id: n.id, type: n.type })),
+      // Carry each node's UE editor position (rounded to UE's integer space) so an
+      // imported graph renders at its authored layout and round-trips back to UE
+      // unchanged. The MaterialOutput root carries no expression position; the
+      // viewer's hybrid layout places it by its wiring (CLAUDE.md invariant #6).
+      ...importNodes.map(n => ({
+        id: n.id,
+        type: n.type,
+        ...(Object.keys(n.params).length ? { params: n.params } : {}),
+        pos: { x: Math.round(n.pos.x), y: Math.round(n.pos.y) },
+      })),
       ...(outputNode ? [outputNode] : []),
     ],
     connections,

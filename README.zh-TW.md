@@ -55,8 +55,15 @@ Sidebar 有四個 tab：
 
 檔案變動時 viewer 會自動 reload。
 
-**預覽色票** —— BaseColor（或 Emissive）鏈能常數折疊的材質（常數、參數、lerp/multiply 等），
-會在檔案列表和畫布頂欄顯示色票。經過貼圖或 Material Function 的鏈誠實地不顯示，不亂猜。
+**畫布頂欄** —— 節點圖上方的工具列包括：
+- **預覽色票**（若圖能常數折疊）—— BaseColor（或 Emissive）鏈能常數折疊的材質（常數、參數、lerp/multiply 等）會顯示色票。經過貼圖或 Material Function 的鏈誠實地不顯示，不亂猜。
+- **匯出按鈕** —— 把圖複製為可貼上 UE 的 T3D。
+- **儲存版面按鈕** —— 在即時模式下，把每個節點目前的位置寫回開啟中的 `.matgraph.json`。拖移節點本身不會自動保存位置；你必須按下此按鈕才能記住移動。從 UE 匯入或之前手動儲存的圖會自動復原到它們的編製位置。
+
+**節點版面配置（混合式）** —— viewer 採用混合式版面系統：
+- **編製位置** —— 有存儲 `pos:{x,y}` 的節點（來自 UE 匯入或手動「儲存版面」）精確渲染在指定位置。
+- **自動配置** —— 沒有位置的節點由 dagre 自動排列，跟過去一樣。
+混合使用兩種都沒問題：拖移任何節點會更新它的位置，「儲存版面」會把所有目前位置都記下來。
 
 **比較兩張圖** —— 開啟一個檔案，再從其他檔案的 `⋯` 選單點 **與目前圖比較**。畫布會顯示
 聯集圖：綠色＝新增、紅色虛線＝移除、琥珀色＝參數／型別修改（連線同樣上色），上方有
@@ -212,9 +219,9 @@ node viewer/dist/server/html-export.js export <project>/<name> --out ./shared.ht
 
 剪貼板橋接是**雙向**的。在 viewer 點 **導入**，把 UE 的材質選取貼進來——在 Material Editor
 選取節點、`Ctrl+C`，貼到輸入框。viewer 會**完全在本地**（不需要 Unreal）把它還原成
-`.matgraph.json`（節點型別、params、連線、註釋、reroute），寫成 `graphs/` 下的新專案資料夾並開啟。
+`.matgraph.json`（節點型別、params、連線、註釋、reroute、**節點位置**），寫成 `graphs/` 下的新專案資料夾並開啟。
 
-無法對映的東西——節點 DB 裡沒有的 UE class、或 pin 名需要函數定義的 Material Function——會以
+匯入的圖會保留每個節點在編輯器中的位置，讓它在編製的版面配置上渲染，並以**忠實的來回行程**原樣匯回 UE。無法對映的東西——節點 DB 裡沒有的 UE class、或 pin 名需要函數定義的 Material Function——會以
 warning 呈現，絕不臆造。（Reroute「knot」直通節點會被收合：連線改接到 reroute 真正的來源，不會斷線。）
 
 ---

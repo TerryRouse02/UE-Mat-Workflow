@@ -75,6 +75,39 @@ The container cannot run UE crawls (no Unreal install inside). Generate node
 DB / MF indexes on a workstation and copy `agent-pack/workmf-index.json` in
 via the commented volume mount if your team needs project-MF resolution.
 
+## Continuous deployment (GHCR + a VPS)
+
+For a project that keeps evolving, build once in CI and pull on the VPS — the
+VPS never compiles, holds no source, and rolls back by tag. Pieces:
+
+- `.github/workflows/deploy.yml` — after **CI** passes on `main`, builds
+  `deploy/Dockerfile` and pushes to GHCR as `:latest` and `:sha-<short>`.
+- `deploy/docker-compose.prod.yml` — pulls that image and bundles Caddy
+  (automatic HTTPS). Only 80/443 are published; the viewer's 5790 stays on the
+  internal network. Named volumes keep accounts / graphs / sessions / LLM config
+  **across updates**.
+- `deploy/update.sh` — `pull` + `up -d` + prune. `deploy/.env` holds the domain
+  and the tag.
+
+One-time VPS setup:
+
+```bash
+# DNS: point an A record (e.g. mat.example.com) at the VPS first.
+git clone <repo> && cd <repo>          # or just copy the deploy/ dir
+cp deploy/.env.example deploy/.env     # set VIEWER_DOMAIN (+ optional IMAGE_TAG)
+# If the GHCR package is private, authenticate once (PAT with read:packages),
+# or make the package public in GitHub → Packages:
+#   echo "$GHCR_PAT" | docker login ghcr.io -u <github-user> --password-stdin
+./deploy/update.sh
+```
+
+Then open `https://<your domain>` and **create the admin account immediately**
+(the first visitor becomes admin — claim it before sharing the URL).
+
+Updating: merge to `main` → CI green → image published → on the VPS run
+`./deploy/update.sh`. Rollback: `IMAGE_TAG=sha-abc1234 ./deploy/update.sh`.
+(`deploy.yml` must already be on `main` for the post-CI trigger to fire.)
+
 ## Bare metal (workstation with UE installed)
 
 Team mode also runs directly on a Windows/macOS workstation — this is the only
