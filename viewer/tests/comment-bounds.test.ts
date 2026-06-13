@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeCommentBounds, commentOwnership, commentOverlaps } from '../web/src/commentBounds';
+import { computeCommentBounds, commentOwnership, commentOverlaps, buildCommentNodes } from '../web/src/commentBounds';
 
 // 100x40 node boxes on a grid; absent ids return undefined
 const rect = (positions: Record<string, [number, number]>) => (id: string) =>
@@ -47,5 +47,59 @@ describe('commentBounds', () => {
 
   it('nested overlap is NOT flagged as sibling overlap', () => {
     expect(commentOverlaps([{ id: 'A', contains: ['n1', 'n2'] }, { id: 'B', contains: ['n1'] }])).toEqual([]);
+  });
+});
+
+describe('buildCommentNodes', () => {
+  const rect = (positions: Record<string, [number, number]>) => (id: string) =>
+    positions[id] ? { x: positions[id][0], y: positions[id][1], width: 100, height: 40 } : undefined;
+
+  // Regression guard: comment boxes vanished after an agent patch_graph (until a
+  // node drag or page refresh) because React Flow hides any controlled node whose
+  // internals lack width/height, and comment nodes — derived, never flowing through
+  // onNodesChange — lost their measured size on every `nodes` array churn. The fix
+  // is explicit TOP-LEVEL width/height on each comment node.
+  it('emits comment nodes with positive top-level width/height (not only in data)', () => {
+    const out = buildCommentNodes(
+      [{ id: 'A', text: 'Group', color: '#5588cc', contains: ['n1', 'n2'] }],
+      rect({ n1: [0, 0], n2: [200, 0] }),
+      {},
+    );
+    expect(out).toHaveLength(1);
+    const node = out[0];
+    expect(node.id).toBe('comment-A');
+    expect(node.width).toBeGreaterThan(0);
+    expect(node.height).toBeGreaterThan(0);
+    // The size must be mirrored at the node top level AND in data (the renderer uses data).
+    expect(node.width).toBe(node.data.width);
+    expect(node.height).toBe(node.data.height);
+  });
+
+  it('falls back to dagre cluster bounds (keyed comment-<id>) when no live rect resolves', () => {
+    const out = buildCommentNodes(
+      [{ id: 'A', text: 'Group', contains: ['missing'] }],
+      () => undefined, // no node rects available yet
+      { 'comment-A': { x: 5, y: 6, width: 120, height: 80 } },
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ id: 'comment-A', position: { x: 5, y: 6 }, width: 120, height: 80 });
+  });
+
+  it('drops a comment with neither a computed bound nor a fallback', () => {
+    const out = buildCommentNodes(
+      [{ id: 'A', text: 'Group', contains: ['missing'] }],
+      () => undefined,
+      {},
+    );
+    expect(out).toEqual([]);
+  });
+
+  it('defaults a missing colour to #888', () => {
+    const out = buildCommentNodes(
+      [{ id: 'A', text: 'G', contains: ['n1'] }],
+      rect({ n1: [0, 0] }),
+      {},
+    );
+    expect(out[0].data.color).toBe('#888');
   });
 });

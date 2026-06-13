@@ -5,6 +5,69 @@ export interface Rect { x: number; y: number; width: number; height: number }
 export interface CommentInput { id: string; contains: string[] }
 export interface BoundsOpts { padX?: number; padTop?: number; padBottom?: number }
 
+/** A comment with its display text/colour, as stored in the graph JSON. */
+export interface CommentDef extends CommentInput { text: string; color?: string }
+
+/**
+ * The plain shape of a React Flow node for a comment box. Kept React-free here so
+ * it is unit-testable without reactflow (which lives in web/node_modules). Graph.tsx
+ * casts the result to reactflow's `Node`.
+ *
+ * `width`/`height` are deliberately at the TOP LEVEL (not only in `data`): React
+ * Flow's createNodeInternals rebuilds a node's internals via `{ ...node }` on every
+ * controlled-`nodes` resync, and NodeWrapper hides any node whose internals lack
+ * width/height (`visibility: !!node.width && !!node.height ? 'visible' : 'hidden'`).
+ * Comment boxes are derived nodes that never flow through onNodesChange, so without
+ * explicit dimensions they vanish whenever the `nodes` array churns (e.g. the agent
+ * patch_graph live-update path) until a drag/remount forces a fresh measurement.
+ */
+export interface CommentRenderNode {
+  id: string;
+  type: 'commentBox';
+  position: { x: number; y: number };
+  width: number;
+  height: number;
+  data: { text: string; color: string; width: number; height: number };
+  draggable: false;
+  selectable: false;
+  zIndex: number;
+  style: { zIndex: number };
+}
+
+/**
+ * Build the comment-box render nodes for a graph: resolve each comment's bounds via
+ * computeCommentBounds (from live node rects), fall back to the supplied dagre cluster
+ * bounds (keyed `comment-<id>`), and drop any comment with neither. The returned nodes
+ * always carry top-level width/height — see CommentRenderNode for why that matters.
+ */
+export function buildCommentNodes(
+  comments: CommentDef[],
+  nodeRect: (id: string) => Rect | undefined,
+  fallbackBounds: Record<string, Rect>,
+  opts?: BoundsOpts,
+): CommentRenderNode[] {
+  const boundsMap = computeCommentBounds(comments, nodeRect, opts);
+  const out: CommentRenderNode[] = [];
+  for (const c of comments) {
+    const clusterId = 'comment-' + c.id;
+    const rect = boundsMap.get(c.id) ?? fallbackBounds[clusterId];
+    if (!rect) continue;
+    out.push({
+      id: clusterId,
+      type: 'commentBox',
+      position: { x: rect.x, y: rect.y },
+      width: rect.width,
+      height: rect.height,
+      data: { text: c.text, color: c.color ?? '#888', width: rect.width, height: rect.height },
+      draggable: false,
+      selectable: false,
+      zIndex: -1,
+      style: { zIndex: -1 },
+    });
+  }
+  return out;
+}
+
 const DEFAULT_PAD_X = 32;
 const DEFAULT_PAD_TOP = 36;
 const DEFAULT_PAD_BOTTOM = 24;
