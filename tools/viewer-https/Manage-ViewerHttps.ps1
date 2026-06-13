@@ -84,6 +84,12 @@ function Write-Utf8Bom([string]$Path, [string]$Content) {
     [IO.File]::WriteAllText($Path, $Content, $encoding)
 }
 
+function Write-Utf8NoBom([string]$Path, [string]$Content) {
+    # JSON consumed by the Node viewer (local.config.json) and the bootstrap reader must
+    # be BOM-free: JSON.parse throws on a leading U+FEFF. RFC 8259 also disallows a BOM.
+    [IO.File]::WriteAllText($Path, $Content, (New-Object Text.UTF8Encoding($false)))
+}
+
 function Write-Ascii([string]$Path, [string]$Content) {
     [IO.File]::WriteAllText($Path, $Content, [Text.Encoding]::ASCII)
 }
@@ -91,7 +97,7 @@ function Write-Ascii([string]$Path, [string]$Content) {
 function Write-JsonAtomic([string]$Path, $Value) {
     $temp = $Path + '.tmp'
     $jsonText = $Value | ConvertTo-Json -Depth 8
-    Write-Utf8Bom $temp ($jsonText + "`r`n")
+    Write-Utf8NoBom $temp ($jsonText + "`r`n")
     Move-Item -LiteralPath $temp -Destination $Path -Force
 }
 
@@ -452,13 +458,17 @@ function RepairLegacyCaddyDeploymentAcl {
             Repair-ViewerHttpsLegacyFileAcl $legacyFile
         }
     } else {
-        if ($previousState -and -not $deploymentComplete) {
-            RemoveTrustedRootCertificate -State $previousState
-        }
+        # Remove the stale partial files and rebuild the unreadable private CA dir FIRST,
+        # and only then drop the old trusted root. If a file/ACL step throws, the previous
+        # CA is still trusted (recoverable) instead of being removed with no rollback —
+        # this cert removal runs before the protective try-block in Invoke-Install.
         foreach ($partialFile in @($candidateCaddyfilePath, $caddyfilePath, $runnerPath, $configPath, $installerPath)) {
             Remove-ViewerHttpsPartialInstallFile $partialFile
         }
         Reset-IncompleteCaddyPrivateData
+        if ($previousState -and -not $deploymentComplete) {
+            RemoveTrustedRootCertificate -State $previousState
+        }
         $previousState = $null
     }
 
@@ -561,7 +571,7 @@ function Install-ViewerHttpsRootCertificate {
     param([Parameter(Mandatory = $true)][string]$CertificatePath)
 
     Add-Action 'InstallServerRootCertificate'
-    if ($DryRun) { return 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA' }
+    if ($DryRun) { return [pscustomobject]@{ Thumbprint = 'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA'; NewlyImported = $false } }
 
     $storePath = 'Cert:\LocalMachine\Root'
     $certificate = New-Object Security.Cryptography.X509Certificates.X509Certificate2($CertificatePath)
@@ -584,7 +594,7 @@ function Install-ViewerHttpsRootCertificate {
         throw "無法在本機電腦的受信任根憑證存放區確認 Caddy 根憑證：$certificateThumbprint"
     }
 
-    return $certificateThumbprint
+    return [pscustomobject]@{ Thumbprint = $certificateThumbprint; NewlyImported = (-not $existingCertificate) }
 }
 
 function Write-GeneratedFiles($selection, [string]$CaddyPath, [bool]$Configured) {
@@ -659,6 +669,7 @@ function Invoke-Install {
     $taskExisted = $null -ne $existingTask
     $taskWasRunning = $taskExisted -and [string]$existingTask.State -eq 'Running'
     $firewallExisted = $null -ne (Get-NetFirewallRule -DisplayName $script:FirewallName -ErrorAction SilentlyContinue)
+    $newlyTrustedThumbprint = $null
 
     try {
         Write-Utf8Bom $candidateCaddyfilePath (New-ViewerHttpsCaddyfile -Address $selection.address)
@@ -674,7 +685,9 @@ function Invoke-Install {
         Show-Step '6/8' '等待 Caddy 匯出公開根憑證（最長 30 秒）...'
         if (-not (Wait-ForFile $rootCertPath 30)) { throw "Caddy 未匯出公開根憑證，請查看 $logsPath。" }
         Show-Step '7/8' '信任本機根憑證並檢查 HTTPS...'
-        $trustedRootThumbprint = Install-ViewerHttpsRootCertificate -CertificatePath $rootCertPath
+        $rootTrust = Install-ViewerHttpsRootCertificate -CertificatePath $rootCertPath
+        $trustedRootThumbprint = $rootTrust.Thumbprint
+        if ($rootTrust.NewlyImported) { $newlyTrustedThumbprint = $rootTrust.Thumbprint }
         if (-not (Wait-ForHttpsHealth $selection.httpsUrl 20)) { throw "HTTPS 健康檢查失敗：$($selection.httpsUrl)" }
         Show-Step '8/8' '產生成員安裝器並更新 Viewer 安全設定...'
         $state = Write-GeneratedFiles $selection $caddyPath $true
@@ -690,6 +703,10 @@ function Invoke-Install {
             RestorePreviousCaddyDeployment -Snapshots $snapshots -TaskExisted $taskExisted -TaskWasRunning $taskWasRunning -FirewallExisted $firewallExisted
         } catch {
             Write-Warning ('自動復原失敗：' + $_.Exception.Message)
+        }
+        if ($newlyTrustedThumbprint) {
+            try { RemoveTrustedRootCertificate -State ([pscustomobject]@{ certificateThumbprint = $newlyTrustedThumbprint }) }
+            catch { Write-Warning ('無法移除安裝失敗時新增的根憑證：' + $_.Exception.Message) }
         }
         if ($failureDiagnostics) {
             $failureLogPath = Join-Path $logsPath 'last-failure.log'
@@ -762,6 +779,7 @@ function Invoke-ExportCert {
 function Invoke-Uninstall {
     Request-Elevation
     $state = Read-State
+    $caddyUninstalled = $false
     Add-Action 'RemoveCaddyScheduledTask'
     Add-Action 'RemovePrivateFirewallRule443'
     Add-Action 'DisableViewerSecureCookies'
@@ -781,10 +799,15 @@ function Invoke-Uninstall {
             Remove-Item -LiteralPath $dataPath -Recurse -Force -ErrorAction SilentlyContinue
         }
         if ($UninstallCaddy) {
-            & winget.exe uninstall --id CaddyServer.Caddy -e --source winget --disable-interactivity
+            $caddyUninstallResult = Invoke-ViewerHttpsNativeCommand -ShowOutput (-not $Json) -Command { & winget.exe uninstall --id CaddyServer.Caddy -e --source winget --disable-interactivity }
+            $caddyUninstalled = [int]$caddyUninstallResult.ExitCode -eq 0
+            if (-not $caddyUninstalled -and -not $Json) {
+                Write-Host "Caddy 解除安裝未成功（exit $($caddyUninstallResult.ExitCode)），已保留 Caddy 程式。" -ForegroundColor Yellow
+            }
         }
     }
-    return [ordered]@{ uninstalled = $true; caPreserved = -not $RemoveCa; caddyPreserved = -not $UninstallCaddy }
+    $caddyPreserved = if ($DryRun) { -not $UninstallCaddy } else { -not $caddyUninstalled }
+    return [ordered]@{ uninstalled = $true; caPreserved = -not $RemoveCa; caddyPreserved = $caddyPreserved }
 }
 
 function RemoveTrustedRootCertificate {

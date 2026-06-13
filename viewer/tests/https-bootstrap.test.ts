@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve } from 'node:path';
-import { startServer } from '../server/http-server';
+import { startServer, parseJsonAllowingBom } from '../server/http-server';
 import { loadHttpsBootstrap, resolveHttpsInstaller } from '../server/https-bootstrap';
 
 const originalHome = process.env.UE_MAT_CADDY_HOME;
@@ -137,5 +137,25 @@ describe('HTTPS bootstrap HTTP API', () => {
     } finally {
       await server.close();
     }
+  });
+});
+
+describe('local.config.json BOM tolerance', () => {
+  // Manage-ViewerHttps.ps1 Update-SecureCookie historically wrote local.config.json
+  // with a UTF-8 BOM; the viewer's plain JSON.parse threw on it and every reader
+  // (Team/LLM/Web config) silently fell back to empty defaults. parseJsonAllowingBom
+  // is the shared reader path the five call sites now use.
+  const config = { Team: { enabled: true, secureCookies: true }, Llm: { provider: 'anthropic', model: 'x', apiKey: 'k' } };
+
+  it('parses config written with a leading UTF-8 BOM (as PowerShell tools emit)', () => {
+    expect(parseJsonAllowingBom('\uFEFF' + JSON.stringify(config))).toEqual(config);
+  });
+
+  it('still parses config without a BOM', () => {
+    expect(parseJsonAllowingBom(JSON.stringify(config))).toEqual(config);
+  });
+
+  it('documents the regression: bare JSON.parse throws on the BOM', () => {
+    expect(() => JSON.parse('\uFEFF' + JSON.stringify(config))).toThrow();
   });
 });

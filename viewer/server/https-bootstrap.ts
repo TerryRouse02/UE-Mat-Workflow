@@ -1,4 +1,4 @@
-import { access, readFile } from 'node:fs/promises';
+import { readFile, realpath } from 'node:fs/promises';
 import { isAbsolute, relative, resolve } from 'node:path';
 
 export interface HttpsBootstrapPublic {
@@ -43,7 +43,17 @@ export async function resolveHttpsInstaller(root = httpsBootstrapRoot()): Promis
   const candidate = resolve(root, config.installerFile);
   const rel = relative(clientRoot, candidate);
   if (rel === '' || rel.startsWith('..') || isAbsolute(rel) || !candidate.toLowerCase().endsWith('.cmd')) return null;
-  try { await access(candidate); return candidate; } catch { return null; }
+  // Defence in depth: the checks above are purely lexical and cannot see symlinks.
+  // Resolve both sides and re-check containment so a symlink planted inside client/
+  // cannot escape the validated tree. Both are realpath'd so a symlinked data root
+  // (e.g. macOS /var -> /private/var) stays consistent.
+  try {
+    const realClient = await realpath(clientRoot);
+    const realCandidate = await realpath(candidate);
+    const realRel = relative(realClient, realCandidate);
+    if (realRel === '' || realRel.startsWith('..') || isAbsolute(realRel)) return null;
+    return realCandidate;
+  } catch { return null; }
 }
 
 export async function loadHttpsBootstrap(root = httpsBootstrapRoot()): Promise<HttpsBootstrapPublic> {

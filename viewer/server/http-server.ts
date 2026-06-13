@@ -39,6 +39,15 @@ import {
   type ServerMode, type AuthUser, type Role,
 } from './auth.js';
 
+/**
+ * Parse JSON from a file's text, tolerating a leading UTF-8 BOM. PowerShell tools
+ * (e.g. Manage-ViewerHttps.ps1) can write local.config.json with a BOM, and a bare
+ * JSON.parse throws on the leading U+FEFF — which silently wiped Team/LLM/Web config.
+ */
+export function parseJsonAllowingBom(text: string): unknown {
+  return JSON.parse(text.replace(/^\uFEFF/, ''));
+}
+
 export interface ServerOpts {
   repoRoot: string;     // contains graphs/
   port: number;         // 0 = auto
@@ -148,14 +157,14 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean; memberAgent?: boolean; quotas?: Record<string, number>; memberLock?: MemberLock | null }
   async function readTeamConfig(): Promise<TeamConfig> {
     try {
-      const parsed = JSON.parse(await readFile(localConfigPath, 'utf-8')) as { Team?: TeamConfig };
+      const parsed = parseJsonAllowingBom(await readFile(localConfigPath, 'utf-8')) as { Team?: TeamConfig };
       return parsed.Team && typeof parsed.Team === 'object' ? parsed.Team : {};
     } catch { return {}; }
   }
   async function saveTeamConfig(patch: Partial<TeamConfig>): Promise<void> {
     let existing: Record<string, unknown> = {};
     try {
-      const parsed = JSON.parse(await readFile(localConfigPath, 'utf-8'));
+      const parsed = parseJsonAllowingBom(await readFile(localConfigPath, 'utf-8'));
       if (parsed && typeof parsed === 'object') existing = parsed as Record<string, unknown>;
     } catch { /* absent — start fresh */ }
     const team = { ...(existing.Team as object | undefined), ...patch };
@@ -711,7 +720,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // Merge into any existing config so a field the UI didn't send is preserved.
     let existing: Record<string, unknown> = {};
     try {
-      const parsed = JSON.parse(await readFile(localConfigPath, 'utf-8'));
+      const parsed = parseJsonAllowingBom(await readFile(localConfigPath, 'utf-8'));
       if (parsed && typeof parsed === 'object') existing = parsed as Record<string, unknown>;
     } catch { /* absent or unparseable — start fresh */ }
     const merged: Record<string, unknown> = { ...existing, ...fields };
@@ -956,7 +965,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   /** Read LLMConfig from local.config.json on each request (config changes apply without restart). */
   async function readLlmConfig(): Promise<LLMConfig | null> {
     try {
-      const raw = JSON.parse(await readFile(localConfigPath, 'utf-8')) as Record<string, unknown>;
+      const raw = parseJsonAllowingBom(await readFile(localConfigPath, 'utf-8')) as Record<string, unknown>;
       const llm = raw.Llm as Partial<LLMConfig> | undefined;
       if (!llm || typeof llm !== 'object') return null;
       if (llm.provider !== 'anthropic' && llm.provider !== 'openai-compatible') return null;
@@ -978,7 +987,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   /** Read the `Web` section (search backend / keys / proxy) fresh per request. */
   async function readWebConfig(): Promise<WebSearchConfig | undefined> {
     try {
-      const raw = JSON.parse(await readFile(localConfigPath, 'utf-8')) as Record<string, unknown>;
+      const raw = parseJsonAllowingBom(await readFile(localConfigPath, 'utf-8')) as Record<string, unknown>;
       const w = raw.Web as Record<string, unknown> | undefined;
       if (!w || typeof w !== 'object') return undefined;
       const str = (v: unknown): string | undefined =>

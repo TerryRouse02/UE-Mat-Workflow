@@ -76,6 +76,18 @@ Assert-Equal 0 $payloadErrors.Count 'generated member installer PowerShell paylo
 Assert-True ($payloadSource -match 'Import-Certificate') 'generated member installer imports the public root certificate'
 Assert-True ($payloadSource -match [regex]::Escape('192.168.71.92 ue-mat.local')) 'hostname installer writes the requested hosts mapping'
 
+# Guard the shipped self-extraction against regressing to IndexOf. The marker appears
+# TWICE in the generated .cmd (once inside the extraction command, once as the real
+# delimiter), so the runtime MUST use LastIndexOf; the first IndexOf match is invalid
+# base64 and crashes every member install. This test exercises the actual extraction
+# algorithm rather than reimplementing a correct one.
+Assert-Equal 2 ([regex]::Matches($installer, [regex]::Escape($payloadMarker)).Count) 'installer embeds the payload marker exactly twice (command + delimiter)'
+Assert-True ($installer -match 'LastIndexOf\(\$m\)') 'shipped installer extracts its payload with LastIndexOf, not the first IndexOf match'
+$firstMatchPayload = $installer.Substring($installer.IndexOf($payloadMarker) + $payloadMarker.Length).Trim()
+$indexOfWouldFail = $false
+try { [void][Convert]::FromBase64String($firstMatchPayload) } catch { $indexOfWouldFail = $true }
+Assert-True $indexOfWouldFail 'first-match (IndexOf) extraction is invalid base64 — proves LastIndexOf is required'
+
 $elevationArgs = New-ViewerHttpsElevationArguments -ScriptPath 'D:\Repo\tools\viewer-https\Manage-ViewerHttps.ps1' -Command 'install' -BoundParameters @{ AddressMode = 'ip'; Address = '192.168.71.92'; DryRun = [Management.Automation.SwitchParameter]::new($true) }
 Assert-Equal '-NoProfile' $elevationArgs[0] 'elevation starts without profile'
 Assert-True ($elevationArgs -contains 'install') 'elevation preserves command'

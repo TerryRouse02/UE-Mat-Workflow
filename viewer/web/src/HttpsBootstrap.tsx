@@ -9,7 +9,7 @@ export interface HttpsBootstrapStatus {
 }
 
 export async function loadHttpsBootstrap(fetchImpl: typeof fetch = fetch): Promise<HttpsBootstrapStatus> {
-  const response = await fetchImpl('/api/https-bootstrap', { cache: 'no-store' });
+  const response = await fetchImpl('/api/https-bootstrap', { cache: 'no-store', signal: AbortSignal.timeout(3000) });
   if (!response.ok) throw new Error(`HTTPS bootstrap request failed: ${response.status}`);
   return await response.json() as HttpsBootstrapStatus;
 }

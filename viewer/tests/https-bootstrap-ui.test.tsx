@@ -48,6 +48,6 @@ describe('HTTPS bootstrap UI', () => {
   it('loads the public bootstrap endpoint without caching', async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response(JSON.stringify(configured), { status: 200 }));
     await expect(loadHttpsBootstrap(fetchImpl)).resolves.toEqual(configured);
-    expect(fetchImpl).toHaveBeenCalledWith('/api/https-bootstrap', { cache: 'no-store' });
+    expect(fetchImpl).toHaveBeenCalledWith('/api/https-bootstrap', expect.objectContaining({ cache: 'no-store' }));
   });
 });
