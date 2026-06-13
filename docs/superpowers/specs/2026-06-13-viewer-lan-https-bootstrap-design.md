@@ -19,7 +19,7 @@
 管理員執行：
 
 ```powershell
-.\tools\Manage-ViewerHttps.ps1
+.\tools\viewer-https\Manage-ViewerHttps.ps1
 ```
 
 互動選單選擇「首次安裝」。腳本要求系統管理員權限，確認 Viewer 正在 `127.0.0.1:5790` 提供服務，然後讓使用者二選一：
@@ -59,16 +59,29 @@ http://192.168.71.92:5790/
 
 ### 管理腳本
 
-新增 `tools/Manage-ViewerHttps.ps1`，同時支援互動選單與命令模式：
+在 `tools/viewer-https/` 建立獨立工具目錄：
+
+```text
+tools/viewer-https/
+├─ Manage-ViewerHttps.ps1
+├─ README.zh-TW.md
+└─ templates/
+```
+
+- `Manage-ViewerHttps.ps1`：繁體中文互動選單與命令列入口。
+- `README.zh-TW.md`：管理員安裝、維護及故障排除說明。
+- `templates/`：Caddyfile 和單檔成員安裝器的來源範本；不得包含任何實際憑證、IP、主機名或私鑰。
+
+管理腳本同時支援互動選單與命令模式：
 
 ```powershell
-.\tools\Manage-ViewerHttps.ps1 install
-.\tools\Manage-ViewerHttps.ps1 status
-.\tools\Manage-ViewerHttps.ps1 restart
-.\tools\Manage-ViewerHttps.ps1 update
-.\tools\Manage-ViewerHttps.ps1 change-address
-.\tools\Manage-ViewerHttps.ps1 export-cert
-.\tools\Manage-ViewerHttps.ps1 uninstall
+.\tools\viewer-https\Manage-ViewerHttps.ps1 install
+.\tools\viewer-https\Manage-ViewerHttps.ps1 status
+.\tools\viewer-https\Manage-ViewerHttps.ps1 restart
+.\tools\viewer-https\Manage-ViewerHttps.ps1 update
+.\tools\viewer-https\Manage-ViewerHttps.ps1 change-address
+.\tools\viewer-https\Manage-ViewerHttps.ps1 export-cert
+.\tools\viewer-https\Manage-ViewerHttps.ps1 uninstall
 ```
 
 腳本在需要變更系統狀態時自動以系統管理員權限重新啟動；`status` 保持唯讀且不強制提升權限。
@@ -165,7 +178,7 @@ Web App 啟動時讀取 bootstrap 狀態。如果 `window.isSecureContext` 為 `
 
 `%ProgramData%\UE-Mat-Caddy\config.json` 儲存非機密部署狀態：模式、IP、主機名、HTTPS URL、Caddy 路徑、安裝器版本、根憑證指紋及 repo 路徑。私鑰僅由 Caddy 儲存在受限 data 目錄，絕不複製到 repo 或 Web 下載目錄。
 
-repo 內只保留腳本、Web／Server 實作及測試。產生檔案放入 `tools/viewer-https/` 時必須加入 `.gitignore`；實際常駐資料以 `%ProgramData%` 為準。
+repo 內的 `tools/viewer-https/` 只保留管理腳本、說明文件和不含機密資料的範本；Web／Server 實作及測試保留在既有 Viewer 結構。所有機器專屬的 Caddyfile、設定、CA、日誌和成員安裝器都直接產生到 `%ProgramData%\UE-Mat-Caddy`，不得寫入 repo，因此不需要依賴 `.gitignore` 防止機密資料誤提交。
 
 ## 安全策略
 
