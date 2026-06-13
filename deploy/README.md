@@ -84,6 +84,34 @@ setup where the admin can trigger crawls from the Config tab:
 pnpm start          # then: Config → 團隊 → 啟用團隊模式 (no env var needed)
 ```
 
+### Windows LAN HTTPS helper
+
+On a Windows workstation, prefer the maintained Traditional Chinese helper
+instead of editing Caddy, firewall, certificate, and scheduled-task settings by
+hand:
+
+```text
+Double-click tools\viewer-https\Manage-ViewerHttps.bat
+```
+
+The BAT launcher requests administrator access once and keeps the final result
+visible. Advanced command-line maintenance remains available through:
+
+```powershell
+.\tools\viewer-https\Manage-ViewerHttps.ps1
+```
+
+It supports `install`, `status`, `restart`, `update`, `change-address`,
+`export-cert`, and `uninstall`. Machine-specific files are stored under
+`%ProgramData%\UE-Mat-Caddy`; the CA private key is never written into the repo
+or distributed to members.
+
+After a successful install, members visit the existing HTTP team URL. The
+viewer displays a Traditional Chinese HTTPS setup page and serves one
+`Install-UE-Mat-HTTPS.cmd` file. Running that file with UAC approval installs
+the public root certificate, updates the marked `hosts` entry when hostname
+mode is used, and opens the HTTPS viewer.
+
 ## HTTPS
 
 TLS is the reverse proxy's job — see `Caddyfile` (automatic certificates) or

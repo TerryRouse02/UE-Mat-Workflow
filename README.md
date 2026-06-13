@@ -142,6 +142,20 @@ in [`deploy/`](./deploy/README.md). UE crawls still need a workstation with
 Unreal installed — run team mode bare-metal there, or generate the indexes on
 a workstation and mount them into the container.
 
+Windows workstation admins can deploy and maintain LAN HTTPS with the
+Traditional Chinese helper under [`tools/viewer-https/`](./tools/viewer-https/README.zh-TW.md):
+
+```powershell
+.\tools\viewer-https\Manage-ViewerHttps.ps1
+```
+
+For a beginner-friendly first install, open `tools\viewer-https` and
+double-click `Manage-ViewerHttps.bat` instead.
+
+After deployment, members who open the original HTTP team URL receive a guided
+page that downloads one self-contained certificate installer, then redirects
+them to the secure viewer.
+
 ---
 
 ## Use with AI tools

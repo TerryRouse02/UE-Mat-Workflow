@@ -31,6 +31,7 @@ import { createUsageStore } from './agent/usage-store.js';
 import { createProposalStore } from './agent/proposal-store.js';
 import { explainNode, buildGraphContext, RESERVED_NODE_DESCRIPTIONS } from './agent/explain.js';
 import { buildSnapshot } from './html-export.js';
+import { loadHttpsBootstrap, readHttpsInstaller } from './https-bootstrap.js';
 import type { LLMConfig, ProviderStatus } from './agent/provider/types.js';
 import {
   resolveMode, createAuthStore, createLoginLimiter, validateCredentials,
@@ -2353,6 +2354,33 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'POST' && urlPath === '/api/auth/logout') {
       try { await handleAuthLogout(req, res); }
       catch (e) { console.error('auth logout error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+
+    // Public so first-time team members can install HTTPS before login.
+    if (req.method === 'GET' && urlPath === '/api/https-bootstrap') {
+      if (mode !== 'team') { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+      try { sendJson(res, 200, await loadHttpsBootstrap()); }
+      catch (e) { console.error('https bootstrap status error:', e); sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'GET' && urlPath === '/api/https-bootstrap/installer') {
+      if (mode !== 'team') { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+      try {
+        const installer = await readHttpsInstaller();
+        if (!installer) { sendJson(res, 404, { error: 'installer not available' }); return; }
+        res.writeHead(200, {
+          'Content-Type': 'application/octet-stream',
+          'Content-Disposition': 'attachment; filename="Install-UE-Mat-HTTPS.cmd"',
+          'Content-Length': installer.length,
+          'Cache-Control': 'no-store',
+          'X-Content-Type-Options': 'nosniff',
+        });
+        res.end(installer);
+      } catch (e) {
+        console.error('https bootstrap installer error:', e);
+        if (!res.headersSent) sendJson(res, 500, { error: 'internal error' });
+      }
       return;
     }
 

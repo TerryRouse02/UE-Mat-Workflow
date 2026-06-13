@@ -1,0 +1,14 @@
+@echo off
+setlocal
+rem UE-MAT HTTPS installer version {{VERSION}}
+rem Target: {{HTTPS_URL}}
+rem CERT_BASE64={{CERTIFICATE_BASE64}}
+net session >nul 2>&1
+if errorlevel 1 (
+  powershell.exe -NoProfile -Command "Start-Process -FilePath '%~f0' -Verb RunAs"
+  exit /b
+)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$s=[IO.File]::ReadAllText('%~f0');$m='__UE_MAT_POWERSHELL_PAYLOAD__';$i=$s.IndexOf($m);if($i-lt 0){throw 'Payload not found'};$p=$s.Substring($i+$m.Length).Trim();& ([ScriptBlock]::Create([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String($p))))"
+exit /b %errorlevel%
+__UE_MAT_POWERSHELL_PAYLOAD__
+{{ENCODED_COMMAND}}
