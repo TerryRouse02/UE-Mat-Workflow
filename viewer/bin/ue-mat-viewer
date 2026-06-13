@@ -10,7 +10,8 @@ if (cmd === 'start') {
   await import(serverEntry);
 } else if (cmd === 'export') {
   const exportEntry = resolve(__dirname, '../dist/server/html-export.js');
-  await import(exportEntry);
+  const { runHtmlExportCli } = await import(exportEntry);
+  await runHtmlExportCli();
 } else {
   console.error(`Unknown command: ${cmd}`);
   console.error(`Usage: ue-mat-viewer [start|export <name> --out <path>]`);

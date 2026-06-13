@@ -1,0 +1,72 @@
+.https-bootstrap-page {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg, #0f1117);
+  color: var(--text, #e8ebf2);
+}
+
+.https-bootstrap-card {
+  width: min(560px, 100%);
+  padding: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  background: #181c25;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
+}
+
+.https-bootstrap-card h1 {
+  margin: 0 0 12px;
+  font-size: 22px;
+}
+
+.https-bootstrap-card p {
+  line-height: 1.65;
+  color: #bcc4d4;
+}
+
+.https-bootstrap-url {
+  display: block;
+  margin: 16px 0;
+  padding: 10px 12px;
+  overflow-wrap: anywhere;
+  border-radius: 8px;
+  background: #0d1016;
+  color: #8ee8d0;
+}
+
+.https-bootstrap-actions {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+}
+
+.https-bootstrap-primary,
+.https-bootstrap-secondary {
+  display: inline-flex;
+  justify-content: center;
+  padding: 11px 16px;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.https-bootstrap-primary {
+  background: #22c7a9;
+  color: #071410;
+  font-weight: 700;
+}
+
+.https-bootstrap-secondary {
+  border-color: rgba(255, 255, 255, 0.16);
+  background: transparent;
+  color: #e8ebf2;
+}
+
+.https-bootstrap-note {
+  margin-top: 18px;
+  font-size: 13px;
+}

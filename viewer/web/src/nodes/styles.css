@@ -33,6 +33,16 @@
   50%      { box-shadow: 0 0 0 4px rgba(45, 212, 191, .45), 0 0 18px 2px rgba(45, 212, 191, .35); }
 }
 
+/* ---- Compare view (graph diff) ----
+   Set as React Flow node className by Graph.tsx when a diff is active:
+   green = only in the compare target (added), red dashed = only in the open
+   graph (removed ghost), amber = same id but type/params changed. */
+.react-flow__node.diff-added    { box-shadow: 0 0 0 2px rgba(63, 185, 80, .85), 0 0 14px 1px rgba(63, 185, 80, .3); border-radius: var(--radius); }
+.react-flow__node.diff-removed  { box-shadow: 0 0 0 2px rgba(248, 81, 73, .85); border-radius: var(--radius); opacity: .6; }
+.react-flow__node.diff-removed .gnode { border-style: dashed; }
+.react-flow__node.diff-changed  { box-shadow: 0 0 0 2px rgba(224, 179, 77, .9), 0 0 14px 1px rgba(224, 179, 77, .3); border-radius: var(--radius); }
+.react-flow__edge.diff-edge-removed { opacity: .65; }
+
 /* ---- Edges (per-edge color set inline in Graph.tsx) ---- */
 .react-flow__edge-path { stroke: var(--fg-faint); stroke-width: 2; transition: stroke-width 0.1s ease; }
 .react-flow__edge:hover .react-flow__edge-path,

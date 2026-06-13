@@ -17,7 +17,7 @@ import { MATERIAL_ATTRIBUTE_GUIDS } from '../web/src/material-attribute-guids';
 // metadata (agent-pack/nodes-ue5.7.export.json) and the REAL MF resolver,
 // turning the authored stress artifact into an executable regression guard.
 //
-// The graph covers EVERY node type in nodes-ue5.7.json (~299) plus ~26 official
+// The graph covers EVERY authoring node definition in nodes-ue5.7.json plus ~26 official
 // /Engine Material Functions (resolved from the committed enginemf-index) and one
 // local sibling MaterialFunction. The MF resolver is given the engine index exactly
 // as the server does, so official MFs resolve their pins.
@@ -54,6 +54,7 @@ const hasAttr = (n: string) => n.replace(/\s+/g, '') in ATTR_TABLE;
 const SET_ATTRS = ['BaseColor', 'Roughness', 'Metallic', 'Normal'];   // N_SetMaterialAttributes.params.AttributeNames
 const GET_ATTRS = ['BaseColor', 'Roughness', 'EmissiveColor'];        // N_GetMaterialAttributes.params.AttributeNames
 const droppedAttrs = [...SET_ATTRS, ...GET_ATTRS].filter(a => !hasAttr(a));
+const UNSUPPORTED_DYNAMIC_TYPES = new Set(['MaterialCache', 'LandscapeGrassOutput', 'PhysicalMaterialOutput']);
 
 async function buildExport() {
   const loaded = await loadGraph(MATERIAL_PATH);
@@ -104,9 +105,9 @@ describe('stress_all_nodes export', () => {
   it('emits one MaterialGraphNode block per exportable expression', async () => {
     const { graph, text } = await buildExport();
 
-    // Every node that is NOT a MaterialOutput produces a MaterialGraphNode block. The
-    // auto-collected MakeMaterialAttributes adds one more (the synthesized collector).
-    const exportable = graph.nodes.filter(n => n.type !== 'MaterialOutput');
+    // Every node except MaterialOutput and the explicitly unsupported per-instance
+    // dynamic nodes produces a block. The synthesized collector adds one more.
+    const exportable = graph.nodes.filter(n => n.type !== 'MaterialOutput' && !UNSUPPORTED_DYNAMIC_TYPES.has(n.type));
     const blocks = (text.match(/Begin Object Class=\/Script\/UnrealEd\.MaterialGraphNode /g) ?? []).length;
     expect(blocks).toBe(exportable.length + 1);
 
@@ -157,9 +158,14 @@ describe('stress_all_nodes export', () => {
       expect(warnings.some(w => new RegExp(`attribute "${a}" has no captured GUID`).test(w)), `expected a drop warning for ${a}`).toBe(true);
     }
 
-    // The dynamic-pin nodes are exported, so NOTHING is "not exportable yet" and no wire is
-    // "dropped: source was not exported".
-    expect(warnings.filter(w => /not exportable yet - skipped/.test(w))).toHaveLength(0);
+    // Custom and the three fixture-backed dynamic families export. The remaining
+    // instance-dependent types are recorded in the DB but intentionally skipped until
+    // they have dedicated per-instance exporters.
+    const skipped = warnings.filter(w => /not exportable yet - skipped/.test(w));
+    expect(skipped).toHaveLength(UNSUPPORTED_DYNAMIC_TYPES.size);
+    for (const type of UNSUPPORTED_DYNAMIC_TYPES) {
+      expect(skipped.some(w => w.includes(`type ${type}`)), `expected ${type} to be explicitly skipped`).toBe(true);
+    }
     expect(warnings.filter(w => /dropped: source .* was not exported/.test(w))).toHaveLength(0);
 
     // The auto-collect guidance warning for the single MaterialOutput.
@@ -172,6 +178,7 @@ describe('stress_all_nodes export', () => {
     const unexpected = warnings.filter(w =>
       !/wired more than once/.test(w) &&
       !/has no captured GUID - dropped/.test(w) &&
+      !/not exportable yet - skipped/.test(w) &&
       !/auto-collected \d+ attribute\(s\)/.test(w) &&
       !/auto-link/.test(w),
     );

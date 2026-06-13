@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { StoreProvider, useStore } from './store';
 import { Chrome } from './Chrome';
 import { Banner } from './Banner';
@@ -13,9 +13,26 @@ import { Icon } from './Icon';
 import { DbProvider, useDb } from './dbContext';
 import { shouldConfirmOpen } from './largeGraphGate';
 import { graphToUET3D } from './export/ueT3D';
-import type { FileEntry } from './protocol';
+import { Login } from './Login';
+import { buildDiffPayload } from './diff';
+import { evaluateGraphPreview } from '../../server/graph-preview';
+import type { FileEntry, GraphPayload } from './protocol';
 
 export type AppTab = 'files' | 'nodes' | 'config' | 'agent';
+
+/**
+ * Team-mode gate: until /api/auth/status answers, show a tiny splash; an
+ * unauthenticated team session gets the Login screen instead of the app.
+ * Snapshot + local mode pass straight through.
+ */
+function AuthGate({ children }: { children: React.ReactNode }) {
+  const { state } = useStore();
+  if (state.connection !== 'snapshot') {
+    if (state.auth === null) return <div className="auth-splash">連線中…</div>;
+    if (state.auth.mode === 'team' && !state.auth.authed) return <Login />;
+  }
+  return <>{children}</>;
+}
 
 function srcToKind(src: string): 'workmf' | 'projectmat' | 'enginemf' | 'export' {
   if (src === 'workmf') return 'workmf';
@@ -39,23 +56,23 @@ function Body() {
   const [rightCollapsed, setRightCollapsed] = useState(false);
   // Agent-tab chat width, user-draggable via the panel edge. Deliberately NOT
   // persisted — a session-local preference only.
-  const [agentW, setAgentW] = useState(430);
+  // Per-tab user-dragged widths (undefined = the tab's adaptive default).
+  // Deliberately NOT persisted — session-local preferences only, like before.
+  const [leftWidths, setLeftWidths] = useState<Partial<Record<AppTab, number>>>({});
+  const [rightW, setRightW] = useState(320);
   const [resizing, setResizing] = useState(false);
-  const startResize = useCallback((e: React.MouseEvent) => {
+  const dragHoriz = useCallback((e: React.MouseEvent, start: number, apply: (w: number) => void, dir: 1 | -1, min: number, max: number) => {
     e.preventDefault();
     const startX = e.clientX;
-    setAgentW(startW => {
-      const move = (ev: MouseEvent) =>
-        setAgentW(Math.max(320, Math.min(800, startW + ev.clientX - startX)));
-      const up = () => {
-        setResizing(false);
-        window.removeEventListener('mousemove', move);
-        window.removeEventListener('mouseup', up);
-      };
-      window.addEventListener('mousemove', move);
-      window.addEventListener('mouseup', up);
-      return startW;
-    });
+    const move = (ev: MouseEvent) =>
+      apply(Math.max(min, Math.min(max, start + dir * (ev.clientX - startX))));
+    const up = () => {
+      setResizing(false);
+      window.removeEventListener('mousemove', move);
+      window.removeEventListener('mouseup', up);
+    };
+    window.addEventListener('mousemove', move);
+    window.addEventListener('mouseup', up);
     setResizing(true);
   }, []);
   // Two independent crawl scopes (separate UE content roots):
@@ -107,8 +124,31 @@ function Body() {
     setToasts(ts => [...ts, { id: Date.now() + Math.random(), ...t }]), []);
   const closeToast = (id: number) => setToasts(ts => ts.filter(t => t.id !== id));
 
+  // ─── Compare view (graph diff) ──────────────────────────────────────────────
+  // base = the open graph at the moment compare started; other = the fetched
+  // target. Cleared on navigation; recomputed live when the open graph reloads.
+  const [diffTarget, setDiffTarget] = useState<{ basePath: string; otherPath: string; other: GraphPayload } | null>(null);
+  const startCompare = useCallback(async (otherPath: string) => {
+    if (!current || otherPath === current) return;
+    try {
+      const r = await fetch(`/api/graph?path=${encodeURIComponent(otherPath)}`, { cache: 'no-store' });
+      if (!r.ok) {
+        const e = (await r.json().catch(() => ({}))) as { error?: string };
+        throw new Error(e.error || `HTTP ${r.status}`);
+      }
+      const data = (await r.json()) as { path: string; payload: GraphPayload };
+      setDiffTarget({ basePath: current, otherPath, other: data.payload });
+    } catch (e) {
+      pushToast({ variant: 'error', title: '無法載入比較對象', message: (e as Error).message });
+    }
+  }, [current, pushToast]);
+  const diffData = useMemo(() => {
+    if (!diffTarget || !payload || diffTarget.basePath !== current) return null;
+    return buildDiffPayload(payload, diffTarget.other);
+  }, [diffTarget, payload, current]);
+
   // Reset per-graph view state on navigation.
-  useEffect(() => { selectNode(null); setFocusReq(null); }, [current, selectNode]);
+  useEffect(() => { selectNode(null); setFocusReq(null); setDiffTarget(null); }, [current, selectNode]);
 
   // 問 AI / post-import explain: a fresh agentAsk switches to the Agent tab;
   // AgentChat itself consumes the text (nonce-tracked there too).
@@ -198,6 +238,7 @@ function Body() {
         setConfirmFile(null);
         setPaletteOpen(false);
         setImportOpen(false);
+        setDiffTarget(null);
       }
     };
     window.addEventListener('keydown', h);
@@ -206,6 +247,13 @@ function Body() {
 
   const errs = current ? (state.errors[current] ?? []) : [];
   const warns = payload?.warnings ?? [];
+
+  // Constant-folded BaseColor swatch for the open graph (same pure module the
+  // server uses for the file-list swatches; null = unfoldable, no chip shown).
+  const previewColor = useMemo(
+    () => (payload && payload.graph.type === 'Material' ? evaluateGraphPreview(payload.graph) : null),
+    [payload],
+  );
 
   // Agent diff highlight: only for the graph it targeted, and only while fresh —
   // a stale entry must not re-pulse when the user reopens the file minutes later.
@@ -218,10 +266,16 @@ function Body() {
   // inputs, the env checklist, and the crawl buttons; wider still while a crawl
   // runs so the live log has room. Agent gets extra room for chat bubbles,
   // tool-step cards, and diff blocks.
-  const leftW = tab === 'config' && state.crawl.status === 'running' ? 560
+  // Adaptive defaults per tab; a user drag on that tab overrides them.
+  const defaultLeftW = tab === 'config' && state.crawl.status === 'running' ? 560
     : tab === 'config' ? 384
-    : tab === 'agent' ? agentW
+    : tab === 'agent' ? 430
     : 290;
+  const leftW = leftWidths[tab] ?? defaultLeftW;
+  const startLeftResize = (e: React.MouseEvent) =>
+    dragHoriz(e, leftW, w => setLeftWidths(m => ({ ...m, [tab]: w })), 1, 220, 800);
+  const startRightResize = (e: React.MouseEvent) =>
+    dragHoriz(e, rightW, w => setRightW(w), -1, 240, 640);
 
   return (
     <div className="app">
@@ -238,23 +292,24 @@ function Body() {
         dismissed={bannerDismissed}
         onDismiss={() => setBannerDismissed(true)}
       />
-      <div className={'body' + (resizing ? ' resizing' : '')} style={{ '--left': (leftCollapsed ? 0 : leftW) + 'px', '--right': (rightCollapsed ? 0 : 320) + 'px' } as React.CSSProperties}>
+      <div className={'body' + (resizing ? ' resizing' : '')} style={{ '--left': (leftCollapsed ? 0 : leftW) + 'px', '--right': (rightCollapsed ? 0 : rightW) + 'px' } as React.CSSProperties}>
         <div className="panel left">
           <Sidebar
             tab={tab}
             setTab={setTab}
             onGotoConfig={gotoConfig}
             onLargeGraph={setConfirmFile}
+            onCompare={state.connection === 'live' && current ? (p) => void startCompare(p) : undefined}
             mfRoot={mfRoot}
             setMfRoot={setMfRoot}
             matRoot={matRoot}
             setMatRoot={setMatRoot}
           />
-          {tab === 'agent' && !leftCollapsed && (
+          {!leftCollapsed && (
             <div
               className={'panel-resizer' + (resizing ? ' active' : '')}
-              title="拖曳調整對話寬度"
-              onMouseDown={startResize}
+              title="拖曳調整側欄寬度"
+              onMouseDown={startLeftResize}
             />
           )}
         </div>
@@ -275,7 +330,16 @@ function Body() {
           </button>
           {payload && (
             <div className="canvas-topbar">
-              <div className="ct-left"><span className="ct-title">{payload.graph.name}</span></div>
+              <div className="ct-left">
+                {previewColor && (
+                  <span
+                    className="ct-swatch"
+                    title={`BaseColor 預覽（常數折疊近似）rgb(${previewColor.map(c => Math.round(c * 255)).join(',')})`}
+                    style={{ background: `rgb(${previewColor.map(c => Math.round(c * 255)).join(',')})` }}
+                  />
+                )}
+                <span className="ct-title">{payload.graph.name}</span>
+              </div>
               <div className="ct-right">
                 {(errs.length + warns.length) > 0 && (
                   <span className="ct-warn" title={[...errs, ...warns].join('\n')}>
@@ -290,11 +354,42 @@ function Body() {
               </div>
             </div>
           )}
+          {payload && diffData && diffTarget && (
+            <div className="diff-banner">
+              <span className="db-title">
+                比較中：<b>{diffTarget.basePath.replace(/\.matgraph\.json$/, '')}</b>
+                <span className="db-arrow">→</span>
+                <b>{diffTarget.otherPath.replace(/\.matgraph\.json$/, '')}</b>
+              </span>
+              <span className="db-stats">
+                <span className="db-chip added">+{diffData.diff.summary.added.length} 節點</span>
+                <span className="db-chip removed">−{diffData.diff.summary.removed.length} 節點</span>
+                <span className="db-chip changed">~{diffData.diff.summary.changed.length} 修改</span>
+                <span className="db-chip conn">連線 +{diffData.diff.summary.connAdded}/−{diffData.diff.summary.connRemoved}</span>
+              </span>
+              <button className="db-close" onClick={() => setDiffTarget(null)} title="結束比較（Esc）">結束比較</button>
+            </div>
+          )}
           {payload
-            ? <Graph key={current} payload={payload} basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={selectNode} onPositions={setPositions} focus={focusReq && focusReq.path === current ? focusReq : null} agentHighlight={agentHl} />
+            ? <Graph
+                key={diffData ? `${current}<>${diffTarget!.otherPath}` : current}
+                payload={diffData ? diffData.payload : payload}
+                basePath={current!} db={db} onEnterMF={enterMF} onSelectNode={selectNode} onPositions={setPositions}
+                focus={!diffData && focusReq && focusReq.path === current ? focusReq : null}
+                agentHighlight={diffData ? null : agentHl}
+                diff={diffData ? diffData.diff : null}
+              />
             : <div className="canvas-empty">Select a graph from the left.</div>}
         </main>
-        <Inspector
+        <div className="panel right-wrap">
+          {!rightCollapsed && (
+            <div
+              className={'panel-resizer left-edge' + (resizing ? ' active' : '')}
+              title="拖曳調整檢視器寬度"
+              onMouseDown={startRightResize}
+            />
+          )}
+          <Inspector
           graph={payload?.graph}
           selectedNodeId={selectedNodeId}
           derivedPins={payload?.derivedPins}
@@ -306,7 +401,8 @@ function Body() {
             const root = k === 'workmf' ? mfRoot : k === 'projectmat' ? matRoot : undefined;
             void startCrawl(k, root);
           }}
-        />
+          />
+        </div>
       </div>
 
       {importOpen && (
@@ -343,7 +439,9 @@ function Body() {
 export function App() {
   return (
     <StoreProvider>
-      <DbProvider><Body /></DbProvider>
+      <AuthGate>
+        <DbProvider><Body /></DbProvider>
+      </AuthGate>
     </StoreProvider>
   );
 }

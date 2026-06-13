@@ -560,8 +560,10 @@ describe('Request-body translation', () => {
     await collect(adapter.stream(req));
 
     const body = captured.body as Record<string, unknown>;
-    // system is top-level
-    expect(body.system).toBe('You are a helper');
+    // system is top-level, as a content-block array carrying its cache breakpoint
+    expect(body.system).toEqual([
+      { type: 'text', text: 'You are a helper', cache_control: { type: 'ephemeral' } },
+    ]);
     // max_tokens defaults to 4096
     expect(body.max_tokens).toBe(4096);
     // tool_result block uses tool_use_id
@@ -571,6 +573,67 @@ describe('Request-body translation', () => {
     expect(content[0].type).toBe('tool_result');
     // x-api-key header set
     expect(captured.headers['x-api-key']).toBe('mykey');
+  });
+
+  it('Anthropic: prompt-cache breakpoints on last tool def + last message block; history not polluted', async () => {
+    const [fn, captured] = captureFetch(makeAnthropicTextFixture());
+    const adapter = new AnthropicAdapter(
+      { provider: 'anthropic', model: 'claude-test', apiKey: 'k' },
+      fn,
+    );
+    const userBlock = { type: 'text' as const, text: 'hi' };
+    const req: ChatRequest = {
+      model: 'claude-test',
+      system: 'sys',
+      tools: [
+        { name: 'a', description: 'tool a', inputSchema: { type: 'object' } },
+        { name: 'b', description: 'tool b', inputSchema: { type: 'object' } },
+      ],
+      messages: [{ role: 'user', content: [userBlock] }],
+    };
+    await collect(adapter.stream(req));
+
+    const body = captured.body as Record<string, unknown>;
+    const tools = body.tools as Array<Record<string, unknown>>;
+    expect(tools[0].cache_control).toBeUndefined();
+    expect(tools[1].cache_control).toEqual({ type: 'ephemeral' });
+
+    const msgs = body.messages as Array<Record<string, unknown>>;
+    const blocks = msgs[0].content as Array<Record<string, unknown>>;
+    expect(blocks[0].cache_control).toEqual({ type: 'ephemeral' });
+
+    // The caller's neutral history must stay untouched (blocks are copied).
+    expect('cache_control' in userBlock).toBe(false);
+  });
+
+  it('Anthropic: usage sums cache_read/cache_creation into inputTokens and reports them separately', async () => {
+    const fixture = [
+      'event: message_start\n',
+      'data: {"type":"message_start","message":{"usage":{"input_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":20}}}\n\n',
+      'event: content_block_start\n',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"text"}}\n\n',
+      'event: content_block_delta\n',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"ok"}}\n\n',
+      'event: content_block_stop\n',
+      'data: {"type":"content_block_stop","index":0}\n\n',
+      'event: message_delta\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":3}}\n\n',
+      'event: message_stop\n',
+      'data: {"type":"message_stop"}\n\n',
+    ];
+    const adapter = new AnthropicAdapter(
+      { provider: 'anthropic', model: 'claude-test', apiKey: 'k' },
+      fakeFetch(fixture),
+    );
+    const events = await collect(adapter.stream(SIMPLE_REQ));
+    const usage = events.find(e => e.type === 'usage');
+    expect(usage).toEqual({
+      type: 'usage',
+      inputTokens: 125,   // 5 + 100 + 20 — context gating needs the FULL size
+      outputTokens: 3,
+      cacheReadTokens: 100,
+      cacheCreationTokens: 20,
+    });
   });
 
   it('OpenAI: tool messages ordered before user text, no Authorization when no apiKey, stream_options present', async () => {
@@ -609,6 +672,55 @@ describe('Request-body translation', () => {
 
     // stream_options present
     expect((body.stream_options as Record<string, unknown>)?.include_usage).toBe(true);
+  });
+
+  it('Anthropic: image block maps to a base64 source block', async () => {
+    const [fn, captured] = captureFetch(makeAnthropicTextFixture());
+    const adapter = new AnthropicAdapter(
+      { provider: 'anthropic', model: 'claude-test', apiKey: 'k' },
+      fn,
+    );
+    const req: ChatRequest = {
+      model: 'claude-test',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', mediaType: 'image/png', data: 'aGVsbG8=' },
+          { type: 'text', text: '這張圖的材質怎麼做？' },
+        ],
+      }],
+    };
+    await collect(adapter.stream(req));
+
+    const msgs = (captured.body as Record<string, unknown>).messages as Array<Record<string, unknown>>;
+    const blocks = msgs[0].content as Array<Record<string, unknown>>;
+    expect(blocks[0]).toEqual({
+      type: 'image',
+      source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' },
+    });
+    expect(blocks[1].type).toBe('text');
+  });
+
+  it('OpenAI: image block maps to an image_url data URI in a content-parts array', async () => {
+    const [fn, captured] = captureFetch(['data: [DONE]\n\n']);
+    const adapter = new OpenAIAdapter({ provider: 'openai-compatible', model: 'test' }, fn);
+    const req: ChatRequest = {
+      model: 'test',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'image', mediaType: 'image/jpeg', data: 'Zm9v' },
+          { type: 'text', text: '看圖' },
+        ],
+      }],
+    };
+    await collect(adapter.stream(req));
+
+    const msgs = (captured.body as Record<string, unknown>).messages as Array<Record<string, unknown>>;
+    const userMsg = msgs.find(m => m.role === 'user')!;
+    const parts = userMsg.content as Array<Record<string, unknown>>;
+    expect(parts[0]).toEqual({ type: 'image_url', image_url: { url: 'data:image/jpeg;base64,Zm9v' } });
+    expect(parts[1]).toEqual({ type: 'text', text: '看圖' });
   });
 
   it('Anthropic: tools array uses input_schema (not inputSchema)', async () => {

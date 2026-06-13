@@ -15,6 +15,8 @@ export interface TextBubble {
   kind: 'text';
   role: MsgRole;
   text: string;
+  /** User bubbles only: number of images attached to this message. */
+  images?: number;
 }
 
 export interface ToolStep {
@@ -60,6 +62,8 @@ export interface CrawlProposal {
   contentRoot: string;
   /** Set once the user clicks 開始爬取 (or on replay — proposals never persist as actionable). */
   resolved: boolean;
+  /** Team member turn: diverted into the admin approval queue — no buttons. */
+  pendingApproval?: boolean;
 }
 
 /** Agent-proposed edit to the public node DB awaiting explicit approval (propose_db_edit). */
@@ -73,6 +77,8 @@ export interface DbEditProposal {
   rationale: string;
   /** Set once the user acts (or on replay — proposals never persist as actionable). */
   resolved: boolean;
+  /** Team member turn: diverted into the admin approval queue — no buttons. */
+  pendingApproval?: boolean;
 }
 
 /**
@@ -108,6 +114,8 @@ export interface UsageTotal {
   input: number;
   output: number;
   estimated: boolean;
+  /** Prompt-cache hits within input — billed ~10%, so bigger is cheaper. */
+  cached: number;
 }
 
 // ─── Per-turn reducer flags ──────────────────────────────────────────────────
@@ -127,7 +135,7 @@ export function newTurnFlags(): TurnFlags {
 
 /** Start a user turn: collapse previous-turn cards and add the user bubble.
     A pending crawl proposal is superseded by the new message — deactivate it. */
-export function startUserTurn(items: ChatItem[], userText: string): ChatItem[] {
+export function startUserTurn(items: ChatItem[], userText: string, imageCount?: number): ChatItem[] {
   const collapsed = items.map(it => {
     if (it.kind === 'diff' || it.kind === 'tools') return { ...it, collapsed: true };
     if ((it.kind === 'crawlProposal' || it.kind === 'dbEditProposal') && !it.resolved) return { ...it, resolved: true };
@@ -142,15 +150,19 @@ export function startUserTurn(items: ChatItem[], userText: string): ChatItem[] {
       collapsed: true,
     }];
   }
-  return [...collapsed, { kind: 'text', role: 'user', text: userText }];
+  return [...collapsed, {
+    kind: 'text', role: 'user', text: userText,
+    ...(imageCount && imageCount > 0 ? { images: imageCount } : {}),
+  }];
 }
 
 /** Accumulate a usage event into the running total. */
-export function accumulateUsage(prev: UsageTotal | null, event: { inputTokens: number; outputTokens: number; estimated: boolean }): UsageTotal {
+export function accumulateUsage(prev: UsageTotal | null, event: { inputTokens: number; outputTokens: number; estimated: boolean; cachedTokens?: number }): UsageTotal {
   return {
     input: (prev?.input ?? 0) + event.inputTokens,
     output: (prev?.output ?? 0) + event.outputTokens,
     estimated: (prev?.estimated ?? false) || event.estimated,
+    cached: (prev?.cached ?? 0) + (event.cachedTokens ?? 0),
   };
 }
 
@@ -262,6 +274,7 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
         crawlKind: event.kind,
         contentRoot: event.contentRoot,
         resolved: false,
+        pendingApproval: event.pendingApproval === true,
       }];
 
     case 'db_edit_proposal':
@@ -273,6 +286,7 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
         patch: event.patch,
         rationale: event.rationale,
         resolved: false,
+        pendingApproval: event.pendingApproval === true,
       }];
 
     case 'done': {
@@ -311,7 +325,7 @@ export function reduceTranscript(transcript: AgentTranscriptEntry[]): { items: C
 
   for (const entry of transcript) {
     if (entry.kind === 'user') {
-      items = startUserTurn(items, entry.text);
+      items = startUserTurn(items, entry.text, entry.images);
       flags = newTurnFlags();
     } else {
       if (entry.event.type === 'usage') usage = accumulateUsage(usage, entry.event);

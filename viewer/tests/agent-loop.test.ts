@@ -229,6 +229,75 @@ describe('write_graph happy path', () => {
 });
 
 // ---------------------------------------------------------------------------
+// §3b  patch_graph dryRun — preview must NOT fan out diff / graph_written
+// ---------------------------------------------------------------------------
+
+describe('patch_graph dryRun', () => {
+  it('emits neither diff nor graph_written, and leaves the file untouched', async () => {
+    const graphPath = 'proj/preview_me.matgraph.json';
+    const absPath = join(ctx.graphsRoot, graphPath);
+    await mkdir(dirname(absPath), { recursive: true });
+    await writeFile(absPath, JSON.stringify(VALID_GRAPH, null, 2) + '\n', 'utf-8');
+    const before = await readFile(absPath, 'utf-8');
+
+    const provider = new FakeProvider([
+      [
+        {
+          type: 'tool_use',
+          id: 'call-dry1',
+          name: 'patch_graph',
+          input: {
+            path: graphPath,
+            ops: [{ op: 'setParam', id: 'mul', key: 'ConstA', value: 0.25 }],
+            dryRun: true,
+          },
+        },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [
+        { type: 'text_delta', text: '預覽：會把 ConstA 改成 0.25，尚未寫入。' },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ]);
+
+    const events = await runAndCollect('先預覽這批修改', session, provider, ctx);
+
+    const toolEnd = events.find((e) => e.type === 'tool_end');
+    expect(toolEnd?.type === 'tool_end' && toolEnd.ok).toBe(true);
+    expect(events.find((e) => e.type === 'diff')).toBeUndefined();
+    expect(events.find((e) => e.type === 'graph_written')).toBeUndefined();
+
+    const after = await readFile(absPath, 'utf-8');
+    expect(after).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §3c  Pasted images — neutral image blocks ride the user message
+// ---------------------------------------------------------------------------
+
+describe('pasted images', () => {
+  it('options.images become image blocks ahead of the user text; token estimate stays sane', async () => {
+    const provider = new FakeProvider([
+      [{ type: 'text_delta', text: '看到了。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const bigData = 'A'.repeat(100_000); // 100KB of base64 must NOT count as text
+    await runAndCollect('參考這張圖', session, provider, ctx, undefined, {
+      images: [{ mediaType: 'image/png', data: bigData }],
+    });
+
+    const first = session.messages[0];
+    expect(first.role).toBe('user');
+    expect(first.content[0]).toEqual({ type: 'image', mediaType: 'image/png', data: bigData });
+    expect(first.content[1]).toEqual({ type: 'text', text: '參考這張圖' });
+
+    // estimateMessagesTokens treats the image as ~1.6K vision tokens, not 25K text tokens.
+    const { estimateMessagesTokens } = await import('../server/agent/loop.js');
+    expect(estimateMessagesTokens(session.messages)).toBeLessThan(5000);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // §4  Self-correction: invalid graph on first try, valid on second
 // ---------------------------------------------------------------------------
 
@@ -831,8 +900,30 @@ describe('usage: scripted usage events have estimated:false', () => {
       expect(usageEvent.inputTokens).toBe(100);
       expect(usageEvent.outputTokens).toBe(50);
       expect(usageEvent.estimated).toBe(false);
+      // no cache info from the provider → no cachedTokens on the SSE event
+      expect(usageEvent.cachedTokens).toBeUndefined();
     }
     expect(session.totalTokens).toBe(150);
+  });
+
+  it('passes prompt-cache hits through as cachedTokens; context gating uses the full input size', async () => {
+    const provider = new FakeProvider([
+      [
+        { type: 'text_delta', text: '處理中。' },
+        { type: 'usage', inputTokens: 120, outputTokens: 10, cacheReadTokens: 90, cacheCreationTokens: 20 },
+        { type: 'done', stopReason: 'end' },
+      ],
+    ]);
+
+    const events = await runAndCollect('cache test', session, provider, ctx);
+    const usageEvent = events.find((e) => e.type === 'usage');
+    expect(usageEvent).toBeDefined();
+    if (usageEvent?.type === 'usage') {
+      expect(usageEvent.inputTokens).toBe(120);
+      expect(usageEvent.cachedTokens).toBe(90);
+    }
+    // contextTokens = full in+out of the last round (cached share included)
+    expect(session.contextTokens).toBe(130);
   });
 
   it('accumulates tokens across multiple provider rounds', async () => {

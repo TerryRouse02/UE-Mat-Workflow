@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { useStore } from './store';
 import { Icon } from './Icon';
 import { FileList } from './FileList';
 import { NodeLibrary } from './NodeLibrary';
 import { ConfigPanel } from './ConfigPanel';
 import { AgentChat } from './agent/AgentChat';
+import { PublicAgentView } from './agent/PublicAgentView';
 import type { FileEntry } from './protocol';
 import './sidebar.css';
 import './chrome.css';
@@ -17,6 +19,8 @@ export interface SidebarProps {
   onGotoConfig(): void;
   /** Triggered when a large-graph file is clicked (passed to FileList) */
   onLargeGraph(file: FileEntry): void;
+  /** Start comparing a file against the open graph (passed to FileList). */
+  onCompare?(path: string): void;
   /** MF content root (workmf crawl + export) — passed to ConfigPanel */
   mfRoot: string;
   setMfRoot(v: string): void;
@@ -25,13 +29,23 @@ export interface SidebarProps {
   setMatRoot(v: string): void;
 }
 
-export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMfRoot, matRoot, setMatRoot }: SidebarProps) {
+export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, onCompare, mfRoot, setMfRoot, matRoot, setMatRoot }: SidebarProps) {
   const { state } = useStore();
   const crawlStatus = state.crawl.status;
-  const configCue: 'run' | 'err' | null =
-    crawlStatus === 'running' ? 'run' : crawlStatus === 'error' ? 'err' : null;
+  const configCue: 'run' | 'err' | 'new' | null =
+    crawlStatus === 'running' ? 'run'
+    : crawlStatus === 'error' ? 'err'
+    : state.auth?.role === 'admin' && state.proposalsPending > 0 ? 'new'
+    : null;
   // Agent tab is hidden in snapshot mode (same as ConfigPanel behaviour).
   const isSnapshot = state.connection === 'snapshot';
+  // Team mode, member role: the agent surface is the read-only announcement
+  // channel, plus their OWN chat when the admin enabled the member-agent
+  // switch (a small 我的對話/公告 toggle swaps the two).
+  const memberView = state.auth?.mode === 'team' && state.auth.role !== 'admin';
+  const memberChat = memberView && state.auth?.memberAgent === true;
+  const [memberAgentView, setMemberAgentView] = useState<'chat' | 'public'>('chat');
+  const chatVisible = tab === 'agent' && (!memberView || (memberChat && memberAgentView === 'chat'));
   // Pulse while the agent streams; steady dot when a reply finished off-tab.
   const agentCue: 'run' | 'new' | null =
     state.agentActivity === 'busy' ? 'run' : state.agentActivity === 'unseen' ? 'new' : null;
@@ -82,7 +96,7 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
       </div>
       <div className="sidebar-panel">
         {tab === 'files' && (
-          <FileList onGotoConfig={onGotoConfig} onLargeGraph={onLargeGraph} />
+          <FileList onGotoConfig={onGotoConfig} onLargeGraph={onLargeGraph} onCompare={onCompare} />
         )}
         {tab === 'nodes' && <NodeLibrary />}
         {tab === 'config' && (
@@ -91,11 +105,25 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, mfRoot, setMf
         {/* AgentChat stays MOUNTED across tab switches (hidden, never unmounted):
             the pending crawl-report, an in-flight stream, and unsent input must
             survive the user watching crawl progress in the Config tab. */}
-        {!isSnapshot && (
-          <div className="agent-keepalive" style={{ display: tab === 'agent' ? 'flex' : 'none' }}>
-            <AgentChat onGotoConfig={onGotoConfig} active={tab === 'agent'} />
+        {!isSnapshot && memberChat && tab === 'agent' && (
+          <div className="member-agent-toggle">
+            {([['chat', '我的對話'], ['public', '系統主Agent']] as const).map(([k, label]) => (
+              <button
+                key={k}
+                className={'mat-btn' + (memberAgentView === k ? ' on' : '')}
+                onClick={() => setMemberAgentView(k)}
+              >
+                {label}
+              </button>
+            ))}
           </div>
         )}
+        {!isSnapshot && (!memberView || memberChat) && (
+          <div className="agent-keepalive" style={{ display: chatVisible ? 'flex' : 'none' }}>
+            <AgentChat onGotoConfig={onGotoConfig} active={chatVisible} />
+          </div>
+        )}
+        {!isSnapshot && memberView && tab === 'agent' && (!memberChat || memberAgentView === 'public') && <PublicAgentView />}
       </div>
     </div>
   );

@@ -10,7 +10,7 @@ import { loadGraph } from '../graph-loader.js';
 import { resolveMaterialFunctions } from '../mf-resolver.js';
 import { loadWorkMfIndex } from '../workmf-index.js';
 import { probeEnv } from '../crawl-env.js';
-import { applyPatch, changedNodeIds, type PatchOp } from './patch.js';
+import { applyPatch, changedNodeIds, type PatchOp, type PinLookup } from './patch.js';
 import { connectionPinErrors } from './pin-validate.js';
 import type { MemoryStore, MemoryScope } from './memory-store.js';
 import { fetchPublic, htmlToText, webSearch, WEB_TEXT_CAP, type WebDeps } from './web-tools.js';
@@ -24,6 +24,13 @@ import * as QB from './query-bridge.js';
 export interface ToolContext {
   repoRoot: string;
   graphsRoot: string;            // resolve(repoRoot, 'graphs')
+  /**
+   * Team-mode member sessions: 'users/<username>' — NEW graphs written
+   * outside users/ are rerouted into this personal workspace so a member's
+   * creations do not land in the shared root. Edits to existing files keep
+   * their path (the beforeWrite guard still blocks foreign personal dirs).
+   */
+  personalRoot?: string;
   ueVersion: string;             // session version — all DB lookups use this
   workMfIndexPath?: string;      // server-only; absent → work MFs unavailable
   /**
@@ -157,6 +164,27 @@ function loadVersionDb(repoRoot: string, version: string): Record<string, unknow
   }
 }
 
+/**
+ * insertNode pin inference source: DB pin names in declaration order.
+ * Returns null (= explicit pins required) for reserved types, dynamic-pin
+ * nodes and anything not in the DB — mirroring pin-validate's skip rules.
+ */
+function makePinLookup(nodesMap: Record<string, unknown> | null): PinLookup {
+  return (type: string) => {
+    if (nodesMap === null || RESERVED_TYPES.has(type)) return null;
+    const def = nodesMap[type] as {
+      inputs?: Array<{ name?: unknown }>;
+      outputs?: Array<{ name?: unknown }>;
+      dynamicPins?: boolean;
+    } | undefined;
+    if (!def || def.dynamicPins) return null;
+    return {
+      inputs: (def.inputs ?? []).map(p => String(p.name)),
+      outputs: (def.outputs ?? []).map(p => String(p.name)),
+    };
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Shared validation + MF resolution used by write_graph, patch_graph, validate_graph
 // ---------------------------------------------------------------------------
@@ -274,11 +302,20 @@ export const toolDefs: ToolDef[] = [
     name: 'get_node_signature',
     description:
       'Return the full DB entry for a node type: inputs, outputs, params, pinInfo. ' +
-      'On miss, returns an error with suggestions. Always call this before writing a connection.',
+      'name accepts ONE name or an ARRAY of up to 8 names — when you already know the ' +
+      'node types a graph will need, query them in ONE batched call instead of one call ' +
+      'per type. Batch result: {found: {name: entry…}, missing?: {name: hint}}. ' +
+      'On a full miss, returns an error with suggestions. Always call this before writing a connection.',
     inputSchema: {
       type: 'object',
       properties: {
-        name: { type: 'string', description: 'Exact node type name (e.g. "Multiply", "Lerp")' },
+        name: {
+          description: 'Exact node type name (e.g. "Multiply"), or an array of up to 8 names (e.g. ["Lerp","Multiply","Power"])',
+          anyOf: [
+            { type: 'string' },
+            { type: 'array', items: { type: 'string' }, maxItems: 8 },
+          ],
+        },
       },
       required: ['name'],
     },
@@ -301,11 +338,14 @@ export const toolDefs: ToolDef[] = [
     name: 'read_graph',
     description:
       'Read and validate an existing .matgraph.json. Returns the graph JSON plus any errors/warnings. ' +
-      'Call this before patch_graph to get the current on-disk state.',
+      'Call this before patch_graph to get the current on-disk state. ' +
+      'For LARGE graphs, pass summary:true first — it returns only node ids/types + connection count ' +
+      '(an order of magnitude smaller); read the full graph only when you actually need params/connections.',
     inputSchema: {
       type: 'object',
       properties: {
         path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
+        summary: { type: 'boolean', description: 'true = node ids/types + counts only, no params/connections' },
       },
       required: ['path'],
     },
@@ -332,20 +372,35 @@ export const toolDefs: ToolDef[] = [
     name: 'patch_graph',
     description:
       'Incrementally edit an existing .matgraph.json with an ordered list of ops — ALWAYS prefer ' +
-      'this over write_graph for modifications. The whole list applies atomically: any failing op ' +
-      'aborts the patch, and the result is validated before writing (never writes an invalid graph). ' +
-      'Returns plain-language diff lines on success. Supported ops:\n' +
-      '- {op:"addNode", id, type, params?} — add a node (id must be new, no ":")\n' +
-      '- {op:"removeNode", id} — remove a node and all its connections\n' +
+      'this over write_graph for modifications. The whole list applies atomically: nothing is ' +
+      'written unless every op succeeds AND the result validates. On failure, applyErrors lists ' +
+      'EVERY failing op (opIndex + message) — fix them all and resubmit once, do not retry one ' +
+      'error at a time. Returns plain-language diff lines on success. Supported ops:\n' +
+      '- {op:"addNode", id?, type, params?} — add a node. Omit id to auto-generate one (returned ' +
+      'in assignedIds keyed by op index); give an explicit id when a later op in the SAME batch ' +
+      'references the node. Explicit ids must be new and contain no ":".\n' +
+      '- {op:"insertNode", between:{from:"nodeId:pin", to:"nodeId:pin"}, type, id?, params?, ' +
+      'inputPin?, outputPin?} — splice a new node into an EXISTING connection in ONE op ' +
+      '(replaces disconnect + addNode + connect×2). Omitted pins are inferred from the type\'s ' +
+      'DB signature (first input / first output pin); dynamic-pin and MaterialFunctionCall ' +
+      'types need explicit inputPin + outputPin.\n' +
+      '- {op:"removeNode", id, heal?, healFrom?} — remove a node AND all its connections ' +
+      '(cascades — never disconnect first). heal:true additionally splices the node\'s upstream ' +
+      'source onto every pin the node fed, keeping the chain intact; when several input pins ' +
+      'are wired, healFrom:"<inputPin>" picks the surviving source. Refused when the node feeds ' +
+      'downstream from more than one output pin (rewire manually).\n' +
       '- {op:"setParam", id, key, value} — set/overwrite one param on a node\n' +
       '- {op:"removeParam", id, key} — delete one param from a node\n' +
-      '- {op:"setNodeType", id, type} — change a node\'s type in place (connections/params kept; pins re-validated)\n' +
+      '- {op:"setNodeType", id, type} — swap a node\'s type in place (connections/params kept; pins ' +
+      're-validated). Use this to replace a node — do NOT removeNode + addNode + rewire.\n' +
       '- {op:"renameNode", id, newId} — rename a node, rewriting all its connections\n' +
       '- {op:"connect", from:"nodeId:pin", to:"nodeId:pin"} — add a connection (target input pin must be free)\n' +
       '- {op:"disconnect", from:"nodeId:pin", to:"nodeId:pin"} — remove a connection\n' +
       '- {op:"setDescription", value} — set the graph description\n' +
       'snake_case aliases (add_node, add_connection, set_param, …) are also accepted. ' +
-      'Every op may carry an optional why:"…" string that shows up in the user-facing diff.',
+      'Every op may carry an optional why:"…" string that shows up in the user-facing diff. ' +
+      'Set dryRun:true to preview: applies + validates and returns the same diff/warnings, but ' +
+      'writes nothing — useful to check a large batch before committing it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -359,7 +414,7 @@ export const toolDefs: ToolDef[] = [
               op: {
                 type: 'string',
                 enum: [
-                  'addNode', 'removeNode', 'setParam', 'removeParam', 'setNodeType',
+                  'addNode', 'insertNode', 'removeNode', 'setParam', 'removeParam', 'setNodeType',
                   'renameNode', 'connect', 'disconnect', 'setDescription',
                 ],
                 description: 'Operation kind',
@@ -367,6 +422,10 @@ export const toolDefs: ToolDef[] = [
             },
             required: ['op'],
           },
+        },
+        dryRun: {
+          type: 'boolean',
+          description: 'true = validate and return the diff WITHOUT writing the file',
         },
       },
       required: ['path', 'ops'],
@@ -944,24 +1003,52 @@ async function toolSearchNodes(
 // get_node_signature
 // ---------------------------------------------------------------------------
 
+const SIGNATURE_BATCH_CAP = 8;
+
 async function toolGetNodeSignature(
   inp: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ content: string; isError?: boolean }> {
-  const name = String(inp.name ?? '');
-  if (!name) return { content: 'name is required', isError: true };
-
-  const { result, suggestions } = QB.getNodes(ctx.repoRoot, ctx.ueVersion, [name]);
-
-  if (name in result) {
-    return { content: JSON.stringify(result[name], null, 2) };
+  // `name` accepts one name or an array of names (batch saves round-trips).
+  const raw = inp.name ?? inp.names;
+  const names = (Array.isArray(raw) ? raw.map(String) : [String(raw ?? '')])
+    .map(n => n.trim()).filter(Boolean);
+  if (names.length === 0) return { content: 'name is required', isError: true };
+  if (names.length > SIGNATURE_BATCH_CAP) {
+    return { content: `too many names (${names.length}); max ${SIGNATURE_BATCH_CAP} per call`, isError: true };
   }
 
-  const sugg = suggestions[name] ?? [];
-  const msg = sugg.length > 0
-    ? `"${name}" not found. Did you mean: ${sugg.join(', ')}?`
-    : `"${name}" not found.`;
-  return { content: msg, isError: true };
+  const { result, suggestions } = QB.getNodes(ctx.repoRoot, ctx.ueVersion, names);
+
+  // Single name keeps the original shape (entry JSON, or a not-found error).
+  if (names.length === 1) {
+    const name = names[0];
+    if (name in result) {
+      return { content: JSON.stringify(result[name]) };
+    }
+    const sugg = suggestions[name] ?? [];
+    const msg = sugg.length > 0
+      ? `"${name}" not found. Did you mean: ${sugg.join(', ')}?`
+      : `"${name}" not found.`;
+    return { content: msg, isError: true };
+  }
+
+  // Batch: found entries keyed by name; misses listed with suggestions.
+  // Partial misses are NOT an error — the model uses what resolved and
+  // re-queries only the missing ones.
+  const missing: Record<string, string> = {};
+  for (const name of names) {
+    if (name in result) continue;
+    const sugg = suggestions[name] ?? [];
+    missing[name] = sugg.length > 0 ? `not found — did you mean: ${sugg.join(', ')}?` : 'not found';
+  }
+  return {
+    content: JSON.stringify({
+      found: result,
+      ...(Object.keys(missing).length > 0 ? { missing } : {}),
+    }),
+    isError: Object.keys(result).length === 0 ? true : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1023,14 +1110,37 @@ async function toolReadGraph(
   const unresolved = resolved.warnings.filter(
     w => w.includes('not in') || w.includes('not found') || w.includes('unresolved') || w.includes('missing'),
   );
+  const warnings = [...structWarnings, ...resolved.warnings.filter(w => !unresolved.includes(w))];
 
+  // summary mode: orientation without the payload — node ids/types and the
+  // connection count, no params and no connection list. For big graphs this
+  // is an order of magnitude smaller than the full read.
+  if (inp.summary === true) {
+    return {
+      content: JSON.stringify({
+        summary: true,
+        name: loaded.graph.name,
+        type: loaded.graph.type,
+        nodeCount: loaded.graph.nodes.length,
+        connectionCount: loaded.graph.connections.length,
+        nodes: loaded.graph.nodes.map(n => ({ id: n.id, type: n.type })),
+        errors: loaded.errors,
+        warnings,
+        unresolvedMfPins: unresolved,
+      }),
+    };
+  }
+
+  // Compact stringify on purpose: this payload lands in the conversation
+  // history and is re-sent every iteration — pretty-print indentation alone
+  // costs 20–30% extra tokens on large graphs.
   return {
     content: JSON.stringify({
       graph: loaded.graph,
       errors: loaded.errors,
-      warnings: [...structWarnings, ...resolved.warnings.filter(w => !unresolved.includes(w))],
+      warnings,
       unresolvedMfPins: unresolved,
-    }, null, 2),
+    }),
   };
 }
 
@@ -1042,6 +1152,20 @@ async function toolWriteGraph(
   inp: Record<string, unknown>,
   ctx: ToolContext,
 ): Promise<{ content: string; isError?: boolean }> {
+  // Member personal workspace: a NEW file targeted outside users/ lands in
+  // the member's own dir instead of the shared root. Existing files (and
+  // explicit users/ paths) keep their address.
+  if (ctx.personalRoot && typeof inp.path === 'string' && !inp.path.startsWith('users/')) {
+    const sharedGuard = await guardPath(inp.path, ctx.graphsRoot);
+    if (!('error' in sharedGuard)) {
+      try {
+        await readFile(sharedGuard.abs, 'utf-8'); // exists → keep shared path
+      } catch {
+        inp = { ...inp, path: `${ctx.personalRoot}/${inp.path}` };
+      }
+    }
+  }
+
   const guard = await guardPath(inp.path, ctx.graphsRoot);
   if ('error' in guard) return { content: guard.error, isError: true };
 
@@ -1121,6 +1245,9 @@ async function toolWriteGraph(
   return {
     content: JSON.stringify({
       ok: true,
+      // The ACTUAL path written — may differ from the model's input when a
+      // member's new graph was rerouted into their personal workspace.
+      path: String(inp.path),
       warnings: report.warnings,
       unresolvedMfPins: report.unresolvedPins,
       changedNodeIds: changed,
@@ -1153,11 +1280,13 @@ async function toolPatchGraph(
     return { content: 'ops must be an array', isError: true };
   }
 
-  // Apply patch
-  const patchResult = applyPatch(loaded.graph, ops as PatchOp[]);
+  // Apply patch — applyErrors carries EVERY failing op so the model can fix
+  // the whole batch in a single retry.
+  const pinLookup = makePinLookup(loadVersionDb(ctx.repoRoot, ctx.ueVersion));
+  const patchResult = applyPatch(loaded.graph, ops as PatchOp[], { pinLookup });
   if (!patchResult.ok) {
     return {
-      content: JSON.stringify({ opIndex: patchResult.opIndex, applyError: patchResult.applyError }),
+      content: JSON.stringify({ applyErrors: patchResult.errors }),
       isError: true,
     };
   }
@@ -1172,20 +1301,29 @@ async function toolPatchGraph(
     };
   }
 
+  const assignedIds =
+    Object.keys(patchResult.assignedIds).length > 0 ? patchResult.assignedIds : undefined;
+  const payload = {
+    ok: true as const,
+    diff: patchResult.diff,
+    warnings: report.warnings,
+    unresolvedMfPins: report.unresolvedPins,
+    changedNodeIds: changedNodeIds(patchResult.resolvedOps),
+    ...(assignedIds ? { assignedIds } : {}),
+  };
+
+  // dryRun: full apply + validation, nothing written — the loop suppresses
+  // the diff / graph_written fan-out when it sees dryRun:true.
+  if (inp.dryRun === true) {
+    return { content: JSON.stringify({ ...payload, dryRun: true }) };
+  }
+
   // Clean — write. The loop injects a callCtx wrapper that supplies the real
   // per-iteration turnId; the empty string here is never seen by the outer hook.
   await ctx.beforeWrite?.(guard.abs, '');
   await atomicWrite(guard.abs, JSON.stringify(patchResult.graph, null, 2) + '\n');
 
-  return {
-    content: JSON.stringify({
-      ok: true,
-      diff: patchResult.diff,
-      warnings: report.warnings,
-      unresolvedMfPins: report.unresolvedPins,
-      changedNodeIds: changedNodeIds(ops as PatchOp[]),
-    }),
-  };
+  return { content: JSON.stringify(payload) };
 }
 
 // ---------------------------------------------------------------------------

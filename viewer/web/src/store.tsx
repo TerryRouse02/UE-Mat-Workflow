@@ -47,6 +47,37 @@ interface State {
   // Agent-tab attention cue: busy = a reply is streaming; unseen = a reply
   // finished while another tab was active (cleared when the tab is opened).
   agentActivity: 'idle' | 'busy' | 'unseen';
+  // Auth status from GET /api/auth/status. null = not yet known (loading).
+  // Local mode reports an implicitly-authed admin, so every consumer can
+  // branch on the one shape; team mode gates the whole app behind Login.
+  auth: AuthStatus | null;
+  // Team announcement channel: where the public agent session points and
+  // whether it is mid-turn. version bumps on every publicAgent WS message so
+  // the read-only viewer knows to re-fetch the transcript.
+  publicAgent: { id: string | null; streaming: boolean; version: number };
+  // Member→admin approval queue size (team mode) — the admin inbox badge.
+  proposalsPending: number;
+  // A server-side report landed in this session (approval outcome): the open
+  // chat re-fetches its transcript when the version bumps.
+  sessionBump: { id: string; version: number } | null;
+  // Team mode: usernames with an open WS connection right now.
+  onlineUsers: string[];
+  // Live event from the 系統主Agent's streaming turn (members append it
+  // without waiting for the end-of-turn transcript re-fetch).
+  publicDelta: { id: string; event: unknown; seq: number } | null;
+}
+
+export interface AuthStatus {
+  mode: 'local' | 'team';
+  needsSetup: boolean;
+  authed: boolean;
+  username?: string;
+  role?: 'admin' | 'user';
+  /** Team mode: the admin switch that lets members run their own agent sessions. */
+  memberAgent?: boolean;
+  /** Team mode: when set, member thinking/🌐 controls are forced to these
+      values (UI grays them out; the server enforces regardless). */
+  memberLock?: { thinking: 'off' | 'low' | 'medium' | 'high'; webSearch: boolean };
 }
 
 type Action =
@@ -67,6 +98,12 @@ type Action =
   | { type: 'metadataBumped' }
   | { type: 'agentAsk'; text: string; send: boolean }
   | { type: 'agentActivity'; value: 'idle' | 'busy' | 'unseen' }
+  | { type: 'setAuth'; auth: AuthStatus }
+  | { type: 'publicAgent'; id: string | null; streaming: boolean }
+  | { type: 'proposals'; pending: number }
+  | { type: 'sessionBumped'; id: string }
+  | { type: 'online'; users: string[] }
+  | { type: 'publicDelta'; id: string; event: unknown }
   | { type: 'crawlReset' }
   | CrawlAction;
 
@@ -78,6 +115,9 @@ const initial: State = {
   env: null, crawl: idleCrawl, metadataVersion: 0, workMfVersion: 0,
   agentHighlight: null, agentExportReq: null,
   selectedNodeId: null, agentAsk: null, agentActivity: 'idle',
+  auth: null, publicAgent: { id: null, streaming: false, version: 0 },
+  proposalsPending: 0, sessionBump: null,
+  onlineUsers: [], publicDelta: null,
 };
 
 function reducer(s: State, a: Action): State {
@@ -113,6 +153,18 @@ function reducer(s: State, a: Action): State {
       return { ...s, agentAsk: { text: a.text, send: a.send, nonce: (s.agentAsk?.nonce ?? 0) + 1, ts: Date.now() } };
     case 'agentActivity':
       return s.agentActivity === a.value ? s : { ...s, agentActivity: a.value };
+    case 'setAuth':
+      return { ...s, auth: a.auth };
+    case 'publicAgent':
+      return { ...s, publicAgent: { id: a.id, streaming: a.streaming, version: s.publicAgent.version + 1 } };
+    case 'proposals':
+      return s.proposalsPending === a.pending ? s : { ...s, proposalsPending: a.pending };
+    case 'sessionBumped':
+      return { ...s, sessionBump: { id: a.id, version: (s.sessionBump?.version ?? 0) + 1 } };
+    case 'online':
+      return { ...s, onlineUsers: a.users };
+    case 'publicDelta':
+      return { ...s, publicDelta: { id: a.id, event: a.event, seq: (s.publicDelta?.seq ?? 0) + 1 } };
     case 'crawlReset':
       return { ...s, crawl: idleCrawl };
     case 'crawlStarted':
@@ -168,6 +220,14 @@ interface Ctx {
   bumpMetadata(): void;
   /** Agent-tab attention cue, driven by AgentChat (busy/unseen/idle). */
   setAgentActivity(value: 'idle' | 'busy' | 'unseen'): void;
+  /** Team mode: log in (POST /api/auth/login); updates auth on success. */
+  login(username: string, password: string): Promise<{ ok: boolean; error?: string }>;
+  /** Team mode first boot: create the admin account (POST /api/auth/setup). */
+  setupAdmin(username: string, password: string): Promise<{ ok: boolean; error?: string }>;
+  /** Team mode: revoke the token and drop back to the login screen. */
+  logout(): Promise<void>;
+  /** Re-fetch /api/auth/status (after a web-driven mode switch). */
+  refreshAuth(): Promise<void>;
 }
 
 const C = createContext<Ctx | null>(null);
@@ -201,6 +261,31 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'snapshot' });
       return;
     }
+    // Live mode: resolve auth status BEFORE opening the WebSocket — in team
+    // mode an unauthenticated upgrade is rejected (4401) and would loop the
+    // reconnect timer forever behind the login screen. Retries until the
+    // server answers (it may still be starting up).
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const probe = async () => {
+      try {
+        const r = await fetch('/api/auth/status', { cache: 'no-store' });
+        if (!cancelled && r.ok) { dispatch({ type: 'setAuth', auth: await r.json() }); return; }
+      } catch { /* server not up yet */ }
+      if (!cancelled) timer = setTimeout(probe, 1500);
+    };
+    void probe();
+    return () => { cancelled = true; if (timer) clearTimeout(timer); };
+  }, []);
+
+  // Connect the WebSocket only once auth allows it (local mode: immediately
+  // after the status probe; team mode: after login). Logout flips the gate
+  // off, which tears the socket down via the effect cleanup.
+  const wsAllowed = state.connection !== 'snapshot'
+    && state.auth !== null
+    && (state.auth.mode === 'local' || state.auth.authed);
+  useEffect(() => {
+    if (!wsAllowed) return;
     const ws = connect({
       onOpen: () => dispatch({ type: 'wsOpen' }),
       onClose: () => dispatch({ type: 'wsClosed' }),
@@ -215,11 +300,17 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
           dispatch({ type: 'crawlDone', status: m.status, exitCode: m.exitCode });
           if (m.status === 'success') void refreshEnv();
         }
+        else if (m.kind === 'publicAgent') dispatch({ type: 'publicAgent', id: m.id, streaming: m.streaming });
+        else if (m.kind === 'proposals') dispatch({ type: 'proposals', pending: m.pending });
+        else if (m.kind === 'sessionBumped') dispatch({ type: 'sessionBumped', id: m.id });
+        else if (m.kind === 'online') dispatch({ type: 'online', users: m.users });
+        else if (m.kind === 'publicAgentDelta') dispatch({ type: 'publicDelta', id: m.id, event: m.event });
       },
     });
     wsRef.current = ws;
-    return () => ws.close();
-  }, []);
+    return () => { ws.close(); wsRef.current = null; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wsAllowed]);
 
   const refreshEnv = useCallback(async () => {
     try {
@@ -332,7 +423,44 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     dispatch({ type: 'agentActivity', value });
   }, []);
 
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity]);
+  const authPost = useCallback(async (path: string, body: unknown) => {
+    try {
+      const r = await fetch(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = (await r.json().catch(() => ({}))) as { error?: string; username?: string; role?: 'admin' | 'user' };
+      if (!r.ok) return { ok: false as const, error: data.error || `HTTP ${r.status}` };
+      dispatch({
+        type: 'setAuth',
+        auth: { mode: 'team', needsSetup: false, authed: true, username: data.username, role: data.role },
+      });
+      return { ok: true as const };
+    } catch (e) {
+      return { ok: false as const, error: (e as Error).message };
+    }
+  }, []);
+
+  const login = useCallback((username: string, password: string) =>
+    authPost('/api/auth/login', { username, password }), [authPost]);
+
+  const setupAdmin = useCallback((username: string, password: string) =>
+    authPost('/api/auth/setup', { username, password }), [authPost]);
+
+  const logout = useCallback(async () => {
+    try { await fetch('/api/auth/logout', { method: 'POST' }); } catch { /* token may be dead already */ }
+    dispatch({ type: 'setAuth', auth: { mode: 'team', needsSetup: false, authed: false } });
+  }, []);
+
+  const refreshAuth = useCallback(async () => {
+    try {
+      const r = await fetch('/api/auth/status', { cache: 'no-store' });
+      if (r.ok) dispatch({ type: 'setAuth', auth: await r.json() });
+    } catch { /* keep the current auth state */ }
+  }, []);
+
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

@@ -17,7 +17,8 @@ param(
     # editor with only this plugin. NOTE: it then sees ONLY Engine-module material
     # expressions - plugin-provided expressions (Paper2D, etc.) are excluded.
     [switch]$NoEnginePlugins,
-    [switch]$UseProjectPlugin
+    [switch]$UseProjectPlugin,
+    [string[]]$EnablePlugins = @("Interchange", "Paper2D", "VirtualHeightfieldMesh", "RenderTrace")
 )
 
 $ErrorActionPreference = "Stop"
@@ -81,10 +82,9 @@ if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
 if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
     $EngineRoot = Get-LocalConfigValue $BundleRoot "EngineRoot"
 }
-# Discovery only enumerates engine C++ UMaterialExpression classes, so it does not need a
-# real game project. Default to the bundled minimal host, which also disables the few default
-# engine plugins (Metasound/Interchange) that abort the unattended commandlet on some installs
-# without dropping any material-expression coverage. Pass -ProjectPath to use your own project.
+# Discovery only enumerates C++ UMaterialExpression classes, so it does not need a real game
+# project. Default to the bundled minimal host; the official expression plugins listed in
+# EnablePlugins are then enabled explicitly. Pass -ProjectPath to use your own project.
 if ([string]::IsNullOrWhiteSpace($ProjectPath)) {
     $ProjectPath = Join-Path $BundleRoot "host\NodeDiscoveryHost.uproject"
     if (-not (Test-Path $ProjectPath)) {
@@ -175,6 +175,9 @@ if ($NoEnginePlugins) {
     # Bare-editor fallback for installs whose default engine plugins fail to load.
     $args += "-NoEnginePlugins"
     $args += "-EnablePlugins=UEMatExportMetadata"
+}
+elseif ($EnablePlugins.Count -gt 0) {
+    $args += "-EnablePlugins=$($EnablePlugins -join ',')"
 }
 
 & $EditorCmd @args

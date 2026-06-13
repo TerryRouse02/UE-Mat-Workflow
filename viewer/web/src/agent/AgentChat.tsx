@@ -93,7 +93,9 @@ function fmtTokens(n: number): string {
 
 function sessionLabel(s: AgentSessionMeta): string {
   const title = s.title || '（未命名）';
-  return s.updatedAt ? `${title} · ${relTimeMinutes(s.updatedAt)}` : title;
+  // Team mode: the admin's list spans every member — prefix the owner.
+  const owned = s.owner ? `[${s.owner}] ${title}` : title;
+  return s.updatedAt ? `${owned} · ${relTimeMinutes(s.updatedAt)}` : owned;
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -272,7 +274,9 @@ function DbEditProposalView({ item, onResolve }: {
         nodes-ue{item.ueVersion}.json 是<b>公開資料檔</b>——只接受乾淨的 Epic／公開 UE 資料。
         套用後會自動重生索引並跑 parity audit，失敗即回滾。
       </div>
-      {item.resolved
+      {item.pendingApproval
+        ? <div className="agent-crawl-resolved">已送出管理員審批——核准後會寫入公開 DB 並回報到此對話。</div>
+        : item.resolved
         ? <div className="agent-crawl-resolved">已處理</div>
         : (
           <button className="agent-crawl-approve" disabled={busy} onClick={() => void approve()}>
@@ -340,6 +344,15 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
   const [webOn, setWebOn] = useState<boolean>(() => {
     try { return localStorage.getItem(WEB_SEARCH_STORAGE_KEY) !== 'off'; } catch { return true; }
   });
+  // Team-mode admin lock: a member's thinking/🌐 controls are forced to the
+  // admin-set values and grayed out (the server enforces them regardless).
+  const memberLock = state.auth?.mode === 'team' && state.auth.role !== 'admin'
+    ? state.auth.memberLock
+    : undefined;
+  const effThinking = memberLock ? memberLock.thinking : thinking;
+  const effWebOn = memberLock ? memberLock.webSearch : webOn;
+  // Images pasted into the input, awaiting the next send (base64, no prefix).
+  const [pendingImages, setPendingImages] = useState<Array<{ mediaType: string; data: string }>>([]);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -391,6 +404,18 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     } catch { /* keep the current view */ }
   }, []);
 
+  // A server-injected（系統回報）landed in THIS session (approval outcome) —
+  // re-fetch the transcript so the member sees it without a manual reload.
+  // Never mid-stream: the SSE turn owns the view until it finishes.
+  const lastBumpRef = useRef(0);
+  useEffect(() => {
+    const bump = state.sessionBump;
+    if (!bump || bump.version === lastBumpRef.current) return;
+    lastBumpRef.current = bump.version;
+    if (!streaming && sessionId !== null && bump.id === sessionId) void loadSession(sessionId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.sessionBump]);
+
   // On mount: list sessions and restore the most recent one — a page reload
   // continues the conversation instead of silently inheriting it server-side.
   useEffect(() => {
@@ -418,6 +443,21 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     setItems([]);
     setUsage(null);
   }, [streaming]);
+
+  // Team mode: designate / clear this session as the announcement channel.
+  // The server broadcasts `publicAgent` to every client; the store keeps the
+  // pointer, so the button label flips without a local round-trip state.
+  const togglePublic = useCallback(async () => {
+    if (sessionId === null) return;
+    const makePublic = state.publicAgent.id !== sessionId;
+    try {
+      await fetch(`/api/agent/sessions/${sessionId}/public`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ public: makePublic }),
+      });
+    } catch { /* surfaced by the unchanged button state */ }
+  }, [sessionId, state.publicAgent.id]);
 
   const handleDeleteSession = useCallback(async () => {
     if (streaming || !sessionId) return;
@@ -524,10 +564,37 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     }
   }, [streaming, sessionId]);
 
+  // Clipboard images → pending attachments. Plain-text pastes keep the
+  // default behaviour (no preventDefault unless an image was actually found).
+  const handlePaste = useCallback((e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const files = Array.from(e.clipboardData?.items ?? [])
+      .filter(it => it.kind === 'file' && /^image\/(png|jpeg|webp|gif)$/.test(it.type))
+      .map(it => it.getAsFile())
+      .filter((f): f is File => f !== null);
+    if (files.length === 0) return;
+    e.preventDefault();
+    for (const f of files) {
+      if (f.size > 5 * 1024 * 1024) continue; // server rejects >5MB decoded
+      const reader = new FileReader();
+      reader.onload = () => {
+        const url = String(reader.result ?? '');
+        const comma = url.indexOf(',');
+        if (comma < 0) return;
+        const data = url.slice(comma + 1);
+        // Cap at 3 — matches the server-side limit.
+        setPendingImages(prev => (prev.length >= 3 ? prev : [...prev, { mediaType: f.type, data }]));
+      };
+      reader.readAsDataURL(f);
+    }
+  }, []);
+
   const handleSend = useCallback(async (text: string) => {
     if (!text.trim() || streaming) return;
 
     const userText = text.trim();
+    // Snapshot + clear the pending images: they belong to THIS message only.
+    const sendImages = pendingImages;
+    setPendingImages([]);
     setInput('');
     setStreaming(true);
 
@@ -548,7 +615,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       } catch { /* implicit session */ }
     }
 
-    setItems(prev => startUserTurn(prev, userText));
+    setItems(prev => startUserTurn(prev, userText, sendImages.length));
 
     const ac = new AbortController();
     abortRef.current = ac;
@@ -564,9 +631,12 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           text: userText,
           graphPath: currentPath ?? undefined,
           selectedNodeId: selectedNodeId ?? undefined,
-          thinking: thinking !== 'off' ? thinking : undefined,
+          thinking: effThinking !== 'off' ? effThinking : undefined,
           // Absent = on (the default); only the off state is sent explicitly.
-          webSearch: webOn ? undefined : false,
+          webSearch: effWebOn ? undefined : false,
+          images: sendImages.length > 0
+            ? sendImages.map(im => ({ mediaType: im.mediaType, data: im.data }))
+            : undefined,
           sessionId: sid ?? undefined,
         },
         ac.signal,
@@ -605,7 +675,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       // deletion and re-add the dead session; the local filter already removed it).
       if (!sessionClosed) void fetchSessions();
     }
-  }, [streaming, currentPath, selectedNodeId, open, thinking, webOn, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
+  }, [streaming, currentPath, selectedNodeId, open, effThinking, effWebOn, pendingImages, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
 
   // Agent-tab attention cue: pulse while streaming; if a reply finishes while
   // another tab is visible, leave a steady dot until the user opens the tab.
@@ -623,9 +693,12 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       // scroll done off-tab landed at 0 — re-pin once when the tab opens.
       const el = scrollRef.current;
       if (el) el.scrollTop = el.scrollHeight;
+      // Team mode: other people create sessions while this tab is hidden —
+      // refresh the list on every open so the admin's dropdown never goes stale.
+      void fetchSessions();
     }
     prevActiveRef.current = active;
-  }, [active, state.agentActivity, setAgentActivity]);
+  }, [active, state.agentActivity, setAgentActivity, fetchSessions]);
 
   // Crawl-result feedback loop: a crawl approved from an agent proposal card
   // reports its outcome (status + log tail) back into the conversation once it
@@ -774,7 +847,11 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     if (c.kind === 'regen') return streaming || !sessionId || items.length === 0;
     if (c.kind === 'undo') return streaming;
     if (c.kind === 'new') return streaming;
-    if (c.kind === 'crawlmf') return state.crawl.status === 'running' || !state.env?.ready;
+    if (c.kind === 'crawlmf') {
+      // Crawls are admin-only in team mode — a member's request would 403.
+      if (state.auth?.mode === 'team' && state.auth.role !== 'admin') return true;
+      return state.crawl.status === 'running' || !state.env?.ready;
+    }
     return items.length === 0; // md
   };
   const runQuickCommand = (c: QuickCommand) => {
@@ -832,9 +909,10 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
         {usage && (
           <span
             className="agent-usage"
-            title={`輸入 ${fmtTokens(usage.input)} · 輸出 ${fmtTokens(usage.output)} tokens${usage.estimated ? '（估算值）' : ''}`}
+            title={`輸入 ${fmtTokens(usage.input)} · 輸出 ${fmtTokens(usage.output)} tokens${usage.cached > 0 ? ` · 快取命中 ${fmtTokens(usage.cached)}（約 1 折計費）` : ''}${usage.estimated ? '（估算值）' : ''}`}
           >
             {usage.estimated ? '約 ' : ''}{fmtTokens(usageTotal)} tokens
+            {usage.cached > 0 && <span className="agent-usage-cached">⚡{fmtTokens(usage.cached)}</span>}
           </span>
         )}
         {!streaming && (
@@ -882,6 +960,17 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             <option key={s.id} value={s.id}>{sessionLabel(s)}</option>
           ))}
         </select>
+        {sessionId !== null && !streaming && state.auth?.mode === 'team' && state.auth.role === 'admin' && (
+          <button
+            className={'agent-bar-btn' + (state.publicAgent.id === sessionId ? ' on' : '')}
+            onClick={() => void togglePublic()}
+            title={state.publicAgent.id === sessionId
+              ? '取消系統主Agent：成員將看不到此會話'
+              : '設為系統主Agent：全體成員可即時唯讀圍觀此會話'}
+          >
+            <Icon name="eye" size={11} /> {state.publicAgent.id === sessionId ? '主Agent' : '設為主Agent'}
+          </button>
+        )}
         {sessionId !== null && !streaming && (
           <button className="agent-bar-btn" onClick={() => void handleDeleteSession()} title="刪除此對話">
             <Icon name="x" size={11} /> 刪除
@@ -916,6 +1005,11 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             return (
               <div key={i} className={'agent-bubble agent-item ' + item.role + (isStreamingBubble ? ' streaming' : '')}>
                 <span className="agent-bubble-text">{item.text}</span>
+                {item.images != null && item.images > 0 && (
+                  <span className="agent-bubble-imgs" title="此訊息附帶了圖片">
+                    <Icon name="clip" size={10} /> 圖片 ×{item.images}
+                  </span>
+                )}
               </div>
             );
           }
@@ -983,6 +1077,24 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
 
       {/* Input area */}
       <div className="agent-input-wrap">
+        {pendingImages.length > 0 && (
+          <div className="agent-img-previews">
+            {pendingImages.map((im, i) => (
+              <span key={i} className="agent-img-chip">
+                <img src={`data:${im.mediaType};base64,${im.data}`} alt={`附圖 ${i + 1}`} />
+                <button
+                  type="button"
+                  aria-label="移除圖片"
+                  title="移除圖片"
+                  onClick={() => setPendingImages(prev => prev.filter((_, j) => j !== i))}
+                >
+                  <Icon name="x" size={9} />
+                </button>
+              </span>
+            ))}
+            <span className="agent-img-note">隨下一則訊息送出（需視覺模型）</span>
+          </div>
+        )}
         <div className="agent-inputbox">
           <div className="agent-quick">
             <button
@@ -1015,10 +1127,11 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           <textarea
             ref={inputRef}
             className="agent-input"
-            placeholder="描述你想要的材質效果…（/ 喚出快捷指令）"
+            placeholder="描述你想要的材質效果…（/ 喚出快捷指令；可直接貼上圖片）"
             value={input}
             rows={1}
             onChange={e => setInput(e.target.value)}
+            onPaste={handlePaste}
             onKeyDown={e => {
               if (e.key === 'Escape' && slashQuery !== null) {
                 e.preventDefault();
@@ -1056,12 +1169,15 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
         </div>
         <div className="agent-input-hint">
           <span className="agent-input-ctrls">
-            <label className="agent-think" title="模型思考程度：越高越深思但越慢、越耗 token">
+            <label
+              className="agent-think"
+              title={memberLock ? '思考程度已由管理員鎖定' : '模型思考程度：越高越深思但越慢、越耗 token'}
+            >
               思考
               <select
-                className={thinking !== 'off' ? 'on' : ''}
-                value={thinking}
-                disabled={streaming}
+                className={effThinking !== 'off' ? 'on' : ''}
+                value={effThinking}
+                disabled={streaming || !!memberLock}
                 onChange={e => changeThinking(e.target.value as AgentThinkingLevel)}
               >
                 {(Object.keys(THINKING_LABELS) as AgentThinkingLevel[]).map(lv => (
@@ -1071,16 +1187,19 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             </label>
             <button
               type="button"
-              className={'agent-web-toggle' + (webOn ? ' on' : '')}
-              disabled={streaming}
+              className={'agent-web-toggle' + (effWebOn ? ' on' : '')}
+              disabled={streaming || !!memberLock}
               onClick={toggleWeb}
-              aria-pressed={webOn}
-              title={webOn
-                ? '聯網搜尋：開——回覆前自判是否需要查網路佐證。點擊關閉（agent 將完全不連網）'
-                : '聯網搜尋：關——web_search／web_fetch 已停用，agent 不會連網。點擊開啟'}
+              aria-pressed={effWebOn}
+              title={memberLock
+                ? '聯網搜尋已由管理員鎖定'
+                : effWebOn
+                  ? '聯網搜尋：開——回覆前自判是否需要查網路佐證。點擊關閉（agent 將完全不連網）'
+                  : '聯網搜尋：關——web_search／web_fetch 已停用，agent 不會連網。點擊開啟'}
             >
-              <Icon name="globe" size={11} /> 聯網搜尋：{webOn ? '開' : '關'}
+              <Icon name="globe" size={11} /> 聯網搜尋：{effWebOn ? '開' : '關'}
             </button>
+            {memberLock && <span className="agent-lock-note" title="思考程度與聯網開關由管理員統一設定"><Icon name="lock" size={10} /> 管理員鎖定</span>}
           </span>
           <span>Enter 送出 · Shift+Enter 換行</span>
           {streaming && <span className="responding">回應中…</span>}

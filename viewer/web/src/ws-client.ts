@@ -8,7 +8,8 @@ export interface WSHandlers {
 }
 
 export function connect(handlers: WSHandlers): WSClient {
-  const url = `ws://${location.host}`;
+  const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${protocol}//${location.host}`;
   let ws = new WebSocket(url);
   let destroyed = false;
 

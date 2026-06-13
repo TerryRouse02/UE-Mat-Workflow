@@ -5,9 +5,10 @@ nodes. The metadata commandlet's default mode only fills in detail for the names
 that list — it never discovers new ones. So the DB can silently lag behind the engine, and a
 real material that uses an unlisted node imports with that node **skipped** (its wires drop).
 
-> Discovery has since been run against UE 5.7.4: the engine ships **310** material
-> expressions, and the DB was expanded to **~300** (the remainder are reserved/abstract/alias
-> types). Re-run it after an engine upgrade, or when a pasted material reports a skipped node.
+> Discovery has been verified against UE 5.7.4 CL 51494982 with the official expression
+> plugins enabled. The runtime exposes **342 concrete official expressions**: **329** map
+> directly to authoring DB entries and **13** are recorded in `officialSpecialTypes` with an
+> explicit alias/reserved/graph-structural policy. Current coverage is **342/342**.
 
 **Node discovery** closes that gap. Unlike WorkMF (which crawls `/Game` *assets* via the
 Asset Registry), material expressions are compiled C++ `UCLASS`es, so discovery enumerates
@@ -30,10 +31,10 @@ pwsh -File ./tools/node-t3d-metadata/plugin-src/Scripts/Run-NodeDiscovery.ps1 \
 
 `-ProjectPath` is **optional** for discovery: it only enumerates engine C++
 `UMaterialExpression` classes, so no game project is needed. When omitted, the script uses the
-bundled minimal host at `tools\node-t3d-metadata\host\NodeDiscoveryHost.uproject`, which also
-disables the few default engine plugins (Metasound, Interchange) that abort the unattended
-commandlet on some installs. None of those plugins provide material expressions, so coverage is
-unaffected. Pass `-ProjectPath <Path\To\Project.uproject>` to run against your own project instead.
+bundled minimal host at `tools\node-t3d-metadata\host\NodeDiscoveryHost.uproject`. The runner
+explicitly enables `Interchange`, `Paper2D`, `VirtualHeightfieldMesh`, and `RenderTrace`, because
+those official modules contribute MaterialX, sprite, heightfield, and physical-material expressions.
+Pass `-ProjectPath <Path\To\Project.uproject>` to run against your own project instead.
 
 Defaults: diffs against `agent-pack\nodes-ue5.7.json`, writes the report to
 `tools\node-t3d-metadata\node-discovery.json`. Override with `-NodeDb` / `-Out`.
@@ -45,7 +46,7 @@ the bundled host (or fix the broken plugins) when you want full coverage.
 The commandlet log ends with, e.g.:
 
 ```text
-Wrote node discovery report: ...\node-discovery.json (N engine expressions, K in DB, M missing, D deprecated, O orphans)
+Wrote node discovery report: ...\node-discovery.json (N engine expressions, K in DB, S handled special, C covered, M missing, D deprecated, O orphans)
 ```
 
 ## Report shape
@@ -55,7 +56,7 @@ Wrote node discovery report: ...\node-discovery.json (N engine expressions, K in
   "schemaVersion": "1.0",
   "kind": "node-discovery",
   "engineVersion": "5.7.4-...",
-  "counts": { "engineExpressions": 310, "inDb": 299, "missing": 0, "deprecated": 0, "orphansInDb": 0 },
+  "counts": { "engineExpressions": 342, "inDb": 329, "handledSpecial": 13, "covered": 342, "missing": 0, "deprecated": 0, "orphansInDb": 0 },
   "missing": [
     {
       "type": "RuntimeVirtualTextureOutput",
@@ -66,6 +67,7 @@ Wrote node discovery report: ...\node-discovery.json (N engine expressions, K in
     }
   ],
   "deprecated": ["..."],     // engine classes flagged deprecated — usually skip
+  "handledSpecial": ["Aggregate", "Comment", "..."],
   "orphansInDb": ["..."]     // DB keys with no matching engine class (renamed/typo/override)
 }
 ```

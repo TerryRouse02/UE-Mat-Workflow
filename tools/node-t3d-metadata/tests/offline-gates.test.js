@@ -43,6 +43,8 @@ const KNOWN_TEST_FILES = [
   'heal-export-meta.test.js',
   'check-public-purity.test.js',
   'offline-gates.test.js',
+  'official-node-coverage.test.js',
+  'sync-stress-node-coverage.test.js',
 ];
 
 test('all known test files exist in tests/', () => {

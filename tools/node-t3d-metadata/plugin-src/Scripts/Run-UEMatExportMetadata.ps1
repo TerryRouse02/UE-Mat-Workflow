@@ -7,7 +7,8 @@ param(
     [switch]$SkipSync,
     [switch]$SkipBuild,
     [switch]$UseProjectPlugin,
-    [switch]$Strict
+    [switch]$Strict,
+    [string[]]$EnablePlugins = @("Interchange", "Paper2D", "VirtualHeightfieldMesh", "RenderTrace")
 )
 
 $ErrorActionPreference = "Stop"
@@ -120,6 +121,9 @@ if ($UseProjectPlugin) {
 }
 if ($Strict) {
     $args += "-Strict"
+}
+if ($EnablePlugins.Count -gt 0) {
+    $args += "-EnablePlugins=$($EnablePlugins -join ',')"
 }
 
 & $EditorCmd @args

@@ -43,7 +43,7 @@ The node **DB is the source of truth**: the AI may only use node types/pins that
 
 ```
 agent-pack/                 SHIPPED product data + agent rules (public, must stay clean)
-  nodes-ue5.7.json          authoring DB — node types/pins/params (296 expressions)
+  nodes-ue5.7.json          authoring DB — node types/pins/params (331 definitions; 342/342 official coverage with special handling)
   nodes-ue5.7.index.json    generated minimal index (~12K tokens); safe to read whole; CI-gated
   nodes-ue5.7.export.json   per-node UE metadata for clipboard export (class paths, GUIDs)
   query.js                  zero-dep lookup CLI: node/mf/search queries against the DB and MF indexes
@@ -63,13 +63,36 @@ tools/node-t3d-metadata/    UE commandlet (C++) + PowerShell runners + compiled 
 README.md / README.zh-TW.md user-facing docs (EN is source of truth; zh-TW mirrors it)
 ```
 
-## viewer/server (native http + ws, loopback only)
+## viewer/server (native http + ws, loopback by default)
 
 Entry `index.ts` → `http-server.ts` (`startServer`). Binds **127.0.0.1** (base port 5790,
 auto-tries 5790–5799). One WebSocket carries everything live.
+**Team mode:** switched from the Config tab's 團隊 sub-tab (`GET/POST /api/team` — enabling
+creates the admin in the SAME request, then live re-binds the listener on the same port;
+disabling keeps the on-disk accounts) or locked by `BIND_HOST=<non-loopback>` (Docker —
+`envLocked`, the web switch then 409s). In team mode every `/api` route and the WS upgrade
+require a 7-day token (HttpOnly cookie or Bearer), with the dangerous surface
+(`/api/config`, `/api/crawl*`, `/api/team`, `/api/agent/db-edit|test|web-test`,
+session announce, `/api/auth/users*`) admin-only (`isAdminOnly`); the rest of the
+agent surface opens to members when the admin flips `Team.memberAgent` (sessions are
+then owner-isolated — members see only their own, admins see all — and member turns
+lose the `request_crawl`/`propose_db_edit` tools). Chat single-flight is PER SESSION
+(sessions stream in parallel); `/api/auth/password` is every member's own-password
+change. Member proposals divert into `/api/agent/proposals` (admin approve/deny →
+outcome injected into the requester's session); per-user daily quotas live in
+`Team.quotas` + `viewer/.auth/usage.json`; `graphs/users/<name>/` are owner-private
+personal workspaces (WS file list + reads filtered per socket identity); the
+public session (系統主Agent) live-streams deltas over `publicAgentDelta`;
+`GET /api/export-html` bakes snapshots server-side; `POST /api/files` is human
+rename/duplicate/delete.
+Local mode constructs no auth store and skips every gate — behavior unchanged. `mode`,
+`authStore`, `secureCookies`, and `currentBindHost` are mutable runtime state; the `Team`
+object persists in `local.config.json`.
 
 - `http-server.ts` — routes + WS. HTTP: `GET /api/env`, `GET /api/agent-pack/:file`
-  (filename allowlist), `GET /api/workmf`, `POST /api/config` (extended with optional `Llm`
+  (filename allowlist), `GET /api/workmf`,
+  `GET /api/graph?path=` (stateless resolved-graph fetch — powers the web compare view;
+  canSeePath-guarded in team mode), `POST /api/config` (extended with optional `Llm`
   object for AI config), `POST /api/crawl`, `POST /api/import`,
   `POST /api/agent/chat` (SSE — agent conversation loop),
   `GET /api/agent/status` (ProviderStatus — never contains apiKey),
@@ -80,20 +103,42 @@ auto-tries 5790–5799). One WebSocket carries everything live.
   `POST /api/agent/reset` (abort in-flight chat + clear session; sameOrigin),
   `POST /api/agent/test` (verify the SAVED LLM config with one minimal request; sameOrigin),
   `POST /api/agent/web-test` (one real search with the SAVED Web config; sameOrigin),
-  `GET/POST /api/agent/sessions` + `GET/DELETE /api/agent/sessions/:id` (persistent sessions: list/create/replay/delete);
+  `GET/POST /api/agent/sessions` + `GET/DELETE /api/agent/sessions/:id` (persistent sessions: list/create/replay/delete),
+  `POST /api/agent/sessions/:id/public` (designate the team announcement session) + `GET /api/agent/public-session` (its transcript — the one member-readable agent surface),
+  `/api/auth/*` (status/setup/login/logout public; users CRUD admin-only — see `auth.ts`),
+  `GET/POST /api/team` (mode status + the live local↔team switch; admin-only once in team mode);
   static serve of `web/dist`. WS msgs: `open` (→ resolved graph),
-  `listFiles`, crawl progress broadcast.
+  `listFiles`, crawl progress broadcast, `publicAgent` announcement pointer broadcast.
+- `auth.ts` — team-mode primitives: `resolveMode(BIND_HOST)`, scrypt user store +
+  sha256-hashed 7-day tokens under `viewer/.auth/` (gitignored), login rate limiter.
+  Plaintext passwords/tokens are never stored; deleting a user / resetting a password
+  revokes their tokens.
 - `server/agent/` — the built-in conversational material agent (providers, 25-tool loop,
   checkpoints/undo, sessions, memory, compaction, web access, DB-edit apply). The design
   contract + per-file map live in `viewer/AGENT_DESIGN.md` — read that before touching it.
   Key invariants: the agent only PROPOSES crawls/DB edits; user-approved cards call the
   state-changing endpoints. `contextTokens` (last round in+out) gates compaction and the
-  context ceiling; `totalTokens` is cumulative spend for display only. Viewport state
+  context ceiling; `totalTokens` is cumulative spend for display only. The Anthropic
+  adapter sets prompt-cache breakpoints (last tool def / system / last message block)
+  and folds `cache_read+cache_creation` back into `inputTokens` so the context gate
+  sees the FULL size — never read `usage.input_tokens` alone there; cache hits flow
+  to the UI as `cachedTokens` on the usage SSE event. Pasted images ride
+  `AgentChatRequest.images` (≤3, ≤5MB decoded, validated at the http layer) into
+  neutral `ImageBlock`s; transcripts persist only the count, never the base64.
+  Team mode: longterm memory is per-user (`.agent-memory/users/<name>.md` — one
+  member's notes must never reach another user's prompt), and the admin can lock
+  member thinking/🌐 via `Team.memberLock` (server-enforced in the chat handler,
+  not just grayed in the UI). Viewport state
   (open graph / selected node) is read on demand via the `get_viewport` tool — never
   injected into the prompt. `write_graph` refuses to overwrite files the conversation
   did not create (hard create-vs-modify guard; `overwrite:true` is user-confirmed only);
-  modifications go through `patch_graph` incremental ops (9 ops + snake_case aliases,
-  the op list lives in the tool schema). The write gate validates connection pin names
+  modifications go through `patch_graph` incremental ops (10 ops + snake_case aliases,
+  the op list lives in the tool schema; failures return ALL failing ops at once as
+  `applyErrors`, addNode/insertNode auto-generate ids when omitted → `assignedIds`,
+  `insertNode` splices into an existing connection with DB-inferred pins,
+  `removeNode heal:true` splices the upstream source onto fed pins, and
+  `dryRun:true` previews without writing — the loop suppresses diff/graph_written
+  fan-out for dry runs). The write gate validates connection pin names
   against the DB (`agent/pin-validate.ts`, mirroring web `validate.ts` semantics — keep
   the two in sync). Off-topic fence: `report_off_topic` strikes (persisted per session)
   escalate remind → refuse → `session_closed` + server-side session deletion.
@@ -116,13 +161,27 @@ auto-tries 5790–5799). One WebSocket carries everything live.
 
 - `store.tsx` — global state: reducer + WS client + crawl lifecycle + `saveConfig`.
   Connection is `live | reconnecting | snapshot` (snapshot = exported HTML, no server).
+  Probes `/api/auth/status` BEFORE opening the WS (a team-mode upgrade without a token is
+  rejected); `auth` + `publicAgent` state drive the team UI (`Login.tsx` via App's AuthGate,
+  `UserAdmin.tsx` + `TeamPanel.tsx` in the Config tab's 團隊 sub-tab,
+  `agent/PublicAgentView.tsx` — the members' read-only announcement view that re-fetches
+  on every `publicAgent` WS bump). `ConfigPanel.tsx` splits into 爬取/AI/團隊 sub-tabs.
 - `dbContext.tsx` — derives the active node DB / export metadata / engine-MF / work-MF for the
   open graph's `ueVersion`. **Baked at build time** (`dbRegistry.ts`, `engineMfRegistry.ts` via
   `import.meta.glob`) so snapshot/offline renders; **re-fetched at runtime** in live mode
   (`agentPackClient.ts`) so a crawl refreshes without a rebuild.
 - `Graph.tsx` + `layout.ts` — React Flow render; dagre auto-layout (no x/y in the JSON).
   Hover (≈500ms) on a node opens `NodeExplainPopover`; pane-click / Escape closes it.
-- `Sidebar.tsx` — four tabs: **Files** (`FileList`), **Nodes** (`NodeLibrary`), **Config** (`ConfigPanel`), **Agent** (`AgentChat` — hidden in snapshot mode; in live mode it stays MOUNTED across tab switches via a display-toggled keep-alive wrapper so pending crawl reports / in-flight streams survive).
+- `diff.ts` — pure graph-diff (`computeGraphDiff`/`buildDiffPayload`): union graph + per-node
+  (added/removed/changed) and per-connection statuses. FileList's 「與目前圖比較」menu item
+  (live mode) fetches the target via `GET /api/graph`, App renders the merged payload through
+  the normal `<Graph diff={…}>` with diff-* classes + a summary banner; Esc / 結束比較 exits.
+- Preview swatches: `server/graph-preview.ts` (pure + node-free, shared web↔server like
+  `crawl-types.ts`) constant-folds the BaseColor/Emissive chain (constants/params/math subset)
+  to an RGB, or null when unfoldable (textures, MFs — no value is ever invented). The server
+  file scan attaches it as `FileEntry.preview` (file-list swatch); App folds the open graph
+  client-side for the topbar chip.
+- `Sidebar.tsx` — four tabs: **Files** (`FileList`), **Nodes** (`NodeLibrary`), **Config** (`ConfigPanel`), **Agent** (`AgentChat` — hidden in snapshot mode; in live mode it stays MOUNTED across tab switches via a display-toggled keep-alive wrapper so pending crawl reports / in-flight streams survive). Team-mode member role swaps AgentChat for the read-only `PublicAgentView`.
 - `Header.tsx` — export to UE (`export/ueT3D.ts`) + import from UE (`ImportModal`).
 - `crawlRequest.ts` — POST /api/crawl + the `CrawlKind` union (web side).
 - `web/src/agent/AgentChat.tsx` — 4th Sidebar tab: conversational material agent UI (M3+M4+M5).
@@ -148,16 +207,25 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
    even "guard" checks that would reveal a private naming scheme.
 3. **`workmf-index.json` is server-only.** Never `import.meta.glob` it, never bake it into a bundle
    or the HTML export — that would leak a user's `/Game` asset paths into shipped files.
-4. **`.ps1` files stay pure ASCII.** Windows PowerShell 5.1 mis-reads non-BOM UTF-8 (em-dash, ellipsis).
+4. **`.ps1` files stay pure ASCII** — *or* UTF-8 **with a BOM** when they must carry CJK UX strings
+   (e.g. the standalone `tools/viewer-https/` HTTPS helper). Windows PowerShell 5.1 mis-reads
+   *non-BOM* UTF-8 (em-dash, ellipsis); the BOM is what lets it decode CJK correctly. Never commit
+   non-BOM UTF-8, and keep non-ASCII out of syntax positions (string/comment literals only).
 5. **Single sources of truth.** Crawl commands: `crawl-runner.ts` `defaultCommandFor` only. Wire
    types: `ws-protocol.ts` ↔ `web/src/protocol.ts` (mirror). Node-free shared types
    (`crawl-types.ts`, `workmf-types.ts`) exist so the web tsc program never pulls in `node:` typings.
 6. **No `x`/`y` positions in `.matgraph.json`.** Layout is dagre's job.
+7. **Auth secrets stay server-side and out of git.** `viewer/.auth/` (scrypt hashes +
+   hashed tokens) is gitignored like `local.config.json` (LLM key); neither may ever be
+   echoed in an HTTP response, baked into a bundle, or committed. Local mode must stay
+   auth-free — never let a team-mode gate run when `BIND_HOST` is loopback/unset.
 
 ## Common changes (recipes)
 
 - **Add/fix a node in the DB:** edit `agent-pack/nodes-ue5.7.json` (`nodes.<Name>`: inputs/outputs/
-  params/category/description). `verified: true` only after hand-checking against UE. Then run
+  params/category/description). `verified: true` only after checking against UE — by hand, or via
+  the node self-test (`Run-NodeSelfTest.ps1` on the UE machine + `apply-selftest.js --mark-verified`;
+  see `tools/node-t3d-metadata/docs/SELF_TEST.md`). Then run
   `node tools/node-t3d-metadata/gen-node-index.js` to regenerate the index (CI's parity audit fails
   on index drift). Run `pnpm test`.
 - **Support a new UE version:** it's a *data drop* — generate `nodes-ue<v>.json` + `.export.json`

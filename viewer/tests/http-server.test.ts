@@ -3,7 +3,7 @@ import { startServer, toPosixPath } from '../server/http-server';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { resolve, basename } from 'node:path';
-import { connect } from 'node:net';
+import { connect, createServer as createNetServer } from 'node:net';
 import { WebSocket } from 'ws';
 
 // Raw HTTP request so the literal request-target (incl. '../') reaches the
@@ -43,6 +43,22 @@ describe('toPosixPath', () => {
 });
 
 describe('startServer', () => {
+  it('rejects a busy port without an unhandled WebSocketServer error', async () => {
+    const root = mkdtempSync(resolve(tmpdir(), 'srv-busy-'));
+    mkdirSync(resolve(root, 'graphs'), { recursive: true });
+    const blocker = createNetServer();
+    await new Promise<void>((res) => blocker.listen(0, '127.0.0.1', res));
+    const addr = blocker.address();
+    const port = typeof addr === 'object' && addr ? addr.port : 0;
+
+    try {
+      await expect(startServer({ repoRoot: root, port, webDist: '' }))
+        .rejects.toMatchObject({ code: 'EADDRINUSE' });
+    } finally {
+      await new Promise<void>((res) => blocker.close(() => res()));
+    }
+  });
+
   it('serves WS hello with file list on connect', async () => {
     const root = mkdtempSync(resolve(tmpdir(), 'srv-'));
     mkdirSync(resolve(root, 'graphs/functions'), { recursive: true });

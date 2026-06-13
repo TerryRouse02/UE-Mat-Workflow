@@ -8,6 +8,7 @@ export interface BannerProps {
 }
 
 export function Banner({ conn, engineMismatch, dismissed, onDismiss }: BannerProps) {
+  const serverHost = typeof location === 'undefined' ? 'viewer server' : location.host;
   if (engineMismatch && !dismissed) {
     return (
       <div className="banner warn">
@@ -33,7 +34,7 @@ export function Banner({ conn, engineMismatch, dismissed, onDismiss }: BannerPro
     return (
       <div className="banner info">
         <Icon name="refresh" size={15} className="spin" />
-        <span>正在連線本機 viewer server… <span style={{ color: 'var(--text-mute)' }}>127.0.0.1:5790</span></span>
+        <span>正在連線 viewer server… <span style={{ color: 'var(--text-mute)' }}>{serverHost}</span></span>
       </div>
     );
   }

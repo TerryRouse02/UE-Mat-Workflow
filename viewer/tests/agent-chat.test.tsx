@@ -11,7 +11,7 @@ import type { AgentSseEvent } from '../web/src/agent/protocol.js';
 // Since AgentChat calls useStore, we need to mock the store module.
 import { AgentChat } from '../web/src/agent/AgentChat.js';
 import { Sidebar } from '../web/src/Sidebar.js';
-import { applyAgentEvent, newTurnFlags, startUserTurn, transcriptToMarkdown } from '../web/src/agent/transcript.js';
+import { accumulateUsage, applyAgentEvent, newTurnFlags, startUserTurn, transcriptToMarkdown } from '../web/src/agent/transcript.js';
 
 // ---------------------------------------------------------------------------
 // Mock the store module
@@ -37,6 +37,8 @@ vi.mock('../web/src/store.tsx', () => {
       selectedNodeId: null,
       agentAsk: null,
       agentActivity: 'idle',
+      auth: { mode: 'local', needsSetup: false, authed: true, role: 'admin' },
+      publicAgent: { id: null, streaming: false, version: 0 },
     },
     open: vi.fn(),
     enterMF: vi.fn(),
@@ -53,6 +55,9 @@ vi.mock('../web/src/store.tsx', () => {
     askAgent: vi.fn(),
     bumpMetadata: vi.fn(),
     setAgentActivity: vi.fn(),
+    login: vi.fn(),
+    setupAdmin: vi.fn(),
+    logout: vi.fn(),
   });
 
   // Default: live connection, idle crawl
@@ -913,7 +918,7 @@ describe('transcript reducer — viewer-action events', () => {
     expect((items[0] as { message: string }).message).toContain('剪貼簿');
 
     items = applyAgentEvent(items, { type: 'crawl_proposal', kind: 'workmf', contentRoot: '/Game' }, flags);
-    expect(items[1]).toEqual({ kind: 'crawlProposal', crawlKind: 'workmf', contentRoot: '/Game', resolved: false });
+    expect(items[1]).toEqual({ kind: 'crawlProposal', crawlKind: 'workmf', contentRoot: '/Game', resolved: false, pendingApproval: false });
   });
 
   it('a new user turn deactivates a pending crawl proposal', () => {
@@ -925,6 +930,22 @@ describe('transcript reducer — viewer-action events', () => {
 });
 
 describe('transcript reducer — per-turn usage + db-edit proposal + markdown', () => {
+  it('startUserTurn records the attached-image count on the user bubble', () => {
+    const items = startUserTurn([], '參考這張圖', 2);
+    const bubble = items.at(-1)!;
+    expect(bubble).toMatchObject({ kind: 'text', role: 'user', text: '參考這張圖', images: 2 });
+    // No images → no images field at all (replay stays byte-compatible).
+    const plain = startUserTurn([], '純文字').at(-1)!;
+    expect('images' in plain).toBe(false);
+  });
+
+  it('accumulateUsage sums prompt-cache hits from cachedTokens', () => {
+    let total = accumulateUsage(null, { inputTokens: 100, outputTokens: 10, estimated: false });
+    expect(total.cached).toBe(0);
+    total = accumulateUsage(total, { inputTokens: 120, outputTokens: 10, estimated: false, cachedTokens: 90 });
+    expect(total).toEqual({ input: 220, output: 20, estimated: false, cached: 90 });
+  });
+
   it('flushes accumulated usage into a turnUsage item on done', () => {
     const flags = newTurnFlags();
     let items = startUserTurn([], '做個材質');

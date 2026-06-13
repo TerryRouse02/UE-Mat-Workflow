@@ -3,7 +3,7 @@
   "ueVersion": "5.7",
   "type": "Material",
   "name": "stress_all_nodes",
-  "description": "Comprehensive EXPORT stress test: every one of the ~299 UE 5.7 material node types in nodes-ue5.7.json appears at least once, plus 26 official /Engine Material Functions (diverse signatures: zero-input, many-input, multi-output, MaterialAttributes-typed, Texture-typed, StaticBool-typed) and one local sibling MaterialFunction. Every node is wired (no orphans) and funnels into the single MaterialOutput, whose 15 attribute pins are all driven. Preserves emitter edge cases: float extremes (1e-7 / 1e21 / negatives), special characters in Custom.Code/Description, comment text and a NamedReroute name, a deep linear chain, high fan-out, a deliberate duplicate-into-OUT:BaseColor (dup-drop warning), ComponentMask/AppendVector channel masks, heavy Named Reroute usage, the Make->Set->Get->Break MaterialAttributes chain, and the dynamic-pin nodes SetMaterialAttributes/GetMaterialAttributes/LandscapeLayerBlend. NOTE: intentionally surfaces the auto-collect, local-MF auto-link, and dup-drop warnings.",
+  "description": "Comprehensive EXPORT stress test: all 331 UE 5.7 authoring node definitions in nodes-ue5.7.json appear at least once, plus 26 official /Engine Material Functions (diverse signatures: zero-input, many-input, multi-output, MaterialAttributes-typed, Texture-typed, StaticBool-typed) and one local sibling MaterialFunction. Every node is wired (no orphans) and funnels into the single MaterialOutput, whose 15 attribute pins are all driven. Preserves emitter edge cases: float extremes (1e-7 / 1e21 / negatives), special characters in Custom.Code/Description, comment text and a NamedReroute name, a deep linear chain, high fan-out, a deliberate duplicate-into-OUT:BaseColor (dup-drop warning), ComponentMask/AppendVector channel masks, heavy Named Reroute usage, the Make->Set->Get->Break MaterialAttributes chain, and the dynamic-pin nodes SetMaterialAttributes/GetMaterialAttributes/LandscapeLayerBlend. NOTE: intentionally surfaces the auto-collect, local-MF auto-link, and dup-drop warnings.",
   "nodes": [
     {
       "id": "OUT",
@@ -3057,6 +3057,292 @@
     {
       "id": "FINAL_Norm",
       "type": "Normalize"
+    },
+    {
+      "id": "OFFICIAL_HeightfieldMinMaxTexture",
+      "type": "HeightfieldMinMaxTexture"
+    },
+    {
+      "id": "OFFICIAL_HeightfieldMinMaxTexture_Sample",
+      "type": "TextureSample"
+    },
+    {
+      "id": "OFFICIAL_MaterialXAppend3Vector",
+      "type": "MaterialXAppend3Vector"
+    },
+    {
+      "id": "OFFICIAL_MaterialXAppend4Vector",
+      "type": "MaterialXAppend4Vector"
+    },
+    {
+      "id": "OFFICIAL_MaterialXBurn",
+      "type": "MaterialXBurn"
+    },
+    {
+      "id": "OFFICIAL_MaterialXContrast",
+      "type": "MaterialXContrast"
+    },
+    {
+      "id": "OFFICIAL_MaterialXDifference",
+      "type": "MaterialXDifference"
+    },
+    {
+      "id": "OFFICIAL_MaterialXDisjointOver",
+      "type": "MaterialXDisjointOver"
+    },
+    {
+      "id": "OFFICIAL_MaterialXDodge",
+      "type": "MaterialXDodge"
+    },
+    {
+      "id": "OFFICIAL_MaterialXFractal3D",
+      "type": "MaterialXFractal3D"
+    },
+    {
+      "id": "OFFICIAL_MaterialXIn",
+      "type": "MaterialXIn"
+    },
+    {
+      "id": "OFFICIAL_MaterialXLuminance",
+      "type": "MaterialXLuminance"
+    },
+    {
+      "id": "OFFICIAL_MaterialXMask",
+      "type": "MaterialXMask"
+    },
+    {
+      "id": "OFFICIAL_MaterialXMatte",
+      "type": "MaterialXMatte"
+    },
+    {
+      "id": "OFFICIAL_MaterialXMinus",
+      "type": "MaterialXMinus"
+    },
+    {
+      "id": "OFFICIAL_MaterialXMod",
+      "type": "MaterialXMod"
+    },
+    {
+      "id": "OFFICIAL_MaterialXOut",
+      "type": "MaterialXOut"
+    },
+    {
+      "id": "OFFICIAL_MaterialXOver",
+      "type": "MaterialXOver"
+    },
+    {
+      "id": "OFFICIAL_MaterialXOverlay",
+      "type": "MaterialXOverlay"
+    },
+    {
+      "id": "OFFICIAL_MaterialXPlace2D",
+      "type": "MaterialXPlace2D"
+    },
+    {
+      "id": "OFFICIAL_MaterialXPlus",
+      "type": "MaterialXPlus"
+    },
+    {
+      "id": "OFFICIAL_MaterialXPremult",
+      "type": "MaterialXPremult"
+    },
+    {
+      "id": "OFFICIAL_MaterialXRamp4",
+      "type": "MaterialXRamp4"
+    },
+    {
+      "id": "OFFICIAL_MaterialXRampLeftRight",
+      "type": "MaterialXRampLeftRight"
+    },
+    {
+      "id": "OFFICIAL_MaterialXRampTopBottom",
+      "type": "MaterialXRampTopBottom"
+    },
+    {
+      "id": "OFFICIAL_MaterialXRange",
+      "type": "MaterialXRange"
+    },
+    {
+      "id": "OFFICIAL_MaterialXRemap",
+      "type": "MaterialXRemap"
+    },
+    {
+      "id": "OFFICIAL_MaterialXRotate2D",
+      "type": "MaterialXRotate2D"
+    },
+    {
+      "id": "OFFICIAL_MaterialXScreen",
+      "type": "MaterialXScreen"
+    },
+    {
+      "id": "OFFICIAL_MaterialXSplitLeftRight",
+      "type": "MaterialXSplitLeftRight"
+    },
+    {
+      "id": "OFFICIAL_MaterialXSplitTopBottom",
+      "type": "MaterialXSplitTopBottom"
+    },
+    {
+      "id": "OFFICIAL_MaterialXSwizzle",
+      "type": "MaterialXSwizzle"
+    },
+    {
+      "id": "OFFICIAL_MaterialXUnpremult",
+      "type": "MaterialXUnpremult"
+    },
+    {
+      "id": "OFFICIAL_PhysicalMaterialOutput",
+      "type": "PhysicalMaterialOutput"
+    },
+    {
+      "id": "OFFICIAL_MaterialXTextureSampleParameterBlur",
+      "type": "MaterialXTextureSampleParameterBlur",
+      "params": {
+        "ParameterName": "Stress_MaterialXTextureSampleParameterBlur"
+      }
+    },
+    {
+      "id": "OFFICIAL_SpriteTextureSampler",
+      "type": "SpriteTextureSampler",
+      "params": {
+        "ParameterName": "Stress_SpriteTextureSampler"
+      }
+    },
+    {
+      "id": "OFFICIAL_COL_0",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_1",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_2",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_3",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_4",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_5",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_6",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_7",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_8",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_9",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_10",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_11",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_12",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_13",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_14",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_15",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_16",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_17",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_18",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_19",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_20",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_21",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_22",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_23",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_24",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_25",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_26",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_27",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_28",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_29",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_30",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_31",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_32",
+      "type": "Add"
+    },
+    {
+      "id": "OFFICIAL_COL_33",
+      "type": "Add"
     }
   ],
   "connections": [
@@ -3625,10 +3911,6 @@
       "to": "G_TextureSampleParameter2D:UVs"
     },
     {
-      "from": "SRC_TexObj:Texture",
-      "to": "G_TextureSampleParameter2D:Tex"
-    },
-    {
       "from": "SRC_Vec3:RGB",
       "to": "G_BlendAngleCorrectedNormals:BaseNormal"
     },
@@ -3666,10 +3948,6 @@
     },
     {
       "from": "SRC_Vec3:RGB",
-      "to": "G_Desaturation:LuminanceFactors"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
       "to": "G_DepthFade:Opacity"
     },
     {
@@ -3678,7 +3956,7 @@
     },
     {
       "from": "SRC_UV:UVs",
-      "to": "G_SceneDepth:UVs"
+      "to": "G_SceneDepth:Coordinates"
     },
     {
       "from": "SRC_Vec3:RGB",
@@ -3798,11 +4076,11 @@
     },
     {
       "from": "SRC_Vec3:RGB",
-      "to": "G_Logarithm10:Input"
+      "to": "G_Logarithm10:X"
     },
     {
       "from": "SRC_Vec3:RGB",
-      "to": "G_Logarithm2:Input"
+      "to": "G_Logarithm2:X"
     },
     {
       "from": "SRC_Vec3:RGB",
@@ -3915,10 +4193,6 @@
     {
       "from": "SRC_UV:UVs",
       "to": "G_TextureSampleParameterCube:UVs"
-    },
-    {
-      "from": "SRC_TexObj:Texture",
-      "to": "G_TextureSampleParameterCube:Tex"
     },
     {
       "from": "SRC_Vec3:RGB",
@@ -4914,10 +5188,6 @@
     },
     {
       "from": "SRC_Vec3:RGB",
-      "to": "G_SubstrateSlabBSDF:Unknown"
-    },
-    {
-      "from": "SRC_Vec3:RGB",
       "to": "G_SubstrateSimpleClearCoatBSDF:Diffuse Albedo"
     },
     {
@@ -5889,7 +6159,7 @@
       "to": "COL_76:A"
     },
     {
-      "from": "G_ViewProperty:Value",
+      "from": "G_ViewProperty:Property",
       "to": "COL_76:B"
     },
     {
@@ -7221,10 +7491,6 @@
       "to": "COL_243:A"
     },
     {
-      "from": "G_MaterialCache:BaseColor",
-      "to": "COL_243:B"
-    },
-    {
       "from": "COL_243:Result",
       "to": "COL_244:A"
     },
@@ -7789,10 +8055,6 @@
       "to": "COL_314:B"
     },
     {
-      "from": "COL_314:Result",
-      "to": "FINAL_Sat:Input"
-    },
-    {
       "from": "FINAL_Sat:Result",
       "to": "FINAL_ToScalar:A"
     },
@@ -7875,6 +8137,698 @@
     {
       "from": "FINAL_ToScalar:Result",
       "to": "OUT:ClearCoatRoughness"
+    },
+    {
+      "from": "OFFICIAL_HeightfieldMinMaxTexture:Texture",
+      "to": "OFFICIAL_HeightfieldMinMaxTexture_Sample:Tex"
+    },
+    {
+      "from": "SRC_UV:UVs",
+      "to": "OFFICIAL_HeightfieldMinMaxTexture_Sample:UVs"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXAppend3Vector:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXAppend3Vector:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXAppend3Vector:C"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXAppend4Vector:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXAppend4Vector:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXAppend4Vector:C"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXAppend4Vector:D"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXBurn:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXBurn:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXBurn:Alpha"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXContrast:Input"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXContrast:Amount"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXContrast:Pivot"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXDifference:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXDifference:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXDifference:Alpha"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXDisjointOver:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXDisjointOver:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXDisjointOver:Alpha"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXDodge:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXDodge:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXDodge:Alpha"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXFractal3D:Position"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXFractal3D:Amplitude"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXFractal3D:Octaves"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXFractal3D:Lacunarity"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXFractal3D:Diminish"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXIn:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXIn:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXIn:Alpha"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXLuminance:Input"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXMask:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXMask:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXMask:Alpha"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXMatte:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXMatte:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXMatte:Alpha"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXMinus:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXMinus:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXMinus:Alpha"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXMod:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXMod:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXOut:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXOut:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXOut:Alpha"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXOver:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXOver:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXOver:Alpha"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXOverlay:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXOverlay:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXOverlay:Alpha"
+    },
+    {
+      "from": "SRC_UV:UVs",
+      "to": "OFFICIAL_MaterialXPlace2D:Coordinates"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXPlace2D:Pivot"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXPlace2D:Scale"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXPlace2D:Offset"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXPlace2D:RotationAngle"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXPlus:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXPlus:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXPlus:Alpha"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXPremult:Input"
+    },
+    {
+      "from": "SRC_UV:UVs",
+      "to": "OFFICIAL_MaterialXRamp4:Coordinates"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRamp4:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRamp4:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRamp4:C"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRamp4:D"
+    },
+    {
+      "from": "SRC_UV:UVs",
+      "to": "OFFICIAL_MaterialXRampLeftRight:Coordinates"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRampLeftRight:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRampLeftRight:B"
+    },
+    {
+      "from": "SRC_UV:UVs",
+      "to": "OFFICIAL_MaterialXRampTopBottom:Coordinates"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRampTopBottom:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRampTopBottom:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRange:Input"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRange:InputLow"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRange:InputHigh"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRange:TargetLow"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRange:TargetHigh"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRange:Gamma"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRange:Clamp"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRemap:Input"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRemap:InputLow"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRemap:InputHigh"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRemap:TargetLow"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRemap:TargetHigh"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRotate2D:Input"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXRotate2D:RotationAngle"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXScreen:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXScreen:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXScreen:Alpha"
+    },
+    {
+      "from": "SRC_UV:UVs",
+      "to": "OFFICIAL_MaterialXSplitLeftRight:Coordinates"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXSplitLeftRight:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXSplitLeftRight:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXSplitLeftRight:Center"
+    },
+    {
+      "from": "SRC_UV:UVs",
+      "to": "OFFICIAL_MaterialXSplitTopBottom:Coordinates"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXSplitTopBottom:A"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXSplitTopBottom:B"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXSplitTopBottom:Center"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXSwizzle:Input"
+    },
+    {
+      "from": "SRC_Vec3:RGB",
+      "to": "OFFICIAL_MaterialXUnpremult:Input"
+    },
+    {
+      "from": "SRC_UV:UVs",
+      "to": "OFFICIAL_MaterialXTextureSampleParameterBlur:Coordinates"
+    },
+    {
+      "from": "SRC_Scalar:Value",
+      "to": "OFFICIAL_MaterialXTextureSampleParameterBlur:Apply View MipBias"
+    },
+    {
+      "from": "SRC_UV:UVs",
+      "to": "OFFICIAL_SpriteTextureSampler:Coordinates"
+    },
+    {
+      "from": "SRC_Scalar:Value",
+      "to": "OFFICIAL_SpriteTextureSampler:Apply View MipBias"
+    },
+    {
+      "from": "COL_314:Result",
+      "to": "OFFICIAL_COL_0:A"
+    },
+    {
+      "from": "OFFICIAL_HeightfieldMinMaxTexture_Sample:RGB",
+      "to": "OFFICIAL_COL_0:B"
+    },
+    {
+      "from": "OFFICIAL_COL_0:Result",
+      "to": "OFFICIAL_COL_1:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXAppend3Vector:Result",
+      "to": "OFFICIAL_COL_1:B"
+    },
+    {
+      "from": "OFFICIAL_COL_1:Result",
+      "to": "OFFICIAL_COL_2:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXAppend4Vector:Result",
+      "to": "OFFICIAL_COL_2:B"
+    },
+    {
+      "from": "OFFICIAL_COL_2:Result",
+      "to": "OFFICIAL_COL_3:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXBurn:Result",
+      "to": "OFFICIAL_COL_3:B"
+    },
+    {
+      "from": "OFFICIAL_COL_3:Result",
+      "to": "OFFICIAL_COL_4:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXContrast:Result",
+      "to": "OFFICIAL_COL_4:B"
+    },
+    {
+      "from": "OFFICIAL_COL_4:Result",
+      "to": "OFFICIAL_COL_5:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXDifference:Result",
+      "to": "OFFICIAL_COL_5:B"
+    },
+    {
+      "from": "OFFICIAL_COL_5:Result",
+      "to": "OFFICIAL_COL_6:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXDisjointOver:Result",
+      "to": "OFFICIAL_COL_6:B"
+    },
+    {
+      "from": "OFFICIAL_COL_6:Result",
+      "to": "OFFICIAL_COL_7:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXDodge:Result",
+      "to": "OFFICIAL_COL_7:B"
+    },
+    {
+      "from": "OFFICIAL_COL_7:Result",
+      "to": "OFFICIAL_COL_8:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXFractal3D:Result",
+      "to": "OFFICIAL_COL_8:B"
+    },
+    {
+      "from": "OFFICIAL_COL_8:Result",
+      "to": "OFFICIAL_COL_9:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXIn:Result",
+      "to": "OFFICIAL_COL_9:B"
+    },
+    {
+      "from": "OFFICIAL_COL_9:Result",
+      "to": "OFFICIAL_COL_10:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXLuminance:Result",
+      "to": "OFFICIAL_COL_10:B"
+    },
+    {
+      "from": "OFFICIAL_COL_10:Result",
+      "to": "OFFICIAL_COL_11:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXMask:Result",
+      "to": "OFFICIAL_COL_11:B"
+    },
+    {
+      "from": "OFFICIAL_COL_11:Result",
+      "to": "OFFICIAL_COL_12:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXMatte:Result",
+      "to": "OFFICIAL_COL_12:B"
+    },
+    {
+      "from": "OFFICIAL_COL_12:Result",
+      "to": "OFFICIAL_COL_13:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXMinus:Result",
+      "to": "OFFICIAL_COL_13:B"
+    },
+    {
+      "from": "OFFICIAL_COL_13:Result",
+      "to": "OFFICIAL_COL_14:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXMod:Result",
+      "to": "OFFICIAL_COL_14:B"
+    },
+    {
+      "from": "OFFICIAL_COL_14:Result",
+      "to": "OFFICIAL_COL_15:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXOut:Result",
+      "to": "OFFICIAL_COL_15:B"
+    },
+    {
+      "from": "OFFICIAL_COL_15:Result",
+      "to": "OFFICIAL_COL_16:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXOver:Result",
+      "to": "OFFICIAL_COL_16:B"
+    },
+    {
+      "from": "OFFICIAL_COL_16:Result",
+      "to": "OFFICIAL_COL_17:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXOverlay:Result",
+      "to": "OFFICIAL_COL_17:B"
+    },
+    {
+      "from": "OFFICIAL_COL_17:Result",
+      "to": "OFFICIAL_COL_18:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXPlace2D:Result",
+      "to": "OFFICIAL_COL_18:B"
+    },
+    {
+      "from": "OFFICIAL_COL_18:Result",
+      "to": "OFFICIAL_COL_19:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXPlus:Result",
+      "to": "OFFICIAL_COL_19:B"
+    },
+    {
+      "from": "OFFICIAL_COL_19:Result",
+      "to": "OFFICIAL_COL_20:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXPremult:Result",
+      "to": "OFFICIAL_COL_20:B"
+    },
+    {
+      "from": "OFFICIAL_COL_20:Result",
+      "to": "OFFICIAL_COL_21:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXRamp4:Result",
+      "to": "OFFICIAL_COL_21:B"
+    },
+    {
+      "from": "OFFICIAL_COL_21:Result",
+      "to": "OFFICIAL_COL_22:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXRampLeftRight:Result",
+      "to": "OFFICIAL_COL_22:B"
+    },
+    {
+      "from": "OFFICIAL_COL_22:Result",
+      "to": "OFFICIAL_COL_23:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXRampTopBottom:Result",
+      "to": "OFFICIAL_COL_23:B"
+    },
+    {
+      "from": "OFFICIAL_COL_23:Result",
+      "to": "OFFICIAL_COL_24:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXRange:Result",
+      "to": "OFFICIAL_COL_24:B"
+    },
+    {
+      "from": "OFFICIAL_COL_24:Result",
+      "to": "OFFICIAL_COL_25:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXRemap:Result",
+      "to": "OFFICIAL_COL_25:B"
+    },
+    {
+      "from": "OFFICIAL_COL_25:Result",
+      "to": "OFFICIAL_COL_26:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXRotate2D:Result",
+      "to": "OFFICIAL_COL_26:B"
+    },
+    {
+      "from": "OFFICIAL_COL_26:Result",
+      "to": "OFFICIAL_COL_27:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXScreen:Result",
+      "to": "OFFICIAL_COL_27:B"
+    },
+    {
+      "from": "OFFICIAL_COL_27:Result",
+      "to": "OFFICIAL_COL_28:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXSplitLeftRight:Result",
+      "to": "OFFICIAL_COL_28:B"
+    },
+    {
+      "from": "OFFICIAL_COL_28:Result",
+      "to": "OFFICIAL_COL_29:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXSplitTopBottom:Result",
+      "to": "OFFICIAL_COL_29:B"
+    },
+    {
+      "from": "OFFICIAL_COL_29:Result",
+      "to": "OFFICIAL_COL_30:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXSwizzle:Result",
+      "to": "OFFICIAL_COL_30:B"
+    },
+    {
+      "from": "OFFICIAL_COL_30:Result",
+      "to": "OFFICIAL_COL_31:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXUnpremult:Result",
+      "to": "OFFICIAL_COL_31:B"
+    },
+    {
+      "from": "OFFICIAL_COL_31:Result",
+      "to": "OFFICIAL_COL_32:A"
+    },
+    {
+      "from": "OFFICIAL_MaterialXTextureSampleParameterBlur:RGB",
+      "to": "OFFICIAL_COL_32:B"
+    },
+    {
+      "from": "OFFICIAL_COL_32:Result",
+      "to": "OFFICIAL_COL_33:A"
+    },
+    {
+      "from": "OFFICIAL_SpriteTextureSampler:RGB",
+      "to": "OFFICIAL_COL_33:B"
+    },
+    {
+      "from": "OFFICIAL_COL_33:Result",
+      "to": "FINAL_Sat:Input"
     }
   ],
   "comments": [
@@ -8742,6 +9696,49 @@
         "RR_ConsumerLerp",
         "RR_TailMax",
         "RR_SpecialSink"
+      ]
+    },
+    {
+      "id": "CMT_OfficialPlugins",
+      "text": "Official UE plugin expressions",
+      "color": "#2d5f6b",
+      "contains": [
+        "OFFICIAL_HeightfieldMinMaxTexture",
+        "OFFICIAL_HeightfieldMinMaxTexture_Sample",
+        "OFFICIAL_MaterialXAppend3Vector",
+        "OFFICIAL_MaterialXAppend4Vector",
+        "OFFICIAL_MaterialXBurn",
+        "OFFICIAL_MaterialXContrast",
+        "OFFICIAL_MaterialXDifference",
+        "OFFICIAL_MaterialXDisjointOver",
+        "OFFICIAL_MaterialXDodge",
+        "OFFICIAL_MaterialXFractal3D",
+        "OFFICIAL_MaterialXIn",
+        "OFFICIAL_MaterialXLuminance",
+        "OFFICIAL_MaterialXMask",
+        "OFFICIAL_MaterialXMatte",
+        "OFFICIAL_MaterialXMinus",
+        "OFFICIAL_MaterialXMod",
+        "OFFICIAL_MaterialXOut",
+        "OFFICIAL_MaterialXOver",
+        "OFFICIAL_MaterialXOverlay",
+        "OFFICIAL_MaterialXPlace2D",
+        "OFFICIAL_MaterialXPlus",
+        "OFFICIAL_MaterialXPremult",
+        "OFFICIAL_MaterialXRamp4",
+        "OFFICIAL_MaterialXRampLeftRight",
+        "OFFICIAL_MaterialXRampTopBottom",
+        "OFFICIAL_MaterialXRange",
+        "OFFICIAL_MaterialXRemap",
+        "OFFICIAL_MaterialXRotate2D",
+        "OFFICIAL_MaterialXScreen",
+        "OFFICIAL_MaterialXSplitLeftRight",
+        "OFFICIAL_MaterialXSplitTopBottom",
+        "OFFICIAL_MaterialXSwizzle",
+        "OFFICIAL_MaterialXUnpremult",
+        "OFFICIAL_PhysicalMaterialOutput",
+        "OFFICIAL_MaterialXTextureSampleParameterBlur",
+        "OFFICIAL_SpriteTextureSampler"
       ]
     }
   ]

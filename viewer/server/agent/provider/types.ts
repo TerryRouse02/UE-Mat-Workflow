@@ -14,7 +14,7 @@ export interface ToolResultBlock { type: 'tool_result'; toolUseId: string; conte
 export interface ThinkingBlock         { type: 'thinking'; thinking: string; signature: string }
 export interface RedactedThinkingBlock { type: 'redacted_thinking'; data: string }
 
-export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | RedactedThinkingBlock;
+export type ContentBlock = TextBlock | ToolUseBlock | ToolResultBlock | ThinkingBlock | RedactedThinkingBlock | ImageBlock;
 
 export interface Message  { role: Role; content: ContentBlock[] }
 
@@ -38,6 +38,10 @@ export interface ChatRequest {
   signal?: AbortSignal;
 }
 
+/** User-attached image, base64 without the data: prefix. Anthropic maps it to
+    an image source block; OpenAI-compatible to an image_url data URI. */
+export interface ImageBlock { type: 'image'; mediaType: string; data: string }
+
 export type StreamEvent =
   | { type: 'text_delta'; text: string }
   // Streaming view of the model's reasoning (display only — not for history).
@@ -48,8 +52,11 @@ export type StreamEvent =
   | { type: 'thinking_block'; block: ThinkingBlock | RedactedThinkingBlock }
   // Emitted only after the complete argument JSON parses successfully.
   | { type: 'tool_use'; id: string; name: string; input: unknown }
-  // Optional — compat servers may omit usage entirely.
-  | { type: 'usage'; inputTokens: number; outputTokens: number }
+  // Optional — compat servers may omit usage entirely. inputTokens is the
+  // FULL context size (cached portions included); cacheReadTokens /
+  // cacheCreationTokens break out the prompt-cache share when present
+  // (Anthropic adapter only — omitted when zero).
+  | { type: 'usage'; inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number }
   | { type: 'error'; message: string }
   | { type: 'done'; stopReason: 'end' | 'tool_use' | 'max_tokens' };
 

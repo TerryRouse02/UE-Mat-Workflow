@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { useStore } from './store';
+import { UserAdminSection } from './UserAdmin';
+import { TeamPanel } from './TeamPanel';
+import { MyAccountSection } from './MyAccount';
+import { TeamUsageSection } from './TeamUsage';
+import { ProposalInboxSection } from './ProposalInbox';
 import type { CrawlKind } from './crawlRequest';
 import { diagnoseCrawl } from './crawlDiagnosis';
 import { Icon } from './Icon';
@@ -992,6 +997,9 @@ export interface ConfigPanelProps {
 export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPanelProps) {
   const { state, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig } = useStore();
   const { env, crawl, connection } = state;
+  // The panel got crowded (UE paths + env checks + crawls + LLM/Web + team) —
+  // a segmented sub-tab keeps each concern on a short page.
+  const [cfgTab, setCfgTab] = useState<'crawl' | 'ai' | 'team'>('crawl');
 
   // Each crawl scope reads its own content root; the advanced/maintenance crawls
   // (export/enginemf) take no root.
@@ -1070,6 +1078,23 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
     );
   }
 
+  // ── team mode, member role: my-account self service + an admin-managed note ──
+  if (state.auth?.mode === 'team' && state.auth.role !== 'admin') {
+    return (
+      <div className="cfg">
+        <MyAccountSection />
+        <div className="cfg-notice">
+          <div className="ni"><Icon name="settings" size={20} /></div>
+          <div className="nt">其餘設定由管理員管理</div>
+          <div className="nd">
+            UE 路徑、爬取與 LLM 設定屬於伺服器端設定，僅管理員可變更。
+            {crawl.status === 'running' && ' 目前有一個爬取正在進行。'}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── live: run-panel takeover ─────────────────────────────────────────────
   if (crawl.status !== 'idle') {
     return (
@@ -1088,22 +1113,48 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
   // ── live: idle ───────────────────────────────────────────────────────────
   return (
     <div className="cfg">
-      <PathsSection
-        saveConfig={saveConfig}
-        initialProjectPath={env?.projectPath ?? ''}
-        initialEngineRoot={env?.engineRoot ?? ''}
-      />
-      <EnvSection env={env} refreshEnv={() => void refreshEnv()} />
-      <CrawlOpsSection
-        env={env}
-        mfRoot={mfRoot}
-        setMfRoot={setMfRoot}
-        matRoot={matRoot}
-        setMatRoot={setMatRoot}
-        justRan={justRan}
-        onStart={onStart}
-      />
-      <AiSection saveAgentConfig={saveAgentConfig} />
+      <div className="cfg-tabs" role="tablist">
+        {([['crawl', '爬取'], ['ai', 'AI'], ['team', '團隊']] as const).map(([k, label]) => (
+          <button
+            key={k}
+            role="tab"
+            aria-selected={cfgTab === k}
+            className={'cfg-tab' + (cfgTab === k ? ' on' : '')}
+            onClick={() => setCfgTab(k)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {cfgTab === 'crawl' && (
+        <>
+          <PathsSection
+            saveConfig={saveConfig}
+            initialProjectPath={env?.projectPath ?? ''}
+            initialEngineRoot={env?.engineRoot ?? ''}
+          />
+          <EnvSection env={env} refreshEnv={() => void refreshEnv()} />
+          <CrawlOpsSection
+            env={env}
+            mfRoot={mfRoot}
+            setMfRoot={setMfRoot}
+            matRoot={matRoot}
+            setMatRoot={setMatRoot}
+            justRan={justRan}
+            onStart={onStart}
+          />
+        </>
+      )}
+      {cfgTab === 'ai' && <AiSection saveAgentConfig={saveAgentConfig} />}
+      {cfgTab === 'team' && (
+        <>
+          <TeamPanel />
+          {state.auth?.mode === 'team' && state.auth.role === 'admin' && <ProposalInboxSection />}
+          {state.auth?.mode === 'team' && state.auth.role === 'admin' && <UserAdminSection />}
+          {state.auth?.mode === 'team' && state.auth.role === 'admin' && <TeamUsageSection />}
+          {state.auth?.mode === 'team' && state.auth.authed && <MyAccountSection />}
+        </>
+      )}
     </div>
   );
 }

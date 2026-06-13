@@ -14,9 +14,9 @@ export type AgentSseEvent =
   | { type: 'diff'; lines: string[] }                                // plain-language diff (after successful write)
   | { type: 'graph_written'; path: string; changedNodeIds?: string[] } // UI auto-opens + highlights the changed nodes
   | { type: 'export_request'; path: string }                         // UI copies this graph to the clipboard as UE T3D
-  | { type: 'crawl_proposal'; kind: 'workmf' | 'projectmat'; contentRoot: string } // UI shows a confirm card; user approves via POST /api/crawl
-  | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; create: boolean; patch: Record<string, unknown>; rationale: string } // UI shows a confirm card; user approves via POST /api/agent/db-edit
-  | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
+  | { type: 'crawl_proposal'; kind: 'workmf' | 'projectmat'; contentRoot: string; pendingApproval?: boolean } // UI shows a confirm card; user approves via POST /api/crawl
+  | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; create: boolean; patch: Record<string, unknown>; rationale: string; pendingApproval?: boolean } // UI shows a confirm card; user approves via POST /api/agent/db-edit
+  | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean; cachedTokens?: number } // cachedTokens = prompt-cache hits within inputTokens (billed ~10%)
   | { type: 'compacted'; message: string }                           // old turns summarized into session memory
   | { type: 'limit'; kind: 'iters' | 'cost' | 'failures'; message: string }
   | { type: 'session_closed'; message: string }                      // off-topic strike limit — server deletes the session after the stream
@@ -35,6 +35,11 @@ export interface AgentChatRequest {
       ［視窗情境］ context block appended to the user message. */
   selectedNodeId?: string;
   thinking?: AgentThinkingLevel;
+  /**
+   * Pasted images (max 3): base64 WITHOUT the data: prefix, mediaType one of
+   * image/png|jpeg|webp|gif, ≤5MB decoded each. Needs a vision-capable model.
+   */
+  images?: Array<{ mediaType: string; data: string }>;
   /**
    * Per-turn 🌐 switch. Absent/true = web tools available (the prompt tells
    * the model to self-check timeliness before answering); false = web_search/
@@ -112,6 +117,8 @@ export interface AgentSessionMeta {
   createdAt: string;   // ISO timestamp
   updatedAt: string;   // ISO timestamp
   ueVersion: string;
+  /** Team mode: owning username (admins see everyone's sessions). */
+  owner?: string;
   totalTokens: number;
   /** Completed user turns. */
   turns: number;
@@ -123,7 +130,7 @@ export interface AgentSessionMeta {
  * The provider-neutral message history stays server-side and is never sent.
  */
 export type AgentTranscriptEntry =
-  | { kind: 'user'; text: string }
+  | { kind: 'user'; text: string; images?: number } // images = attached-image count (data not replayed)
   | { kind: 'event'; event: AgentSseEvent };
 
 /** Response from GET /api/agent/sessions/:id */
@@ -138,6 +145,20 @@ export interface AgentSessionDetail {
 /** Response from GET /api/agent/sessions */
 export interface AgentSessionsListResponse {
   sessions: AgentSessionMeta[];
+}
+
+/**
+ * Response from GET /api/agent/public-session (readable by every team member).
+ * id === null means no announcement session is designated.
+ */
+export interface AgentPublicSessionResponse {
+  id: string | null;
+  title?: string;
+  ueVersion?: string;
+  updatedAt?: string;
+  /** True while the admin's chat on this session is still streaming. */
+  streaming?: boolean;
+  transcript?: AgentTranscriptEntry[];
 }
 
 /** Response from POST /api/agent/sessions */

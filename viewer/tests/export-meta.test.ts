@@ -84,10 +84,10 @@ describe('nodes-ue5.7.export.json', () => {
     expect(fixture).not.toContain('11111111111111111111111111111111');
   });
 
-  it('exports Custom as a non-dynamic node with only structural scalar params', () => {
+  it('exports Custom as a supported dynamic node with metadata-backed scalar params', () => {
     const c = exp.nodes.Custom;
     expect(c, 'Custom export meta missing').toBeTruthy();
-    expect(c.dynamicExport ?? false).toBe(false);
+    expect(c.dynamicExport).toBe(true);
     expect(c.ueClass).toBe('/Script/Engine.MaterialExpressionCustom');
     // Code/OutputType/Description flow through the generic param loop:
     expect(Object.keys(c.params).sort()).toEqual(['Code', 'Description', 'OutputType']);

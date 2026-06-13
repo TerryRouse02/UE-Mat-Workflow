@@ -41,7 +41,12 @@ export function groupFiles(entries: FileEntry[]): GroupResult {
     if (segments.length === 1) {
       rootLevel.push(e);
     } else {
-      const folder = segments[0];
+      // Personal workspaces: users/<name>/<proj>/file groups per member
+      // project (not one giant "users" bucket); users/<name>/file groups
+      // under users/<name>. FileList prettifies the title.
+      const folder = segments[0] === 'users' && segments.length >= 3
+        ? segments.slice(0, Math.min(3, segments.length - 1)).join('/')
+        : segments[0];
       if (!byFolder.has(folder)) byFolder.set(folder, []);
       byFolder.get(folder)!.push(e);
     }

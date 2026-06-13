@@ -28,9 +28,20 @@ export interface MemoryStore {
   pathFor(scope: MemoryScope): string;
 }
 
-export function createMemoryStore(viewerRoot: string, sessionId: string): MemoryStore {
+/** Path-safe slug of a team username — usernames come from the auth store,
+    but the memory file name must never be a traversal surface. */
+function ownerSlug(owner: string): string {
+  return owner.replace(/[^a-zA-Z0-9_-]/g, '_');
+}
+
+export function createMemoryStore(viewerRoot: string, sessionId: string, owner?: string): MemoryStore {
   const paths: Record<MemoryScope, string> = {
-    longterm: join(viewerRoot, '.agent-memory', 'longterm.md'),
+    // Team mode: every user (admins included) gets their own longterm file —
+    // one member's「記住我的偏好」must never leak into another user's prompt.
+    // Local mode (no owner) keeps the original shared file.
+    longterm: owner
+      ? join(viewerRoot, '.agent-memory', 'users', `${ownerSlug(owner)}.md`)
+      : join(viewerRoot, '.agent-memory', 'longterm.md'),
     session: join(viewerRoot, '.agent-sessions', `${sessionId}.memory.md`),
   };
 

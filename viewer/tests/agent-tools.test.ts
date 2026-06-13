@@ -3,7 +3,7 @@
 // via ctx.repoRoot pointing at the actual repo root.
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
-import { mkdtemp, rm, writeFile, mkdir, readFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir, readFile, copyFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { dispatchTool, type ToolContext } from '../server/agent/tools.js';
@@ -219,7 +219,7 @@ describe('patch_graph', () => {
     expect(updated.nodes.find((n: { id: string }) => n.id === 'mul')?.params?.ConstA).toBe(0.5);
   });
 
-  it('bad op (addNode duplicate) → opIndex error, file unchanged', async () => {
+  it('bad op (addNode duplicate) → applyErrors, file unchanged', async () => {
     await writeFixture('proj/test_mat.matgraph.json');
     const before = await readFile(join(ctx.graphsRoot, 'proj', 'test_mat.matgraph.json'), 'utf-8');
 
@@ -229,12 +229,101 @@ describe('patch_graph', () => {
     }, ctx);
     expect(r.isError).toBe(true);
     const out = JSON.parse(r.content);
-    expect(typeof out.opIndex).toBe('number');
-    expect(out.opIndex).toBe(0);
+    expect(Array.isArray(out.applyErrors)).toBe(true);
+    expect(out.applyErrors[0].opIndex).toBe(0);
+    expect(out.applyErrors[0].message).toMatch(/already exists/);
 
     // File unchanged
     const after = await readFile(join(ctx.graphsRoot, 'proj', 'test_mat.matgraph.json'), 'utf-8');
     expect(after).toBe(before);
+  });
+
+  it('multiple bad ops → ALL reported in applyErrors at once', async () => {
+    await writeFixture('proj/test_mat.matgraph.json');
+    const r = await dispatchTool('patch_graph', {
+      path: 'proj/test_mat.matgraph.json',
+      ops: [
+        { op: 'addNode', id: 'mul', type: 'Multiply' },          // 0: duplicate id
+        { op: 'setParam', id: 'mul', key: 'ConstA', value: 1 },  // 1: fine
+        { op: 'removeNode', id: 'ghost' },                       // 2: not found
+        { op: 'disconnect', from: 'tex:RGB', to: 'ghost:A' },    // 3: not found
+      ],
+    }, ctx);
+    expect(r.isError).toBe(true);
+    const out = JSON.parse(r.content);
+    expect(out.applyErrors.map((e: { opIndex: number }) => e.opIndex)).toEqual([0, 2, 3]);
+  });
+
+  it('dryRun: returns diff + dryRun:true, writes nothing, skips beforeWrite', async () => {
+    await writeFixture('proj/test_mat.matgraph.json');
+    const before = await readFile(join(ctx.graphsRoot, 'proj', 'test_mat.matgraph.json'), 'utf-8');
+    const writes: string[] = [];
+    const hookCtx: ToolContext = { ...ctx, beforeWrite: async (p) => { writes.push(p); } };
+
+    const r = await dispatchTool('patch_graph', {
+      path: 'proj/test_mat.matgraph.json',
+      ops: [{ op: 'setParam', id: 'mul', key: 'ConstA', value: 0.5 }],
+      dryRun: true,
+    }, hookCtx);
+    expect(r.isError).toBeUndefined();
+    const out = JSON.parse(r.content);
+    expect(out.ok).toBe(true);
+    expect(out.dryRun).toBe(true);
+    expect(out.diff.length).toBeGreaterThan(0);
+
+    expect(writes).toHaveLength(0);
+    const after = await readFile(join(ctx.graphsRoot, 'proj', 'test_mat.matgraph.json'), 'utf-8');
+    expect(after).toBe(before);
+  });
+
+  it('insertNode splices into an existing connection, pins inferred from the real DB', async () => {
+    await writeFixture('proj/test_mat.matgraph.json');
+    const r = await dispatchTool('patch_graph', {
+      path: 'proj/test_mat.matgraph.json',
+      // tex:RGB → mul:A exists; Multiply's DB signature is inputs [A,B], output [Result]
+      ops: [{ op: 'insertNode', between: { from: 'tex:RGB', to: 'mul:A' }, type: 'Multiply' }],
+    }, ctx);
+    expect(r.isError).toBeUndefined();
+    const out = JSON.parse(r.content);
+    expect(out.ok).toBe(true);
+    expect(out.assignedIds).toEqual({ 0: 'multiply_1' });
+    expect(out.changedNodeIds.sort()).toEqual(['mul', 'multiply_1', 'tex']);
+
+    const updated = JSON.parse(await readFile(join(ctx.graphsRoot, 'proj', 'test_mat.matgraph.json'), 'utf-8'));
+    expect(updated.connections).toContainEqual({ from: 'tex:RGB', to: 'multiply_1:A' });
+    expect(updated.connections).toContainEqual({ from: 'multiply_1:Result', to: 'mul:A' });
+    expect(updated.connections).not.toContainEqual({ from: 'tex:RGB', to: 'mul:A' });
+  });
+
+  it('removeNode heal:true keeps the chain intact end-to-end', async () => {
+    await writeFixture('proj/test_mat.matgraph.json');
+    const r = await dispatchTool('patch_graph', {
+      path: 'proj/test_mat.matgraph.json',
+      // mul has 1 incoming (tex:RGB → mul:A) and feeds OUT:BaseColor
+      ops: [{ op: 'removeNode', id: 'mul', heal: true }],
+    }, ctx);
+    expect(r.isError).toBeUndefined();
+
+    const updated = JSON.parse(await readFile(join(ctx.graphsRoot, 'proj', 'test_mat.matgraph.json'), 'utf-8'));
+    expect(updated.nodes.some((n: { id: string }) => n.id === 'mul')).toBe(false);
+    expect(updated.connections).toEqual([{ from: 'tex:RGB', to: 'OUT:BaseColor' }]);
+  });
+
+  it('addNode without id auto-generates one and reports it in assignedIds', async () => {
+    await writeFixture('proj/test_mat.matgraph.json');
+    const r = await dispatchTool('patch_graph', {
+      path: 'proj/test_mat.matgraph.json',
+      ops: [{ op: 'addNode', type: 'Multiply' }],
+    }, ctx);
+    expect(r.isError).toBeUndefined();
+    const out = JSON.parse(r.content);
+    expect(out.ok).toBe(true);
+    expect(out.assignedIds).toEqual({ 0: 'multiply_1' });
+    expect(out.changedNodeIds).toContain('multiply_1');
+
+    const raw = await readFile(join(ctx.graphsRoot, 'proj', 'test_mat.matgraph.json'), 'utf-8');
+    const updated = JSON.parse(raw);
+    expect(updated.nodes.some((n: { id: string }) => n.id === 'multiply_1')).toBe(true);
   });
 
   it('beforeWrite hook called before patch write', async () => {
@@ -249,6 +338,43 @@ describe('patch_graph', () => {
       ops: [{ op: 'setParam', id: 'mul', key: 'ConstA', value: 0.1 }],
     }, hookCtx);
     expect(calls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// read_graph output shape (token diet)
+// ---------------------------------------------------------------------------
+
+describe('read_graph output', () => {
+  async function writeFixture(relPath: string) {
+    await mkdir(join(ctx.graphsRoot, 'proj'), { recursive: true });
+    await writeFile(join(ctx.graphsRoot, relPath), JSON.stringify(VALID_GRAPH, null, 2) + '\n', 'utf-8');
+  }
+
+  it('full read is compact JSON (no pretty-print) and round-trips the graph', async () => {
+    await writeFixture('proj/test_mat.matgraph.json');
+    const r = await dispatchTool('read_graph', { path: 'proj/test_mat.matgraph.json' }, ctx);
+    expect(r.isError).toBeUndefined();
+    // The payload lands in history and is re-sent every iteration — it must
+    // not carry pretty-print indentation.
+    expect(r.content).not.toContain('\n');
+    const out = JSON.parse(r.content);
+    expect(out.graph.nodes).toHaveLength(3);
+    expect(out.graph.connections).toHaveLength(2);
+  });
+
+  it('summary:true returns ids/types + counts without params/connections', async () => {
+    await writeFixture('proj/test_mat.matgraph.json');
+    const r = await dispatchTool('read_graph', { path: 'proj/test_mat.matgraph.json', summary: true }, ctx);
+    expect(r.isError).toBeUndefined();
+    const out = JSON.parse(r.content);
+    expect(out.summary).toBe(true);
+    expect(out.nodeCount).toBe(3);
+    expect(out.connectionCount).toBe(2);
+    expect(out.nodes).toContainEqual({ id: 'mul', type: 'Multiply' });
+    expect(out.graph).toBeUndefined();
+    // node entries must not leak params
+    expect(JSON.stringify(out.nodes)).not.toContain('ParameterName');
   });
 });
 
@@ -273,7 +399,31 @@ describe('search_nodes', () => {
   });
 
   it('unverified entries get ⚠ unverified marker', async () => {
-    const r = await dispatchTool('search_nodes', { query: 'DBufferTexture' }, ctx);
+    // The shipped DB no longer has unverified nodes (all passed the engine
+    // self-test), so assert the marker against a fixture DB instead.
+    const fixtureRoot = join(tmpDir, 'fixture-repo');
+    await mkdir(join(fixtureRoot, 'agent-pack'), { recursive: true });
+    await copyFile(
+      join(REPO_ROOT, 'agent-pack', 'query-lib.js'),
+      join(fixtureRoot, 'agent-pack', 'query-lib.js'),
+    );
+    await writeFile(
+      join(fixtureRoot, 'agent-pack', 'nodes-ue5.7.json'),
+      JSON.stringify({
+        nodes: {
+          ProvisionalTestNode: {
+            category: 'Test',
+            description: 'Synthetic unverified entry for the marker test.',
+            verified: false,
+          },
+        },
+      }),
+    );
+    const r = await dispatchTool(
+      'search_nodes',
+      { query: 'ProvisionalTestNode' },
+      { ...ctx, repoRoot: fixtureRoot },
+    );
     expect(r.isError).toBeUndefined();
     expect(r.content).toContain('⚠ unverified');
   });
@@ -306,6 +456,32 @@ describe('get_node_signature', () => {
   it('miss: returns isError with suggestions', async () => {
     const r = await dispatchTool('get_node_signature', { name: 'LerpXYZNonExistent' }, ctx);
     expect(r.isError).toBe(true);
+  });
+
+  it('batch: array of names returns found entries keyed by name in one call', async () => {
+    const r = await dispatchTool('get_node_signature', { name: ['Lerp', 'Multiply', 'Power'] }, ctx);
+    expect(r.isError).toBeUndefined();
+    const out = JSON.parse(r.content);
+    expect(Object.keys(out.found).sort()).toEqual(['Lerp', 'Multiply', 'Power']);
+    expect(out.found.Multiply.inputs).toBeDefined();
+    expect(out.missing).toBeUndefined();
+  });
+
+  it('batch: partial misses listed with hints, not an error', async () => {
+    const r = await dispatchTool('get_node_signature', { name: ['Lerp', 'NoSuchNodeXYZ'] }, ctx);
+    expect(r.isError).toBeUndefined();
+    const out = JSON.parse(r.content);
+    expect(out.found.Lerp).toBeDefined();
+    expect(out.missing.NoSuchNodeXYZ).toContain('not found');
+  });
+
+  it('batch: all misses → error; over-cap rejected', async () => {
+    const all = await dispatchTool('get_node_signature', { name: ['NopeA', 'NopeB'] }, ctx);
+    expect(all.isError).toBe(true);
+
+    const over = await dispatchTool('get_node_signature', { name: Array.from({ length: 9 }, (_, i) => `N${i}`) }, ctx);
+    expect(over.isError).toBe(true);
+    expect(over.content).toContain('max 8');
   });
 });
 

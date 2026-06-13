@@ -188,6 +188,18 @@ export interface RunAgentOptions {
    * web this turn.
    */
   webToolsEnabled?: boolean;
+  /**
+   * Tools to withhold this turn (removed from the provider's tool list AND
+   * refused at dispatch). Team members get ['request_crawl',
+   * 'propose_db_edit'] — they cannot approve those cards anyway.
+   */
+  disabledTools?: string[];
+  /**
+   * User-attached images for THIS turn (AgentChatRequest.images — pasted
+   * into the chat box). Prepended to the user message as neutral image
+   * blocks; the http layer has already validated type/size/count.
+   */
+  images?: Array<{ mediaType: string; data: string }>;
 }
 
 const WEB_TOOL_NAMES = new Set(['web_search', 'web_fetch']);
@@ -211,7 +223,9 @@ export async function runAgent(
   const tokenCeiling = options?.tokenCeiling ?? TOKEN_CEILING;
   const maxTokens = options?.maxTokens ?? 8192;
   const webEnabled = options?.webToolsEnabled !== false;
-  const turnToolDefs = webEnabled ? toolDefs : toolDefs.filter(t => !WEB_TOOL_NAMES.has(t.name));
+  const disabledTools = new Set(options?.disabledTools ?? []);
+  if (!webEnabled) for (const n of WEB_TOOL_NAMES) disabledTools.add(n);
+  const turnToolDefs = toolDefs.filter(t => !disabledTools.has(t.name));
 
   // Compaction runs BEFORE the memory read so the freshly-written summary is
   // part of this turn's system prompt.
@@ -233,14 +247,16 @@ export async function runAgent(
   // (iter/cost ceiling or abort), the last message is already user-role —
   // append the text into it: Anthropic requires roles to strictly alternate,
   // so a second consecutive user message would fail the next request.
+  // Images first, text last — matches both adapters' multimodal ordering.
+  const userBlocks: ContentBlock[] = [
+    ...(options?.images ?? []).map((im): ContentBlock => ({ type: 'image', mediaType: im.mediaType, data: im.data })),
+    { type: 'text', text: userText },
+  ];
   const lastMsg = session.messages.at(-1);
   if (lastMsg?.role === 'user') {
-    lastMsg.content.push({ type: 'text', text: userText });
+    lastMsg.content.push(...userBlocks);
   } else {
-    session.messages.push({
-      role: 'user',
-      content: [{ type: 'text', text: userText }],
-    });
+    session.messages.push({ role: 'user', content: userBlocks });
   }
   // One checkpoint turn per user turn: every write made while serving this
   // user message shares the id, so a single undo reverts the whole exchange
@@ -398,6 +414,10 @@ export async function runAgent(
             // The tool was not offered this turn — a stray call (hallucinated
             // or replayed from history) must not reach the network.
             ? { content: '聯網功能已由使用者關閉（輸入框旁的 🌐 開關）。請基於本地節點 DB 與既有知識回答，不確定的部分明確說明。', isError: true }
+          : disabledTools.has(call.name)
+            // Withheld this turn (e.g. member sessions lose the proposal
+            // tools) — a stray call must not slip through either.
+            ? { content: '此工具在目前的使用者權限下不可用，請改用其他方式完成任務或直接說明限制。', isError: true }
             : await dispatchTool(call.name, call.input, turnCtx);
 
       if (call.name === 'report_off_topic' && session.offTopicStrikes >= OFF_TOPIC_LIMIT) {
@@ -446,16 +466,21 @@ export async function runAgent(
           // Non-JSON result — nothing to fan out.
         }
 
-        if (parsed.ok && Array.isArray(parsed.diff) && parsed.diff.length > 0) {
+        // dryRun results carry the same diff/changedNodeIds but wrote nothing —
+        // emitting diff/graph_written would show a change that never happened.
+        if (parsed.ok && !parsed.dryRun && Array.isArray(parsed.diff) && parsed.diff.length > 0) {
           emit({ type: 'diff', lines: parsed.diff as string[] });
         }
 
-        if (writeTools.has(call.name) && typeof inp.path === 'string') {
+        if (writeTools.has(call.name) && !parsed.dryRun && typeof inp.path === 'string') {
           const changedNodeIds =
             Array.isArray(parsed.changedNodeIds) && parsed.changedNodeIds.length > 0
               ? (parsed.changedNodeIds as unknown[]).map(String)
               : undefined;
-          emit({ type: 'graph_written', path: inp.path, changedNodeIds });
+          // Prefer the tool-reported path: write_graph may reroute a member's
+          // new graph into their personal workspace (users/<name>/...).
+          const writtenPath = typeof parsed.path === 'string' && parsed.path ? parsed.path : inp.path;
+          emit({ type: 'graph_written', path: writtenPath, changedNodeIds });
         }
         if (call.name === 'rename_graph' && parsed.ok && typeof parsed.to === 'string') {
           emit({ type: 'graph_written', path: parsed.to });
@@ -586,7 +611,11 @@ export function estimateMessagesTokens(msgs: Message[]): number {
   let chars = 0;
   for (const m of msgs) {
     for (const b of m.content) {
-      if ('text' in b && typeof b.text === 'string') chars += b.text.length;
+      // Images are tokenized as vision tokens (~1.6K each), NOT as their
+      // base64 text — counting data.length would blow the estimate up by
+      // orders of magnitude and trip the ceiling on restored sessions.
+      if (b.type === 'image') chars += 6400;
+      else if ('text' in b && typeof b.text === 'string') chars += b.text.length;
       else if ('content' in b && typeof b.content === 'string') chars += b.content.length;
     }
   }
@@ -599,6 +628,7 @@ function serializeForSummary(msgs: Message[]): string {
   for (const m of msgs) {
     for (const b of m.content) {
       if (b.type === 'text') parts.push(`${m.role === 'user' ? '使用者' : '助手'}：${b.text}`);
+      else if (b.type === 'image') parts.push('[使用者附了一張圖片]');
       else if (b.type === 'tool_use') parts.push(`[工具呼叫 ${b.name}] ${JSON.stringify(b.input).slice(0, 200)}`);
       else if (b.type === 'tool_result') parts.push(`[工具結果${b.isError ? '（錯誤）' : ''}] ${b.content.slice(0, 200)}`);
     }
@@ -795,8 +825,9 @@ async function handleStreamEvent(
 
     case 'usage': {
       session.totalTokens += event.inputTokens + event.outputTokens;
-      // inputTokens covers the full re-sent context → this round's in+out is
-      // the current context size (NOT additive across rounds).
+      // inputTokens covers the full re-sent context (the Anthropic adapter
+      // already folds cached portions back in) → this round's in+out is the
+      // current context size (NOT additive across rounds).
       session.contextTokens = event.inputTokens + event.outputTokens;
       setUsageEmitted();
       emit({
@@ -804,6 +835,8 @@ async function handleStreamEvent(
         inputTokens: event.inputTokens,
         outputTokens: event.outputTokens,
         estimated: false,
+        // Prompt-cache hits: the share of inputTokens billed at ~10%.
+        ...(event.cacheReadTokens ? { cachedTokens: event.cacheReadTokens } : {}),
       });
       break;
     }
@@ -834,7 +867,8 @@ function toolSummary(call: ToolUseBlock): string {
     case 'get_mf_signature':  return `查詢 MF 簽名：${String(inp.assetPath ?? '')}`;
     case 'read_graph':        return `讀取圖形：${String(inp.path ?? '')}`;
     case 'write_graph':       return `寫入圖形：${String(inp.path ?? '')}`;
-    case 'patch_graph':       return `修改圖形：${String(inp.path ?? '')}`;
+    case 'patch_graph':
+      return `${inp.dryRun === true ? '預覽修改' : '修改圖形'}：${String(inp.path ?? '')}`;
     case 'validate_graph':    return `驗證圖形：${typeof inp.path === 'string' ? inp.path : '(inline)'}`;
     case 'get_graph_errors':  return `取得圖形錯誤：${String(inp.path ?? '')}`;
     case 'list_graphs':       return '列出現有圖形檔案';
@@ -858,10 +892,17 @@ function toolSummary(call: ToolUseBlock): string {
   }
 }
 
-function toolEndSummary(toolName: string, _content: string): string | undefined {
+function toolEndSummary(toolName: string, content: string): string | undefined {
   switch (toolName) {
     case 'write_graph':     return '圖形已寫入';
-    case 'patch_graph':     return '圖形已更新';
+    case 'patch_graph': {
+      try {
+        if ((JSON.parse(content) as { dryRun?: unknown }).dryRun === true) {
+          return '預覽完成（未寫入）';
+        }
+      } catch { /* non-JSON content — fall through to the written summary */ }
+      return '圖形已更新';
+    }
     case 'update_memory':   return '記憶已更新';
     case 'compact_context': return '上下文已壓縮';
     default:                return undefined;

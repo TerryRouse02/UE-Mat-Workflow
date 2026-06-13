@@ -80,7 +80,7 @@ export const selfRepairScenarios: Scenario[] = [
 
   {
     name: 'self-repair: bad patch op (unknown node id) → corrected patch',
-    description: 'applyPatch reports {opIndex, applyError}; the failed patch leaves the file untouched and emits no diff.',
+    description: 'applyPatch reports {applyErrors: [{opIndex, message}…]}; the failed patch leaves the file untouched and emits no diff.',
     seedFiles: { 'proj/smooth.matgraph.json': basicPbrGraph('smooth') },
     steps: [
       chat(

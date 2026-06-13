@@ -84,28 +84,50 @@ export class AnthropicAdapter implements Provider {
     // With thinking disabled, historic thinking/redacted_thinking blocks are
     // stripped (the API rejects them); with thinking enabled they round-trip
     // verbatim — required when tool use follows an extended-thinking turn.
+    // Every block is SHALLOW-COPIED: the cache_control breakpoint below must
+    // never leak into the caller's neutral message history.
+    const messages = req.messages.map((m) => ({
+      role: m.role,
+      content: m.content
+        .filter((block) =>
+          thinkingOn || (block.type !== 'thinking' && block.type !== 'redacted_thinking'))
+        .map((block): Record<string, unknown> => {
+          if (block.type === 'tool_result') {
+            // Neutral toolUseId → Anthropic tool_use_id.
+            const tb = block as ToolResultBlock;
+            const out: Record<string, unknown> = {
+              type: 'tool_result',
+              tool_use_id: tb.toolUseId,
+              content: tb.content,
+            };
+            if (tb.isError !== undefined) out.is_error = tb.isError;
+            return out;
+          }
+          if (block.type === 'image') {
+            // Neutral image → Anthropic base64 source block.
+            return {
+              type: 'image',
+              source: { type: 'base64', media_type: block.mediaType, data: block.data },
+            };
+          }
+          return { ...block };
+        }),
+    }));
+
+    // Prompt caching — three ephemeral breakpoints (4 allowed max): the last
+    // tool def, the system prompt, and the last content block of the final
+    // message. The agent loop's history is append-only within a turn, so each
+    // round re-reads the previous round's prefix at ~10% price instead of
+    // full price; the moving message breakpoint advances every round.
+    const lastContent = messages.at(-1)?.content;
+    const lastBlock = lastContent?.[lastContent.length - 1];
+    if (lastBlock && (lastBlock.type === 'text' || lastBlock.type === 'tool_result')) {
+      lastBlock.cache_control = { type: 'ephemeral' };
+    }
+
     const body: Record<string, unknown> = {
       model: req.model,
-      messages: req.messages.map((m) => ({
-        role: m.role,
-        content: m.content
-          .filter((block) =>
-            thinkingOn || (block.type !== 'thinking' && block.type !== 'redacted_thinking'))
-          .map((block) => {
-            if (block.type === 'tool_result') {
-              // Neutral toolUseId → Anthropic tool_use_id.
-              const tb = block as ToolResultBlock;
-              const out: Record<string, unknown> = {
-                type: 'tool_result',
-                tool_use_id: tb.toolUseId,
-                content: tb.content,
-              };
-              if (tb.isError !== undefined) out.is_error = tb.isError;
-              return out;
-            }
-            return block;
-          }),
-      })),
+      messages,
       max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
       stream: true,
     };
@@ -117,15 +139,23 @@ export class AnthropicAdapter implements Provider {
       body.max_tokens = Math.max(req.maxTokens ?? DEFAULT_MAX_TOKENS, budget + THINKING_HEADROOM);
     }
 
-    // system is top-level, only when present.
-    if (req.system !== undefined) body.system = req.system;
+    // system is top-level, only when present — sent as a content-block array
+    // so it can carry its cache breakpoint.
+    if (req.system !== undefined) {
+      body.system = [
+        { type: 'text', text: req.system, cache_control: { type: 'ephemeral' } },
+      ];
+    }
 
-    // Translate ToolDef.inputSchema → Anthropic's input_schema.
+    // Translate ToolDef.inputSchema → Anthropic's input_schema. The cache
+    // breakpoint sits on the LAST def and covers the whole tool array.
     if (req.tools && req.tools.length > 0) {
-      body.tools = req.tools.map((t) => ({
+      const lastIdx = req.tools.length - 1;
+      body.tools = req.tools.map((t, i) => ({
         name: t.name,
         description: t.description,
         input_schema: t.inputSchema,
+        ...(i === lastIdx ? { cache_control: { type: 'ephemeral' } } : {}),
       }));
     }
 
@@ -153,6 +183,8 @@ export class AnthropicAdapter implements Provider {
     // Usage accumulated across message_start + message_delta.
     let inputTokens = 0;
     let outputTokens = 0;
+    let cacheReadTokens = 0;
+    let cacheCreationTokens = 0;
     let stopReason: 'end' | 'tool_use' | 'max_tokens' = 'end';
 
     // Currently streaming tool_use content block, if any.
@@ -183,7 +215,14 @@ export class AnthropicAdapter implements Provider {
       switch (evtType) {
         case 'message_start': {
           const usage = (evt.message as Record<string, unknown> | undefined)?.usage as Record<string, number> | undefined;
-          if (usage) inputTokens = usage.input_tokens ?? 0;
+          if (usage) {
+            // With prompt caching, input_tokens EXCLUDES the cached prefix —
+            // the loop's context gating needs the full context size, so sum
+            // all three. Cache numbers are kept separately for telemetry.
+            cacheReadTokens = usage.cache_read_input_tokens ?? 0;
+            cacheCreationTokens = usage.cache_creation_input_tokens ?? 0;
+            inputTokens = (usage.input_tokens ?? 0) + cacheReadTokens + cacheCreationTokens;
+          }
           break;
         }
 
@@ -255,7 +294,14 @@ export class AnthropicAdapter implements Provider {
 
         case 'message_stop': {
           if (inputTokens > 0 || outputTokens > 0) {
-            yield { type: 'usage', inputTokens, outputTokens };
+            yield {
+              type: 'usage',
+              inputTokens,
+              outputTokens,
+              // Omitted when zero so cache-less responses keep the old shape.
+              ...(cacheReadTokens > 0 ? { cacheReadTokens } : {}),
+              ...(cacheCreationTokens > 0 ? { cacheCreationTokens } : {}),
+            };
           }
           yield { type: 'done', stopReason };
           return;

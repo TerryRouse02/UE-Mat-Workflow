@@ -9,7 +9,7 @@ A unified workflow for AI + human collaboration on UE 5.7 material node graphs. 
 ## Why
 
 - **No more text-wall node graphs.** AI describes materials in a strict JSON schema; the viewer renders them as real-looking UE nodes.
-- **No more hallucinated node names.** A pinned UE 5.7 node DB (296 expressions — effectively the full engine set) is the source of truth — AI must use existing types, exact pin names, exact param names. The viewer flags connections that reference a pin which doesn't exist on its node.
+- **No more hallucinated node names.** A pinned UE 5.7 node DB (331 authoring definitions, covering all 342 concrete official expressions together with 13 explicit special-handling records) is the source of truth — AI must use existing types, exact pin names, exact param names. The viewer flags connections that reference a pin which doesn't exist on its node.
 - **Final outputs survive export.** You wire results straight into the `MaterialOutput` node; on export the emitter auto-collects them into a `MakeMaterialAttributes` node, so a pasted material needs one wire in UE instead of one per attribute.
 - **One format across AI tools.** Same `agent-pack/` works in Claude Code, Cursor, Copilot CLI, Gemini CLI, or anything that reads agent rules.
 
@@ -54,6 +54,16 @@ The sidebar has four tabs:
 | **Agent** | The built-in conversational material agent — see [Built-in AI material agent](#built-in-ai-material-agent). Hidden in exported HTML snapshots. |
 
 The viewer hot-reloads when files change.
+
+**Preview swatches** — materials whose BaseColor (or Emissive) chain folds to a constant
+(constants, parameters, lerp/multiply/etc.) show a color swatch in the file list and the
+canvas topbar. Chains through textures or Material Functions honestly show nothing rather
+than a guess.
+
+**Compare two graphs** — open one file, then pick **與目前圖比較 (Compare with open
+graph)** from any other file's `⋯` menu. The canvas shows the union with green = added,
+red dashed = removed, amber = params/type changed (connections colored the same way), plus
+a summary banner. `Esc` or **結束比較** exits.
 
 ---
 
@@ -109,6 +119,42 @@ What it can do:
 Type `/` in the input box for quick commands (`/validate`, `/explain`, `/export`, `/compact`,
 `/log`, `/help`, `/regen`, `/undo`, `/md`, `/new`, `/crawlmf`). Developers: the full design
 contract lives in [`viewer/AGENT_DESIGN.md`](./viewer/AGENT_DESIGN.md).
+
+---
+
+## Team mode (share one viewer with your team)
+
+By default the viewer binds `127.0.0.1` and has no login — nothing changes for
+solo use. Flip it on in the browser (Config → 團隊 → 啟用團隊模式: creates the
+admin account and live re-binds, no restart) — or set `BIND_HOST=0.0.0.0` for
+Docker/scripted deployments — and the same server becomes a team workspace:
+
+- **Login + roles** — username/password with 7-day tokens (HttpOnly cookie).
+  First visit creates the admin; members are added in Config → 使用者管理.
+- **admin** keeps the full surface (agent chat, crawls, LLM key, user
+  management); **user** gets the shared graphs, import/export, node explain —
+  and a read-only view of the **announcement agent session** the admin
+  designates with one click (設為公告), streamed live to everyone.
+- The LLM API key stays server-side; no browser ever receives it.
+
+Docker / docker-compose / Caddy / nginx examples and the full ops guide live
+in [`deploy/`](./deploy/README.md). UE crawls still need a workstation with
+Unreal installed — run team mode bare-metal there, or generate the indexes on
+a workstation and mount them into the container.
+
+Windows workstation admins can deploy and maintain LAN HTTPS with the
+Traditional Chinese helper under [`tools/viewer-https/`](./tools/viewer-https/README.zh-TW.md):
+
+```powershell
+.\tools\viewer-https\Manage-ViewerHttps.ps1
+```
+
+For a beginner-friendly first install, open `tools\viewer-https` and
+double-click `Manage-ViewerHttps.bat` instead.
+
+After deployment, members who open the original HTTP team URL receive a guided
+page that downloads one self-contained certificate installer, then redirects
+them to the secure viewer.
 
 ---
 
@@ -227,7 +273,7 @@ Today that's `nodes-ue5.7.json` + `nodes-ue5.7.export.json`; later `nodes-ue5.8.
 
 ## Adding to the node DB
 
-The DB is version-scoped: edit the pair for the version you target (e.g. `agent-pack/nodes-ue5.7.json`, currently 296 expressions). To add more:
+The DB is version-scoped: edit the pair for the version you target (e.g. `agent-pack/nodes-ue5.7.json`, currently 331 authoring definitions). To add more:
 
 1. Find the node in the [UE Material Expression Reference](https://dev.epicgames.com/documentation/en-us/unreal-engine/material-expression-reference).
 2. Match the existing entry format under `nodes.<NodeName>` (inputs, outputs, params, category, description).

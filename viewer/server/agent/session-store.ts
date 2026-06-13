@@ -24,6 +24,8 @@ export interface PersistedSession {
   createdAt: string;
   updatedAt: string;
   ueVersion: string;
+  /** Team mode: username that owns this conversation (absent = local/legacy). */
+  owner?: string;
   totalTokens: number;
   turnSeq: number;
   /** Cumulative off-topic strikes (absent in pre-fence session files → 0). */
@@ -61,6 +63,10 @@ export interface SessionStore {
   load(id: string): Promise<PersistedSession | null>;
   save(session: PersistedSession): Promise<void>;
   remove(id: string): Promise<void>;
+  /** The one team-visible "announcement" session (team mode), or null. */
+  getPublicId(): Promise<string | null>;
+  /** Point the announcement channel at a session (null clears it). */
+  setPublicId(id: string | null): Promise<void>;
 }
 
 function toMeta(s: PersistedSession): AgentSessionMeta {
@@ -70,6 +76,7 @@ function toMeta(s: PersistedSession): AgentSessionMeta {
     createdAt: s.createdAt,
     updatedAt: s.updatedAt,
     ueVersion: s.ueVersion,
+    owner: s.owner,
     totalTokens: s.totalTokens,
     turns: s.transcript.filter((e) => e.kind === 'user').length,
   };
@@ -123,7 +130,34 @@ export function createSessionStore(viewerRoot: string): SessionStore {
   async function remove(id: string): Promise<void> {
     if (!SESSION_ID_RE.test(id)) return;
     await rm(join(dir, `${id}.json`), { force: true });
+    // A deleted session cannot stay the announcement channel.
+    if ((await getPublicId()) === id) await setPublicId(null);
   }
 
-  return { dir, list, load, save, remove };
+  // The announcement pointer lives in a DOTFILE so list()'s id regex can never
+  // mistake it for a session (and no session id can ever collide with it).
+  const publicPointerPath = join(dir, '.public-session.json');
+
+  async function getPublicId(): Promise<string | null> {
+    try {
+      const parsed = JSON.parse(await readFile(publicPointerPath, 'utf-8')) as { id?: unknown };
+      return typeof parsed.id === 'string' && SESSION_ID_RE.test(parsed.id) ? parsed.id : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function setPublicId(id: string | null): Promise<void> {
+    if (id === null) {
+      await rm(publicPointerPath, { force: true });
+      return;
+    }
+    if (!SESSION_ID_RE.test(id)) throw new Error(`invalid session id: ${id}`);
+    await mkdir(dir, { recursive: true });
+    const tmp = `${publicPointerPath}.tmp.${process.pid}.${Date.now()}`;
+    await writeFile(tmp, JSON.stringify({ id }) + '\n', 'utf-8');
+    await rename(tmp, publicPointerPath);
+  }
+
+  return { dir, list, load, save, remove, getPublicId, setPublicId };
 }

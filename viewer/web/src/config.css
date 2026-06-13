@@ -218,3 +218,202 @@
 .ai-test-result { font-size:11px; line-height:1.5; flex:1 1 140px; }
 .ai-test-result.ok { color:var(--ok); }
 .ai-test-result.err { color:#f0a59c; }
+
+/* ── User management (team mode, Config tab) ─────────────────────────────── */
+.useradmin-err {
+  font-size: 12px; color: var(--error);
+  background: rgba(224, 89, 78, .1);
+  border: 1px solid rgba(224, 89, 78, .35);
+  border-radius: var(--chip-radius);
+  padding: 6px 9px; margin-bottom: 8px;
+}
+.useradmin-list { display: flex; flex-direction: column; gap: 4px; }
+.useradmin-row {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  padding: 6px 9px;
+}
+.ua-main { display: flex; align-items: center; gap: 8px; }
+.ua-name { font-size: 12px; color: var(--text); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ua-me { color: var(--text-mute); font-weight: 400; font-size: 11px; }
+.ua-role { font-size: 10px; padding: 1px 6px; border-radius: 4px; background: var(--bg-elev); color: var(--text-mute); }
+.ua-role.admin { color: var(--accent); border: 1px solid var(--accent-dim); background: var(--accent-ghost); }
+.ua-actions { margin-left: auto; display: inline-flex; gap: 5px; }
+.ua-btn {
+  font-size: 11px; padding: 3px 8px; cursor: pointer;
+  background: var(--bg-elev); color: var(--text-dim);
+  border: 1px solid var(--border); border-radius: var(--chip-radius);
+}
+.ua-btn:hover:not(:disabled) { color: var(--text); border-color: var(--border-strong); }
+.ua-btn:disabled { opacity: .5; cursor: default; }
+.ua-btn.danger:hover:not(:disabled) { color: var(--error); border-color: var(--error); }
+.ua-btn.primary { color: var(--accent); border-color: var(--accent-dim); }
+.ua-reset { display: flex; gap: 6px; margin-top: 6px; }
+.ua-reset input, .ua-create input, .ua-create select {
+  flex: 1; min-width: 0;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  color: var(--text); font-size: 12px;
+  padding: 5px 8px; outline: none;
+}
+.ua-reset input:focus, .ua-create input:focus { border-color: var(--accent-dim); }
+.ua-create { display: flex; gap: 6px; margin-top: 8px; }
+.ua-create select { flex: 0 0 76px; }
+
+/* ── Config sub-tabs (爬取 / AI / 團隊) ──────────────────────────────────── */
+.cfg-tabs {
+  display: flex; gap: 2px;
+  padding: 2px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  margin-bottom: 10px;
+}
+.cfg-tab {
+  flex: 1;
+  padding: 5px 0;
+  font-size: 12px;
+  color: var(--text-dim);
+  background: none; border: none; border-radius: 4px;
+  cursor: pointer;
+}
+.cfg-tab:hover { color: var(--text); }
+.cfg-tab.on { background: var(--bg-elev); color: var(--text); font-weight: 600; }
+
+/* ── Team panel ──────────────────────────────────────────────────────────── */
+.team-state {
+  margin-left: auto; font-size: 10px;
+  padding: 1px 6px; border-radius: 4px;
+  background: var(--bg-elev); color: var(--text-mute);
+}
+.team-state.on { color: var(--accent); border: 1px solid var(--accent-dim); background: var(--accent-ghost); }
+.team-urls { display: flex; flex-direction: column; gap: 4px; margin-bottom: 8px; }
+.team-url {
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  padding: 5px 9px; font-size: 12px;
+}
+.team-url .mono { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-check {
+  display: flex; align-items: flex-start; gap: 7px;
+  font-size: 11px; color: var(--text-dim); line-height: 1.5;
+  margin: 8px 0;
+  cursor: pointer;
+}
+.team-check input { margin-top: 2px; }
+.team-lock-fields {
+  display: flex; align-items: center; gap: 16px;
+  margin: 0 0 8px 24px; font-size: 11px; color: var(--text-dim);
+}
+.team-lock-fields label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.team-lock-fields select {
+  background: var(--bg-panel-2); color: var(--text);
+  border: 1px solid var(--border); border-radius: 5px;
+  font-size: 11px; padding: 2px 6px;
+}
+.team-pwrow { display: flex; gap: 6px; margin-bottom: 4px; }
+.team-pwrow input {
+  flex: 1; min-width: 0;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  color: var(--text); font-size: 12px;
+  padding: 6px 9px; outline: none;
+}
+.team-pwrow input:focus { border-color: var(--accent-dim); }
+.team-toggle-btn { width: 100%; padding: 7px 0; font-size: 12px; margin-top: 2px; }
+
+/* ── My account (self-service password change) ───────────────────────────── */
+.myacct-form { display: flex; flex-direction: column; gap: 6px; }
+.myacct-form input {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  color: var(--text); font-size: 12px;
+  padding: 6px 9px; outline: none;
+}
+.myacct-form input:focus { border-color: var(--accent-dim); }
+.myacct-form .ua-btn { align-self: flex-start; padding: 5px 12px; }
+.myacct-ok {
+  margin-top: 8px;
+  font-size: 12px; color: var(--ok);
+  background: rgba(78, 196, 110, .1);
+  border: 1px solid rgba(78, 196, 110, .35);
+  border-radius: var(--chip-radius);
+  padding: 6px 9px;
+}
+
+/* ── Team usage overview (admin) ─────────────────────────────────────────── */
+.teamusage-refresh { margin-left: auto; padding: 2px 7px; }
+.teamusage-list { display: flex; flex-direction: column; gap: 4px; }
+.teamusage-owner {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--chip-radius);
+  overflow: hidden;
+}
+.tu-row {
+  display: flex; align-items: center; gap: 8px;
+  width: 100%; padding: 7px 9px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); font-size: 12px; text-align: left;
+}
+.tu-row:hover { background: var(--bg-elev); }
+.tu-name { color: var(--text); font-weight: 600; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tu-stat { color: var(--text-mute); font-size: 11px; flex: 0 0 auto; }
+.tu-tokens { color: var(--accent); font-size: 11px; flex: 0 0 auto; }
+.tu-when { color: var(--text-mute); font-size: 11px; flex: 0 0 auto; min-width: 56px; text-align: right; }
+.tu-sessions {
+  border-top: 1px solid var(--hairline);
+  padding: 4px 9px 8px;
+  display: flex; flex-direction: column; gap: 3px;
+}
+.tu-session {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--text-dim);
+  padding: 3px 0;
+}
+.tu-session .tu-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tu-session .ua-btn { padding: 1px 6px; font-size: 10px; }
+
+/* per-user daily quota (UserAdmin row) */
+.ua-quota { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; color: var(--text-mute); }
+.ua-used { color: var(--text-dim); }
+.ua-quota-input {
+  width: 64px;
+  background: var(--bg-panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text); font-size: 11px;
+  padding: 2px 6px; outline: none;
+}
+.ua-quota-input:focus { border-color: var(--accent-dim); }
+
+/* ── Proposal inbox (admin) ──────────────────────────────────────────────── */
+.pinbox-list { display: flex; flex-direction: column; gap: 5px; }
+.pinbox-row {
+  background: var(--bg-panel-2);
+  border: 1px solid var(--accent-dim);
+  border-radius: var(--chip-radius);
+  padding: 7px 9px;
+}
+.pinbox-main { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.pinbox-kind {
+  font-size: 10px; padding: 1px 6px; border-radius: 4px;
+  background: var(--accent-ghost); color: var(--accent); border: 1px solid var(--accent-dim);
+}
+.pinbox-summary { flex: 1; min-width: 0; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pinbox-who { font-size: 11px; color: var(--text-mute); }
+.pinbox-note { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.pinbox-actions { display: flex; gap: 6px; margin-top: 7px; }
+.pinbox-history { border-top: 1px solid var(--hairline); margin-top: 4px; padding-top: 5px; display: flex; flex-direction: column; gap: 3px; }
+.pinbox-hrow { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--text-dim); }
+.pinbox-status { font-size: 10px; padding: 0 5px; border-radius: 4px; background: var(--bg-elev); color: var(--text-mute); }
+.pinbox-status.done { color: var(--ok); }
+.pinbox-status.failed, .pinbox-status.denied { color: var(--error); }
+.pinbox-status.approved { color: var(--info); }
+.pinbox-note-inline { color: var(--text-mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 140px; }

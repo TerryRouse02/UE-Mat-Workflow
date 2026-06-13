@@ -57,14 +57,17 @@ tools/node-t3d-metadata/local.config.json
 viewer/.agent-checkpoints/
 viewer/.agent-sessions/
 viewer/.agent-memory/
+# Team-mode credentials (scrypt password hashes + hashed tokens) — never commit.
+viewer/.auth/
 
 # Locally-built macOS plugin binary (D2: Mac plugin stays local; Win64 stays committed)
 tools/node-t3d-metadata/compiled/**/Binaries/Mac/
 
 # One-time tool outputs: regenerable reports, not committed. Written next to the
 # tool when you run node discovery / build-db-candidates.
-tools/node-t3d-metadata/node-discovery.json
-tools/node-t3d-metadata/db-candidates.json
+tools/node-t3d-metadata/node-discovery*.json
+tools/node-t3d-metadata/db-candidates*.json
+tools/node-t3d-metadata/node-selftest.json
 
 # UE editor-host scratch generated while running commandlets. Keep ONLY the committed
 # minimal host .uproject; drop everything UE regenerates under it (Config, Saved,

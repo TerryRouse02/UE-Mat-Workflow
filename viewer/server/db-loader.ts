@@ -21,6 +21,7 @@ export const OUTPUTLESS_NODES = new Set<string>([
   'AbsorptionMediumMaterialOutput', 'NeuralNetworkInput',
   'RuntimeVirtualTextureOutput', 'SingleLayerWaterMaterialOutput', 'SubsurfaceMediumMaterialOutput',
   'VolumetricAdvancedMaterialOutput', 'VolumetricCloudEmptySpaceSkippingOutput', 'LegacyBlendMaterialAttributes',
+  'PhysicalMaterialOutput',
 ]);
 
 export function loadDB(path: string): NodeDB {
