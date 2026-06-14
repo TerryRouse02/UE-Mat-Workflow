@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { StoreProvider, useStore } from './store';
 import { Chrome } from './Chrome';
 import { Banner } from './Banner';
@@ -27,8 +28,9 @@ export type AppTab = 'files' | 'nodes' | 'config' | 'agent';
  */
 function AuthGate({ children }: { children: React.ReactNode }) {
   const { state } = useStore();
+  const { t } = useTranslation();
   if (state.connection !== 'snapshot') {
-    if (state.auth === null) return <div className="auth-splash">連線中…</div>;
+    if (state.auth === null) return <div className="auth-splash">{t('app.connecting')}</div>;
     if (state.auth.mode === 'team' && !state.auth.authed) return <Login />;
   }
   return <>{children}</>;
@@ -42,6 +44,7 @@ function srcToKind(src: string): 'workmf' | 'projectmat' | 'enginemf' | 'export'
 }
 
 function Body() {
+  const { t } = useTranslation();
   const { state, open, enterMF, startCrawl, selectNode, saveLayout } = useStore();
   const { db, exportMeta, supported } = useDb();
 
@@ -120,9 +123,9 @@ function Body() {
     if (current) setFocusReq(prev => ({ id, nonce: (prev?.nonce ?? 0) + 1, path: current }));
   }, [current]);
 
-  const pushToast = useCallback((t: Omit<ToastItem, 'id'>) =>
-    setToasts(ts => [...ts, { id: Date.now() + Math.random(), ...t }]), []);
-  const closeToast = (id: number) => setToasts(ts => ts.filter(t => t.id !== id));
+  const pushToast = useCallback((item: Omit<ToastItem, 'id'>) =>
+    setToasts(ts => [...ts, { id: Date.now() + Math.random(), ...item }]), []);
+  const closeToast = (id: number) => setToasts(ts => ts.filter(item => item.id !== id));
 
   // ─── Compare view (graph diff) ──────────────────────────────────────────────
   // base = the open graph at the moment compare started; other = the fetched
@@ -139,9 +142,9 @@ function Body() {
       const data = (await r.json()) as { path: string; payload: GraphPayload };
       setDiffTarget({ basePath: current, otherPath, other: data.payload });
     } catch (e) {
-      pushToast({ variant: 'error', title: '無法載入比較對象', message: (e as Error).message });
+      pushToast({ variant: 'error', title: t('app.compareLoadError'), message: (e as Error).message });
     }
-  }, [current, pushToast]);
+  }, [current, pushToast, t]);
   const diffData = useMemo(() => {
     if (!diffTarget || !payload || diffTarget.basePath !== current) return null;
     return buildDiffPayload(payload, diffTarget.other);
@@ -182,11 +185,11 @@ function Body() {
   useEffect(() => {
     const s = state.crawl;
     if (prevCrawlRef.current === 'running' && s.status !== 'running') {
-      if (s.status === 'success') pushToast({ variant: 'success', title: '元資料已更新', message: `${s.kind} 爬取完成，已即時刷新。` });
-      else if (s.status === 'error') pushToast({ variant: 'error', title: '爬取失敗', message: s.logs.at(-1) ?? `exit ${s.exitCode}`, detail: s.logs.slice(-8) });
+      if (s.status === 'success') pushToast({ variant: 'success', title: t('app.crawlSuccessTitle'), message: t('app.crawlSuccessMsg', { kind: s.kind }) });
+      else if (s.status === 'error') pushToast({ variant: 'error', title: t('app.crawlErrorTitle'), message: s.logs.at(-1) ?? `exit ${s.exitCode}`, detail: s.logs.slice(-8) });
     }
     prevCrawlRef.current = s.status;
-  }, [state.crawl, pushToast]);
+  }, [state.crawl, pushToast, t]);
 
   // ─── Export ─────────────────────────────────────────────────────────────────
   const doExport = useCallback(async () => {
@@ -216,9 +219,9 @@ function Body() {
   const doSaveLayout = useCallback(async () => {
     if (!current || Object.keys(positions).length === 0) return;
     const r = await saveLayout(current, positions);
-    if (r.ok) pushToast({ variant: 'success', title: '版面已儲存', message: '節點位置已寫回檔案，並會忠實匯出回 UE。' });
-    else pushToast({ variant: 'error', title: '儲存版面失敗', message: r.error ?? '未知錯誤' });
-  }, [current, positions, saveLayout, pushToast]);
+    if (r.ok) pushToast({ variant: 'success', title: t('app.saveLayoutOk'), message: t('app.saveLayoutOkMsg') });
+    else pushToast({ variant: 'error', title: t('app.saveLayoutErr'), message: r.error ?? t('app.unknownError') });
+  }, [current, positions, saveLayout, pushToast, t]);
 
   // Agent-requested clipboard export (export_to_clipboard tool): runs the same
   // doExport as the header button, but only once the requested graph is the
@@ -326,7 +329,7 @@ function Body() {
           {!leftCollapsed && (
             <div
               className={'panel-resizer' + (resizing ? ' active' : '')}
-              title="拖曳調整側欄寬度"
+              title={t('app.resizeSidebar')}
               onMouseDown={startLeftResize}
             />
           )}
@@ -334,14 +337,14 @@ function Body() {
         <main className="canvas-wrap">
           <button
             className="panel-toggle left"
-            title={leftCollapsed ? '展開側欄' : '收合側欄'}
+            title={leftCollapsed ? t('app.expandSidebar') : t('app.collapseSidebar')}
             onClick={() => setLeftCollapsed(c => !c)}
           >
             <Icon name="caret" size={13} style={{ transform: leftCollapsed ? 'none' : 'rotate(180deg)' }} />
           </button>
           <button
             className="panel-toggle right"
-            title={rightCollapsed ? '展開檢視器' : '收合檢視器'}
+            title={rightCollapsed ? t('app.expandInspector') : t('app.collapseInspector')}
             onClick={() => setRightCollapsed(c => !c)}
           >
             <Icon name="caret" size={13} style={{ transform: rightCollapsed ? 'rotate(180deg)' : 'none' }} />
@@ -352,7 +355,7 @@ function Body() {
                 {previewColor && (
                   <span
                     className="ct-swatch"
-                    title={`BaseColor 預覽（常數折疊近似）rgb(${previewColor.map(c => Math.round(c * 255)).join(',')})`}
+                    title={t('app.baseColorPreview', { rgb: previewColor.map(c => Math.round(c * 255)).join(',') })}
                     style={{ background: `rgb(${previewColor.map(c => Math.round(c * 255)).join(',')})` }}
                   />
                 )}
@@ -362,9 +365,9 @@ function Body() {
                 {state.connection === 'live' && current && !diffData && (
                   <button
                     className="btn sm"
-                    title="把目前畫布上的節點位置存回這個 .matgraph.json（下次開啟保留此版面，並忠實匯出回 UE）"
+                    title={t('app.saveLayoutHint')}
                     onClick={() => void doSaveLayout()}
-                  >儲存版面</button>
+                  >{t('app.saveLayout')}</button>
                 )}
                 {(errs.length + warns.length) > 0 && (
                   <span className="ct-warn" title={[...errs, ...warns].join('\n')}>
@@ -382,17 +385,17 @@ function Body() {
           {payload && diffData && diffTarget && (
             <div className="diff-banner">
               <span className="db-title">
-                比較中：<b>{diffTarget.basePath.replace(/\.matgraph\.json$/, '')}</b>
+                {t('app.diffComparingPrefix')}<b>{diffTarget.basePath.replace(/\.matgraph\.json$/, '')}</b>
                 <span className="db-arrow">→</span>
                 <b>{diffTarget.otherPath.replace(/\.matgraph\.json$/, '')}</b>
               </span>
               <span className="db-stats">
-                <span className="db-chip added">+{diffData.diff.summary.added.length} 節點</span>
-                <span className="db-chip removed">−{diffData.diff.summary.removed.length} 節點</span>
-                <span className="db-chip changed">~{diffData.diff.summary.changed.length} 修改</span>
-                <span className="db-chip conn">連線 +{diffData.diff.summary.connAdded}/−{diffData.diff.summary.connRemoved}</span>
+                <span className="db-chip added">+{diffData.diff.summary.added.length} {t('app.diffNodes')}</span>
+                <span className="db-chip removed">−{diffData.diff.summary.removed.length} {t('app.diffNodes')}</span>
+                <span className="db-chip changed">~{diffData.diff.summary.changed.length} {t('app.diffChanged')}</span>
+                <span className="db-chip conn">{t('app.diffConn')} +{diffData.diff.summary.connAdded}/−{diffData.diff.summary.connRemoved}</span>
               </span>
-              <button className="db-close" onClick={() => setDiffTarget(null)} title="結束比較（Esc）">結束比較</button>
+              <button className="db-close" onClick={() => setDiffTarget(null)} title={t('app.diffEndHint')}>{t('app.diffEnd')}</button>
             </div>
           )}
           {payload
@@ -410,7 +413,7 @@ function Body() {
           {!rightCollapsed && (
             <div
               className={'panel-resizer left-edge' + (resizing ? ' active' : '')}
-              title="拖曳調整檢視器寬度"
+              title={t('app.resizeInspector')}
               onMouseDown={startRightResize}
             />
           )}

@@ -6,6 +6,8 @@
  * components can import from a single file and the test suite can cover them.
  */
 
+import i18n from './i18n';
+
 // ─── ConfigPanel flavour ─────────────────────────────────────────────────────
 
 /**
@@ -33,10 +35,10 @@ export function fmtTimeCompact(iso: string): string {
 export function relTimeMinutes(iso: string): string {
   try {
     const delta = (Date.now() - new Date(iso).getTime()) / 1000;
-    if (delta < 60) return '剛剛';
-    if (delta < 3600) return `${Math.floor(delta / 60)} 分鐘前`;
-    if (delta < 86400) return `${Math.floor(delta / 3600)} 小時前`;
-    return `${Math.floor(delta / 86400)} 天前`;
+    if (delta < 60) return i18n.t('timeUtils.justNow');
+    if (delta < 3600) return i18n.t('timeUtils.minutesAgo', { n: Math.floor(delta / 60) });
+    if (delta < 86400) return i18n.t('timeUtils.hoursAgo', { n: Math.floor(delta / 3600) });
+    return i18n.t('timeUtils.daysAgo', { n: Math.floor(delta / 86400) });
   } catch {
     return '—';
   }
@@ -63,8 +65,8 @@ export function relTimeHours(iso: string | null | undefined): string {
   const d = new Date(iso).getTime();
   const now = Date.now();
   const h = Math.round((now - d) / 36e5);
-  if (h < 1) return '剛剛';
-  if (h < 24) return h + ' 小時前';
+  if (h < 1) return i18n.t('timeUtils.justNow');
+  if (h < 24) return i18n.t('timeUtils.hoursAgo', { n: h });
   const days = Math.round(h / 24);
-  return days + ' 天前';
+  return i18n.t('timeUtils.daysAgo', { n: days });
 }

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Icon } from './Icon';
 
 // Host directory picker for the Config tab's UE-path fields. Talks to the
@@ -31,6 +32,7 @@ function joinPath(dir: string, name: string, sep: string): string {
 }
 
 export function FsBrowser({ pick, fileExt, initialPath, title, onPick, onClose }: FsBrowserProps) {
+  const { t } = useTranslation();
   const [listing, setListing] = useState<FsListing | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,7 +77,7 @@ export function FsBrowser({ pick, fileExt, initialPath, title, onPick, onClose }
       <div className="fsb" onMouseDown={ev => ev.stopPropagation()}>
         <div className="fsb-head">
           <span className="fsb-title">{title}</span>
-          <button className="iconbtn" title="關閉" onClick={onClose}><Icon name="x" size={15} /></button>
+          <button className="iconbtn" title={t('fsBrowser.close')} onClick={onClose}><Icon name="x" size={15} /></button>
         </div>
 
         <div className="fsb-bar">
@@ -83,11 +85,11 @@ export function FsBrowser({ pick, fileExt, initialPath, title, onPick, onClose }
             className="btn sm"
             disabled={!listing?.parent}
             onClick={() => listing?.parent && void load(listing.parent)}
-            title="上一層"
+            title={t('fsBrowser.upOneLevel')}
           >
-            <Icon name="caret" size={12} style={{ transform: 'rotate(90deg)' }} /> 上一層
+            <Icon name="caret" size={12} style={{ transform: 'rotate(90deg)' }} /> {t('fsBrowser.upOneLevel')}
           </button>
-          <span className="fsb-path" title={listing?.path}>{listing?.path ?? '…'}</span>
+          <span className="fsb-path" title={listing?.path}>{listing?.path ?? t('fsBrowser.pathLoading')}</span>
         </div>
 
         {listing && listing.roots.length > 0 && (
@@ -101,10 +103,10 @@ export function FsBrowser({ pick, fileExt, initialPath, title, onPick, onClose }
         )}
 
         <div className="fsb-list">
-          {loading && <div className="fsb-empty">讀取中…</div>}
+          {loading && <div className="fsb-empty">{t('fsBrowser.loading')}</div>}
           {error && <div className="fsb-empty err">{error}</div>}
           {!loading && !error && listing && listing.entries.length === 0 && (
-            <div className="fsb-empty">（此資料夾沒有可顯示的項目）</div>
+            <div className="fsb-empty">{t('fsBrowser.emptyFolder')}</div>
           )}
           {!loading && !error && listing?.entries.map(e => {
             const pickable = e.dir || (pick === 'file' && matchesExt(e.name));
@@ -132,12 +134,12 @@ export function FsBrowser({ pick, fileExt, initialPath, title, onPick, onClose }
               disabled={!listing}
               onClick={() => listing && onPick(listing.path)}
             >
-              <Icon name="check" size={13} /> 選擇此資料夾
+              <Icon name="check" size={13} /> {t('fsBrowser.selectFolder')}
             </button>
           ) : (
-            <span className="note">點選 .{fileExt} 檔案即選取</span>
+            <span className="note">{t('fsBrowser.filePickHint', { ext: fileExt })}</span>
           )}
-          <button className="btn" onClick={onClose}>取消</button>
+          <button className="btn" onClick={onClose}>{t('fsBrowser.cancel')}</button>
         </div>
       </div>
     </div>

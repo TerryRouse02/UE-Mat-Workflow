@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { parseUET3D } from './export/ueT3D';
 import { useStore } from './store';
 import type { ExportMeta } from './export/export-meta-types';
@@ -19,6 +20,7 @@ export interface ImportModalProps {
 // navigate to it. The textarea is used instead of navigator.clipboard.readText()
 // because browsers routinely block programmatic clipboard reads.
 export function ImportModal({ exportMeta, open, pushToast, onClose }: ImportModalProps) {
+  const { t } = useTranslation();
   const { state, askAgent } = useStore();
   const [text, setText] = useState('');
   const [name, setName] = useState('');
@@ -64,7 +66,7 @@ export function ImportModal({ exportMeta, open, pushToast, onClose }: ImportModa
       pushToast({ variant: warnings.length ? 'warning' : 'success', title: 'Imported from UE', message, detail: warnings });
       open(path);
       if (explain && canExplain) {
-        askAgent(`我剛從 UE 匯入了 ${path}，請讀取它並用白話解說這張材質圖的結構、關鍵節點與預期視覺效果。`, true);
+        askAgent(t('importModal.explainPrompt', { path }), true);
       }
       onClose();
     } catch (e) {
@@ -77,39 +79,39 @@ export function ImportModal({ exportMeta, open, pushToast, onClose }: ImportModa
     <div className="import-overlay" onClick={onClose}>
       <div className="import-modal" onClick={e => e.stopPropagation()}>
         <div className="import-head">
-          <h3>從 UE 導入</h3>
-          <button className="import-x" onClick={onClose} title="關閉">✕</button>
+          <h3>{t('importModal.title')}</h3>
+          <button className="import-x" onClick={onClose} title={t('importModal.closeTitle')}>✕</button>
         </div>
         <p className="import-hint">
-          在 UE 材質編輯器<b>全選</b> <kbd>Ctrl</kbd>+<kbd>A</kbd>、複製 <kbd>Ctrl</kbd>+<kbd>C</kbd>，把內容貼到下方。
-          （全選才會包含根節點，最終輸出連線才不會掉。）解析版本：UE {exportMeta.ueVersion}。
+          {t('importModal.hintPre')}<b>{t('importModal.hintSelectAll')}</b> <kbd>Ctrl</kbd>+<kbd>A</kbd>{t('common.listSep')}{t('importModal.hintCopy')} <kbd>Ctrl</kbd>+<kbd>C</kbd>{t('importModal.hintPaste')}
+          {t('importModal.hintNote', { ueVersion: exportMeta.ueVersion })}
         </p>
         <label className="import-field">
-          <span>名稱 <em>（資料夾名 = 材質名；留空則自動命名，衝突會自動加後綴）</em></span>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="例如 my_material" />
+          <span>{t('importModal.nameLabel')} <em>{t('importModal.nameHint')}</em></span>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder={t('importModal.namePlaceholder')} />
         </label>
         <label className="import-field">
-          <span>UE 剪貼板內容（T3D）</span>
+          <span>{t('importModal.clipboardLabel')}</span>
           <textarea value={text} onChange={e => setText(e.target.value)} placeholder="Begin Object Class=/Script/UnrealEd.MaterialGraphNode ..." spellCheck={false} />
         </label>
         {isTeam && (
           <label className="import-field">
-            <span>匯入到</span>
+            <span>{t('importModal.destLabel')}</span>
             <select value={dest} onChange={e => setDest(e.target.value as 'shared' | 'personal')}>
-              <option value="shared">共享工作區（全隊可見）</option>
-              <option value="personal">我的工作區（users/{state.auth?.username}/，僅自己與管理員可見）</option>
+              <option value="shared">{t('importModal.destShared')}</option>
+              <option value="personal">{t('importModal.destPersonal', { username: state.auth?.username })}</option>
             </select>
           </label>
         )}
         <div className="import-actions">
           {canExplain && (
-            <label className="import-explain" title="導入成功後自動切到 Agent 分頁，請 AI 解說這張圖">
+            <label className="import-explain" title={t('importModal.explainCheckboxTitle')}>
               <input type="checkbox" checked={explain} onChange={e => setExplain(e.target.checked)} />
-              導入後請 AI 解說
+              {t('importModal.explainCheckboxLabel')}
             </label>
           )}
-          <button className="import-cancel" onClick={onClose} disabled={busy}>取消</button>
-          <button className="import-go" onClick={doImport} disabled={busy}>{busy ? '導入中…' : '導入'}</button>
+          <button className="import-cancel" onClick={onClose} disabled={busy}>{t('importModal.cancelBtn')}</button>
+          <button className="import-go" onClick={doImport} disabled={busy}>{busy ? t('importModal.importingBtn') : t('importModal.importBtn')}</button>
         </div>
       </div>
     </div>

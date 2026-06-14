@@ -13,25 +13,26 @@
 //     - Disabled while loading (double-click guard).
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useStore } from '../store';
 import { useDb } from '../dbContext';
 import type { NodeDef } from '../../../server/db-types';
 import type { AgentExplainRequest, AgentExplainResponse } from './protocol';
 
 // ---------------------------------------------------------------------------
-// Reserved types — built-in zh-TW descriptions (mirror server/agent/explain.ts)
+// Reserved types — built-in descriptions (mirror server/agent/explain.ts)
+// Called at render time with t so translations are applied per language.
 // ---------------------------------------------------------------------------
 
-const RESERVED_NODE_DESCRIPTIONS_WEB: Record<string, string> = {
-  MaterialOutput:
-    '材質輸出節點（MaterialOutput）是每個材質圖的終點，所有其他節點最終都要連到這裡。它接收基礎顏色（Base Color）、金屬度（Metallic）、粗糙度（Roughness）、法向量（Normal）等標準 PBR 通道，決定物體的最終視覺外觀。',
-  FunctionInput:
-    'MaterialFunction 輸入節點（FunctionInput）在材質函數（MaterialFunction）中定義一個外部輸入參數，讓呼叫這個函數的材質能夠傳入自訂數值，使材質函數具有可重複使用的彈性。',
-  FunctionOutput:
-    'MaterialFunction 輸出節點（FunctionOutput）在材質函數（MaterialFunction）中定義一個輸出，讓計算結果能夠回傳給呼叫端材質，與 FunctionInput 成對使用。',
-  MaterialFunctionCall:
-    '材質函數呼叫節點（MaterialFunctionCall）讓你在材質圖中插入並重複使用一段預先定義的材質邏輯（MaterialFunction）。它的輸入/輸出針腳由被呼叫的 MaterialFunction 決定，可以理解為程式設計中的「函式呼叫」。',
-};
+function getReservedNodeDescriptions(t: TFunction): Record<string, string> {
+  return {
+    MaterialOutput: t('nodeExplain.reservedMaterialOutput'),
+    FunctionInput: t('nodeExplain.reservedFunctionInput'),
+    FunctionOutput: t('nodeExplain.reservedFunctionOutput'),
+    MaterialFunctionCall: t('nodeExplain.reservedMaterialFunctionCall'),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Props
@@ -69,12 +70,14 @@ export function NodeExplainPopover({
 }: NodeExplainPopoverProps) {
   const { state } = useStore();
   const { db, version: ueVersion } = useDb();
+  const { t, i18n } = useTranslation();
   const isSnapshot = state.connection === 'snapshot';
 
   // Layer 1: look up DB entry (may be undefined for unknown types).
-  const isReserved = nodeType in RESERVED_NODE_DESCRIPTIONS_WEB;
+  const reservedDescriptions = getReservedNodeDescriptions(t);
+  const isReserved = nodeType in reservedDescriptions;
   const dbEntry: NodeDef | undefined = db.nodes[nodeType];
-  const reservedDesc = RESERVED_NODE_DESCRIPTIONS_WEB[nodeType];
+  const reservedDesc = reservedDescriptions[nodeType];
   const isUnknown = !isReserved && !dbEntry;
 
   // Layer 2: deep explain state.
@@ -109,6 +112,7 @@ export function NodeExplainPopover({
         ueVersion: ueVersion ?? undefined,
         graphPath,
         nodeId,
+        language: i18n.language === 'en' ? 'en' : 'zh-Hant',
       };
       const res = await fetch('/api/agent/explain', {
         method: 'POST',
@@ -123,11 +127,11 @@ export function NodeExplainPopover({
         setExplainError(data.error);
       }
     } catch (e) {
-      setExplainError((e as Error)?.message ?? '發生未知錯誤');
+      setExplainError((e as Error)?.message ?? t('nodeExplain.unknownError'));
     } finally {
       setExplainLoading(false);
     }
-  }, [nodeType, ueVersion, graphPath, nodeId, explainLoading, cache]);
+  }, [nodeType, ueVersion, graphPath, nodeId, explainLoading, cache, i18n]);
 
   // Position: keep inside viewport.
   const POPOVER_W = 300;
@@ -191,8 +195,8 @@ export function NodeExplainPopover({
           className="node-explain-close iconbtn"
           onClick={onClose}
           style={{ marginLeft: 'auto', flexShrink: 0 }}
-          title="關閉"
-          aria-label="關閉"
+          title={t('nodeExplain.close')}
+          aria-label={t('nodeExplain.close')}
         >
           ×
         </button>
@@ -202,13 +206,13 @@ export function NodeExplainPopover({
       <div className="node-explain-body" style={{ padding: '8px 10px' }}>
         {isUnknown ? (
           <div className="node-explain-unknown" style={{ color: 'var(--warn)' }}>
-            ⚠ 未知節點型別：{nodeType}
+            ⚠ {t('nodeExplain.unknownNodeType', { nodeType })}
           </div>
         ) : (
           <>
             {/* Description */}
             <div className="node-explain-desc" style={{ color: 'var(--text)', marginBottom: 8 }}>
-              {reservedDesc ?? dbEntry?.description ?? '（無描述）'}
+              {reservedDesc ?? dbEntry?.description ?? t('nodeExplain.noDescription')}
             </div>
 
             {/* Pins (only for DB entries, not reserved types which have no pin list) */}
@@ -217,13 +221,13 @@ export function NodeExplainPopover({
                 {inputs.length > 0 && (
                   <div className="node-explain-pin-group" style={{ marginBottom: 4 }}>
                     <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-mute)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 3 }}>
-                      輸入
+                      {t('nodeExplain.inputs')}
                     </div>
                     {inputs.map(p => (
                       <div key={p.name} className="node-explain-pin-row" style={{ display: 'flex', gap: 6, fontSize: 11, color: 'var(--text-dim)', paddingLeft: 4 }}>
                         <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--text)' }}>{p.name}</span>
                         <span style={{ color: 'var(--text-mute)' }}>{p.type}</span>
-                        {p.required === false && <span style={{ color: 'var(--text-mute)', fontSize: 10 }}>(可選)</span>}
+                        {p.required === false && <span style={{ color: 'var(--text-mute)', fontSize: 10 }}>{t('nodeExplain.optional')}</span>}
                       </div>
                     ))}
                   </div>
@@ -231,7 +235,7 @@ export function NodeExplainPopover({
                 {outputs.length > 0 && (
                   <div className="node-explain-pin-group">
                     <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-mute)', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 3 }}>
-                      輸出
+                      {t('nodeExplain.outputs')}
                     </div>
                     {outputs.map(p => (
                       <div key={p.name} className="node-explain-pin-row" style={{ display: 'flex', gap: 6, fontSize: 11, color: 'var(--text-dim)', paddingLeft: 4 }}>
@@ -264,7 +268,7 @@ export function NodeExplainPopover({
                 onClick={() => void handleDeepExplain()}
                 style={{ fontSize: 11, width: '100%', justifyContent: 'center' }}
               >
-                {explainLoading ? '載入中…' : '深入解說'}
+                {explainLoading ? t('nodeExplain.loading') : t('nodeExplain.deepExplain')}
               </button>
             )}
           </div>

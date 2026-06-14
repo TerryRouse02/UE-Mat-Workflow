@@ -17,6 +17,7 @@
 // writes exactly one data: line per event.
 
 import type { AgentSseEvent, AgentChatRequest } from './protocol';
+import i18n from '../i18n';
 
 export async function* streamChat(
   req: AgentChatRequest,
@@ -43,7 +44,7 @@ export async function* streamChat(
   }
 
   if (!response.body) {
-    yield { type: 'error', message: '回應沒有串流資料' };
+    yield { type: 'error', message: i18n.t('sse.noStreamData') };
     return;
   }
 

@@ -2,6 +2,7 @@
 // Thin client over /api/auth/users: list, create, delete, reset password.
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from './store';
 import { Icon } from './Icon';
 
@@ -12,6 +13,7 @@ interface UserRow {
 }
 
 export function UserAdminSection() {
+  const { t } = useTranslation();
   const { state } = useStore();
   const me = state.auth?.username;
 
@@ -81,14 +83,14 @@ export function UserAdminSection() {
   };
 
   const deleteUser = async (name: string) => {
-    if (!window.confirm(`確定刪除帳號「${name}」？其登入立即失效。`)) return;
+    if (!window.confirm(t('userAdmin.confirmDelete', { name }))) return;
     await post(`/api/auth/users/${encodeURIComponent(name)}`, { method: 'DELETE' });
   };
 
   const saveQuota = async (name: string) => {
     const raw = (quotaDraft[name] ?? '').trim();
     const n = raw === '' ? 0 : Number(raw);
-    if (raw !== '' && (!Number.isFinite(n) || n < 0)) { setError('配額需為正整數（留空＝不限）'); return; }
+    if (raw !== '' && (!Number.isFinite(n) || n < 0)) { setError(t('userAdmin.quotaInvalid')); return; }
     await post('/api/team', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -110,8 +112,8 @@ export function UserAdminSection() {
     <div className="cfg-sec">
       <div className="sech">
         <Icon name="chip" size={13} />
-        <span className="sect">使用者管理</span>
-        <span className="secd">團隊模式 · 僅管理員可見</span>
+        <span className="sect">{t('userAdmin.title')}</span>
+        <span className="secd">{t('userAdmin.subtitle')}</span>
       </div>
 
       {error && <div className="useradmin-err" role="alert">{error}</div>}
@@ -120,15 +122,15 @@ export function UserAdminSection() {
         {users.map(u => (
           <div key={u.username} className="useradmin-row">
             <div className="ua-main">
-              <span className="ua-name">{u.username}{u.username === me && <span className="ua-me">（你）</span>}</span>
+              <span className="ua-name">{u.username}{u.username === me && <span className="ua-me">{t('userAdmin.me')}</span>}</span>
               <span className={'ua-role' + (u.role === 'admin' ? ' admin' : '')}>{u.role}</span>
               {u.role !== 'admin' && (
-                <span className="ua-quota" title="今日用量／每日 token 配額（留空＝不限）">
+                <span className="ua-quota" title={t('userAdmin.quotaTooltip')}>
                   <span className="ua-used mono">{(usageToday[u.username] ?? 0).toLocaleString()}</span>
                   <span className="ua-slash">/</span>
                   <input
                     className="ua-quota-input mono"
-                    placeholder="不限"
+                    placeholder={t('userAdmin.quotaUnlimited')}
                     value={quotaDraft[u.username] ?? (quotas[u.username] ? String(quotas[u.username]) : '')}
                     onChange={e => setQuotaDraft(d => ({ ...d, [u.username]: e.target.value }))}
                     onBlur={() => { if (u.username in quotaDraft) void saveQuota(u.username); }}
@@ -141,9 +143,9 @@ export function UserAdminSection() {
                   className="ua-btn"
                   disabled={busy}
                   onClick={() => { setResetFor(resetFor === u.username ? null : u.username); setResetPw(''); }}
-                >重設密碼</button>
+                >{t('userAdmin.resetPassword')}</button>
                 {u.username !== me && (
-                  <button className="ua-btn danger" disabled={busy} onClick={() => void deleteUser(u.username)}>刪除</button>
+                  <button className="ua-btn danger" disabled={busy} onClick={() => void deleteUser(u.username)}>{t('userAdmin.delete')}</button>
                 )}
               </span>
             </div>
@@ -151,12 +153,12 @@ export function UserAdminSection() {
               <div className="ua-reset">
                 <input
                   type="password"
-                  placeholder="新密碼（至少 8 字元）"
+                  placeholder={t('userAdmin.newPasswordPlaceholder')}
                   value={resetPw}
                   onChange={e => setResetPw(e.target.value)}
                 />
                 <button className="ua-btn" disabled={busy || resetPw.length < 8} onClick={() => void resetPassword(u.username)}>
-                  確認重設
+                  {t('userAdmin.confirmReset')}
                 </button>
               </div>
             )}
@@ -166,14 +168,14 @@ export function UserAdminSection() {
 
       <div className="ua-create">
         <input
-          placeholder="帳號"
+          placeholder={t('userAdmin.usernamePlaceholder')}
           value={newName}
           onChange={e => setNewName(e.target.value)}
           spellCheck={false}
         />
         <input
           type="password"
-          placeholder="密碼"
+          placeholder={t('userAdmin.passwordPlaceholder')}
           value={newPw}
           onChange={e => setNewPw(e.target.value)}
         />
@@ -186,11 +188,11 @@ export function UserAdminSection() {
           disabled={busy || !newName.trim() || newPw.length < 8}
           onClick={() => void createUser()}
         >
-          <Icon name="plus" size={11} /> 新增
+          <Icon name="plus" size={11} /> {t('userAdmin.addUser')}
         </button>
       </div>
       <div className="note" style={{ marginTop: 6 }}>
-        成員（user）可看圖、匯入匯出、讀公告；爬取、LLM 設定與 agent 對話僅管理員可用。
+        {t('userAdmin.memberNote')}
       </div>
     </div>
   );

@@ -2,6 +2,7 @@ import type { MatGraph, DerivedPins } from './protocol';
 import type { NodeDB } from '../../server/db-types';
 import { validateConnectionPins } from './validate';
 import { commentOverlaps } from './commentBounds';
+import i18n from './i18n';
 
 export type GraphIssueKind =
   | 'missing-output'
@@ -54,22 +55,22 @@ export function diagnoseGraph(
   if (graph.type === 'Material') {
     const outs = graph.nodes.filter(n => n.type === 'MaterialOutput');
     if (outs.length === 0) {
-      issues.push({ severity: 'warning', kind: 'missing-output', message: '缺少 MaterialOutput 輸出節點（Material 必須恰好一個）。' });
+      issues.push({ severity: 'warning', kind: 'missing-output', message: i18n.t('graphDiagnostics.missingOutput') });
     } else if (outs.length > 1) {
       for (const o of outs.slice(1)) {
-        issues.push({ severity: 'warning', kind: 'extra-output', message: '多餘的 MaterialOutput（Material 只能有一個輸出節點）。', nodeId: o.id });
+        issues.push({ severity: 'warning', kind: 'extra-output', message: i18n.t('graphDiagnostics.extraOutput'), nodeId: o.id });
       }
     }
   } else {
     if (!graph.nodes.some(n => n.type === 'FunctionOutput')) {
-      issues.push({ severity: 'error', kind: 'mf-no-output', message: 'MaterialFunction 缺少 FunctionOutput 節點（至少要一個）。' });
+      issues.push({ severity: 'error', kind: 'mf-no-output', message: i18n.t('graphDiagnostics.mfNoOutput') });
     }
   }
 
   // Unknown node types — not in the DB and not a reserved built-in.
   for (const n of graph.nodes) {
     if (isUnknownNodeType(n.type, db, reserved)) {
-      issues.push({ severity: 'warning', kind: 'unknown-type', message: `未知節點型別「${n.type}」——不在 node DB，導出無法對映。`, nodeId: n.id });
+      issues.push({ severity: 'warning', kind: 'unknown-type', message: i18n.t('graphDiagnostics.unknownType', { type: n.type }), nodeId: n.id });
     }
   }
 
@@ -83,7 +84,7 @@ export function diagnoseGraph(
   for (const n of graph.nodes) {
     if (n.type !== 'MaterialFunctionCall') continue;
     if (mfPinsUnresolved(derivedPins?.[n.id])) {
-      issues.push({ severity: 'warning', kind: 'unresolved-mf', message: `MaterialFunctionCall「${n.id}」沒有解析到 pin——MF 缺失或需要先爬取它的 index。`, nodeId: n.id });
+      issues.push({ severity: 'warning', kind: 'unresolved-mf', message: i18n.t('graphDiagnostics.unresolvedMf', { id: n.id }), nodeId: n.id });
     }
   }
 
@@ -92,7 +93,7 @@ export function diagnoseGraph(
     issues.push({
       severity: 'warning',
       kind: 'comment-overlap',
-      message: `節點「${nodeId}」同時屬於多個無包含關係的 comment（${commentIds.join('、')}），存在 comment 重疊（overlap）。`,
+      message: i18n.t('graphDiagnostics.commentOverlap', { nodeId, commentList: commentIds.join(i18n.t('common.listSep')) }),
     });
   }
 

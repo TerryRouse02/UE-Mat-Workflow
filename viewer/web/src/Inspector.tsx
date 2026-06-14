@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { MatGraph, NodeSource } from './protocol';
 import type { ParamDef } from '../../server/db-types';
 import { useStore } from './store';
@@ -28,14 +29,7 @@ type InspMode = 'node' | 'health';
 // Time helpers are imported from timeUtils.ts (fmtTimeIso → fmtTime, relTimeHours → relTime).
 
 // ─── Source label map ─────────────────────────────────────────────────────────
-
-const SOURCE_LABEL: Record<NodeSource, string> = {
-  export: '節點導出',
-  workmf: '專案 MF',
-  enginemf: '引擎 MF',
-  projectmat: '專案母材質',
-  unresolved: '—',
-};
+// SOURCE_LABEL is i18n-keyed at render time via getSourceLabel(t) — see NodeInspector.
 
 // ─── PinList ─────────────────────────────────────────────────────────────────
 
@@ -141,6 +135,7 @@ interface ParamRowProps {
 }
 
 function ParamRow({ paramKey, value, def, editable, nodeId, openPath, setNodeParam }: ParamRowProps) {
+  const { t } = useTranslation();
   const ek = editable && openPath ? paramEditKind(def, value) : null;
   const [err, setErr] = useState<string | null>(null);
 
@@ -148,7 +143,7 @@ function ParamRow({ paramKey, value, def, editable, nodeId, openPath, setNodePar
     if (!openPath) return;
     setErr(null);
     const r = await setNodeParam(openPath, nodeId, paramKey, next);
-    if (!r.ok) setErr(r.error ?? '寫入失敗');
+    if (!r.ok) setErr(r.error ?? t('inspector.writeFailed'));
   };
 
   // Long / multi-line strings stay in the read-only code block.
@@ -233,6 +228,7 @@ function NumberField({ value, onCommit }: { value: number; onCommit: (v: number)
 // the RGB triple (the swatch is a convenience; the number inputs are
 // authoritative and accept HDR values > 1).
 function VectorField({ vec, len, onCommit }: { vec: number[]; len: number; onCommit: (v: number[]) => void }) {
+  const { t } = useTranslation();
   const labels = ['R', 'G', 'B', 'A'];
   const setComp = (i: number, n: number) => {
     const next = vec.slice();
@@ -251,7 +247,7 @@ function VectorField({ vec, len, onCommit }: { vec: number[]; len: number; onCom
             for (let i = 0; i < 3; i++) next[i] = hexToCh(e.target.value, i);
             onCommit(next);
           }}
-          title="快速取色（0–1；如需 HDR>1 請用右側數值）"
+          title={t('inspector.colorPickerHint')}
         />
       )}
       {Array.from({ length: len }).map((_, i) => (
@@ -262,6 +258,18 @@ function VectorField({ vec, len, onCommit }: { vec: number[]; len: number; onCom
       ))}
     </span>
   );
+}
+
+// ─── Source label helper (i18n-keyed) ────────────────────────────────────────
+// Must be called at render time (not module level) to pick up the active language.
+function getSourceLabel(t: (key: string) => string): Record<NodeSource, string> {
+  return {
+    export: t('inspector.sourceLabelExport'),
+    workmf: t('inspector.sourceLabelWorkmf'),
+    enginemf: t('inspector.sourceLabelEnginemf'),
+    projectmat: t('inspector.sourceLabelProjectmat'),
+    unresolved: '—',
+  };
 }
 
 // ─── NodeInspector ───────────────────────────────────────────────────────────
@@ -276,6 +284,7 @@ function NodeInspector({
   onRecrawlNode?: (source: string) => void;
   issues: GraphIssue[];
 }) {
+  const { t } = useTranslation();
   const { db } = useDb();
   const { state: store, setNodeParam } = useStore();
   const reserved = new Set(db.reservedTypes ?? []);
@@ -314,17 +323,17 @@ function NodeInspector({
         </div>
         <div style={{ marginTop: 12 }}>
           <div className="kv">
-            <span className="k">類別</span>
+            <span className="k">{t('inspector.category')}</span>
             <span className="v" style={{ color: catCol }}>{def?.category ?? '—'}</span>
           </div>
           <div className="kv">
-            <span className="k">節點 ID</span>
+            <span className="k">{t('inspector.nodeId')}</span>
             <span className="v">{node.id}</span>
           </div>
           {unknown && (
             <div className="kv">
-              <span className="k">狀態</span>
-              <span className="v" style={{ color: 'var(--warn)' }}>未知型別</span>
+              <span className="k">{t('inspector.status')}</span>
+              <span className="v" style={{ color: 'var(--warn)' }}>{t('inspector.unknownType')}</span>
             </div>
           )}
         </div>
@@ -334,7 +343,7 @@ function NodeInspector({
       {nodeIssues.length > 0 ? (
         <>
           <div className="panel right isec" style={{ paddingBottom: 4 }}>
-            <div className="lbl">此節點的問題</div>
+            <div className="lbl">{t('inspector.thisNodeIssues')}</div>
           </div>
           <div>
             {nodeIssues.map((iss, i) => {
@@ -354,19 +363,19 @@ function NodeInspector({
       ) : (
         <div className="panel right isec">
           <div className="lbl" style={{ marginBottom: 0, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ color: 'var(--ok)' }}>✓</span> 此節點無問題
+            <span style={{ color: 'var(--ok)' }}>✓</span> {t('inspector.thisNodeNoIssues')}
           </div>
         </div>
       )}
 
       {/* Pin lists */}
-      <PinList label="輸入 pin" pins={inputPins} />
-      <PinList label="輸出 pin" pins={outputPins} />
+      <PinList label={t('inspector.inputPins')} pins={inputPins} />
+      <PinList label={t('inspector.outputPins')} pins={outputPins} />
 
       {/* Parameters — value types are editable in live mode; the rest read-only */}
       {params.length > 0 && (
         <div className="panel right isec">
-          <div className="lbl">參數 Parameters</div>
+          <div className="lbl">{t('inspector.params')}</div>
           {params.map(([k, v]) => (
             <ParamRow
               key={k}
@@ -386,22 +395,22 @@ function NodeInspector({
       {meta && (
         <div className="panel right isec">
           <div className="lbl" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon name="clock" size={12} /> 爬取 metadata
+            <Icon name="clock" size={12} /> {t('inspector.crawlMetadata')}
             {meta.source !== 'unresolved' && (
               <span className="fresh fresh-fresh" style={{ marginLeft: 'auto' }}>
-                ● 新鮮
+                ● {t('inspector.fresh')}
               </span>
             )}
             {meta.source === 'unresolved' && (
               <span className="fresh fresh-missing" style={{ marginLeft: 'auto' }}>
-                ✕ 遺失
+                ✕ {t('inspector.missing')}
               </span>
             )}
           </div>
           <div className="metagrid">
-            <span className="mk">來源資料集</span>
-            <span className="mv">{SOURCE_LABEL[meta.source]}</span>
-            <span className="mk">上次爬取</span>
+            <span className="mk">{t('inspector.sourceDataset')}</span>
+            <span className="mv">{getSourceLabel(t)[meta.source]}</span>
+            <span className="mk">{t('inspector.lastCrawled')}</span>
             <span className="mv">{fmtTime(meta.freshnessTs)}</span>
             {meta.freshnessTs && (
               <>
@@ -415,7 +424,7 @@ function NodeInspector({
               className="btn sm"
               style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
               onClick={() => onRecrawlNode(meta.source)}>
-              <Icon name="refresh" size={13} /> 重爬來源
+              <Icon name="refresh" size={13} /> {t('inspector.recrawlSource')}
             </button>
           )}
         </div>
@@ -433,6 +442,7 @@ function HealthInspector({
   issues: GraphIssue[];
   onFocusNode?: (id: string) => void;
 }) {
+  const { t } = useTranslation();
   const errCount = issues.filter(i => i.severity === 'error').length;
   const warnCount = issues.filter(i => i.severity === 'warning').length;
 
@@ -444,7 +454,7 @@ function HealthInspector({
   // Map health level: errCount → 'error', warnCount → 'warn', else 'ok'
   const level: 'error' | 'warn' | 'ok' = errCount ? 'error' : warnCount ? 'warn' : 'ok';
 
-  const ht = level === 'error' ? '需要注意' : level === 'warn' ? '有警告' : '一切正常';
+  const ht = level === 'error' ? t('inspector.healthNeedsAttention') : level === 'warn' ? t('inspector.healthHasWarnings') : t('inspector.healthAllGood');
 
   return (
     <div className="insp">
@@ -458,12 +468,12 @@ function HealthInspector({
         </div>
         <div>
           <div className="ht">{ht}</div>
-          <div className="hd">{errCount} 個錯誤 · {warnCount} 個警告 · 已掃描 {graph.nodes.length} 個節點</div>
+          <div className="hd">{t('inspector.healthSummary', { errCount, warnCount, nodeCount: graph.nodes.length })}</div>
         </div>
       </div>
 
       <div className="panel right isec" style={{ paddingBottom: 4 }}>
-        <div className="lbl">問題—點擊在畫布上定位</div>
+        <div className="lbl">{t('inspector.issuesClickToLocate')}</div>
       </div>
 
       <div>
@@ -475,7 +485,7 @@ function HealthInspector({
               className={`issue ${sev}`}
               style={{ cursor: iss.nodeId ? 'pointer' : 'default' }}
               onClick={() => iss.nodeId && onFocusNode?.(iss.nodeId)}
-              title={iss.nodeId ? '點擊聚焦該節點' : undefined}>
+              title={iss.nodeId ? t('inspector.clickToFocusNode') : undefined}>
               <span className="ibar" />
               <div style={{ flex: 1 }}>
                 <div className="it">{iss.message}</div>
@@ -489,7 +499,7 @@ function HealthInspector({
 
       <div className="panel right isec">
         <div className="lbl" style={{ textTransform: 'none', letterSpacing: 0, fontSize: 11, color: 'var(--text-mute)' }}>
-          每次匯入或爬取後都會跑一次健康檢查。匯出快照前請先解決錯誤。
+          {t('inspector.healthFootnote')}
         </div>
       </div>
     </div>
@@ -507,6 +517,7 @@ export function Inspector({
   nodeProvenance,
   onRecrawlNode,
 }: InspectorProps) {
+  const { t } = useTranslation();
   const { db } = useDb();
   const { state: storeState, askAgent } = useStore();
   const [inspMode, setInspMode] = useState<InspMode>('node');
@@ -536,7 +547,7 @@ export function Inspector({
     return (
       <aside className="panel right">
         <div className="panel-head">
-          <span className="h">檢視器 Inspector</span>
+          <span className="h">{t('inspector.panelTitle')}</span>
         </div>
         <div className="insp">
           <div className="health-badge error"
@@ -546,12 +557,12 @@ export function Inspector({
               !
             </div>
             <div>
-              <div className="ht">載入失敗</div>
-              <div className="hd">此檔無法載入（{errors.length} 個錯誤）</div>
+              <div className="ht">{t('inspector.loadFailed')}</div>
+              <div className="hd">{t('inspector.loadFailedDesc', { count: errors.length })}</div>
             </div>
           </div>
           <div className="panel right isec" style={{ paddingBottom: 4 }}>
-            <div className="lbl">錯誤</div>
+            <div className="lbl">{t('inspector.errors')}</div>
           </div>
           <div>
             {errIssues.map((iss, i) => (
@@ -577,16 +588,16 @@ export function Inspector({
     <aside className="panel right">
       {/* Panel header */}
       <div className="panel-head">
-        <span className="h">檢視器 Inspector</span>
+        <span className="h">{t('inspector.panelTitle')}</span>
         <span className="grow" />
         {node && storeState.connection === 'live' && (
-          <button className="iconbtn" title="請 AI 解說此節點（開啟 Agent 對話）"
-            onClick={() => askAgent(`請解說目前圖中的節點「${node.id}」（型別 ${node.type}）：它的作用、參數設定，以及接線是否合理。`, true)}>
+          <button className="iconbtn" title={t('inspector.aiExplainTitle')}
+            onClick={() => askAgent(t('inspector.askExplainPrompt', { id: node.id, type: node.type }), true)}>
             <Icon name="chip" size={15} />
           </button>
         )}
         {node && (
-          <button className="iconbtn" title="對準節點"
+          <button className="iconbtn" title={t('inspector.focusNode')}
             onClick={() => node && onFocusNode?.(node.id)}>
             <Icon name="frame" size={15} />
           </button>
@@ -599,12 +610,12 @@ export function Inspector({
           className={'tab' + (inspMode === 'node' ? ' on' : '')}
           style={{ opacity: node ? 1 : 0.5 }}
           onClick={() => node && setInspMode('node')}>
-          節點詳情
+          {t('inspector.tabNodeDetail')}
         </div>
         <div
           className={'tab' + (inspMode === 'health' ? ' on' : '')}
           onClick={() => setInspMode('health')}>
-          圖健康度
+          {t('inspector.tabGraphHealth')}
         </div>
       </div>
 

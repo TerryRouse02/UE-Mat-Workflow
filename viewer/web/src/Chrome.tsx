@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Icon } from './Icon';
 import { useStore } from './store';
 import type { MatGraph } from './protocol';
@@ -14,6 +15,7 @@ export interface ChromeProps {
 }
 
 export function Chrome({ graph, onPalette, onImport, onExport, onSettings }: ChromeProps) {
+  const { t } = useTranslation();
   const { state, popBreadcrumb, logout } = useStore();
   const conn = state.connection;
   // Team mode: show who is signed in + a logout control.
@@ -22,10 +24,10 @@ export function Chrome({ graph, onPalette, onImport, onExport, onSettings }: Chr
     : null;
 
   const connInfo = conn === 'snapshot'
-    ? ['offline', '離線快照'] as const
+    ? ['offline', t('chrome.connOfflineSnapshot')] as const
     : conn === 'reconnecting'
-    ? ['offline', '重新連線中…'] as const
-    : ['live', 'watching · 已同步'] as const;
+    ? ['offline', t('chrome.connReconnecting')] as const
+    : ['live', t('chrome.connLive')] as const;
 
   const [moreOpen, setMoreOpen] = useState(false);
 
@@ -62,45 +64,45 @@ export function Chrome({ graph, onPalette, onImport, onExport, onSettings }: Chr
       </span>
       <span className="spacer" />
       <button className="searchbtn" onClick={onPalette}>
-        <Icon name="search" size={14} /> 搜尋節點與指令 <kbd>⌘K</kbd>
+        <Icon name="search" size={14} /> {t('chrome.searchPlaceholder')} <kbd>⌘K</kbd>
       </button>
       <div className={'conn ' + connInfo[0]}>
         <span className="dot" /> {connInfo[1]}
       </div>
       {teamUser && (
-        <div className="userchip" title={teamUser.role === 'admin' ? '管理員' : '成員'}>
+        <div className="userchip" title={teamUser.role === 'admin' ? t('chrome.roleAdmin') : t('chrome.roleMember')}>
           <Icon name="chip" size={12} />
           <span className="uc-name">{teamUser.name}</span>
           <span className={'uc-role' + (teamUser.role === 'admin' ? ' admin' : '')}>
             {teamUser.role === 'admin' ? 'admin' : 'user'}
           </span>
-          <button className="uc-out" title="登出" onClick={() => void logout()}>登出</button>
+          <button className="uc-out" title={t('chrome.logout')} onClick={() => void logout()}>{t('chrome.logout')}</button>
         </div>
       )}
       {conn === 'live' && (
         <>
           <button className="btn" onClick={onImport}>
-            <Icon name="clip" size={14} /> 導入
+            <Icon name="clip" size={14} /> {t('chrome.importBtn')}
           </button>
           <button className="btn primary" onClick={onExport} disabled={exportDisabled}>
-            <Icon name="upload" size={14} /> 導出到 UE
+            <Icon name="upload" size={14} /> {t('chrome.exportBtn')}
           </button>
         </>
       )}
-      <button className="iconbtn" title="設定 / 爬取" onClick={onSettings} style={{ width: 32, height: 32 }}>
+      <button className="iconbtn" title={t('chrome.settingsTitle')} onClick={onSettings} style={{ width: 32, height: 32 }}>
         <Icon name="settings" size={16} />
       </button>
       <div className="more-wrap" onClick={e => e.stopPropagation()}>
-        <button className="iconbtn" title="更多" onClick={() => setMoreOpen(o => !o)} style={{ width: 32, height: 32 }}>
+        <button className="iconbtn" title={t('chrome.moreTitle')} onClick={() => setMoreOpen(o => !o)} style={{ width: 32, height: 32 }}>
           <Icon name="more" size={16} />
         </button>
         {moreOpen && (
           <div className="menu">
-            <div className="menu-label">分享 / 離線</div>
+            <div className="menu-label">{t('chrome.menuLabelShare')}</div>
             <button
               className="menu-item"
               disabled={conn !== 'live' || !state.currentPath}
-              title={state.currentPath ? '下載目前材質的單檔離線快照' : '先開啟一個材質'}
+              title={state.currentPath ? t('chrome.exportHtmlTitle') : t('chrome.exportHtmlNoMat')}
               onClick={() => {
                 setMoreOpen(false);
                 const name = (state.currentPath ?? '').replace(/\.matgraph\.json$/, '');
@@ -110,12 +112,12 @@ export function Chrome({ graph, onPalette, onImport, onExport, onSettings }: Chr
                 a.click();
               }}
             >
-              <Icon name="download" size={14} /> 匯出離線 HTML 快照
-              <span className="mi-hint">{state.currentPath ? '' : '先開圖'}</span>
+              <Icon name="download" size={14} /> {t('chrome.exportHtmlItem')}
+              <span className="mi-hint">{state.currentPath ? '' : t('chrome.exportHtmlHint')}</span>
             </button>
             <div className="menu-div" />
             <button className="menu-item" onClick={() => { setMoreOpen(false); onPalette(); }}>
-              <Icon name="search" size={14} /> 指令面板 · 搜尋
+              <Icon name="search" size={14} /> {t('chrome.commandPaletteItem')}
               <span className="mi-hint">⌘K</span>
             </button>
           </div>

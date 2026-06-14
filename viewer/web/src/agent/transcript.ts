@@ -6,6 +6,7 @@
 // only builds the item list.
 
 import type { AgentSseEvent, AgentTranscriptEntry } from './protocol';
+import i18n from '../i18n';
 
 // ─── Chat item model ─────────────────────────────────────────────────────────
 
@@ -261,12 +262,12 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
     case 'graph_written': {
       if (flags.announced.has(event.path)) return items;
       flags.announced.add(event.path);
-      return [...items, { kind: 'notice', variant: 'info', message: `已開啟圖形：${event.path}` }];
+      return [...items, { kind: 'notice', variant: 'info', message: i18n.t('transcript.graphOpened', { path: event.path }) }];
     }
 
     case 'export_request':
       // The clipboard copy itself is the caller's side effect (App-level).
-      return [...items, { kind: 'notice', variant: 'info', message: `正在複製 ${event.path} 到剪貼簿…` }];
+      return [...items, { kind: 'notice', variant: 'info', message: i18n.t('transcript.copyingToClipboard', { path: event.path }) }];
 
     case 'crawl_proposal':
       return [...items, {
@@ -349,7 +350,7 @@ export function transcriptToMarkdown(
   meta: { title?: string; provider?: string; model?: string },
 ): string {
   const out: string[] = [];
-  out.push(`# ${meta.title?.trim() || 'UE 材質 Agent 對話'}`);
+  out.push(`# ${meta.title?.trim() || i18n.t('transcript.defaultTitle')}`);
   const sub: string[] = [];
   if (meta.provider) sub.push(meta.provider);
   if (meta.model) sub.push(meta.model);
@@ -368,7 +369,7 @@ export function transcriptToMarkdown(
         out.push('');
         break;
       case 'thinking':
-        out.push('<details><summary>思考過程</summary>');
+        out.push(`<details><summary>${i18n.t('transcript.thinkingProcess')}</summary>`);
         out.push('');
         out.push(it.text);
         out.push('');
@@ -376,7 +377,7 @@ export function transcriptToMarkdown(
         out.push('');
         break;
       case 'tools':
-        out.push('<details><summary>執行過程 · ' + it.steps.length + ' 步</summary>');
+        out.push(`<details><summary>${i18n.t('transcript.executionProcess', { count: it.steps.length })}</summary>`);
         out.push('');
         for (const s of it.steps) {
           const mark = !s.done ? '…' : s.ok === false ? '✗' : '✓';
@@ -387,7 +388,7 @@ export function transcriptToMarkdown(
         out.push('');
         break;
       case 'diff':
-        out.push('**變更摘要**');
+        out.push(`**${i18n.t('transcript.changeSummary')}**`);
         for (const line of it.lines) out.push(`- ${line}`);
         out.push('');
         break;
@@ -396,15 +397,15 @@ export function transcriptToMarkdown(
         out.push('');
         break;
       case 'crawlProposal':
-        out.push(`> 🔄 爬取提案：${it.crawlKind}（${it.contentRoot}）`);
+        out.push(`> 🔄 ${i18n.t('transcript.crawlProposalLine', { crawlKind: it.crawlKind, contentRoot: it.contentRoot })}`);
         out.push('');
         break;
       case 'dbEditProposal':
-        out.push(`> 🛠 節點 DB ${it.create ? '新增' : '修改'}提案：${it.nodeName}（${Object.keys(it.patch).join('、')}）`);
+        out.push(`> 🛠 ${i18n.t('transcript.dbEditProposalLine', { action: it.create ? i18n.t('transcript.dbEditCreate') : i18n.t('transcript.dbEditModify'), nodeName: it.nodeName, fields: Object.keys(it.patch).join(i18n.t('common.listSep')) })}`);
         out.push('');
         break;
       case 'systemReport':
-        out.push(`> 🛰 系統回報：${it.title}`);
+        out.push(`> 🛰 ${i18n.t('transcript.systemReportLine', { title: it.title })}`);
         if (it.detail) {
           out.push('');
           out.push('```');
@@ -414,7 +415,7 @@ export function transcriptToMarkdown(
         out.push('');
         break;
       case 'turnUsage':
-        out.push(`> _本輪 ${fmtTok(it.input + it.output)} tokens（輸入 ${fmtTok(it.input)}／輸出 ${fmtTok(it.output)}${it.estimated ? '，估算' : ''}）_`);
+        out.push(`> _${i18n.t('transcript.turnUsageLine', { total: fmtTok(it.input + it.output), input: fmtTok(it.input), output: fmtTok(it.output), estimated: it.estimated ? i18n.t('transcript.turnUsageEstimated') : '' })}_`);
         out.push('');
         break;
     }

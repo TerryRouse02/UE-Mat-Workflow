@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import './cmdk.css';
 import { Icon } from './Icon';
 import { mapCatColor } from './nodeLibraryConstants';
@@ -32,6 +33,7 @@ interface NodeItem {
 type FlatItem = CmdItem | NodeItem;
 
 export function CommandPalette({ onClose, onJump, onCmd, nodes, db, connection, envReady }: CommandPaletteProps) {
+  const { t } = useTranslation();
   const [q, setQ] = useState('');
   const [sel, setSel] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -58,16 +60,16 @@ export function CommandPalette({ onClose, onJump, onCmd, nodes, db, connection, 
 
   // Commands with greying rules
   const cmds: CmdItem[] = [
-    { t: 'a', id: 'config',    label: '前往 Config／爬取面板',          icon: 'settings' },
+    { t: 'a', id: 'config',    label: t('commandPalette.cmdConfig'),    icon: 'settings' },
     {
-      t: 'a', id: 'crawlMat', label: '重爬專案母材質',                  icon: 'refresh',
+      t: 'a', id: 'crawlMat', label: t('commandPalette.cmdCrawlMat'),  icon: 'refresh',
       disabled: !(connection === 'live' && envReady),
     },
     {
-      t: 'a', id: 't3dIn',    label: '從剪貼簿匯入選取（T3D）',          icon: 'upload',
+      t: 'a', id: 't3dIn',    label: t('commandPalette.cmdT3dIn'),     icon: 'upload',
       disabled: connection === 'snapshot',
     },
-    { t: 'a', id: 't3dOut',   label: '匯出選取到剪貼簿（T3D）',          icon: 'download' },
+    { t: 'a', id: 't3dOut',   label: t('commandPalette.cmdT3dOut'),    icon: 'download' },
   ];
 
   const filteredCmds = cmds.filter(c => matchesCmd(c, q));
@@ -119,13 +121,13 @@ export function CommandPalette({ onClose, onJump, onCmd, nodes, db, connection, 
             value={q}
             onChange={e => { setQ(e.target.value); setSel(0); }}
             onKeyDown={onKey}
-            placeholder="跳到節點，或執行指令…"
+            placeholder={t('commandPalette.inputPlaceholder')}
           />
           <kbd style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-mute)' }}>ESC</kbd>
         </div>
         <div className="cmdk-list" ref={listRef}>
           {filteredCmds.length > 0 && (
-            <div className="cmdk-group">指令 Commands</div>
+            <div className="cmdk-group">{t('commandPalette.groupCmds')}</div>
           )}
           {flat.map((item, i) => {
             if (item.t === 'a') {
@@ -163,7 +165,7 @@ export function CommandPalette({ onClose, onJump, onCmd, nodes, db, connection, 
               );
               if (isNodeHeaderBoundary) {
                 return [
-                  <div key="__node-group__" className="cmdk-group">節點 Nodes · {filteredNodes.length}</div>,
+                  <div key="__node-group__" className="cmdk-group">{t('commandPalette.groupNodes', { count: filteredNodes.length })}</div>,
                   row,
                 ];
               }
@@ -172,7 +174,7 @@ export function CommandPalette({ onClose, onJump, onCmd, nodes, db, connection, 
           })}
           {flat.length === 0 && (
             <div className="empty" style={{ padding: '18px 12px', color: 'var(--text-mute)', fontSize: 12, textAlign: 'center' }}>
-              找不到符合「{q}」的項目。
+              {t('commandPalette.noResults', { q })}
             </div>
           )}
         </div>

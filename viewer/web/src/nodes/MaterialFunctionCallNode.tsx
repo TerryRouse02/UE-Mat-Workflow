@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { MaterialNode, type MaterialNodeData } from './MaterialNode';
 
 export interface MFCData {
@@ -11,6 +12,7 @@ export interface MFCData {
 }
 
 export function MaterialFunctionCallNode({ data }: { data: MFCData }) {
+  const { t } = useTranslation();
   const md: MaterialNodeData = {
     id: data.id, label: 'MaterialFunctionCall',
     subtitle: data.label,
@@ -21,7 +23,7 @@ export function MaterialFunctionCallNode({ data }: { data: MFCData }) {
     <div
       onDoubleClick={e => { e.stopPropagation(); data.onDoubleClick(); }}
       style={{ cursor: 'pointer' }}
-      title="雙擊進入此函式"
+      title={t('materialFunctionCallNode.doubleClickToEnter')}
     >
       <MaterialNode data={md} />
     </div>

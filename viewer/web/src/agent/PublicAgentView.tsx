@@ -5,6 +5,7 @@
 // a turn starts streaming, a turn lands).
 
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store';
 import { Icon } from '../Icon';
 import { SYSTEM_REPORT_PREFIX } from './transcript';
@@ -41,6 +42,7 @@ function entryView(e: AgentTranscriptEntry, i: number): React.ReactNode | null {
 }
 
 export function PublicAgentView() {
+  const { t } = useTranslation();
   const { state } = useStore();
   const { id, streaming, version } = state.publicAgent;
   const [data, setData] = useState<AgentPublicSessionResponse | null>(null);
@@ -89,14 +91,14 @@ export function PublicAgentView() {
   }, [state.publicDelta, id]);
 
   if (error) {
-    return <div className="pubagent-empty"><Icon name="x" size={18} /> 無法載入系統主Agent：{error}</div>;
+    return <div className="pubagent-empty"><Icon name="x" size={18} /> {t('publicAgentView.loadError', { error })}</div>;
   }
   if (!data || data.id === null) {
     return (
       <div className="pubagent-empty">
         <Icon name="chip" size={22} />
-        <div className="pubagent-empty-title">尚無系統主Agent</div>
-        <div className="pubagent-empty-sub">管理員可在 Agent 分頁將一個會話設為系統主Agent，全員即可在此即時圍觀。</div>
+        <div className="pubagent-empty-title">{t('publicAgentView.emptyTitle')}</div>
+        <div className="pubagent-empty-sub">{t('publicAgentView.emptySub')}</div>
       </div>
     );
   }
@@ -106,13 +108,13 @@ export function PublicAgentView() {
     <div className="pubagent">
       <div className="pubagent-head">
         <Icon name="chip" size={12} />
-        <span className="pubagent-title">{data.title || '系統主Agent'}</span>
+        <span className="pubagent-title">{data.title || t('publicAgentView.defaultTitle')}</span>
         {streaming
-          ? <span className="pubagent-live"><span className="dot" /> 廣播中…</span>
-          : <span className="pubagent-ro">唯讀</span>}
+          ? <span className="pubagent-live"><span className="dot" /> {t('publicAgentView.broadcasting')}</span>
+          : <span className="pubagent-ro">{t('publicAgentView.readOnly')}</span>}
       </div>
       <div className="agent-messages pubagent-messages">
-        {entries.length === 0 && <div className="pubagent-empty-sub" style={{ padding: 12 }}>（這個頻道還沒有內容）</div>}
+        {entries.length === 0 && <div className="pubagent-empty-sub" style={{ padding: 12 }}>{t('publicAgentView.noContent')}</div>}
         {entries.map(entryView)}
       </div>
     </div>

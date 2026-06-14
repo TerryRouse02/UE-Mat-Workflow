@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from './store';
 import { Icon } from './Icon';
 import { FileList } from './FileList';
@@ -30,6 +31,7 @@ export interface SidebarProps {
 }
 
 export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, onCompare, mfRoot, setMfRoot, matRoot, setMatRoot }: SidebarProps) {
+  const { t } = useTranslation();
   const { state } = useStore();
   const crawlStatus = state.crawl.status;
   const configCue: 'run' | 'err' | 'new' | null =
@@ -69,7 +71,7 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, onCompare, mf
           onClick={() => setTab('nodes')}
           onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setTab('nodes')}
         >
-          <Icon name="hash" size={14} /> 節點
+          <Icon name="hash" size={14} /> {t('sidebar.tabNodes')}
         </div>
         <div
           className={'lstab' + (tab === 'config' ? ' on' : '')}
@@ -107,7 +109,7 @@ export function Sidebar({ tab, setTab, onGotoConfig, onLargeGraph, onCompare, mf
             survive the user watching crawl progress in the Config tab. */}
         {!isSnapshot && memberChat && tab === 'agent' && (
           <div className="member-agent-toggle">
-            {([['chat', '我的對話'], ['public', '系統主Agent']] as const).map(([k, label]) => (
+            {([['chat', t('sidebar.memberViewChat')], ['public', t('sidebar.memberViewPublic')]] as const).map(([k, label]) => (
               <button
                 key={k}
                 className={'mat-btn' + (memberAgentView === k ? ' on' : '')}

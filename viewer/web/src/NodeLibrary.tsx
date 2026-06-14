@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useDb } from './dbContext';
 import { type EngineMfEntry } from './engineMfRegistry';
 import type { NodeDef } from '../../server/db-types';
@@ -113,12 +114,13 @@ function NodeTypeRow({
   open: boolean;
   onToggle: () => void;
 }) {
+  const { t } = useTranslation();
   // The viewer is read-only (it can't inject into UE), but the one thing that IS
   // useful from here is grabbing the exact identifier to author with: the node
   // type name for a DB node, or the asset path for a Material Function.
   const [copied, setCopied] = useState(false);
   const copyText = item.isMF ? item.id : item.name;
-  const copyLabel = item.isMF ? '複製資產路徑' : '複製型別名稱';
+  const copyLabel = item.isMF ? t('nodeLibrary.copyAssetPath') : t('nodeLibrary.copyTypeName');
   const onCopy = () => {
     void navigator.clipboard.writeText(copyText).then(() => {
       setCopied(true);
@@ -156,11 +158,11 @@ function NodeTypeRow({
           )}
           {!item.isMF && (
             <div className="sig">
-              {item.cat ?? 'Uncategorized'} · {item.src === 'engine' ? '原生節點' : '專案節點'}
+              {item.cat ?? 'Uncategorized'} · {item.src === 'engine' ? t('nodeLibrary.nativeNode') : t('nodeLibrary.projectNode')}
             </div>
           )}
-          <SigCol title="輸入 Inputs" pins={item.ins} />
-          <SigCol title="輸出 Outputs" pins={item.outs} />
+          <SigCol title={t('nodeLibrary.inputsTitle')} pins={item.ins} />
+          <SigCol title={t('nodeLibrary.outputsTitle')} pins={item.outs} />
           {/* Viewer is read-only; offer the useful read-only action instead of a
               dead "insert to canvas" button — copy the authoring identifier. */}
           <button
@@ -168,7 +170,7 @@ function NodeTypeRow({
             style={{ marginTop: 10, width: '100%', justifyContent: 'center' }}
             onClick={onCopy}
           >
-            <Icon name={copied ? 'check' : 'clip'} size={12} /> {copied ? '已複製' : copyLabel}
+            <Icon name={copied ? 'check' : 'clip'} size={12} /> {copied ? t('nodeLibrary.copied') : copyLabel}
           </button>
         </div>
       )}
@@ -179,6 +181,7 @@ function NodeTypeRow({
 // ---- NodeLibrary (exported) -------------------------------------------------
 
 export function NodeLibrary() {
+  const { t } = useTranslation();
   const { db, engineMf, workMf } = useDb();
 
   const [seg, setSeg] = useState<'types' | 'mf'>('types');
@@ -242,7 +245,7 @@ export function NodeLibrary() {
       <div className="files-search" style={{ margin: '4px 6px 6px' }}>
         <Icon name="search" size={14} />
         <input
-          placeholder={seg === 'types' ? '搜尋節點型別…' : '搜尋 Material Function…'}
+          placeholder={seg === 'types' ? t('nodeLibrary.searchNodeTypes') : t('nodeLibrary.searchMF')}
           value={q}
           onChange={e => setQ(e.target.value)}
         />
@@ -254,7 +257,7 @@ export function NodeLibrary() {
           className={seg === 'types' ? 'on' : ''}
           onClick={() => handleSegChange('types')}
         >
-          節點型別{' '}
+          {t('nodeLibrary.segNodeTypes')}{' '}
           <span style={{ fontFamily: 'var(--font-mono)', opacity: 0.6 }}>{typeCount}</span>
         </button>
         <button
@@ -268,7 +271,7 @@ export function NodeLibrary() {
 
       {/* Static note */}
       <div className="note">
-        <Icon name="branch" size={11} /> 由爬取刷新（節點型別 / 引擎 MF / 專案 MF）
+        <Icon name="branch" size={11} /> {t('nodeLibrary.refreshedByCrawl')}
       </div>
 
       {/* Provisional toggle — types segment only */}
@@ -279,7 +282,7 @@ export function NodeLibrary() {
             checked={showProvisional}
             onChange={e => setShowProvisional(e.target.checked)}
           />
-          顯示暫定節點 ({provisionalCount}) <span className="prov-dot">●</span>
+          {t('nodeLibrary.showProvisional', { count: provisionalCount })} <span className="prov-dot">●</span>
         </label>
       )}
 
@@ -294,10 +297,10 @@ export function NodeLibrary() {
           />
         ))}
         {filtered.length === 0 && q && (
-          <div className="empty">找不到符合「{q}」的項目。</div>
+          <div className="empty">{t('nodeLibrary.noMatchFound', { query: q })}</div>
         )}
         {filtered.length === 0 && !q && seg === 'mf' && mfCount === 0 && (
-          <div className="empty">尚無 Material Function 資料。請先執行爬取。</div>
+          <div className="empty">{t('nodeLibrary.noMFData')}</div>
         )}
       </div>
     </div>

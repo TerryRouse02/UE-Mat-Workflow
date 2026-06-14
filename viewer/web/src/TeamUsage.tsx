@@ -6,8 +6,10 @@
 // tab's session dropdown (same [owner] labels).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Icon } from './Icon';
 import type { AgentSessionMeta } from './agent/protocol';
+import type { TFunction } from 'i18next';
 
 interface OwnerRow {
   owner: string;
@@ -23,16 +25,17 @@ function fmtTokens(n: number): string {
   return String(n);
 }
 
-function fmtWhen(iso: string): string {
+function fmtWhen(iso: string, t: TFunction): string {
   if (!iso) return '—';
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000);
-  if (mins < 1) return '剛剛';
-  if (mins < 60) return `${mins} 分鐘前`;
-  if (mins < 60 * 24) return `${Math.floor(mins / 60)} 小時前`;
-  return `${Math.floor(mins / (60 * 24))} 天前`;
+  if (mins < 1) return t('teamUsage.justNow');
+  if (mins < 60) return t('teamUsage.minutesAgo', { mins });
+  if (mins < 60 * 24) return t('teamUsage.hoursAgo', { hours: Math.floor(mins / 60) });
+  return t('teamUsage.daysAgo', { days: Math.floor(mins / (60 * 24)) });
 }
 
 export function TeamUsageSection() {
+  const { t } = useTranslation();
   const [sessions, setSessions] = useState<AgentSessionMeta[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [openOwner, setOpenOwner] = useState<string | null>(null);
@@ -56,7 +59,7 @@ export function TeamUsageSection() {
     const byOwner = new Map<string, AgentSessionMeta[]>();
     for (const s of sessions ?? []) {
       // Sessions from before team mode (or local-mode runs) carry no owner.
-      const key = s.owner ?? '（本機／歷史）';
+      const key = s.owner ?? t('teamUsage.localOrHistory');
       const list = byOwner.get(key) ?? [];
       list.push(s);
       byOwner.set(key, list);
@@ -70,12 +73,12 @@ export function TeamUsageSection() {
         lastActive: list.reduce((a, s) => (s.updatedAt > a ? s.updatedAt : a), ''),
       }))
       .sort((a, b) => b.totalTokens - a.totalTokens);
-  }, [sessions]);
+  }, [sessions, t]);
 
   const grandTotal = rows.reduce((a, r) => a + r.totalTokens, 0);
 
   const deleteSession = async (id: string, title: string) => {
-    if (!window.confirm(`刪除會話「${title || id}」？其對話與還原點將一併刪除。`)) return;
+    if (!window.confirm(t('teamUsage.confirmDelete', { name: title || id }))) return;
     setBusy(true);
     try {
       const r = await fetch(`/api/agent/sessions/${id}`, { method: 'DELETE' });
@@ -94,16 +97,16 @@ export function TeamUsageSection() {
     <div className="cfg-sec">
       <div className="sech">
         <Icon name="layers" size={13} />
-        <span className="sect">會話與用量</span>
-        <span className="secd">全部成員 · 累計 {fmtTokens(grandTotal)} tokens</span>
-        <button className="ua-btn teamusage-refresh" onClick={() => void refresh()} title="重新整理">
+        <span className="sect">{t('teamUsage.sectionTitle')}</span>
+        <span className="secd">{t('teamUsage.grandTotal', { total: fmtTokens(grandTotal) })}</span>
+        <button className="ua-btn teamusage-refresh" onClick={() => void refresh()} title={t('teamUsage.refresh')}>
           <Icon name="refresh" size={11} />
         </button>
       </div>
 
       {error && <div className="useradmin-err" role="alert">{error}</div>}
       {sessions !== null && rows.length === 0 && (
-        <div className="note">還沒有任何 agent 會話。</div>
+        <div className="note">{t('teamUsage.noSessions')}</div>
       )}
 
       <div className="teamusage-list">
@@ -115,10 +118,10 @@ export function TeamUsageSection() {
             >
               <Icon name="caret" size={11} style={{ transform: openOwner === row.owner ? 'rotate(90deg)' : 'none' }} />
               <span className="tu-name">{row.owner}</span>
-              <span className="tu-stat">{row.sessions.length} 會話</span>
-              <span className="tu-stat">{row.turns} 輪</span>
+              <span className="tu-stat">{t('teamUsage.sessionCount', { count: row.sessions.length })}</span>
+              <span className="tu-stat">{t('teamUsage.turnCount', { count: row.turns })}</span>
               <span className="tu-tokens mono">{fmtTokens(row.totalTokens)} tok</span>
-              <span className="tu-when">{fmtWhen(row.lastActive)}</span>
+              <span className="tu-when">{fmtWhen(row.lastActive, t)}</span>
             </button>
             {openOwner === row.owner && (
               <div className="tu-sessions">
@@ -127,15 +130,15 @@ export function TeamUsageSection() {
                   .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1))
                   .map(s => (
                     <div key={s.id} className="tu-session">
-                      <span className="tu-title" title={s.title || s.id}>{s.title || '（未命名）'}</span>
-                      <span className="tu-stat">{s.turns} 輪</span>
+                      <span className="tu-title" title={s.title || s.id}>{s.title || t('teamUsage.untitled')}</span>
+                      <span className="tu-stat">{t('teamUsage.turnCount', { count: s.turns })}</span>
                       <span className="tu-tokens mono">{fmtTokens(s.totalTokens || 0)} tok</span>
-                      <span className="tu-when">{fmtWhen(s.updatedAt)}</span>
-                      <button className="ua-btn danger" disabled={busy} onClick={() => void deleteSession(s.id, s.title)}>刪除</button>
+                      <span className="tu-when">{fmtWhen(s.updatedAt, t)}</span>
+                      <button className="ua-btn danger" disabled={busy} onClick={() => void deleteSession(s.id, s.title)}>{t('teamUsage.delete')}</button>
                     </div>
                   ))}
                 <div className="note" style={{ padding: '4px 2px 0' }}>
-                  要查看內容：到 Agent 分頁的會話下拉選單（成員會話以 [帳號] 前綴標示）。
+                  {t('teamUsage.viewHint')}
                 </div>
               </div>
             )}

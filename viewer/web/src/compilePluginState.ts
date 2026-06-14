@@ -1,4 +1,5 @@
 import type { EnvStatus } from '../../server/crawl-types';
+import i18n from './i18n';
 
 // Drives the "編譯插件" button in the Config tab's env-check step. Pure + node-free
 // so the gating matrix is unit-tested without React (see tests/compile-plugin-state).
@@ -23,10 +24,11 @@ export function compilePluginAction(env: EnvStatus | null): CompilePluginAction 
   const pluginMissing = env?.checks?.plugin?.ok === false;
   const onMac = env?.platform === 'darwin';
   const enabled = platformOk && engineOk;
+  const platform = onMac ? 'macOS (.dylib)' : 'Windows (.dll)';
   const hint = !platformOk
-    ? '需要 Windows 或 macOS 才能編譯插件'
+    ? i18n.t('compilePluginState.hintNeedPlatform')
     : !engineOk
-      ? '請先在上方填入有效的 UE 引擎根目錄'
-      : `用 RunUAT 為 ${onMac ? 'macOS（.dylib）' : 'Windows（.dll）'} 編譯插件二進位`;
+      ? i18n.t('compilePluginState.hintNeedEngine')
+      : i18n.t('compilePluginState.hintBuild', { platform });
   return { enabled, emphasize: pluginMissing, hint };
 }

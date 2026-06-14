@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from './store';
 import { groupFiles, type FileEntry } from './groupFiles';
 import { shouldConfirmOpen } from './largeGraphGate';
@@ -17,13 +18,16 @@ interface FileRowProps {
 }
 
 /** users/<name>/<proj> → 「<name> 的工作區 / <proj>」 (personal dirs). */
-function groupTitle(folder: string): string {
+function groupTitle(folder: string, t: (key: string, opts?: Record<string, string>) => string): string {
   const m = folder.match(/^users\/([^/]+)(?:\/(.+))?$/);
   if (!m) return folder;
-  return m[2] ? `${m[1]} 的工作區 / ${m[2]}` : `${m[1]} 的工作區`;
+  return m[2]
+    ? t('fileList.workspaceWithProject', { name: m[1], project: m[2] })
+    : t('fileList.workspace', { name: m[1] });
 }
 
 function FileRow({ entry, onLargeGraph, onCompare }: FileRowProps) {
+  const { t } = useTranslation();
   const { state, open } = useStore();
   const active = state.breadcrumb[0] === entry.path;
   const [menuOpen, setMenuOpen] = useState(false);
@@ -38,10 +42,10 @@ function FileRow({ entry, onLargeGraph, onCompare }: FileRowProps) {
       const suggested = op === 'duplicate'
         ? entry.path.replace(/\.matgraph\.json$/, '-copy.matgraph.json')
         : entry.path;
-      const input = window.prompt(op === 'rename' ? '新路徑（含 .matgraph.json）：' : '複製到（含 .matgraph.json）：', suggested);
+      const input = window.prompt(op === 'rename' ? t('fileList.promptRename') : t('fileList.promptDuplicate'), suggested);
       if (!input || input === entry.path) return;
       to = input.trim();
-    } else if (!window.confirm(`刪除「${entry.path}」？此操作無法還原。`)) {
+    } else if (!window.confirm(t('fileList.confirmDelete', { path: entry.path }))) {
       return;
     }
     try {
@@ -52,10 +56,10 @@ function FileRow({ entry, onLargeGraph, onCompare }: FileRowProps) {
       });
       if (!r.ok) {
         const e = (await r.json().catch(() => ({}))) as { error?: string };
-        window.alert(`操作失敗：${e.error || `HTTP ${r.status}`}`);
+        window.alert(t('fileList.opFailed', { detail: e.error || `HTTP ${r.status}` }));
       }
     } catch (e) {
-      window.alert(`操作失敗：${(e as Error).message}`);
+      window.alert(t('fileList.opFailed', { detail: (e as Error).message }));
     }
   };
   const loaded = state.graphs[entry.path];
@@ -79,7 +83,7 @@ function FileRow({ entry, onLargeGraph, onCompare }: FileRowProps) {
         onLargeGraph(entry);
       } else {
         const ok = window.confirm(
-          `此圖表包含 ${entry.nodeCount} 個節點，載入可能需要較長時間。確定要開啟嗎？`,
+          t('fileList.confirmLargeGraph', { count: entry.nodeCount }),
         );
         if (!ok) return;
         open(entry.path);
@@ -116,19 +120,19 @@ function FileRow({ entry, onLargeGraph, onCompare }: FileRowProps) {
       {entry.preview && (
         <span
           className="fswatch"
-          title="BaseColor 預覽（常數折疊近似）"
+          title={t('fileList.previewTitle')}
           style={{ background: `rgb(${entry.preview.map(c => Math.round(c * 255)).join(',')})` }}
         />
       )}
       <span className="meta">
-        {isBig && <span className="bigmark" title="大型圖">300+</span>}
+        {isBig && <span className="bigmark" title={t('fileList.largeGraph')}>300+</span>}
         {displayCount != null && <span className="nc">{displayCount}</span>}
         {status && <span className={'sdot ' + status} title={status} />}
         {live && (!isCrawled || (onCompare && !active)) && (
           <span className="fops" onClick={e => e.stopPropagation()}>
             <button
               className="fops-btn"
-              title="檔案操作"
+              title={t('fileList.fileOps')}
               onClick={() => setMenuOpen(o => !o)}
               onKeyDown={e => e.stopPropagation()}
             >
@@ -137,11 +141,11 @@ function FileRow({ entry, onLargeGraph, onCompare }: FileRowProps) {
             {menuOpen && (
               <span className="fops-menu" onMouseLeave={() => setMenuOpen(false)}>
                 {onCompare && !active && (
-                  <button onClick={() => { setMenuOpen(false); onCompare(entry.path); }}>與目前圖比較</button>
+                  <button onClick={() => { setMenuOpen(false); onCompare(entry.path); }}>{t('fileList.compareWithCurrent')}</button>
                 )}
-                {!isCrawled && <button onClick={() => void fileOp('rename')}>改名／移動</button>}
-                {!isCrawled && <button onClick={() => void fileOp('duplicate')}>建立副本</button>}
-                {!isCrawled && <button className="danger" onClick={() => void fileOp('delete')}>刪除</button>}
+                {!isCrawled && <button onClick={() => void fileOp('rename')}>{t('fileList.renameMove')}</button>}
+                {!isCrawled && <button onClick={() => void fileOp('duplicate')}>{t('fileList.duplicate')}</button>}
+                {!isCrawled && <button className="danger" onClick={() => void fileOp('delete')}>{t('fileList.delete')}</button>}
               </span>
             )}
           </span>
@@ -189,13 +193,14 @@ export interface FileListProps {
 
 type TypeFilter = 'all' | 'material' | 'function';
 
-const TYPE_SEGMENTS: { key: TypeFilter; label: string }[] = [
-  { key: 'all', label: '全部' },
-  { key: 'material', label: '材質' },
-  { key: 'function', label: '函式' },
+const TYPE_SEGMENTS: { key: TypeFilter; labelKey: string }[] = [
+  { key: 'all', labelKey: 'fileList.typeAll' },
+  { key: 'material', labelKey: 'fileList.typeMaterial' },
+  { key: 'function', labelKey: 'fileList.typeFunction' },
 ];
 
 export function FileList({ onGotoConfig, onLargeGraph, onCompare }: FileListProps = {}) {
+  const { t } = useTranslation();
   const { state } = useStore();
   const [query, setQuery] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
@@ -230,7 +235,7 @@ export function FileList({ onGotoConfig, onLargeGraph, onCompare }: FileListProp
         <input
           value={query}
           onChange={e => setQuery(e.target.value)}
-          placeholder="篩選材質…"
+          placeholder={t('fileList.searchPlaceholder')}
         />
       </div>
 
@@ -242,18 +247,18 @@ export function FileList({ onGotoConfig, onLargeGraph, onCompare }: FileListProp
             className={'ftype' + (typeFilter === s.key ? ' on' : '')}
             onClick={() => setTypeFilter(s.key)}
           >
-            {s.label}
+            {t(s.labelKey)}
           </button>
         ))}
       </div>
 
       {/* 專案 · Project — what the agent authors for this project */}
       <div className="sec-label">
-        專案 · Project
+        {t('fileList.sectionProject')}
         <span className="badge">{projectShown}</span>
       </div>
       {visibleProjects.map(p => (
-        <Group key={p.folder} title={groupTitle(p.folder)} count={p.files.length}>
+        <Group key={p.folder} title={groupTitle(p.folder, t)} count={p.files.length}>
           {p.files.map(f => (
             <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} onCompare={onCompare} />
           ))}
@@ -261,7 +266,7 @@ export function FileList({ onGotoConfig, onLargeGraph, onCompare }: FileListProp
       ))}
       {/* Unorganized files shown as a flat group if any */}
       {visibleUnorg.length > 0 && (
-        <Group title="未分類" count={visibleUnorg.length} defaultOpen={false}>
+        <Group title={t('fileList.unorganized')} count={visibleUnorg.length} defaultOpen={false}>
           {visibleUnorg.map(f => (
             <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} onCompare={onCompare} />
           ))}
@@ -272,9 +277,9 @@ export function FileList({ onGotoConfig, onLargeGraph, onCompare }: FileListProp
       <div className="sec-crawled" style={{ marginTop: 6, paddingTop: 4 }}>
         <div className="sec-label" style={{ color: 'var(--accent)' }}>
           <Icon name="eye" size={13} />
-          工作 · Work
+          {t('fileList.sectionWork')}
           <span className="badge" style={{ borderColor: 'var(--accent-dim)', color: 'var(--accent)' }}>
-            爬取 · 唯讀
+            {t('fileList.badgeCrawledReadonly')}
           </span>
         </div>
         {crawledProjects.length === 0 ? (
@@ -282,30 +287,29 @@ export function FileList({ onGotoConfig, onLargeGraph, onCompare }: FileListProp
             <div className="eci">
               <Icon name="eye" size={17} />
             </div>
-            <div className="ect">尚未爬取</div>
+            <div className="ect">{t('fileList.emptyCrawlTitle')}</div>
             <div className="ecd">
-              這個區段是「爬取專案母材質」的輸出。母材質爬取會同時帶入其引用到的專案 MF；
-              「爬取專案 MF」只刷新簽名索引，不會直接填入這裡。
+              {t('fileList.emptyCrawlDesc')}
             </div>
             <button
               className="btn sm primary"
               style={{ justifyContent: 'center' }}
               onClick={onGotoConfig}
             >
-              <Icon name="refresh" size={13} /> 前往爬取
+              <Icon name="refresh" size={13} /> {t('fileList.gotoCrawl')}
             </button>
           </div>
         ) : (
           <>
             {crawledMats.length > 0 && (
-              <Group title="母材質 Materials" count={crawledMats.length}>
+              <Group title={t('fileList.groupBaseMaterials')} count={crawledMats.length}>
                 {crawledMats.map(f => (
                   <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} onCompare={onCompare} />
                 ))}
               </Group>
             )}
             {crawledFns.length > 0 && (
-              <Group title="函式 Functions" count={crawledFns.length}>
+              <Group title={t('fileList.groupFunctions')} count={crawledFns.length}>
                 {crawledFns.map(f => (
                   <FileRow key={f.path} entry={f} onLargeGraph={onLargeGraph} onCompare={onCompare} />
                 ))}
