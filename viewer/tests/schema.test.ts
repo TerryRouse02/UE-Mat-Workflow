@@ -205,3 +205,66 @@ describe('empty endpoint halves (BUG-6)', () => {
     expect(r.graph).toBeNull();
   });
 });
+
+describe('semantic lint — duplicate parameter names', () => {
+  const matP = (nodes: Array<{ id: string; type: string; params?: Record<string, unknown> }>) =>
+    ({ schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm', nodes, connections: [] }) as never;
+  const OUT = { id: 'OUT', type: 'MaterialOutput' };
+
+  it('warns when two nodes share a ParameterName, naming both ids', () => {
+    const w = materialStructureWarnings(matP([
+      OUT,
+      { id: 'p1', type: 'ScalarParameter', params: { ParameterName: 'Roughness' } },
+      { id: 'p2', type: 'ScalarParameter', params: { ParameterName: 'Roughness' } },
+    ]));
+    expect(w.some(x => /Roughness/.test(x) && /p1, p2/.test(x) && /same value/i.test(x))).toBe(true);
+  });
+
+  it('is silent when parameter names are distinct', () => {
+    const w = materialStructureWarnings(matP([
+      OUT,
+      { id: 'p1', type: 'ScalarParameter', params: { ParameterName: 'Roughness' } },
+      { id: 'p2', type: 'ScalarParameter', params: { ParameterName: 'Metallic' } },
+    ]));
+    expect(w).toEqual([]);
+  });
+
+  it('is silent when only one node carries a given name', () => {
+    const w = materialStructureWarnings(matP([
+      OUT, { id: 'p1', type: 'ScalarParameter', params: { ParameterName: 'Roughness' } },
+    ]));
+    expect(w).toEqual([]);
+  });
+});
+
+describe('semantic lint — no-op static switch', () => {
+  const matC = (
+    nodes: Array<{ id: string; type: string; params?: Record<string, unknown> }>,
+    connections: Array<{ from: string; to: string }>,
+  ) => ({ schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm', nodes, connections }) as never;
+  const OUT = { id: 'OUT', type: 'MaterialOutput' };
+
+  it('warns when a StaticSwitchParameter has identical A and B sources', () => {
+    const w = materialStructureWarnings(matC(
+      [OUT, { id: 'sw', type: 'StaticSwitchParameter', params: { ParameterName: 'UseB' } }, { id: 'uv', type: 'TextureCoordinate' }],
+      [{ from: 'uv:Result', to: 'sw:A' }, { from: 'uv:Result', to: 'sw:B' }],
+    ));
+    expect(w.some(x => /"sw"/.test(x) && /(identical A and B|no effect)/i.test(x))).toBe(true);
+  });
+
+  it('is silent when A and B come from different sources', () => {
+    const w = materialStructureWarnings(matC(
+      [OUT, { id: 'sw', type: 'StaticSwitchParameter' }, { id: 'a', type: 'TextureCoordinate' }, { id: 'b', type: 'Constant' }],
+      [{ from: 'a:Result', to: 'sw:A' }, { from: 'b:Value', to: 'sw:B' }],
+    ));
+    expect(w).toEqual([]);
+  });
+
+  it('is silent when only one of A/B is wired', () => {
+    const w = materialStructureWarnings(matC(
+      [OUT, { id: 'sw', type: 'StaticSwitch' }, { id: 'a', type: 'TextureCoordinate' }],
+      [{ from: 'a:Result', to: 'sw:A' }],
+    ));
+    expect(w).toEqual([]);
+  });
+});

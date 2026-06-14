@@ -77,6 +77,8 @@ export function materialStructureWarnings(graph: MatGraph): string[] {
     warnings.push(`A Material must have exactly one MaterialOutput node — found ${outs.length} (${outs.map(n => n.id).join(', ')}).`);
   }
   warnings.push(...semanticLintWarnings(graph));
+  warnings.push(...duplicateParameterWarnings(graph));
+  warnings.push(...staticSwitchNoOpWarnings(graph));
   return warnings;
 }
 
@@ -131,6 +133,58 @@ function semanticLintWarnings(graph: MatGraph): string[] {
         `"${src.id}" (${src.type}) feeds the scalar ${toPin} output — ` +
         `use a Constant, or a single channel like "${src.id}:R", instead of a vector.`,
       );
+    }
+  }
+  return out;
+}
+
+// Two parameter nodes sharing a ParameterName bind to the SAME value in the
+// Material Instance. Sometimes intentional (a shared "master" param), so this is
+// a WARNING, not an error. DB-free: any node carrying a string ParameterName counts.
+function duplicateParameterWarnings(graph: MatGraph): string[] {
+  const byName = new Map<string, string[]>();
+  for (const n of graph.nodes) {
+    const name = n.params?.ParameterName;
+    if (typeof name !== 'string' || !name.trim()) continue;
+    const ids = byName.get(name);
+    if (ids) ids.push(n.id); else byName.set(name, [n.id]);
+  }
+  const out: string[] = [];
+  for (const [name, ids] of byName) {
+    if (ids.length > 1) {
+      out.push(
+        `Parameter name "${name}" is used by ${ids.length} nodes (${ids.join(', ')}) — ` +
+        `they bind to the same value in the Material Instance; rename one if that is not intended.`,
+      );
+    }
+  }
+  return out;
+}
+
+// A StaticSwitch whose A and B inputs come from the SAME source does nothing when
+// toggled — a likely wiring mistake. Warns; never blocks. Only fires when BOTH
+// pins are wired to the identical endpoint (unwired pins are a separate concern).
+const STATIC_SWITCH_TYPES = new Set(['StaticSwitch', 'StaticSwitchParameter']);
+
+function staticSwitchNoOpWarnings(graph: MatGraph): string[] {
+  const switchIds = new Set(graph.nodes.filter(n => STATIC_SWITCH_TYPES.has(n.type)).map(n => n.id));
+  if (switchIds.size === 0) return [];
+  const aSrc = new Map<string, string>();
+  const bSrc = new Map<string, string>();
+  for (const c of graph.connections) {
+    const ti = c.to.indexOf(':');
+    if (ti < 0) continue;
+    const id = c.to.slice(0, ti);
+    if (!switchIds.has(id)) continue;
+    const pin = c.to.slice(ti + 1);
+    if (pin === 'A') aSrc.set(id, c.from);
+    else if (pin === 'B') bSrc.set(id, c.from);
+  }
+  const out: string[] = [];
+  for (const id of switchIds) {
+    const a = aSrc.get(id);
+    if (a !== undefined && a === bSrc.get(id)) {
+      out.push(`StaticSwitch "${id}" has identical A and B inputs (both from ${a}) — toggling it has no effect.`);
     }
   }
   return out;
