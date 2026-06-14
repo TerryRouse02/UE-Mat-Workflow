@@ -58,18 +58,23 @@ indirectly — through the admin-driven agent and the node-explain endpoint.
 ## First boot
 
 1. Desktop: enable from **Config → 團隊** (creates the admin inline).
-   Docker: start with `BIND_HOST=0.0.0.0` — the first visitor then creates the
-   admin via the Setup screen.
+   Docker: start with `BIND_HOST=0.0.0.0`. On a **public** deploy also set
+   `ADMIN_USERNAME` / `ADMIN_PASSWORD` so the admin is created at startup before
+   the server accepts a request — otherwise the first visitor claims admin via
+   the Setup screen (acceptable on a trusted LAN only).
 2. Add members in **Config → 團隊 → 使用者管理**.
 3. To publish an announcement channel: Agent tab → pick a session → **設為公告**.
    Members see it read-only in their Agent tab, live.
 
-## Docker
+## Docker (LAN / dev)
 
 ```bash
 docker build -f deploy/Dockerfile -t ue-mat-viewer .
-docker compose -f deploy/docker-compose.yml up -d
+docker compose -f deploy/docker-compose.lan.yml up -d
 ```
+
+`docker-compose.lan.yml` publishes 5790 directly and is **LAN-only**. For an
+internet deployment use the hardened prod stack below, not this file.
 
 The container cannot run UE crawls (no Unreal install inside). Generate node
 DB / MF indexes on a workstation and copy `agent-pack/workmf-index.json` in
@@ -83,30 +88,40 @@ VPS never compiles, holds no source, and rolls back by tag. Pieces:
 - `.github/workflows/deploy.yml` — after **CI** passes on `main`, builds
   `deploy/Dockerfile` and pushes to GHCR as `:latest` and `:sha-<short>`.
 - `deploy/docker-compose.prod.yml` — pulls that image and bundles Caddy
-  (automatic HTTPS). Only 80/443 are published; the viewer's 5790 stays on the
-  internal network. Named volumes keep accounts / graphs / sessions / LLM config
-  **across updates**.
-- `deploy/update.sh` — `pull` + `up -d` + prune. `deploy/.env` holds the domain
-  and the tag.
+  (automatic HTTPS + security headers). Only 80/443 are published; the viewer's
+  5790 stays on the internal network. The viewer runs **non-root, read-only, no
+  caps**. Named volumes keep accounts / graphs / sessions / LLM config
+  **across updates**. Requires `ADMIN_USERNAME` / `ADMIN_PASSWORD` (admin
+  pre-seed) — compose refuses to start without them.
+- `deploy/update.sh` — `pull` + `up -d` + prune. `deploy/.env` holds the domain,
+  the tag, and the admin credentials.
 
 One-time VPS setup:
 
 ```bash
 # DNS: point an A record (e.g. mat.example.com) at the VPS first.
 git clone <repo> && cd <repo>          # or just copy the deploy/ dir
-cp deploy/.env.example deploy/.env     # set VIEWER_DOMAIN (+ optional IMAGE_TAG)
+cp deploy/.env.example deploy/.env     # set VIEWER_DOMAIN + ADMIN_USERNAME + ADMIN_PASSWORD
 # If the GHCR package is private, authenticate once (PAT with read:packages),
 # or make the package public in GitHub → Packages:
 #   echo "$GHCR_PAT" | docker login ghcr.io -u <github-user> --password-stdin
 ./deploy/update.sh
 ```
 
-Then open `https://<your domain>` and **create the admin account immediately**
-(the first visitor becomes admin — claim it before sharing the URL).
+The admin account is created from `ADMIN_USERNAME` / `ADMIN_PASSWORD` **before**
+the server accepts a request, so there is no first-visitor race to win — just
+log in with those credentials at `https://<your domain>` and add members.
 
 Updating: merge to `main` → CI green → image published → on the VPS run
 `./deploy/update.sh`. Rollback: `IMAGE_TAG=sha-abc1234 ./deploy/update.sh`.
 (`deploy.yml` must already be on `main` for the post-CI trigger to fire.)
+
+> Secrets at rest: the LLM key (`local.config.json`) and the auth store live in
+> Docker named volumes as plain files on the VPS disk. Password hashes are scrypt
+> and tokens are stored only as SHA-256 digests (a stolen `tokens.json` cannot be
+> replayed), but the **LLM key is plaintext** — anyone with disk/snapshot access
+> to the VPS can read it. Restrict host access and rotate the key if the box is
+> ever exposed.
 
 ## Bare metal (workstation with UE installed)
 

@@ -18,6 +18,22 @@ services:
     environment:
       BIND_HOST: 0.0.0.0       # non-loopback bind → TEAM mode (login + roles)
       COOKIE_SECURE: "1"        # auth cookie marked Secure (we are behind Caddy TLS)
+      # Pre-seed the admin BEFORE the listener accepts a request so no internet
+      # client can win the first-visitor-admin race. Both REQUIRED in prod — the
+      # :? makes compose refuse to start if unset. Set them in deploy/.env.
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?set ADMIN_USERNAME in deploy/.env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in deploy/.env}
+    # Hardening: drop root + every capability, block privilege escalation, and run
+    # a read-only rootfs. All writes target the named volumes below (+ tmpfs /tmp),
+    # so read_only is safe; a popped process gains no root and no caps.
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     expose:
       - "5790"                  # internal only — NOT published to the host/internet
     volumes:

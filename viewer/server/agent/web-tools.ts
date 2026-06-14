@@ -119,6 +119,13 @@ export async function guardPublicUrl(raw: string, lookupFn?: LookupFn, opts?: Gu
   if (isIP(host)) {
     return isPrivateIp(host) ? 'loopback/private addresses are blocked' : null;
   }
+  // Cloud instance-metadata hostnames are blocked even when DNS resolution is
+  // skipped (proxy-routed): a model-crafted fetch to one of these could otherwise
+  // reach the VPS's metadata service via the proxy and steal cloud credentials.
+  // (The numeric 169.254.169.254 form is already caught above as a private IP.)
+  if (host === 'metadata' || host === 'metadata.google.internal' || host === 'metadata.goog' || host === 'instance-data') {
+    return 'cloud metadata endpoints are blocked';
+  }
   if (opts?.skipDnsResolve) return null;
   const doLookup = lookupFn ?? (lookup as unknown as LookupFn);
   let addrs: Array<{ address: string }>;

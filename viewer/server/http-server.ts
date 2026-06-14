@@ -130,6 +130,10 @@ const isMatGraph = (g: unknown): g is { type: string; name?: string; nodes: unkn
   ((g as { type?: unknown }).type === 'Material' || (g as { type?: unknown }).type === 'MaterialFunction') &&
   Array.isArray((g as { nodes?: unknown }).nodes);
 
+/** Per-user / global agent-session ceilings — a public-deploy DoS backstop. */
+const MAX_SESSIONS_PER_USER = 50;
+const MAX_SESSIONS_TOTAL = 500;
+
 export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   const graphsRoot = resolve(opts.repoRoot, 'graphs');
   const agentPackRoot = resolve(opts.repoRoot, 'agent-pack');
@@ -1024,6 +1028,21 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     try { return new URL(origin).host === req.headers.host; } catch { return false; }
   }
 
+  // Real client IP for rate limiting. Behind the prod reverse proxy (Caddy on the
+  // internal compose network) req.socket.remoteAddress is the proxy's container
+  // IP, so without this every internet client would share ONE login bucket — a
+  // trivial lock-out DoS and a useless brute-force limit. When bound to a
+  // non-loopback host (team / Docker, where the only upstream is the trusted
+  // proxy) trust the first X-Forwarded-For hop; otherwise use the socket address.
+  function clientIp(req: IncomingMessage): string {
+    if (currentBindHost !== '127.0.0.1' && currentBindHost !== 'localhost' && currentBindHost !== '::1') {
+      const xff = req.headers['x-forwarded-for'];
+      const first = (Array.isArray(xff) ? xff[0] : xff)?.split(',')[0]?.trim();
+      if (first) return first;
+    }
+    return req.socket.remoteAddress ?? 'unknown';
+  }
+
   function crawlEventToMsg(e: CrawlEvent): ServerMessage {
     if (e.type === 'started') return { kind: 'crawlStarted', jobId: e.jobId, crawlKind: e.kind };
     if (e.type === 'log') return { kind: 'crawlLog', jobId: e.jobId, line: e.line };
@@ -1058,6 +1077,17 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   async function handleCrawl(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin crawl requests are refused' }); return; }
+    // Server-side env gate (team mode only — the Docker/public case): the crawl
+    // spawns UnrealEditor-Cmd via pwsh. In a container (host is Linux, no UE) the
+    // spawn would just ENOENT after a misleading 200 — reject up front with a
+    // clean 503. A bare-metal team workstation passes (platform + engine ready).
+    if (mode === 'team') {
+      const probe = await probeEnv(opts.repoRoot);
+      if (!probe.checks.platform.ok || !probe.checks.engine.ok) {
+        sendJson(res, 503, { error: '此主機無法執行爬取（需安裝 Unreal 的 Windows/macOS 工作站）。', checks: probe.checks });
+        return;
+      }
+    }
     let body: { kind?: unknown; contentRoots?: unknown };
     try { body = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
@@ -1161,8 +1191,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }
 
-  /** GET /api/agent/status — returns ProviderStatus (never contains apiKey). */
-  async function handleAgentStatus(res: import('node:http').ServerResponse) {
+  /** GET /api/agent/status — returns ProviderStatus (never contains apiKey).
+   *  Infra URLs (LLM baseUrl, SearXNG, proxy) are redacted for non-admins. */
+  async function handleAgentStatus(res: import('node:http').ServerResponse, user: AuthUser | null) {
     const config = await readLlmConfig();
     const status: ProviderStatus = config
       ? {
@@ -1182,6 +1213,14 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       status.hasBraveKey = web.braveApiKey !== undefined;
       status.searxngBaseUrl = web.searxngBaseUrl;
       status.webProxyUrl = web.proxyUrl;
+    }
+    // Members must not learn internal infrastructure topology: the LLM base URL,
+    // SearXNG instance, and proxy host are admin-only. provider/model + the
+    // has*Key booleans stay so the member UI can show agent capability.
+    if (mode === 'team' && user && user.role !== 'admin') {
+      delete status.baseUrl;
+      delete status.searxngBaseUrl;
+      delete status.webProxyUrl;
     }
     sendJson(res, 200, status);
   }
@@ -1589,6 +1628,14 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   /** POST /api/agent/sessions — create a fresh persistent session. */
   async function handleAgentSessionsCreate(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    // Cap session creation so a credentialed client cannot exhaust the VPS disk /
+    // memory by looping POST /api/agent/sessions.
+    const all = await sessionStore.list();
+    if (all.length >= MAX_SESSIONS_TOTAL) { sendJson(res, 429, { error: '工作階段總數已達上限。' }); return; }
+    if (mode === 'team' && user && user.role !== 'admin') {
+      const mine = all.filter((m) => m.owner === user.username).length;
+      if (mine >= MAX_SESSIONS_PER_USER) { sendJson(res, 429, { error: `已達個人工作階段上限（${MAX_SESSIONS_PER_USER}）。` }); return; }
+    }
     let ueVersion: string | undefined;
     try {
       const raw = await readBody(req);
@@ -1784,7 +1831,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   }
 
   /** POST /api/agent/explain — one-shot LLM node explanation (JSON, not SSE). */
-  async function handleAgentExplain(req: IncomingMessage, res: import('node:http').ServerResponse) {
+  async function handleAgentExplain(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
 
     let body: AgentExplainRequest;
@@ -1838,6 +1885,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // Build optional graph context (degrade silently on any failure).
     let graphContext: string | undefined;
     if (body.graphPath && body.nodeId) {
+      // Ownership gate, mirroring handleGraphGet: a member must not read another
+      // member's personal-workspace graph topology through the explain prompt.
+      if (!canSeePath(user, body.graphPath)) {
+        sendJson(res, 200, { ok: false, error: '無權存取此圖表。' } satisfies AgentExplainResponse);
+        return;
+      }
       graphContext = await buildGraphContext(
         resolve(opts.repoRoot, 'graphs'),
         body.graphPath,
@@ -2143,8 +2196,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       // members watch deltas in real time (the end-of-turn publicAgent
       // broadcast still triggers the authoritative transcript re-fetch).
       if (isPublicTurn) {
-        const dmsg: ServerMessage = { kind: 'publicAgentDelta', id: active.loop.id, event: out };
-        for (const c of wss.clients) safeSend(c, dmsg);
+        for (const c of wss.clients) {
+          const safeEvent = redactDeltaForRecipient(wsIdentity.get(c) ?? null, out);
+          safeSend(c, { kind: 'publicAgentDelta', id: active.loop.id, event: safeEvent });
+        }
       }
       res.write(`data: ${JSON.stringify(out)}\n\n`);
       // Mirror every emitted event into the replayable transcript (text and
@@ -2221,6 +2276,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           tokenCeiling: llmConfig.contextLimit,
           // 🌐 switch: absent = on (the loop removes the web tools when false).
           webToolsEnabled,
+          // NB: request_crawl/propose_db_edit stay AVAILABLE to members on
+          // purpose — they create proposals that divert into the admin approval
+          // inbox (the emit intercept above marks them pendingApproval). Token
+          // spend is bounded by the per-user daily quota, not by hiding the tool.
           // Pasted images (validated in handleAgentChat) ride this turn only.
           images: body.images,
         },
@@ -2457,37 +2516,52 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
     if (await authStore.hasUsers()) { sendJson(res, 409, { error: 'already set up' }); return; }
+    // Rate-limit the bootstrap: on a public deploy this is the pre-auth admin-claim
+    // surface. (The real race-closer is the ADMIN_USERNAME/ADMIN_PASSWORD startup
+    // pre-seed — when set, hasUsers() is already true and this 409s.)
+    const ip = clientIp(req);
+    if (loginLimiter.blocked(ip)) { sendJson(res, 429, { error: 'too many setup attempts — try again later' }); return; }
     let body: { username?: unknown; password?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     const created = await authStore.createUser(String(body.username ?? ''), String(body.password ?? ''), 'admin');
-    if (!created.ok) { sendJson(res, 400, { error: created.error }); return; }
+    if (!created.ok) { loginLimiter.fail(ip); sendJson(res, 400, { error: created.error }); return; }
     const username = String(body.username);
     const token = await authStore.issueToken(username);
     setAuthCookie(res, token);
-    sendJson(res, 200, { authed: true, username, role: 'admin', token });
+    // Token via cookie (browser) + X-Auth-Token header (script/CLI Bearer) — never
+    // in the JSON body, so it can't leak into response-body logs.
+    res.setHeader('X-Auth-Token', token);
+    sendJson(res, 200, { authed: true, username, role: 'admin' });
   }
 
   async function handleAuthLogin(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    const ip = req.socket.remoteAddress ?? 'unknown';
-    if (loginLimiter.blocked(ip)) { sendJson(res, 429, { error: 'too many failed logins — try again later' }); return; }
+    const ip = clientIp(req);
     let body: { username?: unknown; password?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    // Two buckets: per-IP (one host hammering) AND per-username (a distributed
+    // credential-stuffing run that spreads guesses for one account across many
+    // IPs). Either being full blocks the attempt.
+    const userKey = `user:${String(body.username ?? '')}`;
+    if (loginLimiter.blocked(ip) || loginLimiter.blocked(userKey)) { sendJson(res, 429, { error: 'too many failed logins — try again later' }); return; }
     const user = await authStore.verifyPassword(String(body.username ?? ''), String(body.password ?? ''));
     if (!user) {
       loginLimiter.fail(ip);
+      loginLimiter.fail(userKey);
       sendJson(res, 401, { error: '帳號或密碼錯誤' });
       return;
     }
     loginLimiter.succeed(ip);
-    // The raw token is also returned in the body for script/CLI use
-    // (Authorization: Bearer) — the browser flow relies on the cookie alone.
+    loginLimiter.succeed(userKey);
+    // Token via cookie (browser) + X-Auth-Token header (script/CLI Bearer) — never
+    // in the JSON body, so it can't leak into response-body logs.
     const token = await authStore.issueToken(user.username);
     setAuthCookie(res, token);
-    sendJson(res, 200, { authed: true, username: user.username, role: user.role, token });
+    res.setHeader('X-Auth-Token', token);
+    sendJson(res, 200, { authed: true, username: user.username, role: user.role });
   }
 
   async function handleAuthLogout(req: IncomingMessage, res: import('node:http').ServerResponse) {
@@ -2550,7 +2624,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
     const token = await authStore.issueToken(user.username);
     setAuthCookie(res, token);
-    sendJson(res, 200, { ok: true, token });
+    res.setHeader('X-Auth-Token', token);
+    sendJson(res, 200, { ok: true });
   }
 
   // Track all open HTTP sockets so we can destroy them during forced shutdown.
@@ -2684,7 +2759,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'GET' && urlPath === '/api/env') {
       try {
         const [env, freshness] = await Promise.all([probeEnv(opts.repoRoot), loadFreshness(opts.repoRoot)]);
-        sendJson(res, 200, { ...env, freshness });
+        // Members get the readiness flags but NOT the absolute VPS paths (the
+        // crawl UI is admin-only anyway). Strip projectPath/engineRoot and the
+        // path-bearing check detail strings for non-admin team users.
+        const safe = (mode === 'team' && gateUser && gateUser.role !== 'admin')
+          ? redactEnvForMember(env) : env;
+        sendJson(res, 200, { ...safe, freshness });
       }
       catch (e) { console.error('env probe error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
@@ -2731,7 +2811,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/explain') {
-      try { await handleAgentExplain(req, res); }
+      try { await handleAgentExplain(req, res, gateUser); }
       catch (e) { console.error('agent explain handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
@@ -2741,7 +2821,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
     if (req.method === 'GET' && urlPath === '/api/agent/status') {
-      try { await handleAgentStatus(res); }
+      try { await handleAgentStatus(res, gateUser); }
       catch (e) { console.error('agent status handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
@@ -3019,6 +3099,34 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   function filesFor(user: AuthUser | null, files: FileEntry[]): FileEntry[] {
     return files.filter((f) => canSeePath(user, f.path));
   }
+  // 系統主Agent deltas fan out to EVERY connected member. Strip personal-workspace
+  // paths the recipient cannot otherwise see (a graph_written.path, or a
+  // users/<other>/… path inside a tool_start summary) so the live stream never
+  // leaks a path the file-list / open gate would withhold.
+  function redactDeltaForRecipient(user: AuthUser | null, ev: AgentSseEvent): AgentSseEvent {
+    if (mode !== 'team' || !user || user.role === 'admin') return ev;
+    if (ev.type === 'graph_written' && !canSeePath(user, ev.path)) {
+      return { ...ev, path: '（個人工作區）' };
+    }
+    if (ev.type === 'tool_start') {
+      const redacted = ev.summary.replace(/users\/[^/\s]+\/[^\s）]*/g,
+        (p) => (canSeePath(user, p) ? p : 'users/…（私有）'));
+      if (redacted !== ev.summary) return { ...ev, summary: redacted };
+    }
+    return ev;
+  }
+  // Strip absolute VPS paths from the env probe for non-admin members: null the
+  // projectPath/engineRoot and replace the not-ready engine/project/noShadow
+  // detail strings (which embed those paths) with a neutral message. The ok
+  // flags survive so the member UI still reflects readiness.
+  function redactEnvForMember(env: Awaited<ReturnType<typeof probeEnv>>): Awaited<ReturnType<typeof probeEnv>> {
+    const pathChecks = new Set(['engine', 'project', 'noShadow']);
+    const checks: typeof env.checks = {};
+    for (const [k, v] of Object.entries(env.checks)) {
+      checks[k] = (!v.ok && pathChecks.has(k)) ? { ok: false, detail: '尚未就緒（詳情僅管理員可見）' } : v;
+    }
+    return { ...env, projectPath: null, engineRoot: null, checks };
+  }
   function onlineUsers(): string[] {
     const names = new Set<string>();
     for (const u of wsIdentity.values()) if (u) names.add(u.username);
@@ -3120,6 +3228,21 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     openSockets.add(sock);
     sock.once('close', () => openSockets.delete(sock));
   });
+
+  // Close the first-visitor-admin race on public deploys: when team mode starts
+  // with no accounts and ADMIN_USERNAME/ADMIN_PASSWORD are provided (the prod
+  // compose requires them), create the admin BEFORE the listener accepts a single
+  // request — so no internet client can claim admin in the boot window. With no
+  // env creds (LAN / dev / bare metal) the in-browser Setup flow is unchanged.
+  if (mode === 'team' && authStore && !(await authStore.hasUsers())) {
+    const bootUser = process.env.ADMIN_USERNAME?.trim();
+    const bootPass = process.env.ADMIN_PASSWORD;
+    if (bootUser && bootPass) {
+      const created = await authStore.createUser(bootUser, bootPass, 'admin');
+      if (created.ok) console.log(`[auth] pre-seeded admin "${bootUser}" from ADMIN_USERNAME/ADMIN_PASSWORD`);
+      else console.error(`[auth] admin pre-seed failed: ${created.error}`);
+    }
+  }
 
   // Local-first: bind loopback unless BIND_HOST opts into team mode. The crawl
   // endpoint spawns UnrealEditor-Cmd.exe, so a non-loopback bind is only safe

@@ -47,8 +47,9 @@ function cookieOf(res: Response): string {
 async function setupAdmin(base: string): Promise<{ cookie: string; token: string }> {
   const res = await fetch(`${base}/api/auth/setup`, json({ username: 'admin', password: 'password1' }));
   expect(res.status).toBe(200);
-  const body = await res.json();
-  return { cookie: cookieOf(res), token: body.token as string };
+  // Token rides the X-Auth-Token header (Bearer/CLI), never the JSON body.
+  expect((await res.json()).token).toBeUndefined();
+  return { cookie: cookieOf(res), token: res.headers.get('x-auth-token') as string };
 }
 
 describe('team mode: setup + login + status', () => {
@@ -82,7 +83,8 @@ describe('team mode: setup + login + status', () => {
       const res = await fetch(`${base}/api/auth/login`, json({ username: 'admin', password: 'password1' }));
       expect(res.status).toBe(200);
       const cookie = cookieOf(res);
-      const { token } = await res.json();
+      const token = res.headers.get('x-auth-token')!;
+      expect((await res.json()).token).toBeUndefined(); // never in the body
 
       expect((await fetch(`${base}/api/env`, { headers: { cookie } })).status).toBe(200);
       expect((await fetch(`${base}/api/env`, { headers: { authorization: `Bearer ${token}` } })).status).toBe(200);
