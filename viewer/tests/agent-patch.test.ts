@@ -933,3 +933,124 @@ describe('removeNode heal', () => {
     expect(r.diff[0]).toContain('移除了節點');
   });
 });
+
+// ---------------------------------------------------------------------------
+// comment ops (addComment / setComment / removeComment)
+// ---------------------------------------------------------------------------
+
+// A graph that already carries one comment, for set/remove cases.
+function commentGraph(): MatGraph {
+  return {
+    schemaVersion: '1.0',
+    ueVersion: '5.7',
+    type: 'Material',
+    name: 'test',
+    nodes: [
+      { id: 'A', type: 'Multiply' },
+      { id: 'B', type: 'Lerp' },
+    ],
+    connections: [],
+    comments: [{ id: 'note1', text: 'old', contains: ['A'] }],
+  };
+}
+
+describe('addComment', () => {
+  it('happy path: appends a comment and emits the diff line', () => {
+    const g = baseGraph();
+    const r = applyPatch(g, [{ op: 'addComment', id: 'note1', text: 'PBR base', contains: ['A', 'B'] }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const c = r.graph.comments?.find(x => x.id === 'note1');
+    expect(c).toEqual({ id: 'note1', text: 'PBR base', contains: ['A', 'B'] });
+    expect(r.diff[0]).toBe('加入了註解框「`note1`」');
+  });
+
+  it('omitted id is auto-generated and reported in assignedIds', () => {
+    const g = baseGraph();
+    const r = applyPatch(g, [{ op: 'addComment', text: 'auto' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.assignedIds[0]).toBe('comment_1');
+    const c = r.graph.comments?.find(x => x.id === 'comment_1');
+    expect(c).toEqual({ id: 'comment_1', text: 'auto', contains: [] });
+  });
+
+  it('stores color when provided', () => {
+    const g = baseGraph();
+    const r = applyPatch(g, [{ op: 'addComment', id: 'c', text: 't', color: '#FF0000' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.comments?.find(x => x.id === 'c')?.color).toBe('#FF0000');
+  });
+
+  it('error: duplicate comment id', () => {
+    const g = commentGraph();
+    const r = applyPatch(g, [{ op: 'addComment', id: 'note1', text: 'dup' }]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.applyError).toMatch(/already exists/);
+  });
+});
+
+describe('setComment', () => {
+  it('happy path: updates only the provided fields and keeps the rest', () => {
+    const g = commentGraph();
+    const r = applyPatch(g, [{ op: 'setComment', id: 'note1', text: 'new' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const c = r.graph.comments?.find(x => x.id === 'note1');
+    expect(c).toEqual({ id: 'note1', text: 'new', contains: ['A'] }); // contains preserved
+    expect(r.diff[0]).toBe('更新了註解框「`note1`」');
+  });
+
+  it('can replace contains and set color in one op', () => {
+    const g = commentGraph();
+    const r = applyPatch(g, [{ op: 'setComment', id: 'note1', contains: ['A', 'B'], color: '#0F0' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const c = r.graph.comments?.find(x => x.id === 'note1');
+    expect(c?.contains).toEqual(['A', 'B']);
+    expect(c?.color).toBe('#0F0');
+  });
+
+  it('error: comment not found', () => {
+    const g = commentGraph();
+    const r = applyPatch(g, [{ op: 'setComment', id: 'nope', text: 'x' }]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.applyError).toMatch(/not found/);
+  });
+
+  it('error: nothing to change', () => {
+    const g = commentGraph();
+    const r = applyPatch(g, [{ op: 'setComment', id: 'note1' }]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.applyError).toMatch(/nothing to change/);
+  });
+});
+
+describe('removeComment', () => {
+  it('happy path: removes the comment and emits the diff line', () => {
+    const g = commentGraph();
+    const r = applyPatch(g, [{ op: 'removeComment', id: 'note1', why: 'no longer needed' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.comments?.find(x => x.id === 'note1')).toBeUndefined();
+    expect(r.diff[0]).toBe('移除了註解框「`note1`」（no longer needed）');
+  });
+
+  it('error: comment not found', () => {
+    const g = commentGraph();
+    const r = applyPatch(g, [{ op: 'removeComment', id: 'nope' }]);
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.applyError).toMatch(/not found/);
+  });
+
+  it('does not mutate the input graph', () => {
+    const g = commentGraph();
+    applyPatch(g, [{ op: 'removeComment', id: 'note1' }]);
+    expect(g.comments).toHaveLength(1); // input untouched
+  });
+});

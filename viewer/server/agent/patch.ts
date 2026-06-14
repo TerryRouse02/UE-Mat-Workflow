@@ -1,10 +1,10 @@
 // server/agent/patch.ts — pure patch_graph domain operations.
 // No I/O; never mutates the input graph; returns structured results.
 
-import type { MatGraph, Node, Connection } from '../types.js';
+import type { MatGraph, Node, Connection, Comment } from '../types.js';
 
 // Re-export types so consumers import from one place.
-export type { MatGraph, Node, Connection };
+export type { MatGraph, Node, Connection, Comment };
 
 // ---------------------------------------------------------------------------
 // PatchOp interfaces
@@ -113,6 +113,35 @@ export interface SetPositionOp {
   why?: string;
 }
 
+export interface AddCommentOp {
+  op: 'addComment';
+  /** Omitted → an id is auto-generated ("comment_1", …) and reported back via
+      ApplyResult.assignedIds. Supply an explicit id when a later op in the same
+      batch references the new comment. */
+  id?: string;
+  text: string;
+  /** Node ids the frame wraps. Omitted → empty (a free-floating label). */
+  contains?: string[];
+  color?: string;
+  why?: string;
+}
+
+export interface SetCommentOp {
+  op: 'setComment';
+  id: string;
+  /** Only the provided fields change; the others are kept as-is. */
+  text?: string;
+  contains?: string[];
+  color?: string;
+  why?: string;
+}
+
+export interface RemoveCommentOp {
+  op: 'removeComment';
+  id: string;
+  why?: string;
+}
+
 export type PatchOp =
   | AddNodeOp
   | InsertNodeOp
@@ -124,12 +153,16 @@ export type PatchOp =
   | ConnectOp
   | DisconnectOp
   | SetDescriptionOp
-  | SetPositionOp;
+  | SetPositionOp
+  | AddCommentOp
+  | SetCommentOp
+  | RemoveCommentOp;
 
 /** Canonical op names, in the order the tool docstring lists them. */
 export const SUPPORTED_OPS = [
   'addNode', 'insertNode', 'removeNode', 'setParam', 'removeParam', 'setNodeType',
   'renameNode', 'connect', 'disconnect', 'setDescription', 'setPosition',
+  'addComment', 'setComment', 'removeComment',
 ] as const;
 
 /**
@@ -162,6 +195,10 @@ const OP_ALIASES: Record<string, PatchOp['op']> = {
   set_description: 'setDescription',
   set_position: 'setPosition',
   move_node: 'setPosition',
+  add_comment: 'addComment',
+  set_comment: 'setComment',
+  remove_comment: 'removeComment',
+  delete_comment: 'removeComment',
 };
 
 /** Resolve alias op names to canonical ones; canonical ops pass through unchanged. */
@@ -214,6 +251,14 @@ function autoNodeId(g: MatGraph, type: unknown): string {
   }
 }
 
+/** Smallest "comment_n" id not colliding with any existing comment. */
+function autoCommentId(g: MatGraph): string {
+  for (let n = 1; ; n++) {
+    const id = `comment_${n}`;
+    if (!(g.comments ?? []).some(c => c.id === id)) return id;
+  }
+}
+
 export interface ApplyPatchOpts {
   pinLookup?: PinLookup;
 }
@@ -233,6 +278,13 @@ export function applyPatch(graph: MatGraph, ops: PatchOp[], opts?: ApplyPatchOpt
       (op.id === undefined || op.id === null || op.id === '')
     ) {
       const id = autoNodeId(g, op.type);
+      op = { ...op, id };
+      assignedIds[i] = id;
+    } else if (
+      op.op === 'addComment' &&
+      (op.id === undefined || op.id === null || op.id === '')
+    ) {
+      const id = autoCommentId(g);
       op = { ...op, id };
       assignedIds[i] = id;
     }
@@ -317,6 +369,9 @@ function applyOp(g: MatGraph, op: PatchOp, diff: string[], why: string, pinLooku
     case 'disconnect': return applyDisconnect(g, op, diff, why);
     case 'setDescription': return applySetDescription(g, op, diff, why);
     case 'setPosition': return applySetPosition(g, op, diff, why);
+    case 'addComment': return applyAddComment(g, op, diff, why);
+    case 'setComment': return applySetComment(g, op, diff, why);
+    case 'removeComment': return applyRemoveComment(g, op, diff, why);
     default:
       // ops arrive as a blind cast from LLM output — an unknown op must produce
       // a clear applyError instead of falling through to undefined. Listing the
@@ -638,5 +693,52 @@ function applyDisconnect(g: MatGraph, op: DisconnectOp, diff: string[], why: str
 function applySetDescription(g: MatGraph, op: SetDescriptionOp, diff: string[], why: string): string | null {
   g.description = op.value;
   diff.push(`設定描述為 ${JSON.stringify(op.value)}${why}`);
+  return null;
+}
+
+function applyAddComment(g: MatGraph, op: AddCommentOp, diff: string[], why: string): string | null {
+  if (!op.id) {
+    // Unreachable through applyPatch (auto-id resolution runs first) — guard for direct callers.
+    return 'addComment: id missing';
+  }
+  if (typeof op.text !== 'string') {
+    return 'addComment: text is required';
+  }
+  if (!g.comments) g.comments = [];
+  if (g.comments.some(c => c.id === op.id)) {
+    return `addComment: comment id "${op.id}" already exists`;
+  }
+  const comment: Comment = { id: op.id, text: op.text, contains: Array.isArray(op.contains) ? op.contains : [] };
+  if (typeof op.color === 'string') comment.color = op.color;
+  g.comments.push(comment);
+  diff.push(`加入了註解框「\`${op.id}\`」${why}`);
+  return null;
+}
+
+function applySetComment(g: MatGraph, op: SetCommentOp, diff: string[], why: string): string | null {
+  const comment = (g.comments ?? []).find(c => c.id === op.id);
+  if (!comment) {
+    return `setComment: comment "${op.id}" not found`;
+  }
+  const hasText = typeof op.text === 'string';
+  const hasContains = Array.isArray(op.contains);
+  const hasColor = typeof op.color === 'string';
+  if (!hasText && !hasContains && !hasColor) {
+    return 'setComment: nothing to change (provide text, contains, or color)';
+  }
+  if (hasText) comment.text = op.text as string;
+  if (hasContains) comment.contains = op.contains as string[];
+  if (hasColor) comment.color = op.color as string;
+  diff.push(`更新了註解框「\`${op.id}\`」${why}`);
+  return null;
+}
+
+function applyRemoveComment(g: MatGraph, op: RemoveCommentOp, diff: string[], why: string): string | null {
+  const idx = (g.comments ?? []).findIndex(c => c.id === op.id);
+  if (idx === -1) {
+    return `removeComment: comment "${op.id}" not found`;
+  }
+  g.comments!.splice(idx, 1);
+  diff.push(`移除了註解框「\`${op.id}\`」${why}`);
   return null;
 }

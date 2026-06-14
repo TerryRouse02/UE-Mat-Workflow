@@ -403,6 +403,12 @@ export const toolDefs: ToolDef[] = [
       '- {op:"setPosition", id, pos:{x,y}} — move a node to a UE-space position. Positions are ' +
       'OPTIONAL: only set them when the user asks you to arrange/lay the graph out (or to match a ' +
       'layout you can see); routine edits should leave placement to the viewer.\n' +
+      '- {op:"addComment", id?, text, contains?, color?} — add a comment frame. Omit id to ' +
+      'auto-generate one (returned in assignedIds); contains is the node ids the frame wraps ' +
+      '(omit for a free-floating label); color is an optional hex string.\n' +
+      '- {op:"setComment", id, text?, contains?, color?} — update an existing comment; only the ' +
+      'fields you pass change (the rest are kept). Prefer this over rewriting the whole file.\n' +
+      '- {op:"removeComment", id} — delete a comment frame.\n' +
       'snake_case aliases (add_node, add_connection, set_param, …) are also accepted. ' +
       'Every op may carry an optional why:"…" string that shows up in the user-facing diff. ' +
       'Set dryRun:true to preview: applies + validates and returns the same diff/warnings, but ' +
@@ -422,6 +428,7 @@ export const toolDefs: ToolDef[] = [
                 enum: [
                   'addNode', 'insertNode', 'removeNode', 'setParam', 'removeParam', 'setNodeType',
                   'renameNode', 'connect', 'disconnect', 'setDescription', 'setPosition',
+                  'addComment', 'setComment', 'removeComment',
                 ],
                 description: 'Operation kind',
               },
