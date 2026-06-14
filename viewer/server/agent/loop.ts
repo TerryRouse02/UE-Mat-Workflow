@@ -294,6 +294,18 @@ export async function runAgent(
   } else {
     session.messages.push({ role: 'user', content: userBlocks });
   }
+  // Failed-turn rollback bookkeeping. If this turn produces NO assistant reply
+  // — a non-vision model rejecting an attached image surfaces as a 4xx *error
+  // event*, not a throw (see both provider adapters) — the user message just
+  // appended, and its image blocks, must be peeled back off. Otherwise every
+  // later turn re-sends the rejected content (session.messages is replayed
+  // verbatim) and the model rejects it again forever: the session is wedged.
+  // `assistantCommitted` flips the instant any assistant turn lands, which is
+  // also the ONLY way tool_results get appended — so a false value at exit
+  // guarantees nothing was added after our blocks and the peel-back is exact.
+  const rollbackTarget = lastMsg?.role === 'user' ? lastMsg : null;
+  const rollbackBlockCount = userBlocks.length;
+  let assistantCommitted = false;
   // One checkpoint turn per user turn: every write made while serving this
   // user message shares the id, so a single undo reverts the whole exchange
   // (M4 「回上一步」 semantics).
@@ -406,6 +418,7 @@ export async function runAgent(
     // Append assistant turn.
     if (assistantContent.length > 0) {
       session.messages.push({ role: 'assistant', content: assistantContent });
+      assistantCommitted = true;
     }
 
     // No tool calls → final text response.
@@ -648,6 +661,19 @@ export async function runAgent(
             : `已達最大迭代次數（${maxIters}），停止繼續。請嘗試更具體的指令。`,
         });
       }
+    }
+  }
+
+  // Peel back a turn that never produced an assistant reply (see the bookkeeping
+  // beside the user-message append). Nothing was committed after our blocks, so
+  // either we extended a prior tool_results message — splice off exactly the
+  // blocks we pushed, restoring the resume-from-tool_results state — or we
+  // pushed a fresh user message that is still the last entry, so drop it whole.
+  if (!assistantCommitted) {
+    if (rollbackTarget) {
+      rollbackTarget.content.splice(rollbackTarget.content.length - rollbackBlockCount, rollbackBlockCount);
+    } else if (session.messages.at(-1)?.role === 'user') {
+      session.messages.pop();
     }
   }
 

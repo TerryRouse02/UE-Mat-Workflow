@@ -8,7 +8,7 @@ import { join, resolve, dirname } from 'node:path';
 import { runAgent, createSession, MAX_ITERS, TOKEN_CEILING, VIEW_CONTEXT_PREFIX, type AgentLoopSession, type EmitFn, type RunAgentOptions } from '../server/agent/loop.js';
 import { buildSystemPrompt } from '../server/agent/prompt.js';
 import { createCheckpointStore } from '../server/agent/checkpoint.js';
-import type { Provider, StreamEvent, ChatRequest } from '../server/agent/provider/types.js';
+import type { Provider, StreamEvent, ChatRequest, ContentBlock } from '../server/agent/provider/types.js';
 import type { ToolContext } from '../server/agent/tools.js';
 import type { AgentSseEvent } from '../server/agent/agent-types.js';
 
@@ -118,6 +118,47 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(tmpDir, { recursive: true, force: true });
+});
+
+// ---------------------------------------------------------------------------
+// §0  Failed-turn rollback — a turn that yields NO assistant output (e.g. a
+//     non-vision model rejecting an attached image as a 4xx error event) must
+//     not leave its user message in history, or every later turn re-sends the
+//     rejected content and the whole session is wedged.
+// ---------------------------------------------------------------------------
+
+describe('failed image turn does not poison the session', () => {
+  it('rolls back the user message when the first request errors with no assistant output', async () => {
+    const seen: ContentBlock[][][] = []; // per-call snapshot of req.messages
+    const provider: Provider = {
+      async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
+        seen.push(structuredClone(req.messages.map(m => m.content)));
+        if (seen.length === 1) {
+          // Non-vision model rejects the image — adapters yield this, not throw.
+          yield { type: 'error', message: 'HTTP 400: messages.0.content.0.type: image is not supported by this model' };
+          return;
+        }
+        yield { type: 'text_delta', text: '好的。' };
+        yield { type: 'done', stopReason: 'end' };
+      },
+    };
+
+    // Turn 1: attach an image to a non-vision model → error event.
+    const events1 = await runAndCollect('這個節點是什麼？', session, provider as unknown as FakeProvider, ctx, undefined, {
+      images: [{ mediaType: 'image/png', data: 'AAAA' }],
+    });
+    expect(events1.some(e => e.type === 'error')).toBe(true);
+    // ROOT CAUSE: the rejected image must NOT linger in provider history.
+    const lingers = session.messages.some(m => m.content.some(b => b.type === 'image'));
+    expect(lingers).toBe(false);
+
+    // Turn 2: plain text, no image — must succeed and must NOT replay the image.
+    const events2 = await runAndCollect('那這個呢？', session, provider as unknown as FakeProvider, ctx);
+    expect(events2.some(e => e.type === 'error')).toBe(false);
+    expect(events2.at(-1)?.type).toBe('done');
+    const replayedImage = (seen[1] ?? []).some(content => content.some(b => b.type === 'image'));
+    expect(replayedImage).toBe(false);
+  });
 });
 
 // ---------------------------------------------------------------------------
