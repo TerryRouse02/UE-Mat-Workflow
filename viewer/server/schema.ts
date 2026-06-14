@@ -79,6 +79,7 @@ export function materialStructureWarnings(graph: MatGraph): string[] {
   warnings.push(...semanticLintWarnings(graph));
   warnings.push(...duplicateParameterWarnings(graph));
   warnings.push(...staticSwitchNoOpWarnings(graph));
+  warnings.push(...danglingOperatorWarnings(graph));
   return warnings;
 }
 
@@ -185,6 +186,39 @@ function staticSwitchNoOpWarnings(graph: MatGraph): string[] {
     const a = aSrc.get(id);
     if (a !== undefined && a === bSrc.get(id)) {
       out.push(`StaticSwitch "${id}" has identical A and B inputs (both from ${a}) — toggling it has no effect.`);
+    }
+  }
+  return out;
+}
+
+// A combine/transform operator that feeds downstream but has NONE of its inputs
+// wired and no params set is almost always forgotten wiring — it can only emit a
+// default constant. WARNING. Deliberately narrow (curated operator set + must feed
+// something + no params) to dodge the false positives a general "unconnected input"
+// check would hit: UE inputs routinely default on purpose (If compares to 0, Lerp
+// has ConstAlpha, Multiply has ConstA/B), so per-pin emptiness is NOT a reliable bug
+// signal — only a fully input-less operator is.
+const REQUIRES_INPUT_TYPES = new Set([
+  'Multiply', 'Add', 'Subtract', 'Divide', 'Lerp', 'Power', 'Min', 'Max',
+  'Clamp', 'Normalize', 'OneMinus', 'AppendVector', 'Fmod', 'If',
+]);
+
+function danglingOperatorWarnings(graph: MatGraph): string[] {
+  const fed = new Set<string>();      // node ids with >=1 incoming connection
+  const sources = new Set<string>();  // node ids with >=1 outgoing connection
+  for (const c of graph.connections) {
+    const ti = c.to.indexOf(':'); if (ti > 0) fed.add(c.to.slice(0, ti));
+    const fi = c.from.indexOf(':'); if (fi > 0) sources.add(c.from.slice(0, fi));
+  }
+  const out: string[] = [];
+  for (const n of graph.nodes) {
+    if (!REQUIRES_INPUT_TYPES.has(n.type)) continue;
+    const hasParams = !!n.params && Object.keys(n.params).length > 0;
+    if (sources.has(n.id) && !fed.has(n.id) && !hasParams) {
+      out.push(
+        `"${n.id}" (${n.type}) feeds downstream but has no inputs wired and no params — ` +
+        `it can only output a default; wire its inputs or remove it.`,
+      );
     }
   }
   return out;

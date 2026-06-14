@@ -268,3 +268,51 @@ describe('semantic lint — no-op static switch', () => {
     expect(w).toEqual([]);
   });
 });
+
+describe('semantic lint — dangling operator (safe empty-input slice)', () => {
+  const matC = (
+    nodes: Array<{ id: string; type: string; params?: Record<string, unknown> }>,
+    connections: Array<{ from: string; to: string }>,
+  ) => ({ schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm', nodes, connections }) as never;
+  const OUT = { id: 'OUT', type: 'MaterialOutput' };
+
+  it('warns when an operator feeds downstream but has no inputs wired and no params', () => {
+    const w = materialStructureWarnings(matC(
+      [OUT, { id: 'mul', type: 'Multiply' }],
+      [{ from: 'mul:Result', to: 'OUT:BaseColor' }],
+    ));
+    expect(w.some(x => /"mul"/.test(x) && /Multiply/.test(x) && /no inputs/i.test(x))).toBe(true);
+  });
+
+  it('is silent when at least one input is wired (the common scale pattern)', () => {
+    const w = materialStructureWarnings(matC(
+      [OUT, { id: 'mul', type: 'Multiply' }, { id: 't', type: 'TextureCoordinate' }],
+      [{ from: 't:Result', to: 'mul:A' }, { from: 'mul:Result', to: 'OUT:BaseColor' }],
+    ));
+    expect(w).toEqual([]);
+  });
+
+  it('is silent when the operator carries params (intentional constant)', () => {
+    const w = materialStructureWarnings(matC(
+      [OUT, { id: 'mul', type: 'Multiply', params: { ConstA: 2, ConstB: 3 } }],
+      [{ from: 'mul:Result', to: 'OUT:Roughness' }],
+    ));
+    expect(w).toEqual([]);
+  });
+
+  it('is silent for a fully orphaned operator (does not feed anything)', () => {
+    const w = materialStructureWarnings(matC(
+      [OUT, { id: 'mul', type: 'Multiply' }, { id: 'c', type: 'Constant', params: { R: 1 } }],
+      [{ from: 'c:Value', to: 'OUT:Roughness' }],
+    ));
+    expect(w).toEqual([]);
+  });
+
+  it('does not flag non-operator source nodes (e.g. a bare Constant)', () => {
+    const w = materialStructureWarnings(matC(
+      [OUT, { id: 'c', type: 'Constant' }],
+      [{ from: 'c:Value', to: 'OUT:Roughness' }],
+    ));
+    expect(w).toEqual([]);
+  });
+});
