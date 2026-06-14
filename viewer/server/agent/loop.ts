@@ -124,9 +124,28 @@ export function createSession(id: string, ueVersion: string, graphPath?: string)
  * ceremonial — the loop terminates right after the results are appended and
  * the http layer deletes the session.
  */
-function offTopicStrike(session: AgentLoopSession): { content: string; isError?: boolean } {
+function offTopicStrike(session: AgentLoopSession, lang: 'zh-Hant' | 'en'): { content: string; isError?: boolean } {
   session.offTopicStrikes += 1;
   const n = session.offTopicStrikes;
+  if (lang === 'en') {
+    if (n === 1) {
+      return {
+        content:
+          'Off-topic strike 1. Gently remind the user that you only help with UE ' +
+          'materials/shaders/game development, and ask them to return to the topic. ' +
+          'Do not answer the off-topic content itself.',
+      };
+    }
+    if (n === 2) {
+      return {
+        content:
+          'Off-topic strike 2. Refuse to answer this question (one sentence), and ' +
+          'clearly warn the user: one more off-topic message and this session will be ' +
+          'closed and deleted.',
+      };
+    }
+    return { content: `Off-topic strike ${n}. The session is about to be closed and deleted; do not produce any further response.` };
+  }
   if (n === 1) {
     return {
       content:
@@ -200,6 +219,13 @@ export interface RunAgentOptions {
    * blocks; the http layer has already validated type/size/count.
    */
   images?: Array<{ mediaType: string; data: string }>;
+  /**
+   * Reply language for this user turn. Selects the system-prompt reply-language
+   * directive AND localizes the user-facing SSE/system strings that appear in
+   * the chat transcript (limit/abort/web-disabled/off-topic/circuit-breaker).
+   * Default 'zh-Hant'; 'en' is opt-in. Tool-call names/fields stay English.
+   */
+  language?: 'zh-Hant' | 'en';
 }
 
 const WEB_TOOL_NAMES = new Set(['web_search', 'web_fetch']);
@@ -223,8 +249,17 @@ export async function runAgent(
   const tokenCeiling = options?.tokenCeiling ?? TOKEN_CEILING;
   const maxTokens = options?.maxTokens ?? 8192;
   const webEnabled = options?.webToolsEnabled !== false;
+  // Reply language for this turn — gates the system-prompt directive AND every
+  // user-facing transcript string emitted below. Default zh-Hant; en is opt-in.
+  const replyLang: 'zh-Hant' | 'en' = options?.language === 'en' ? 'en' : 'zh-Hant';
   const disabledTools = new Set(options?.disabledTools ?? []);
   if (!webEnabled) for (const n of WEB_TOOL_NAMES) disabledTools.add(n);
+
+  // User-facing transcript strings — localized by replyLang.
+  const ceilingMessage = (used: number): string =>
+    replyLang === 'en'
+      ? `Context token count (${Math.round(used)}) reached the limit of ${tokenCeiling}; stopping.`
+      : `上下文 token 數（${Math.round(used)}）已達上限 ${tokenCeiling}，停止繼續。`;
   const turnToolDefs = toolDefs.filter(t => !disabledTools.has(t.name));
 
   // Compaction runs BEFORE the memory read so the freshly-written summary is
@@ -233,6 +268,7 @@ export async function runAgent(
     session, provider, model, ctx, emit, signal,
     options?.compactThreshold ?? COMPACT_THRESHOLD,
     options?.compactKeepTurns ?? COMPACT_KEEP_TURNS,
+    replyLang,
   );
 
   // Build system prompt (reads SPEC.md from disk at call time). Memory is
@@ -241,7 +277,7 @@ export async function runAgent(
   const memory = ctx.memory
     ? { longterm: await ctx.memory.read('longterm'), session: await ctx.memory.read('session') }
     : undefined;
-  const system = await buildSystemPrompt(ctx.repoRoot, session.ueVersion, memory, { webTools: webEnabled });
+  const system = await buildSystemPrompt(ctx.repoRoot, session.ueVersion, memory, { webTools: webEnabled, language: options?.language });
 
   // Append the new user message. If the previous turn ended with tool_results
   // (iter/cost ceiling or abort), the last message is already user-role —
@@ -300,7 +336,7 @@ export async function runAgent(
       emit({
         type: 'limit',
         kind: 'cost',
-        message: `上下文 token 數（${Math.round(session.contextTokens)}）已達上限 ${tokenCeiling}，停止繼續。`,
+        message: ceilingMessage(session.contextTokens),
       });
       limitEmitted = true;
       break;
@@ -380,7 +416,7 @@ export async function runAgent(
         emit({
           type: 'limit',
           kind: 'cost',
-          message: `上下文 token 數（${Math.round(session.contextTokens)}）已達上限 ${tokenCeiling}，停止繼續。`,
+          message: ceilingMessage(session.contextTokens),
         });
         limitEmitted = true;
       }
@@ -403,17 +439,23 @@ export async function runAgent(
             const r = await compactNow(
               session, provider, model, ctx, emit, signal,
               options?.compactKeepTurns ?? COMPACT_KEEP_TURNS,
+              replyLang,
             );
             return r.ok
               ? { content: `已將先前 ${r.droppedTurns} 輪對話摘要進會話記憶並壓縮歷史。`, isError: false }
               : { content: r.reason ?? '壓縮失敗。', isError: true };
           })()
         : call.name === 'report_off_topic'
-          ? offTopicStrike(session)
+          ? offTopicStrike(session, replyLang)
           : (!webEnabled && WEB_TOOL_NAMES.has(call.name))
             // The tool was not offered this turn — a stray call (hallucinated
             // or replayed from history) must not reach the network.
-            ? { content: '聯網功能已由使用者關閉（輸入框旁的 🌐 開關）。請基於本地節點 DB 與既有知識回答，不確定的部分明確說明。', isError: true }
+            ? {
+                content: replyLang === 'en'
+                  ? 'Web access has been turned off by the user (the 🌐 toggle next to the input box). Answer from the local node DB and existing knowledge, and clearly flag anything uncertain.'
+                  : '聯網功能已由使用者關閉（輸入框旁的 🌐 開關）。請基於本地節點 DB 與既有知識回答，不確定的部分明確說明。',
+                isError: true,
+              }
           : disabledTools.has(call.name)
             // Withheld this turn (e.g. member sessions lose the proposal
             // tools) — a stray call must not slip through either.
@@ -439,9 +481,11 @@ export async function runAgent(
           const n = (writeFailCounts.get(path) ?? 0) + 1;
           writeFailCounts.set(path, n);
           if (n >= WRITE_FAIL_BREAKER) {
-            breakerMessage =
-              `我連續 ${n} 次修改「${path}」都沒有通過驗證，先停下來以免空轉。` +
-              '可以告訴我更具體的需求，或考慮新建一張圖、換個做法再試。';
+            breakerMessage = replyLang === 'en'
+              ? `I have tried ${n} times to modify "${path}" without passing validation, so I'm stopping to avoid spinning. ` +
+                'Tell me more specifically what you need, or consider creating a new graph or a different approach.'
+              : `我連續 ${n} 次修改「${path}」都沒有通過驗證，先停下來以免空轉。` +
+                '可以告訴我更具體的需求，或考慮新建一張圖、換個做法再試。';
           }
         } else {
           writeFailCounts.delete(path);
@@ -450,7 +494,9 @@ export async function runAgent(
       if (call.name === 'compact_context') {
         compactFailCount = result.isError ? compactFailCount + 1 : 0;
         if (compactFailCount >= COMPACT_FAIL_BREAKER) {
-          breakerMessage = `連續 ${compactFailCount} 次壓縮上下文都失敗，先停下來。請改用「新對話」或稍後再試。`;
+          breakerMessage = replyLang === 'en'
+            ? `Compacting the context failed ${compactFailCount} times in a row, so I'm stopping. Please start a new conversation or try again later.`
+            : `連續 ${compactFailCount} 次壓縮上下文都失敗，先停下來。請改用「新對話」或稍後再試。`;
         }
       }
 
@@ -521,11 +567,14 @@ export async function runAgent(
     // immediately — fill the gap with synthetic aborted results, keep the
     // history valid, and stop.
     if (toolResults.length !== toolUses.length) {
+      const abortContent = replyLang === 'en'
+        ? '(Interrupted: the user cancelled this operation.)'
+        : '（已中斷：使用者取消了這次操作）';
       for (const call of toolUses.slice(toolResults.length)) {
         toolResults.push({
           type: 'tool_result',
           toolUseId: call.id,
-          content: '（已中斷：使用者取消了這次操作）',
+          content: abortContent,
           isError: true,
         });
       }
@@ -546,7 +595,9 @@ export async function runAgent(
     if (offTopicClosed) {
       emit({
         type: 'session_closed',
-        message: `已累積 ${session.offTopicStrikes} 次離題訊息，本會話已關閉並刪除。`,
+        message: replyLang === 'en'
+          ? `Accumulated ${session.offTopicStrikes} off-topic messages; this session has been closed and deleted.`
+          : `已累積 ${session.offTopicStrikes} 次離題訊息，本會話已關閉並刪除。`,
       });
       limitEmitted = true;
       break;
@@ -566,7 +617,7 @@ export async function runAgent(
       emit({
         type: 'limit',
         kind: 'cost',
-        message: `上下文 token 數（${Math.round(session.contextTokens)}）已達上限 ${tokenCeiling}，停止繼續。`,
+        message: ceilingMessage(session.contextTokens),
       });
       limitEmitted = true;
       break;
@@ -592,7 +643,9 @@ export async function runAgent(
         emit({
           type: 'limit',
           kind: 'iters',
-          message: `已達最大迭代次數（${maxIters}），停止繼續。請嘗試更具體的指令。`,
+          message: replyLang === 'en'
+            ? `Reached the maximum number of iterations (${maxIters}); stopping. Please try a more specific instruction.`
+            : `已達最大迭代次數（${maxIters}），停止繼續。請嘗試更具體的指令。`,
         });
       }
     }
@@ -644,16 +697,21 @@ async function summarizeForCompaction(
   model: string,
   dropped: Message[],
   session: AgentLoopSession,
+  language: 'zh-Hant' | 'en',
   signal?: AbortSignal,
 ): Promise<string | null> {
   try {
     let text = '';
     for await (const ev of provider.stream({
       model,
-      system:
-        '你是對話摘要器。把以下 UE 材質工作對話濃縮成繁體中文重點筆記（500 字內）：' +
-        '保留使用者目標與偏好、已建立/修改的圖檔路徑與關鍵參數決定、尚未完成的事項。' +
-        '直接輸出筆記內容，不要任何前言。',
+      system: language === 'en'
+        ? 'You are a conversation summarizer. Condense the following UE material work conversation ' +
+          'into concise English notes (under 500 words): preserve the user\'s goals/preferences, ' +
+          'created/modified graph file paths and key parameter decisions, and outstanding tasks. ' +
+          'Output the notes directly with no preamble.'
+        : '你是對話摘要器。把以下 UE 材質工作對話濃縮成繁體中文重點筆記（500 字內）：' +
+          '保留使用者目標與偏好、已建立/修改的圖檔路徑與關鍵參數決定、尚未完成的事項。' +
+          '直接輸出筆記內容，不要任何前言。',
       messages: [{ role: 'user', content: [{ type: 'text', text: serializeForSummary(dropped) }] }],
       maxTokens: 1024,
       signal,
@@ -692,12 +750,13 @@ async function maybeCompact(
   signal: AbortSignal | undefined,
   threshold: number,
   keepTurns: number,
+  language: 'zh-Hant' | 'en' = 'zh-Hant',
 ): Promise<void> {
   // Trigger on the CURRENT context size, never the cumulative spend — the
   // spend re-counts the full history every provider round, so comparing it
   // here made compaction fire long before the window was actually half full.
   if (session.contextTokens < threshold) return;
-  await compactNow(session, provider, model, ctx, emit, signal, keepTurns);
+  await compactNow(session, provider, model, ctx, emit, signal, keepTurns, language);
 }
 
 /**
@@ -715,6 +774,7 @@ export async function compactNow(
   emit: EmitFn,
   signal: AbortSignal | undefined,
   keepTurns: number,
+  language: 'zh-Hant' | 'en' = 'zh-Hant',
 ): Promise<CompactResult> {
   if (!ctx.memory) return { ok: false, reason: '此會話沒有記憶儲存空間，無法壓縮。' }; // the summary needs a home
   if (signal?.aborted) return { ok: false, reason: '已中斷。' };
@@ -741,7 +801,7 @@ export async function compactNow(
   const dropped = msgs.slice(0, cut);
   const droppedTurns = safeStarts.filter(i => i < cut).length;
 
-  const summary = await summarizeForCompaction(provider, model, dropped, session, signal);
+  const summary = await summarizeForCompaction(provider, model, dropped, session, language, signal);
   if (summary === null) return { ok: false, reason: '摘要產生失敗，本次未壓縮（歷史保持原樣）。' };
 
   const block = `## 先前對話摘要（自動壓縮）\n${summary}`;

@@ -6,6 +6,7 @@ import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
 import { runAgent, createSession, MAX_ITERS, TOKEN_CEILING, VIEW_CONTEXT_PREFIX, type AgentLoopSession, type EmitFn, type RunAgentOptions } from '../server/agent/loop.js';
+import { buildSystemPrompt } from '../server/agent/prompt.js';
 import { createCheckpointStore } from '../server/agent/checkpoint.js';
 import type { Provider, StreamEvent, ChatRequest } from '../server/agent/provider/types.js';
 import type { ToolContext } from '../server/agent/tools.js';
@@ -1999,5 +2000,100 @@ describe('web tools switch (webToolsEnabled)', () => {
     expect(tr.isError).toBe(true);
     expect(tr.content).toContain('聯網功能已由使用者關閉');
     expect(events.at(-1)?.type).toBe('done');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Reply language — buildSystemPrompt selects the reply-language directive by
+// PromptOpts.language; runAgent threads RunAgentOptions.language through.
+// ---------------------------------------------------------------------------
+
+describe('reply language — buildSystemPrompt directive', () => {
+  it('default (omitted) keeps 繁體中文 as the reply language', async () => {
+    const sys = await buildSystemPrompt(REPO_ROOT, '5.7');
+    expect(sys).toContain('語言：**繁體中文**');
+  });
+
+  it("language: 'zh-Hant' keeps 繁體中文 as the reply language", async () => {
+    const sys = await buildSystemPrompt(REPO_ROOT, '5.7', undefined, { language: 'zh-Hant' });
+    expect(sys).toContain('語言：**繁體中文**');
+  });
+
+  it("language: 'en' switches the reply directive to English (no 繁體中文 reply language)", async () => {
+    const sys = await buildSystemPrompt(REPO_ROOT, '5.7', undefined, { language: 'en' });
+    // An English-reply directive must be present…
+    expect(sys).toMatch(/reply in English/i);
+    // …and the zh reply-language line must be gone.
+    expect(sys).not.toContain('語言：**繁體中文**');
+  });
+
+  it("language: 'en' still preserves the rest of the template (web rule, etc.)", async () => {
+    const sys = await buildSystemPrompt(REPO_ROOT, '5.7', undefined, { language: 'en', webTools: true });
+    expect(sys).toContain('回覆前自判要不要查網路');
+  });
+});
+
+describe('reply language — runAgent threads it into the system prompt', () => {
+  class CapturingProvider extends FakeProvider {
+    systems: string[] = [];
+    override stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
+      if (req.system) this.systems.push(req.system);
+      return super.stream(req);
+    }
+  }
+
+  it("language: 'en' produces an English-reply system prompt", async () => {
+    const provider = new CapturingProvider([
+      [{ type: 'text_delta', text: 'ok' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    await runAndCollect('hi', session, provider, ctx, undefined, { language: 'en' });
+    expect(provider.systems[0]).toMatch(/reply in English/i);
+    expect(provider.systems[0]).not.toContain('語言：**繁體中文**');
+  });
+
+  it('default keeps 繁體中文', async () => {
+    const provider = new CapturingProvider([
+      [{ type: 'text_delta', text: 'ok' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    await runAndCollect('你好', session, provider, ctx);
+    expect(provider.systems[0]).toContain('語言：**繁體中文**');
+  });
+
+  it("English context-ceiling limit message when language: 'en'", async () => {
+    const provider = new CapturingProvider([
+      [{ type: 'text_delta', text: 'big' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    session.contextTokens = 999_999;
+    const events = await runAndCollect('hi', session, provider, ctx, undefined, {
+      language: 'en',
+      tokenCeiling: 100,
+    });
+    const limit = events.find(e => e.type === 'limit' && e.kind === 'cost');
+    expect(limit).toBeDefined();
+    if (limit?.type === 'limit') {
+      expect(limit.message).toMatch(/context/i);
+      expect(limit.message).not.toContain('上下文');
+    }
+  });
+
+  it("English web-disabled tool result when language: 'en'", async () => {
+    const provider = new CapturingProvider([
+      [
+        { type: 'tool_use', id: 'w1', name: 'web_search', input: { query: 'ue' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [{ type: 'text_delta', text: 'ok' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    await runAndCollect('search', session, provider, ctx, undefined, {
+      language: 'en',
+      webToolsEnabled: false,
+    });
+    const lastToolResultMsg = session.messages
+      .filter(m => m.role === 'user' && m.content.some(b => b.type === 'tool_result'))
+      .at(-1);
+    const tr = lastToolResultMsg?.content.find(b => b.type === 'tool_result') as { content: string; isError?: boolean };
+    expect(tr.isError).toBe(true);
+    expect(tr.content).toMatch(/web/i);
+    expect(tr.content).not.toContain('聯網功能已由使用者關閉');
   });
 });

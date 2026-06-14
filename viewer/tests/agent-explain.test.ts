@@ -155,6 +155,34 @@ describe('explainNode()', () => {
     const text = userContent.find(b => b.type === 'text') as { type: 'text'; text: string };
     expect(text.text).not.toContain('連線狀況');
   });
+
+  it("default language is 繁體中文 (zh system prompt + zh user suffix)", async () => {
+    const provider = new FakeProvider([[
+      { type: 'text_delta', text: '解說' },
+      { type: 'done', stopReason: 'end' },
+    ]]);
+    await explainNode(provider, 'test-model', { nodeType: 'Lerp', ueVersion: '5.7' });
+    const req = provider.lastRequest!;
+    expect(req.system).toContain('繁體中文');
+    const text = req.messages[0].content.find(b => b.type === 'text') as { type: 'text'; text: string };
+    expect(text.text).toContain('請用繁體中文白話解說這個節點。');
+  });
+
+  it("language: 'en' uses an English system prompt and English user instruction", async () => {
+    const provider = new FakeProvider([[
+      { type: 'text_delta', text: 'explanation' },
+      { type: 'done', stopReason: 'end' },
+    ]]);
+    await explainNode(provider, 'test-model', { nodeType: 'Lerp', ueVersion: '5.7', language: 'en' });
+    const req = provider.lastRequest!;
+    // English persona, not the zh one.
+    expect(req.system).toMatch(/English/i);
+    expect(req.system).not.toContain('繁體中文');
+    // The zh suffix instruction is dropped in favour of an English one.
+    const text = req.messages[0].content.find(b => b.type === 'text') as { type: 'text'; text: string };
+    expect(text.text).not.toContain('請用繁體中文白話解說這個節點。');
+    expect(text.text).toMatch(/English/i);
+  });
 });
 
 // ---------------------------------------------------------------------------

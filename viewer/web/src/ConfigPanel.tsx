@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { useStore } from './store';
 import { UserAdminSection } from './UserAdmin';
 import { TeamPanel } from './TeamPanel';
@@ -19,38 +21,13 @@ import { FsBrowser } from './FsBrowser';
 
 interface CrawlMeta { label: string; en: string; desc: string; refresh: string }
 
-const CRAWL_KIND_META: Record<CrawlKind, CrawlMeta> = {
-  workmf: {
-    label: '爬取專案 MF',
-    en: 'Crawl Project Material Functions',
-    desc: '掃描指定 Content Route 下所有專案 MaterialFunction，只刷新簽名索引，供節點庫 / AI / 導出解析；不寫入 Files 的工作區。',
-    refresh: 'Project MF 簽名索引',
-  },
-  projectmat: {
-    label: '爬取專案母材質',
-    en: 'Crawl Project Parent Materials',
-    desc: '匯入「母材質 Content Route」下的母材質到 Files 的「工作」區；也會帶入這些母材質引用到的專案 MF，方便點進函式圖。',
-    refresh: 'Files 分頁 · 工作（母材質 + 引用 MF）',
-  },
-  export: {
-    label: '重爬節點導出',
-    en: 'Re-crawl Node Export Metadata',
-    desc: '重新擷取各節點的 UE 路徑 / GUID，刷新 agent-pack 節點導出元資料。僅在升版後需要。',
-    refresh: 'agent-pack · 節點元資料',
-  },
-  enginemf: {
-    label: '重爬引擎 MF',
-    en: 'Re-crawl Engine Material Functions',
-    desc: '掃描 /Engine/ 下所有官方 MaterialFunction，刷新引擎 MF 索引。僅在升版後需要。',
-    refresh: '節點庫 · Engine MF 分頁',
-  },
-  compile: {
-    label: '編譯插件',
-    en: 'Compile Plugin Binary',
-    desc: '用 RunUAT BuildPlugin 為目前作業系統（Windows .dll 或 macOS .dylib）編譯爬取用的外掛二進位，放進 tools 的 compiled/。第一次使用、或升級引擎導致 ABI 不符時需要；完成後「已編譯外掛」檢查即轉綠。（Windows 上會更新已提交的 compiled/ 目錄，事後可能需要 git commit；macOS 只動 gitignored 的 Binaries/Mac）',
-    refresh: '環境檢查 · 已編譯外掛',
-  },
-};
+// i18n key fragments per crawl kind; resolved at render time via t('crawl.<kind>.<field>').
+const crawlMeta = (t: TFunction, k: CrawlKind): CrawlMeta => ({
+  label: t(`crawl.${k}.label`),
+  en: t(`crawl.${k}.en`),
+  desc: t(`crawl.${k}.desc`),
+  refresh: t(`crawl.${k}.refresh`),
+});
 
 // English sub-labels for the env checks. Kept platform-neutral: the crawl runs
 // on Windows OR macOS, so the labels must read correctly on both. The exact
@@ -64,16 +41,6 @@ const EN_LABELS: Record<string, string> = {
   noShadow: 'no shadow copy',
 };
 
-// Friendly zh-TW labels
-const CHECK_LABELS: Record<string, string> = {
-  platform: '執行平台',
-  config: '本機設定檔',
-  engine: 'UE 編輯器執行檔',
-  project: '.uproject 專案檔',
-  plugin: '已編譯外掛',
-  noShadow: '無外掛副本遮蔽',
-};
-
 const CHECK_ORDER = ['platform', 'config', 'engine', 'project', 'plugin', 'noShadow'];
 
 // ─── Sub-components ──────────────────────────────────────────────────────────
@@ -81,11 +48,12 @@ const CHECK_ORDER = ['platform', 'config', 'engine', 'project', 'plugin', 'noSha
 interface FreshBadgeProps { ts: string | null | undefined; justRan: boolean }
 
 function FreshBadge({ ts, justRan }: FreshBadgeProps) {
+  const { t } = useTranslation();
   if (justRan) {
-    return <span className="freshbadge now"><Icon name="check" size={10} /> 剛剛更新</span>;
+    return <span className="freshbadge now"><Icon name="check" size={10} /> {t('configPanel.freshJustNow')}</span>;
   }
   if (!ts) {
-    return <span className="freshbadge never">尚未爬取 · Never</span>;
+    return <span className="freshbadge never">{t('configPanel.freshNever')}</span>;
   }
   return (
     <span className="freshbadge has">
@@ -105,6 +73,7 @@ interface PathsSectionProps {
 }
 
 function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot, allowBrowse }: PathsSectionProps) {
+  const { t } = useTranslation();
   const [projectPath, setProjectPath] = useState(initialProjectPath);
   const [engineRoot, setEngineRoot] = useState(initialEngineRoot);
   const [saving, setSaving] = useState(false);
@@ -127,18 +96,18 @@ function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot, allow
     setMsg(null);
     const r = await saveConfig(projectPath.trim(), engineRoot.trim());
     setSaving(false);
-    setMsg(r.ok ? { ok: true, text: '已儲存，已重新檢查環境。' } : { ok: false, text: r.error ?? '儲存失敗' });
+    setMsg(r.ok ? { ok: true, text: t('configPanel.pathsSaved') } : { ok: false, text: r.error ?? t('configPanel.saveFailed') });
   };
 
   return (
     <div className="cfg-sec">
       <div className="sech">
         <span className="secn">1</span>
-        <span className="sect">專案路徑</span>
-        <span className="secd">很少變動</span>
+        <span className="sect">{t('configPanel.pathsTitle')}</span>
+        <span className="secd">{t('configPanel.pathsHint')}</span>
       </div>
       <div className="field">
-        <label>.uproject 路徑</label>
+        <label>{t('configPanel.uprojectPath')}</label>
         <div className="inp">
           <Icon name="folder" size={13} style={{ color: 'var(--text-mute)' }} />
           <input
@@ -148,14 +117,14 @@ function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot, allow
             onChange={e => setProjectPath(e.target.value)}
           />
           {allowBrowse && (
-            <button className="inp-browse" title="瀏覽選取 .uproject 檔案" onClick={() => setBrowsing('project')}>
-              瀏覽
+            <button className="inp-browse" title={t('configPanel.browseProjectTitle')} onClick={() => setBrowsing('project')}>
+              {t('configPanel.browse')}
             </button>
           )}
         </div>
       </div>
       <div className="field">
-        <label>UE 引擎根目錄 <span style={{ color: 'var(--text-mute)' }}>Engine root</span></label>
+        <label>{t('configPanel.engineRoot')} <span style={{ color: 'var(--text-mute)' }}>Engine root</span></label>
         <div className="inp">
           <Icon name="chip" size={13} style={{ color: 'var(--text-mute)' }} />
           <input
@@ -165,8 +134,8 @@ function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot, allow
             onChange={e => setEngineRoot(e.target.value)}
           />
           {allowBrowse && (
-            <button className="inp-browse" title="瀏覽選取引擎根目錄" onClick={() => setBrowsing('engine')}>
-              瀏覽
+            <button className="inp-browse" title={t('configPanel.browseEngineTitle')} onClick={() => setBrowsing('engine')}>
+              {t('configPanel.browse')}
             </button>
           )}
         </div>
@@ -177,7 +146,7 @@ function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot, allow
           pick="file"
           fileExt="uproject"
           initialPath={projectPath}
-          title="選取 .uproject 專案檔"
+          title={t('configPanel.pickProjectTitle')}
           onPick={p => { setProjectPath(p); setBrowsing(null); }}
           onClose={() => setBrowsing(null)}
         />
@@ -186,7 +155,7 @@ function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot, allow
         <FsBrowser
           pick="dir"
           initialPath={engineRoot}
-          title="選取 UE 引擎根目錄"
+          title={t('configPanel.pickEngineTitle')}
           onPick={p => { setEngineRoot(p); setBrowsing(null); }}
           onClose={() => setBrowsing(null)}
         />
@@ -197,7 +166,7 @@ function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot, allow
         disabled={saving || (!projectPath.trim() && !engineRoot.trim())}
         onClick={() => void onSave()}
       >
-        <Icon name="check" size={13} /> {saving ? '儲存中…' : '儲存設定'}
+        <Icon name="check" size={13} /> {saving ? t('configPanel.saving') : t('configPanel.saveConfig')}
       </button>
       {msg && (
         <div style={{ fontSize: 11, marginTop: 5, color: msg.ok ? 'var(--ok)' : 'var(--error)' }}>
@@ -217,20 +186,21 @@ interface EnvSectionProps {
 }
 
 function EnvSection({ env, refreshEnv, onCompile }: EnvSectionProps) {
+  const { t } = useTranslation();
   const allOk = !!env?.ready;
   const compile = compilePluginAction(env);
   return (
     <div className="cfg-sec">
       <div className="sech">
         <span className="secn">2</span>
-        <span className="sect">環境檢查</span>
-        <span className="secd">爬取的前置條件</span>
+        <span className="sect">{t('configPanel.envTitle')}</span>
+        <span className="secd">{t('configPanel.envHint')}</span>
       </div>
       <div className={'envbanner ' + (allOk ? 'ready' : 'notready')}>
         <Icon name={allOk ? 'check' : 'warn'} size={15} />
         {allOk
-          ? <span>環境就緒，可以爬取</span>
-          : <span>尚未就緒<span className="sub"> — 完成下列項目即可爬取</span></span>
+          ? <span>{t('configPanel.envReady')}</span>
+          : <span>{t('configPanel.envNotReady')}<span className="sub"> {t('configPanel.envNotReadySub')}</span></span>
         }
       </div>
       <div className="envlist2">
@@ -242,7 +212,7 @@ function EnvSection({ env, refreshEnv, onCompile }: EnvSectionProps) {
                 <Icon name={c?.ok ? 'check' : 'x'} size={11} />
               </span>
               <span className="el2">
-                {CHECK_LABELS[k] ?? k}
+                {t(`configPanel.check_${k}`)}
                 <span className="en">{EN_LABELS[k]}</span>
               </span>
               {c && !c.ok && <span className="ed2">{c.detail}</span>}
@@ -255,7 +225,7 @@ function EnvSection({ env, refreshEnv, onCompile }: EnvSectionProps) {
           className="btn sm"
           onClick={() => void refreshEnv()}
         >
-          <Icon name="refresh" size={13} /> 重新檢查
+          <Icon name="refresh" size={13} /> {t('configPanel.recheck')}
         </button>
         {/* Build the external plugin binary for this OS (Win64 .dll / Mac .dylib).
             Runs on either platform via RunUAT, so a macOS user can produce the
@@ -266,7 +236,7 @@ function EnvSection({ env, refreshEnv, onCompile }: EnvSectionProps) {
           title={compile.hint}
           onClick={onCompile}
         >
-          <Icon name="chip" size={13} /> 編譯插件
+          <Icon name="chip" size={13} /> {t('configPanel.compilePlugin')}
         </button>
       </div>
     </div>
@@ -287,7 +257,8 @@ interface CrawlButtonProps {
 }
 
 function CrawlButton({ k, freshness, justRan, disabled, onStart, adv = false }: CrawlButtonProps) {
-  const meta = CRAWL_KIND_META[k];
+  const { t } = useTranslation();
+  const meta = crawlMeta(t, k);
   return (
     <button
       className={'crawlbtn' + (adv ? ' adv' : '')}
@@ -305,7 +276,7 @@ function CrawlButton({ k, freshness, justRan, disabled, onStart, adv = false }: 
       </div>
       {!adv && <div className="cbdesc">{meta.desc}</div>}
       <div className="cbrefresh">
-        <Icon name="branch" size={11} /> 刷新：{meta.refresh}
+        <Icon name="branch" size={11} /> {t('configPanel.refreshes', { what: meta.refresh })}
       </div>
       <div className="cbfoot">
         <FreshBadge ts={freshness?.[k]} justRan={justRan === k} />
@@ -327,6 +298,7 @@ interface CrawlOpsSectionProps {
 }
 
 function CrawlOpsSection({ env, mfRoot, setMfRoot, matRoot, setMatRoot, justRan, onStart }: CrawlOpsSectionProps) {
+  const { t } = useTranslation();
   const [advOpen, setAdvOpen] = useState(false);
   const dis = !env?.ready;
   const freshness = env?.freshness;
@@ -335,15 +307,15 @@ function CrawlOpsSection({ env, mfRoot, setMfRoot, matRoot, setMatRoot, justRan,
     <div className="cfg-sec">
       <div className="sech">
         <span className="secn">3</span>
-        <span className="sect">爬取操作</span>
-        <span className="secd">{dis ? '環境就緒後啟用' : '一次僅能執行一項'}</span>
+        <span className="sect">{t('configPanel.crawlOpsTitle')}</span>
+        <span className="secd">{dis ? t('configPanel.crawlOpsHintDisabled') : t('configPanel.crawlOpsHintEnabled')}</span>
       </div>
 
-      <div className="tier-label">主要 · 專案（常用）<span className="ln" /></div>
+      <div className="tier-label">{t('configPanel.tierPrimary')}<span className="ln" /></div>
 
       {/* MF scope — drives 爬取專案 MF, and the T3D export reads the same root. */}
       <div className="field">
-        <label>MF Content Route <span style={{ color: 'var(--text-mute)' }}>— 爬取專案 MF · 也供導出</span></label>
+        <label>MF Content Route <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.mfRootHint')}</span></label>
         <div className="inp">
           <span className="pfx">root</span>
           <input
@@ -358,7 +330,7 @@ function CrawlOpsSection({ env, mfRoot, setMfRoot, matRoot, setMatRoot, justRan,
 
       {/* Base-material scope — drives 爬取專案母材質 (a separate folder from MF). */}
       <div className="field" style={{ marginTop: 12 }}>
-        <label>母材質 Content Route <span style={{ color: 'var(--text-mute)' }}>— 爬取專案母材質</span></label>
+        <label>{t('configPanel.matRootLabel')} <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.matRootHint')}</span></label>
         <div className="inp">
           <span className="pfx">root</span>
           <input
@@ -379,8 +351,8 @@ function CrawlOpsSection({ env, mfRoot, setMfRoot, matRoot, setMatRoot, justRan,
         onKeyDown={e => (e.key === 'Enter' || e.key === ' ') && setAdvOpen(o => !o)}
       >
         <Icon name="caret" size={13} className="caret" />
-        進階／維護（官方原生，一般用不到）
-        <span className="hint">{advOpen ? '收合' : '展開'}</span>
+        {t('configPanel.advancedToggle')}
+        <span className="hint">{advOpen ? t('configPanel.collapse') : t('configPanel.expand')}</span>
       </div>
       {advOpen && (
         <div style={{ paddingTop: 4 }}>
@@ -390,7 +362,7 @@ function CrawlOpsSection({ env, mfRoot, setMfRoot, matRoot, setMatRoot, justRan,
       )}
       {dis && (
         <div className="note" style={{ marginTop: 4 }}>
-          ↑ 通過全部環境檢查後，這些按鈕才會啟用。
+          {t('configPanel.crawlDisabledNote')}
         </div>
       )}
     </div>
@@ -444,6 +416,7 @@ interface RunPanelProps {
 }
 
 function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) {
+  const { t } = useTranslation();
   const [elapsed, setElapsed] = useState(0);
   const [copiedLog, setCopiedLog] = useState(false);
   useEffect(() => {
@@ -456,7 +429,7 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
   const running = crawl.status === 'running';
   const ok = crawl.status === 'success';
   const kindKey = (crawl.kind ?? 'workmf') as CrawlKind;
-  const meta = CRAWL_KIND_META[kindKey] ?? CRAWL_KIND_META.workmf;
+  const meta = crawlMeta(t, kindKey);
 
   const logLines = crawl.logs.map(parseLogLine);
   const progress = running ? Math.min(96, (logLines.length / 20) * 100) : 100;
@@ -492,10 +465,10 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
           <div className="run-title">{meta.label}</div>
           <div className="run-sub">
             {running
-              ? (kindKey === 'compile' ? '編譯中…（RunUAT 建置插件需數分鐘）' : '執行中…（編輯器啟動需數分鐘）')
+              ? (kindKey === 'compile' ? t('configPanel.runCompiling') : t('configPanel.runRunning'))
               : ok
-              ? (kindKey === 'compile' ? '完成，外掛二進位已建置' : '完成，已即時刷新')
-              : `${meta.label}失敗${crawl.exitCode != null ? `（exit ${crawl.exitCode}）` : ''}`
+              ? (kindKey === 'compile' ? t('configPanel.runCompileOk') : t('configPanel.runOk'))
+              : t('configPanel.runFailed', { label: meta.label, exit: crawl.exitCode != null ? t('configPanel.exitSuffix', { code: crawl.exitCode }) : '' })
             }
           </div>
         </div>
@@ -515,7 +488,7 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
       {running && (
         <div className="run-actions">
           <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={onStop}>
-            <Icon name="x" size={13} /> 停止爬取
+            <Icon name="x" size={13} /> {t('configPanel.stopCrawl')}
           </button>
         </div>
       )}
@@ -523,16 +496,16 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
       {ok && (
         <div className="run-result ok">
           <div className="rt">
-            <Icon name="check" size={15} /> {meta.label}完成{kindKey === 'compile' ? '，外掛二進位已建置' : '，已即時刷新'}
+            <Icon name="check" size={15} /> {kindKey === 'compile' ? t('configPanel.resultDoneCompile', { label: meta.label }) : t('configPanel.resultDone', { label: meta.label })}
           </div>
           {kindKey === 'projectmat' && (
             <div className="fix-text" style={{ color: 'var(--text-dim)' }}>
-              → 已填入 Files 分頁的「工作」區（母材質，以及其引用到的專案 MF）。
+              {t('configPanel.resultProjectmatNote')}
             </div>
           )}
           {kindKey === 'compile' && (
             <div className="fix-text" style={{ color: 'var(--text-dim)' }}>
-              → 「環境檢查」的「已編譯外掛」已重新探測；正常會轉綠。
+              {t('configPanel.resultCompileNote')}
             </div>
           )}
         </div>
@@ -542,13 +515,12 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
         <div className="run-result err">
           <div className="errtop">
             <div className="rt">
-              <Icon name="warn" size={15} /> {meta.label}失敗
-              {crawl.exitCode != null ? `（exit ${crawl.exitCode}）` : ''}
+              <Icon name="warn" size={15} /> {t('configPanel.runFailed', { label: meta.label, exit: crawl.exitCode != null ? t('configPanel.exitSuffix', { code: crawl.exitCode }) : '' })}
             </div>
             {crawl.logs.length > 0 && (
               <button className="copylogbtn" onClick={() => void copyErrorLog()}>
                 <Icon name={copiedLog ? 'check' : 'clip'} size={12} />
-                {copiedLog ? '已複製' : '複製錯誤 log'}
+                {copiedLog ? t('configPanel.copied') : t('configPanel.copyErrorLog')}
               </button>
             )}
           </div>
@@ -558,18 +530,18 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
               <div>
                 <span className={'fixpill ' + (diag.who === 'you' ? 'self' : 'maint')}>
                   <Icon name={diag.who === 'you' ? 'check' : 'warn'} size={11} />
-                  {diag.who === 'you' ? '你可以自行修復' : '需要工具維護者協助'}
+                  {diag.who === 'you' ? t('configPanel.fixSelf') : t('configPanel.fixMaint')}
                 </span>
               </div>
               <div className="fix-text">{diag.fix}</div>
             </>
           ) : (
-            <div className="cause">無法自動判斷原因，請見下方完整 log，必要時附給維護者。</div>
+            <div className="cause">{t('configPanel.causeUnknown')}</div>
           )}
           {crawl.logs.length > 0 && (
             <details className="logdetails">
               <summary>
-                <Icon name="caret" size={12} className="caret" /> 完整 log
+                <Icon name="caret" size={12} className="caret" /> {t('configPanel.fullLog')}
               </summary>
               <RunLog lines={logLines} />
             </details>
@@ -581,11 +553,11 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
         <div className="run-actions">
           {crawl.status === 'error' && (
             <button className="btn primary" style={{ flex: 1, justifyContent: 'center' }} onClick={onRetry}>
-              <Icon name="refresh" size={13} /> 重試
+              <Icon name="refresh" size={13} /> {t('configPanel.retry')}
             </button>
           )}
           <button className="btn" style={{ flex: 1, justifyContent: 'center' }} onClick={onReset}>
-            返回爬取面板
+            {t('configPanel.backToCrawl')}
           </button>
         </div>
       )}
@@ -607,32 +579,34 @@ interface AiSectionProps {
 
 // web_search backend choices — 'auto' picks the first configured key backend,
 // DDG when none. Stored value '' (auto) clears the field server-side.
+// label resolved at render via t('configPanel.searchBackend_<key>').
 const SEARCH_BACKEND_OPTIONS = [
-  { value: 'auto',       label: '自動（有金鑰用金鑰後端，否則 DuckDuckGo）' },
-  { value: 'duckduckgo', label: 'DuckDuckGo（免金鑰，品質一般）' },
-  { value: 'tavily',     label: 'Tavily（為 AI 設計，免費 1000 次/月）' },
-  { value: 'brave',      label: 'Brave Search（免費 2000 次/月）' },
-  { value: 'searxng',    label: 'SearXNG（自架/公共實例，填 Base URL）' },
+  { value: 'auto',       key: 'auto' },
+  { value: 'duckduckgo', key: 'duckduckgo' },
+  { value: 'tavily',     key: 'tavily' },
+  { value: 'brave',      key: 'brave' },
+  { value: 'searxng',    key: 'searxng' },
 ];
 
 // 最大迭代次數 choices — value is what gets stored (0 = unlimited).
 const MAX_ITERS_OPTIONS = [
-  { value: '8',  label: '8（預設）' },
-  { value: '16', label: '16' },
-  { value: '32', label: '32' },
-  { value: '0',  label: '不限制（仍受上下文上限保護）' },
+  { value: '8',  key: 'iters8' },
+  { value: '16', key: 'iters16' },
+  { value: '32', key: 'iters32' },
+  { value: '0',  key: 'iters0' },
 ];
 
 // 上下文長度 choices — tokens; '' = use the loop defaults (300K 上限 / 150K 壓縮).
 const CONTEXT_LIMIT_OPTIONS = [
-  { value: '',        label: '預設（300K 上限，150K 開始壓縮）' },
-  { value: '128000',  label: '128K' },
-  { value: '200000',  label: '200K' },
-  { value: '256000',  label: '256K' },
-  { value: '1000000', label: '1M' },
+  { value: '',        key: 'ctxDefault' },
+  { value: '128000',  key: 'ctx128' },
+  { value: '200000',  key: 'ctx200' },
+  { value: '256000',  key: 'ctx256' },
+  { value: '1000000', key: 'ctx1m' },
 ];
 
 function AiSection({ saveAgentConfig }: AiSectionProps) {
+  const { t } = useTranslation();
   const [provider, setProvider] = useState<'anthropic' | 'openai-compatible'>('anthropic');
   const [baseUrl, setBaseUrl] = useState('');
   const [model, setModel] = useState('');
@@ -727,7 +701,7 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
     const r = await saveAgentConfig(llm, web);
     setSaving(false);
     if (r.ok) {
-      setMsg({ ok: true, text: '已儲存 AI 助手設定。' });
+      setMsg({ ok: true, text: t('configPanel.aiSaved') });
       setApiKey(''); // Clear after save to avoid accidental re-submission.
       setTavilyKey('');
       setBraveKey('');
@@ -737,7 +711,7 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
         if (s.ok) setStatus(await s.json() as ProviderStatus);
       } catch { /* ignore */ }
     } else {
-      setMsg({ ok: false, text: r.error ?? '儲存失敗' });
+      setMsg({ ok: false, text: r.error ?? t('configPanel.saveFailed') });
     }
   };
 
@@ -747,15 +721,15 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
     try {
       const r = await fetch('/api/agent/web-test', { method: 'POST', cache: 'no-store' });
       if (!r.ok) {
-        setWebTestResult({ ok: false, text: `測試請求失敗（HTTP ${r.status}）` });
+        setWebTestResult({ ok: false, text: t('configPanel.testReqFailedHttp', { status: r.status }) });
         return;
       }
       const body = await r.json() as import('./agent/protocol').AgentWebTestResponse;
       setWebTestResult(body.ok
-        ? { ok: true, text: `搜尋正常 — ${body.backend} 回傳 ${body.results} 筆結果` }
+        ? { ok: true, text: t('configPanel.webTestOk', { backend: body.backend, results: body.results }) }
         : { ok: false, text: body.error });
     } catch {
-      setWebTestResult({ ok: false, text: '測試請求失敗' });
+      setWebTestResult({ ok: false, text: t('configPanel.testReqFailed') });
     } finally {
       setWebTesting(false);
     }
@@ -767,15 +741,15 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
     try {
       const r = await fetch('/api/agent/test', { method: 'POST', cache: 'no-store' });
       if (!r.ok) {
-        setTestResult({ ok: false, text: `測試請求失敗（HTTP ${r.status}）` });
+        setTestResult({ ok: false, text: t('configPanel.testReqFailedHttp', { status: r.status }) });
         return;
       }
       const body = await r.json() as import('./agent/protocol').AgentTestResponse;
       setTestResult(body.ok
-        ? { ok: true, text: `連線成功 — ${body.model} 回應正常` }
+        ? { ok: true, text: t('configPanel.testConnOk', { model: body.model }) }
         : { ok: false, text: body.error });
     } catch {
-      setTestResult({ ok: false, text: '測試請求失敗' });
+      setTestResult({ ok: false, text: t('configPanel.testReqFailed') });
     } finally {
       setTesting(false);
     }
@@ -785,8 +759,8 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
     <div className="cfg-sec">
       <div className="sech">
         <span className="secn">4</span>
-        <span className="sect">AI 助手</span>
-        <span className="secd">對話式材質生成</span>
+        <span className="sect">{t('configPanel.aiTitle')}</span>
+        <span className="secd">{t('configPanel.aiHint')}</span>
       </div>
 
       {/* Saved-config status card. The key itself is never echoed — only whether one is stored. */}
@@ -794,7 +768,7 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
         {status?.configured ? (
           <>
             <div className="ai-card-head">
-              <Icon name="check" size={12} /> 已設定
+              <Icon name="check" size={12} /> {t('configPanel.configured')}
             </div>
             <div className="ai-row"><span className="k">Provider</span><span className="v">{status.provider}</span></div>
             <div className="ai-row"><span className="k">Model</span><span className="v">{status.model}</span></div>
@@ -803,37 +777,37 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
             )}
             <div className="ai-row">
               <span className="k">API Key</span>
-              <span className="v">{status.hasApiKey ? '已儲存（不會顯示）' : '未設定'}</span>
+              <span className="v">{status.hasApiKey ? t('configPanel.apiKeyStored') : t('configPanel.apiKeyUnset')}</span>
             </div>
             {status.maxIters !== undefined && (
               <div className="ai-row">
-                <span className="k">迭代上限</span>
-                <span className="v">{status.maxIters === 0 ? '不限制' : status.maxIters}</span>
+                <span className="k">{t('configPanel.itersLimit')}</span>
+                <span className="v">{status.maxIters === 0 ? t('configPanel.unlimited') : status.maxIters}</span>
               </div>
             )}
             {status.contextLimit !== undefined && (
               <div className="ai-row">
-                <span className="k">上下文</span>
+                <span className="k">{t('configPanel.context')}</span>
                 <span className="v">{status.contextLimit >= 1_000_000 ? `${status.contextLimit / 1_000_000}M` : `${Math.round(status.contextLimit / 1000)}K`} tokens</span>
               </div>
             )}
             {status.webSearchBackend && (
               <div className="ai-row">
-                <span className="k">搜尋後端</span>
+                <span className="k">{t('configPanel.searchBackendLabel')}</span>
                 <span className="v">
                   {status.webSearchBackend}
                   {status.hasTavilyKey ? ' · tavily✓' : ''}
                   {status.hasBraveKey ? ' · brave✓' : ''}
                   {status.searxngBaseUrl ? ' · searxng✓' : ''}
-                  {status.webProxyUrl ? ' · 代理✓' : ''}
+                  {status.webProxyUrl ? t('configPanel.proxyMark') : ''}
                 </span>
               </div>
             )}
             <div className="ai-test-row">
               <button className="btn sm" disabled={testing} onClick={() => void onTest()}>
                 {testing
-                  ? <><Icon name="refresh" size={12} className="spin" /> 測試中…</>
-                  : <><Icon name="bolt" size={12} /> 測試連線</>}
+                  ? <><Icon name="refresh" size={12} className="spin" /> {t('configPanel.testing')}</>
+                  : <><Icon name="bolt" size={12} /> {t('configPanel.testConnection')}</>}
               </button>
               {testResult && (
                 <span className={'ai-test-result ' + (testResult.ok ? 'ok' : 'err')}>{testResult.text}</span>
@@ -842,7 +816,7 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
           </>
         ) : (
           <div className="ai-card-head">
-            <Icon name="warn" size={12} /> 尚未設定 — 填寫下方欄位並儲存
+            <Icon name="warn" size={12} /> {t('configPanel.aiUnconfigured')}
           </div>
         )}
       </div>
@@ -864,7 +838,7 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
         <label>
           Base URL{' '}
           <span style={{ color: 'var(--text-mute)' }}>
-            {provider === 'anthropic' ? '— 選填，中轉/代理用；留空走官方 API' : '— 例如 https://api.openai.com/v1'}
+            {provider === 'anthropic' ? t('configPanel.baseUrlHintAnthropic') : t('configPanel.baseUrlHintOpenai')}
           </span>
         </label>
         <div className="inp">
@@ -890,20 +864,20 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
       </div>
 
       <div className="field">
-        <label>API Key <span style={{ color: 'var(--text-mute)' }}>— 不填保留現有金鑰</span></label>
+        <label>API Key <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.apiKeyHint')}</span></label>
         <div className="inp">
           <input
             type="password"
             value={apiKey}
             onChange={e => setApiKey(e.target.value)}
             autoComplete="off"
-            placeholder="sk-…（不填表示保留現有金鑰）"
+            placeholder={t('configPanel.apiKeyPlaceholder')}
           />
         </div>
       </div>
 
       <div className="field">
-        <label>Max Tokens <span style={{ color: 'var(--text-mute)' }}>— 選填，預設 8192</span></label>
+        <label>Max Tokens <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.maxTokensHint')}</span></label>
         <div className="inp">
           <input
             value={maxTokens}
@@ -916,13 +890,13 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
 
       <div className="field">
         <label>
-          最大迭代次數{' '}
-          <span style={{ color: 'var(--text-mute)' }}>— 每輪對話的工具迴圈上限</span>
+          {t('configPanel.maxItersLabel')}{' '}
+          <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.maxItersHint')}</span>
         </label>
         <div className="inp">
           <select value={maxIters} onChange={e => setMaxIters(e.target.value)}>
             {MAX_ITERS_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>{t(`configPanel.opt_${o.key}`)}</option>
             ))}
           </select>
         </div>
@@ -930,13 +904,13 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
 
       <div className="field">
         <label>
-          上下文長度{' '}
-          <span style={{ color: 'var(--text-mute)' }}>— 依模型視窗選擇；達一半自動壓縮舊對話</span>
+          {t('configPanel.contextLenLabel')}{' '}
+          <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.contextLenHint')}</span>
         </label>
         <div className="inp">
           <select value={contextLimit} onChange={e => setContextLimit(e.target.value)}>
             {CONTEXT_LIMIT_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>{t(`configPanel.opt_${o.key}`)}</option>
             ))}
           </select>
         </div>
@@ -945,13 +919,13 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
       {/* ── 網路搜尋（web_search 後端 / 代理）── */}
       <div className="field">
         <label>
-          搜尋後端{' '}
-          <span style={{ color: 'var(--text-mute)' }}>— agent 查網路時用的搜尋服務</span>
+          {t('configPanel.searchBackendField')}{' '}
+          <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.searchBackendFieldHint')}</span>
         </label>
         <div className="inp">
           <select value={searchBackend} onChange={e => setSearchBackend(e.target.value)}>
             {SEARCH_BACKEND_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <option key={o.value} value={o.value}>{t(`configPanel.searchBackend_${o.key}`)}</option>
             ))}
           </select>
         </div>
@@ -959,14 +933,14 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
 
       {(searchBackend === 'auto' || searchBackend === 'tavily') && (
         <div className="field">
-          <label>Tavily API Key <span style={{ color: 'var(--text-mute)' }}>— tavily.com 免費註冊；不填保留現有金鑰</span></label>
+          <label>Tavily API Key <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.tavilyKeyHint')}</span></label>
           <div className="inp">
             <input
               type="password"
               value={tavilyKey}
               onChange={e => setTavilyKey(e.target.value)}
               autoComplete="off"
-              placeholder={status?.hasTavilyKey ? '已儲存（不填保留）' : 'tvly-…'}
+              placeholder={status?.hasTavilyKey ? t('configPanel.keyStoredPlaceholder') : 'tvly-…'}
             />
           </div>
         </div>
@@ -974,14 +948,14 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
 
       {(searchBackend === 'auto' || searchBackend === 'brave') && (
         <div className="field">
-          <label>Brave API Key <span style={{ color: 'var(--text-mute)' }}>— brave.com/search/api；不填保留現有金鑰</span></label>
+          <label>Brave API Key <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.braveKeyHint')}</span></label>
           <div className="inp">
             <input
               type="password"
               value={braveKey}
               onChange={e => setBraveKey(e.target.value)}
               autoComplete="off"
-              placeholder={status?.hasBraveKey ? '已儲存（不填保留）' : 'BSA…'}
+              placeholder={status?.hasBraveKey ? t('configPanel.keyStoredPlaceholder') : 'BSA…'}
             />
           </div>
         </div>
@@ -989,7 +963,7 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
 
       {(searchBackend === 'auto' || searchBackend === 'searxng') && (
         <div className="field">
-          <label>SearXNG Base URL <span style={{ color: 'var(--text-mute)' }}>— 自架或可達的實例（需開放 JSON API）</span></label>
+          <label>SearXNG Base URL <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.searxngHint')}</span></label>
           <div className="inp">
             <input
               value={searxngBaseUrl}
@@ -1002,7 +976,7 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
       )}
 
       <div className="field">
-        <label>網路代理 <span style={{ color: 'var(--text-mute)' }}>— 選填；web 工具走此 http 代理（如 Clash 本機埠）</span></label>
+        <label>{t('configPanel.proxyLabel')} <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.proxyHint')}</span></label>
         <div className="inp">
           <input
             value={proxyUrl}
@@ -1018,11 +992,11 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
           className="btn sm"
           disabled={webTesting}
           onClick={() => void onWebTest()}
-          title="以「已儲存」的搜尋設定實際搜一次——改動後請先儲存再測試"
+          title={t('configPanel.webTestTitle')}
         >
           {webTesting
-            ? <><Icon name="refresh" size={12} className="spin" /> 搜尋中…</>
-            : <><Icon name="globe" size={12} /> 測試搜尋</>}
+            ? <><Icon name="refresh" size={12} className="spin" /> {t('configPanel.searching')}</>
+            : <><Icon name="globe" size={12} /> {t('configPanel.testSearch')}</>}
         </button>
         {webTestResult && (
           <span className={'ai-test-result ' + (webTestResult.ok ? 'ok' : 'err')}>{webTestResult.text}</span>
@@ -1035,7 +1009,7 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
         disabled={saving || !model.trim()}
         onClick={() => void onSave()}
       >
-        <Icon name="check" size={13} /> {saving ? '儲存中…' : '儲存 AI 設定'}
+        <Icon name="check" size={13} /> {saving ? t('configPanel.saving') : t('configPanel.saveAiConfig')}
       </button>
       {msg && (
         <div style={{ fontSize: 11, marginTop: 5, color: msg.ok ? 'var(--ok)' : 'var(--error)' }}>
@@ -1058,6 +1032,7 @@ export interface ConfigPanelProps {
 }
 
 export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPanelProps) {
+  const { t, i18n } = useTranslation();
   const { state, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig } = useStore();
   const { env, crawl, connection } = state;
   // The panel got crowded (UE paths + env checks + crawls + LLM/Web + team) —
@@ -1102,14 +1077,14 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
       <div className="cfg">
         <div className="cfg-notice">
           <div className="ni"><Icon name="layers" size={20} /></div>
-          <div className="nt">此匯出快照無法爬取</div>
+          <div className="nt">{t('configPanel.snapshotTitle')}</div>
           <div className="nd">
-            爬取需要連到本機的 Unreal 專案。離線快照是唯讀的，環境檢查與爬取按鈕已隱藏。
+            {t('configPanel.snapshotBody')}
           </div>
         </div>
         <div className="cfg-sec">
           <div className="field">
-            <label>MF content root <span style={{ color: 'var(--text-mute)' }}>— 保留供匯出使用</span></label>
+            <label>MF content root <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.mfRootSnapshotHint')}</span></label>
             <div className="inp">
               <span className="pfx">root</span>
               <input
@@ -1131,7 +1106,7 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
         <div className="reconnect-spin">
           <Icon name="refresh" size={26} className="spin" style={{ color: 'var(--accent)' }} />
           <div>
-            正在連線本機 viewer server…
+            {t('configPanel.connecting')}
             <div className="note" style={{ marginTop: 6 }}>
               connecting to local viewer server · 127.0.0.1
             </div>
@@ -1148,10 +1123,10 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
         <MyAccountSection />
         <div className="cfg-notice">
           <div className="ni"><Icon name="settings" size={20} /></div>
-          <div className="nt">其餘設定由管理員管理</div>
+          <div className="nt">{t('configPanel.memberNoticeTitle')}</div>
           <div className="nd">
-            UE 路徑、爬取與 LLM 設定屬於伺服器端設定，僅管理員可變更。
-            {crawl.status === 'running' && ' 目前有一個爬取正在進行。'}
+            {t('configPanel.memberNoticeBody')}
+            {crawl.status === 'running' && ' ' + t('configPanel.memberCrawlRunning')}
           </div>
         </div>
       </div>
@@ -1177,17 +1152,41 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
   return (
     <div className="cfg">
       <div className="cfg-tabs" role="tablist">
-        {([['crawl', '爬取'], ['ai', 'AI'], ['team', '團隊']] as const).map(([k, label]) => (
+        {([['crawl', t('configPanel.tabCrawl')], ['ai', t('configPanel.tabAi')], ['team', t('configPanel.tabTeam')]] as const).map(([k, label]) => (
           <button
             key={k}
             role="tab"
             aria-selected={cfgTab === k}
             className={'cfg-tab' + (cfgTab === k ? ' on' : '')}
-            onClick={() => setCfgTab(k)}
+            onClick={() => setCfgTab(k as 'crawl' | 'ai' | 'team')}
           >
             {label}
           </button>
         ))}
+      </div>
+
+      {/* Local UI-language preference. Stays user-changeable even in Team mode —
+          Team only provides a default; this local override always wins. */}
+      <div className="field" style={{ marginTop: 8 }}>
+        <label>
+          {t('configPanel.uiLanguage')}{' '}
+          <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.uiLanguageHint')}</span>
+        </label>
+        <div className="lang-seg" role="group" aria-label={t('configPanel.uiLanguage')}>
+          {([['zh-Hant', '繁體中文'], ['en', 'English']] as const).map(([lng, label]) => (
+            <button
+              key={lng}
+              className={'btn sm' + (i18n.language === lng ? ' primary' : '')}
+              aria-pressed={i18n.language === lng}
+              onClick={() => {
+                localStorage.setItem('ui-language', lng);
+                void i18n.changeLanguage(lng);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
       {cfgTab === 'crawl' && (
         <>

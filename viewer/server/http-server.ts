@@ -158,7 +158,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   /** Admin lock: when set, member chat turns run with THESE values — whatever
       the member's client sends is overridden (UI shows the controls grayed). */
   interface MemberLock { thinking: 'off' | 'low' | 'medium' | 'high'; webSearch: boolean }
-  interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean; memberAgent?: boolean; quotas?: Record<string, number>; memberLock?: MemberLock | null }
+  interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean; memberAgent?: boolean; quotas?: Record<string, number>; memberLock?: MemberLock | null; language?: 'zh-Hant' | 'en' }
   async function readTeamConfig(): Promise<TeamConfig> {
     try {
       const parsed = parseJsonAllowingBom(await readFile(localConfigPath, 'utf-8')) as { Team?: TeamConfig };
@@ -202,6 +202,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     return { thinking: o.thinking as MemberLock['thinking'], webSearch: o.webSearch };
   }
   let memberLock: MemberLock | null = normalizeMemberLock(savedTeam.memberLock);
+  // Team DEFAULT reply/UI language — a SOFT seed the frontend reads to pick the
+  // initial UI language and to compute the effective per-turn language. UNLIKE
+  // memberLock, the server NEVER enforces or overrides the per-turn value: the
+  // client computes the effective language and sends it on each chat turn.
+  let teamLanguage: 'zh-Hant' | 'en' | undefined =
+    savedTeam.language === 'zh-Hant' || savedTeam.language === 'en' ? savedTeam.language : undefined;
   const usageStore = createUsageStore(resolve(opts.repoRoot, 'viewer'));
   // Member→admin approval queue (request_crawl / propose_db_edit from member
   // turns land here; the outcome is injected back into the member's session).
@@ -1910,6 +1916,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
 
+    // Reply language for this explanation. Soft per-request value (client
+    // computes the effective language from the Team default); default 'zh-Hant'.
+    const explainLanguage: 'zh-Hant' | 'en' = body.language === 'en' ? 'en' : 'zh-Hant';
+
     // AbortController tied to client disconnect.
     const ac = new AbortController();
     req.on('close', () => ac.abort());
@@ -1918,7 +1928,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       const text = await explainNode(
         provider,
         llmConfig.model,
-        { nodeType, ueVersion, dbEntry, graphContext },
+        { nodeType, ueVersion, dbEntry, graphContext, language: explainLanguage },
         llmConfig.maxTokens,
         ac.signal,
       );
@@ -2255,6 +2265,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       webToolsEnabled = memberLock.webSearch;
     }
 
+    // Reply language for THIS turn. The client already computed the effective
+    // language (seeded from the Team default it read in /api/auth/status), so
+    // the server simply validates and forwards it — it never overrides with
+    // teamLanguage. Default 'zh-Hant'; any unexpected value falls back to it.
+    const language: 'zh-Hant' | 'en' = body.language === 'en' ? 'en' : 'zh-Hant';
+
     try {
       await runAgent(
         body.text,
@@ -2282,6 +2298,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           // spend is bounded by the per-user daily quota, not by hiding the tool.
           // Pasted images (validated in handleAgentChat) ride this turn only.
           images: body.images,
+          // Reply language for this turn (the agent loop reads it). A soft
+          // per-turn value — never overridden by the Team default here.
+          language,
         },
       );
     } catch (e) {
@@ -2390,6 +2409,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       secureCookies,
       memberAgent: memberAgentEnabled,
       memberLock,
+      language: teamLanguage,
       quotas,
       usageToday: await usageStore.today(),
       online: mode === 'team' ? onlineUsers() : [],
@@ -2401,7 +2421,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   async function handleTeamPost(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    let body: { enabled?: unknown; bindHost?: unknown; secureCookies?: unknown; memberAgent?: unknown; quotas?: unknown; memberLock?: unknown; username?: unknown; password?: unknown };
+    let body: { enabled?: unknown; bindHost?: unknown; secureCookies?: unknown; memberAgent?: unknown; quotas?: unknown; memberLock?: unknown; language?: unknown; username?: unknown; password?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     // The env lock pins the BIND (mode switch); plain settings stay editable.
@@ -2428,6 +2448,17 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         }
         memberLock = normalizeMemberLock(body.memberLock);
         await saveTeamConfig({ memberLock });
+      }
+      if (body.language !== undefined) {
+        // SOFT team default only — validate the enum, persist, update the
+        // runtime seed. There is NO server-side enforcement of this value on a
+        // member's turn (unlike memberLock); the client decides per-turn.
+        if (body.language !== 'zh-Hant' && body.language !== 'en') {
+          sendJson(res, 400, { error: 'invalid language — expected "zh-Hant" or "en"' });
+          return;
+        }
+        teamLanguage = body.language;
+        await saveTeamConfig({ language: teamLanguage });
       }
       if (body.quotas !== undefined && body.quotas !== null && typeof body.quotas === 'object') {
         // Merge per-user daily quotas; non-positive / invalid values clear.
@@ -2507,6 +2538,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       memberAgent: memberAgentEnabled,
       // Members read this to gray out + display the forced control values.
       ...(memberLock ? { memberLock } : {}),
+      // SOFT team default language — a non-enforced seed the frontend uses to
+      // pick the initial UI language (sent to ALL members, admins included).
+      ...(teamLanguage ? { language: teamLanguage } : {}),
       ...(user ? { username: user.username, role: user.role } : {}),
     });
   }
@@ -2532,7 +2566,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // Token via cookie (browser) + X-Auth-Token header (script/CLI Bearer) — never
     // in the JSON body, so it can't leak into response-body logs.
     res.setHeader('X-Auth-Token', token);
-    sendJson(res, 200, { authed: true, username, role: 'admin' });
+    sendJson(res, 200, { authed: true, username, role: 'admin', ...(teamLanguage ? { language: teamLanguage } : {}) });
   }
 
   async function handleAuthLogin(req: IncomingMessage, res: import('node:http').ServerResponse) {
@@ -2561,7 +2595,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     const token = await authStore.issueToken(user.username);
     setAuthCookie(res, token);
     res.setHeader('X-Auth-Token', token);
-    sendJson(res, 200, { authed: true, username: user.username, role: user.role });
+    sendJson(res, 200, { authed: true, username: user.username, role: user.role, ...(teamLanguage ? { language: teamLanguage } : {}) });
   }
 
   async function handleAuthLogout(req: IncomingMessage, res: import('node:http').ServerResponse) {

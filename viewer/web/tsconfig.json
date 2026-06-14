@@ -4,6 +4,8 @@
     "jsx": "react-jsx",
     "lib": ["DOM", "ES2022"],
     "types": ["vite/client"],
+    "resolveJsonModule": true,
+    "esModuleInterop": true,
     "noEmit": true
   },
   "include": ["src"]

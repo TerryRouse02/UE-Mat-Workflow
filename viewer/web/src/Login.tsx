@@ -3,11 +3,13 @@
 // it is a plain username/password login. Local mode never renders this.
 
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from './store';
 import { Icon } from './Icon';
 import './login.css';
 
 export function Login() {
+  const { t } = useTranslation();
   const { state, login, setupAdmin } = useStore();
   const needsSetup = state.auth?.needsSetup === true;
 
@@ -22,13 +24,13 @@ export function Login() {
     if (busy) return;
     setError(null);
     if (needsSetup && password !== confirm) {
-      setError('兩次輸入的密碼不一致');
+      setError(t('login.errPasswordMismatch'));
       return;
     }
     setBusy(true);
     const r = needsSetup ? await setupAdmin(username, password) : await login(username, password);
     setBusy(false);
-    if (!r.ok) setError(r.error ?? '登入失敗');
+    if (!r.ok) setError(r.error ?? t('login.errLoginFailed'));
     // Success: the store flips auth.authed and App swaps this screen out.
   };
 
@@ -40,36 +42,36 @@ export function Login() {
           <span className="t">UE·MAT workflow</span>
         </div>
         <div className="login-title">
-          {needsSetup ? '建立管理員帳號' : '登入團隊工作區'}
+          {needsSetup ? t('login.titleSetup') : t('login.titleLogin')}
         </div>
         {needsSetup && (
           <div className="login-sub">
-            首次啟動團隊模式：先建立第一個管理員帳號（之後可在 Config 分頁新增成員）。
+            {t('login.setupSub')}
           </div>
         )}
         <label className="login-field">
-          <span>帳號</span>
+          <span>{t('login.usernameLabel')}</span>
           <input
             autoFocus
             value={username}
             onChange={e => setUsername(e.target.value)}
             autoComplete="username"
-            placeholder="1–32 字元：英數、_ . -"
+            placeholder={t('login.usernamePlaceholder')}
           />
         </label>
         <label className="login-field">
-          <span>密碼</span>
+          <span>{t('login.passwordLabel')}</span>
           <input
             type="password"
             value={password}
             onChange={e => setPassword(e.target.value)}
             autoComplete={needsSetup ? 'new-password' : 'current-password'}
-            placeholder="至少 8 字元"
+            placeholder={t('login.passwordPlaceholder')}
           />
         </label>
         {needsSetup && (
           <label className="login-field">
-            <span>確認密碼</span>
+            <span>{t('login.confirmLabel')}</span>
             <input
               type="password"
               value={confirm}
@@ -80,10 +82,10 @@ export function Login() {
         )}
         {error && <div className="login-error" role="alert">{error}</div>}
         <button className="login-submit" type="submit" disabled={busy || !username || !password}>
-          {busy ? '請稍候…' : needsSetup ? '建立並進入' : '登入'}
+          {busy ? t('login.submitBusy') : needsSetup ? t('login.submitSetup') : t('login.submitLogin')}
         </button>
         <div className="login-foot">
-          <Icon name="settings" size={11} /> 7 天內免重複登入 · 連線由伺服器管理者設定
+          <Icon name="settings" size={11} /> {t('login.foot')}
         </div>
       </form>
     </div>

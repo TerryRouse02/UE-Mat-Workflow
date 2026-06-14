@@ -44,6 +44,12 @@ export interface ExplainNodeOpts {
    * Failures to build this degrade silently to no context.
    */
   graphContext?: string;
+  /**
+   * Explanation language. Default 'zh-Hant' (繁體中文); 'en' switches the
+   * system prompt + the user-message instruction to English. The HTTP caller
+   * passes this through from the request.
+   */
+  language?: 'zh-Hant' | 'en';
 }
 
 const DEFAULT_MAX_TOKENS = 1024;
@@ -60,19 +66,34 @@ export async function explainNode(
   signal?: AbortSignal,
 ): Promise<string> {
   const { nodeType, ueVersion, dbEntry, graphContext } = opts;
+  const lang: 'zh-Hant' | 'en' = opts.language === 'en' ? 'en' : 'zh-Hant';
 
-  // Build system prompt: short zh-TW novice-educator persona.
-  const system = `你是 UE 材質助手。用繁體中文、白話文向**完全不懂材質**的使用者解釋一個 UE ${ueVersion} 材質節點。
+  // Build system prompt: short novice-educator persona, in the requested language.
+  const system = lang === 'en'
+    ? `You are a UE material assistant. Explain a UE ${ueVersion} material node in plain English to a user who knows **nothing about materials**.
+Format: three paragraphs, 2–4 lines each. Paragraph 1: what this node is and what it does. Paragraph 2: when you would use it. Paragraph 3: common pitfalls or things to watch out for.
+Keep it under ~200 words, no bullet points, just natural paragraphs.`
+    : `你是 UE 材質助手。用繁體中文、白話文向**完全不懂材質**的使用者解釋一個 UE ${ueVersion} 材質節點。
 格式：三個段落，每段 2–4 行。第一段：這個節點是什麼、做什麼用。第二段：什麼情況下會用到它。第三段：常見的使用陷阱或注意事項。
 總字數 ≤200 字，不用項目符號，直接用自然段落。`;
 
   // Build user content embedding the DB entry and optional graph context.
-  const entryJson = dbEntry !== undefined ? JSON.stringify(dbEntry, null, 2) : '（DB 中無此節點資料）';
-  let userText = `節點類型：${nodeType}\nUE 版本：${ueVersion}\n\nDB 資料：\n\`\`\`json\n${entryJson}\n\`\`\``;
-  if (graphContext) {
-    userText += `\n\n此節點在當前圖中的連線狀況：\n${graphContext}`;
+  let userText: string;
+  if (lang === 'en') {
+    const entryJson = dbEntry !== undefined ? JSON.stringify(dbEntry, null, 2) : '(no DB entry for this node)';
+    userText = `Node type: ${nodeType}\nUE version: ${ueVersion}\n\nDB data:\n\`\`\`json\n${entryJson}\n\`\`\``;
+    if (graphContext) {
+      userText += `\n\nThis node's connections in the current graph:\n${graphContext}`;
+    }
+    userText += '\n\nPlease explain this node in plain English.';
+  } else {
+    const entryJson = dbEntry !== undefined ? JSON.stringify(dbEntry, null, 2) : '（DB 中無此節點資料）';
+    userText = `節點類型：${nodeType}\nUE 版本：${ueVersion}\n\nDB 資料：\n\`\`\`json\n${entryJson}\n\`\`\``;
+    if (graphContext) {
+      userText += `\n\n此節點在當前圖中的連線狀況：\n${graphContext}`;
+    }
+    userText += '\n\n請用繁體中文白話解說這個節點。';
   }
-  userText += '\n\n請用繁體中文白話解說這個節點。';
 
   const req: ChatRequest = {
     model,

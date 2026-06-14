@@ -4,10 +4,13 @@
 // request, so the server is never exposed without auth.
 
 import { useCallback, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from './store';
 import { Icon } from './Icon';
 
 interface MemberLock { thinking: 'off' | 'low' | 'medium' | 'high'; webSearch: boolean }
+
+type TeamLanguage = 'zh-Hant' | 'en';
 
 interface TeamInfo {
   mode: 'local' | 'team';
@@ -16,16 +19,17 @@ interface TeamInfo {
   secureCookies: boolean;
   memberAgent?: boolean;
   memberLock?: MemberLock | null;
+  /** Team-wide DEFAULT UI language; members may override locally. */
+  language?: TeamLanguage;
   port: number;
   hasUsers: boolean;
   urls: string[];
 }
 
-const LOCK_THINKING_LABELS: Record<MemberLock['thinking'], string> = {
-  off: '關', low: '低', medium: '中', high: '高',
-};
+const THINKING_LEVELS: MemberLock['thinking'][] = ['off', 'low', 'medium', 'high'];
 
 export function TeamPanel() {
+  const { t } = useTranslation();
   const { state, refreshAuth } = useStore();
   const [info, setInfo] = useState<TeamInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -85,7 +89,7 @@ export function TeamPanel() {
 
   const enable = async () => {
     if (info && !info.hasUsers) {
-      if (password !== confirm) { setError('兩次輸入的密碼不一致'); return; }
+      if (password !== confirm) { setError(t('teamPanel.passwordMismatch')); return; }
       await post({ enabled: true, bindHost, secureCookies: secure, username: username.trim(), password });
     } else {
       await post({ enabled: true, bindHost, secureCookies: secure });
@@ -93,7 +97,7 @@ export function TeamPanel() {
   };
 
   const disable = async () => {
-    if (!window.confirm('關閉團隊模式？伺服器將只接受本機連線（帳號資料會保留，之後可再開啟）。')) return;
+    if (!window.confirm(t('teamPanel.disableConfirm'))) return;
     await post({ enabled: false });
   };
 
@@ -105,8 +109,8 @@ export function TeamPanel() {
   if (!info) {
     return (
       <div className="cfg-sec">
-        <div className="sech"><Icon name="link" size={13} /><span className="sect">團隊模式</span></div>
-        {error ? <div className="useradmin-err">無法載入：{error}</div> : <div className="note">載入中…</div>}
+        <div className="sech"><Icon name="link" size={13} /><span className="sect">{t('teamPanel.title')}</span></div>
+        {error ? <div className="useradmin-err">{t('teamPanel.loadFailed', { error })}</div> : <div className="note">{t('teamPanel.loading')}</div>}
       </div>
     );
   }
@@ -115,15 +119,15 @@ export function TeamPanel() {
     <div className="cfg-sec">
       <div className="sech">
         <Icon name="link" size={13} />
-        <span className="sect">團隊模式</span>
+        <span className="sect">{t('teamPanel.title')}</span>
         {info.mode === 'team'
-          ? <span className="team-state on">運作中</span>
-          : <span className="team-state">未啟用</span>}
+          ? <span className="team-state on">{t('teamPanel.stateOn')}</span>
+          : <span className="team-state">{t('teamPanel.stateOff')}</span>}
       </div>
 
       {info.envLocked && (
         <div className="note" style={{ marginBottom: 8 }}>
-          綁定位址由 <code>BIND_HOST</code> 環境變數鎖定（Docker／腳本部署），此處僅供檢視。
+          {t('teamPanel.envLockedPrefix')}<code>BIND_HOST</code>{t('teamPanel.envLockedSuffix')}
         </div>
       )}
 
@@ -132,21 +136,35 @@ export function TeamPanel() {
       {info.mode === 'team' ? (
         <>
           <div className="team-urls">
-            <div className="note">分享給隊友的網址（綁定 {info.bindHost}:{info.port}）：</div>
+            <div className="note">{t('teamPanel.shareUrls', { host: info.bindHost, port: info.port })}</div>
             {info.urls.map(u => (
               <div key={u} className="team-url">
                 <span className="mono">{u}</span>
                 <button className="ua-btn" onClick={() => void copyUrl(u)}>
-                  {copied === u ? '已複製' : '複製'}
+                  {copied === u ? t('teamPanel.copied') : t('teamPanel.copy')}
                 </button>
               </div>
             ))}
           </div>
           {state.onlineUsers.length > 0 && (
             <div className="note" style={{ marginBottom: 6 }}>
-              在線：{state.onlineUsers.join('、')}
+              {t('teamPanel.online', { users: state.onlineUsers.join(t('teamPanel.listSep')) })}
             </div>
           )}
+          <div className="field team-lang">
+            <label>{t('teamPanel.langLabel')}</label>
+            <div className="inp">
+              <select
+                value={info.language ?? 'zh-Hant'}
+                disabled={busy}
+                onChange={e => { void post({ language: e.target.value as TeamLanguage }); }}
+              >
+                <option value="zh-Hant">{t('teamPanel.langZhHant')}</option>
+                <option value="en">{t('teamPanel.langEn')}</option>
+              </select>
+            </div>
+            <div className="note">{t('teamPanel.langHint')}</div>
+          </div>
           <label className="team-check">
             <input
               type="checkbox"
@@ -154,7 +172,7 @@ export function TeamPanel() {
               disabled={busy}
               onChange={e => { setMemberAgent(e.target.checked); void post({ memberAgent: e.target.checked }); }}
             />
-            允許成員使用 AI 助手（各自的私人會話；花費伺服器持有的共享 LLM key。爬取與節點 DB 修改仍僅限管理員）
+            {t('teamPanel.memberAgent')}
           </label>
           <label className="team-check">
             <input
@@ -167,12 +185,12 @@ export function TeamPanel() {
                 void post({ memberLock: next });
               }}
             />
-            鎖定成員的思考程度與聯網開關（成員的控制項變灰、強制使用以下設定；伺服器端同步強制）
+            {t('teamPanel.memberLock')}
           </label>
           {memberLock !== null && (
             <div className="team-lock-fields">
               <label>
-                思考程度
+                {t('teamPanel.thinkingLabel')}
                 <select
                   value={memberLock.thinking}
                   disabled={busy}
@@ -182,8 +200,8 @@ export function TeamPanel() {
                     void post({ memberLock: next });
                   }}
                 >
-                  {(Object.keys(LOCK_THINKING_LABELS) as MemberLock['thinking'][]).map(lv => (
-                    <option key={lv} value={lv}>{LOCK_THINKING_LABELS[lv]}</option>
+                  {THINKING_LEVELS.map(lv => (
+                    <option key={lv} value={lv}>{t(`teamPanel.thinking_${lv}`)}</option>
                   ))}
                 </select>
               </label>
@@ -198,7 +216,7 @@ export function TeamPanel() {
                     void post({ memberLock: next });
                   }}
                 />
-                允許聯網搜尋
+                {t('teamPanel.allowWebSearch')}
               </label>
             </div>
           )}
@@ -209,44 +227,43 @@ export function TeamPanel() {
               disabled={busy || info.envLocked}
               onChange={e => { setSecure(e.target.checked); void post({ secureCookies: e.target.checked }); }}
             />
-            Secure cookie（掛 HTTPS 反向代理後勾選；純 http LAN 請勿勾，會登不進去）
+            {t('teamPanel.secureCookieTeam')}
           </label>
           {!info.envLocked && (
             <button className="ua-btn danger team-toggle-btn" disabled={busy} onClick={() => void disable()}>
-              {busy ? '切換中…' : '關閉團隊模式（回到僅本機）'}
+              {busy ? t('teamPanel.switching') : t('teamPanel.disableBtn')}
             </button>
           )}
         </>
       ) : (
         <>
           <div className="note" style={{ marginBottom: 8 }}>
-            開啟後伺服器改綁對外位址（不換 port、不用重啟），隊友以帳號密碼登入：
-            admin 擁有完整功能；成員可看圖、匯入匯出、讀公告。
+            {t('teamPanel.enableIntro')}
           </div>
           <div className="field">
-            <label>綁定位址</label>
+            <label>{t('teamPanel.bindHostLabel')}</label>
             <div className="inp">
               <span className="pfx">host</span>
               <input value={bindHost} onChange={e => setBindHost(e.target.value)} spellCheck={false} disabled={info.envLocked} />
             </div>
           </div>
           {info.hasUsers ? (
-            <div className="note">偵測到既有團隊帳號——啟用後沿用，無需重建（用原帳密登入）。</div>
+            <div className="note">{t('teamPanel.existingUsers')}</div>
           ) : (
             <>
               <div className="field">
-                <label>管理員帳號 <span style={{ color: 'var(--text-mute)' }}>— 啟用即建立，避免「先曝露再搶註冊」</span></label>
-                <div className="inp"><input placeholder="帳號（1–32 字元）" value={username} onChange={e => setUsername(e.target.value)} spellCheck={false} /></div>
+                <label>{t('teamPanel.adminAccountLabel')} <span style={{ color: 'var(--text-mute)' }}>{t('teamPanel.adminAccountHint')}</span></label>
+                <div className="inp"><input placeholder={t('teamPanel.usernamePlaceholder')} value={username} onChange={e => setUsername(e.target.value)} spellCheck={false} /></div>
               </div>
               <div className="team-pwrow">
-                <input type="password" placeholder="密碼（至少 8 字元）" value={password} onChange={e => setPassword(e.target.value)} />
-                <input type="password" placeholder="確認密碼" value={confirm} onChange={e => setConfirm(e.target.value)} />
+                <input type="password" placeholder={t('teamPanel.passwordPlaceholder')} value={password} onChange={e => setPassword(e.target.value)} />
+                <input type="password" placeholder={t('teamPanel.confirmPlaceholder')} value={confirm} onChange={e => setConfirm(e.target.value)} />
               </div>
             </>
           )}
           <label className="team-check">
             <input type="checkbox" checked={secure} onChange={e => setSecure(e.target.checked)} />
-            Secure cookie（之後會掛 HTTPS 反代才勾）
+            {t('teamPanel.secureCookieLocal')}
           </label>
           {!info.envLocked && (
             <button
@@ -254,7 +271,7 @@ export function TeamPanel() {
               disabled={busy || (!info.hasUsers && (!username.trim() || password.length < 8))}
               onClick={() => void enable()}
             >
-              {busy ? '切換中…' : '啟用團隊模式'}
+              {busy ? t('teamPanel.switching') : t('teamPanel.enableBtn')}
             </button>
           )}
         </>

@@ -12,6 +12,7 @@
 // keeps only the side effects: fetches, the SSE pump, opening written graphs.
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useStore } from '../store';
 import { Icon } from '../Icon';
 import { streamChat } from './sse';
@@ -49,14 +50,13 @@ import './agent.css';
 
 // ─── Example prompts ─────────────────────────────────────────────────────────
 
-const EXAMPLE_PROMPTS = [
-  '建立一個發光材質，讓物件看起來會自發光',
-  '建立一個雪地材質，有粗糙感和結晶光澤',
-  '建立一個基礎 PBR 材質，有金屬感和反光',
-];
+// i18n keys for the empty-state example prompts (labels translated at render).
+const EXAMPLE_PROMPT_KEYS = ['examplePromptEmissive', 'examplePromptSnow', 'examplePromptPbr'] as const;
 
-const THINKING_LABELS: Record<AgentThinkingLevel, string> = {
-  off: '關', low: '低', medium: '中', high: '高',
+// Thinking-level select labels are translated at render via t('agentChat.thinking<Level>').
+const THINKING_LEVELS: AgentThinkingLevel[] = ['off', 'low', 'medium', 'high'];
+const THINKING_LABEL_KEYS: Record<AgentThinkingLevel, string> = {
+  off: 'thinkingOff', low: 'thinkingLow', medium: 'thinkingMedium', high: 'thinkingHigh',
 };
 const THINKING_STORAGE_KEY = 'agent-thinking-level';
 /** 🌐 switch persistence — anything but 'off' means on (default on). */
@@ -66,24 +66,24 @@ const WEB_SEARCH_STORAGE_KEY = 'agent-web-search';
 
 interface QuickCommand {
   cmd: string;                                   // slash form, e.g. "/validate"
-  label: string;
+  labelKey: string;                              // i18n key suffix (agentChat.<labelKey>)
   kind: 'send' | 'regen' | 'undo' | 'redo' | 'md' | 'new' | 'crawlmf';
-  text?: string;                                 // canned prompt for kind 'send'
+  textKey?: string;                              // i18n key suffix for the canned prompt
 }
 
 const QUICK_COMMANDS: QuickCommand[] = [
-  { cmd: '/validate', label: '驗證並修正目前的圖', kind: 'send', text: '請驗證目前開啟的圖，有問題就修正。' },
-  { cmd: '/explain',  label: '解說目前的圖',       kind: 'send', text: '請讀取目前開啟的圖，用白話解說它的結構與效果。' },
-  { cmd: '/export',   label: '複製目前的圖到剪貼簿', kind: 'send', text: '請把目前開啟的圖複製到剪貼簿。' },
-  { cmd: '/compact',  label: '壓縮對話上下文',     kind: 'send', text: '請使用 compact_context 工具壓縮對話歷史。' },
-  { cmd: '/log',      label: '總結最近一次爬取結果', kind: 'send', text: '請用 read_crawl_log 讀取最近一次爬取的結果，總結成功與否與重點。' },
-  { cmd: '/help',     label: 'AI 能幫我做什麼',     kind: 'send', text: '請介紹你能幫我做什麼：可用的工具、能直接執行與只能提案的操作，以及建議的工作流程。' },
-  { cmd: '/regen',    label: '重新生成上一回覆',   kind: 'regen' },
-  { cmd: '/undo',     label: '還原上一步',         kind: 'undo' },
-  { cmd: '/redo',     label: '重做（取消還原）',    kind: 'redo' },
-  { cmd: '/md',       label: '匯出對話 Markdown',  kind: 'md' },
-  { cmd: '/new',      label: '開始新對話',         kind: 'new' },
-  { cmd: '/crawlmf',  label: '爬取專案 MF 索引（完成後回報給 AI）', kind: 'crawlmf' },
+  { cmd: '/validate', labelKey: 'cmdValidateLabel', kind: 'send', textKey: 'cmdValidateText' },
+  { cmd: '/explain',  labelKey: 'cmdExplainLabel',  kind: 'send', textKey: 'cmdExplainText' },
+  { cmd: '/export',   labelKey: 'cmdExportLabel',   kind: 'send', textKey: 'cmdExportText' },
+  { cmd: '/compact',  labelKey: 'cmdCompactLabel',  kind: 'send', textKey: 'cmdCompactText' },
+  { cmd: '/log',      labelKey: 'cmdLogLabel',      kind: 'send', textKey: 'cmdLogText' },
+  { cmd: '/help',     labelKey: 'cmdHelpLabel',     kind: 'send', textKey: 'cmdHelpText' },
+  { cmd: '/regen',    labelKey: 'cmdRegenLabel',    kind: 'regen' },
+  { cmd: '/undo',     labelKey: 'cmdUndoLabel',     kind: 'undo' },
+  { cmd: '/redo',     labelKey: 'cmdRedoLabel',     kind: 'redo' },
+  { cmd: '/md',       labelKey: 'cmdMdLabel',       kind: 'md' },
+  { cmd: '/new',      labelKey: 'cmdNewLabel',      kind: 'new' },
+  { cmd: '/crawlmf',  labelKey: 'cmdCrawlmfLabel',  kind: 'crawlmf' },
 ];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -93,8 +93,8 @@ function fmtTokens(n: number): string {
   return String(Math.round(n));
 }
 
-function sessionLabel(s: AgentSessionMeta): string {
-  const title = s.title || '（未命名）';
+function sessionLabel(s: AgentSessionMeta, untitled: string): string {
+  const title = s.title || untitled;
   // Team mode: the admin's list spans every member — prefix the owner.
   const owned = s.owner ? `[${s.owner}] ${title}` : title;
   return s.updatedAt ? `${owned} · ${relTimeMinutes(s.updatedAt)}` : owned;
@@ -103,6 +103,7 @@ function sessionLabel(s: AgentSessionMeta): string {
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function ToolGroupView({ item, onToggle }: { item: ToolGroup; onToggle: () => void }) {
+  const { t } = useTranslation();
   const running = item.steps.some(s => !s.done);
   const anyErr = item.steps.some(s => s.done && s.ok === false);
   // Force open while any step is still running so the user sees live progress.
@@ -121,7 +122,7 @@ function ToolGroupView({ item, onToggle }: { item: ToolGroup; onToggle: () => vo
         ) : (
           <>
             <Icon name={anyErr ? 'warn' : 'check'} size={12} className={anyErr ? 'warn-ico' : 'ok-ico'} />
-            <span>執行過程 · {item.steps.length} 步</span>
+            <span>{t('agentChat.runSteps', { n: item.steps.length })}</span>
           </>
         )}
       </button>
@@ -151,6 +152,7 @@ function NoticeItem({ item }: { item: NoticeLine }) {
 
 /** Collapsible reasoning card — live 思考中… while streaming, 思考過程 after. */
 function ThinkingView({ item, live, onToggle }: { item: ThinkingItem; live: boolean; onToggle: () => void }) {
+  const { t } = useTranslation();
   const open = !item.collapsed;
   // While streaming, keep the inner scroller pinned to the newest text — the
   // box is height-capped (max-height) so without this the tail streams out
@@ -165,8 +167,8 @@ function ThinkingView({ item, live, onToggle }: { item: ThinkingItem; live: bool
       <button type="button" className="agent-thinking-head" onClick={onToggle}>
         <Icon name="caret" size={11} className="caret" />
         {live
-          ? <><Icon name="refresh" size={11} className="spin" /><span className="live">思考中…</span></>
-          : <><Icon name="bolt" size={11} /><span>思考過程 · {item.text.length} 字</span></>}
+          ? <><Icon name="refresh" size={11} className="spin" /><span className="live">{t('agentChat.thinkingLive')}</span></>
+          : <><Icon name="bolt" size={11} /><span>{t('agentChat.thinkingDone', { n: item.text.length })}</span></>}
       </button>
       {open && <div className="agent-thinking-text" ref={textRef}>{item.text}</div>}
     </div>
@@ -176,13 +178,14 @@ function ThinkingView({ item, live, onToggle }: { item: ThinkingItem; live: bool
 /** System-generated report (crawl outcome) — a collapsed card, not a user
     bubble: the title says what happened, the log tail expands on demand. */
 function SystemReportView({ item, onToggle }: { item: SystemReport; onToggle: () => void }) {
+  const { t } = useTranslation();
   const open = !item.collapsed;
   return (
     <div className={'agent-sysreport agent-item' + (open ? ' open' : '')}>
       <button type="button" className="agent-sysreport-head" onClick={onToggle}>
         <Icon name="caret" size={11} className="caret" />
         <Icon name="refresh" size={11} />
-        <span>系統回報 · {item.title}</span>
+        <span>{t('agentChat.systemReport', { title: item.title })}</span>
       </button>
       {open && item.detail && <pre className="agent-sysreport-detail">{item.detail}</pre>}
     </div>
@@ -196,33 +199,34 @@ function CrawlProposalView({ item, crawl, onApprove }: {
   crawl: { status: string; kind: string | null };
   onApprove: () => void;
 }) {
-  const kindLabel = item.crawlKind === 'workmf' ? '專案 Material Function 索引' : '專案材質';
+  const { t } = useTranslation();
+  const kindLabel = item.crawlKind === 'workmf' ? t('agentChat.crawlKindWorkmf') : t('agentChat.crawlKindMaterials');
   const running = crawl.status === 'running';
   return (
     <div className="agent-crawl-proposal agent-item">
       <div className="agent-crawl-title">
-        <Icon name="refresh" size={12} /> Agent 請求爬取{kindLabel}（{item.contentRoot}）
+        <Icon name="refresh" size={12} /> {t('agentChat.crawlRequest', { kind: kindLabel, root: item.contentRoot })}
       </div>
-      <div className="agent-crawl-note">會啟動 UE 編輯器、需數分鐘；進度顯示在 Config 分頁。</div>
+      <div className="agent-crawl-note">{t('agentChat.crawlNote')}</div>
       {item.resolved
-        ? <div className="agent-crawl-resolved">{running ? '爬取進行中…' : '已處理'}</div>
+        ? <div className="agent-crawl-resolved">{running ? t('agentChat.crawlRunning') : t('agentChat.crawlHandled')}</div>
         : (
           <button className="agent-crawl-approve" disabled={running} onClick={onApprove}>
-            {running ? '另一個爬取進行中…' : '開始爬取'}
+            {running ? t('agentChat.crawlBusyOther') : t('agentChat.crawlStart')}
           </button>
         )}
     </div>
   );
 }
 
-/** One-line zh-TW summary per patched DB field, shown on the approval card. */
-function dbPatchSummary(patch: Record<string, unknown>): string[] {
+/** One-line summary per patched DB field, shown on the approval card. */
+function dbPatchSummary(patch: Record<string, unknown>, t: (key: string, opts?: Record<string, unknown>) => string): string[] {
   return Object.entries(patch).map(([k, v]) => {
-    if (k === 'description') return `描述 → ${String(v).slice(0, 120)}${String(v).length > 120 ? '…' : ''}`;
-    if (k === 'category') return `類別 → ${String(v)}`;
-    if (k === 'verified') return `verified → ${String(v)}`;
-    if (Array.isArray(v)) return `${k} → ${v.length} 項（取代整個列表）`;
-    return `${k} → ${JSON.stringify(v)}`;
+    if (k === 'description') return t('agentChat.dbPatchDescription', { v: `${String(v).slice(0, 120)}${String(v).length > 120 ? '…' : ''}` });
+    if (k === 'category') return t('agentChat.dbPatchCategory', { v: String(v) });
+    if (k === 'verified') return t('agentChat.dbPatchVerified', { v: String(v) });
+    if (Array.isArray(v)) return t('agentChat.dbPatchArray', { k, n: v.length });
+    return t('agentChat.dbPatchGeneric', { k, v: JSON.stringify(v) });
   });
 }
 
@@ -233,6 +237,7 @@ function DbEditProposalView({ item, onResolve }: {
   item: DbEditProposal;
   onResolve: (notice: { variant: 'info' | 'error'; message: string }) => void;
 }) {
+  const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const approve = async () => {
     setBusy(true);
@@ -248,41 +253,40 @@ function DbEditProposalView({ item, onResolve }: {
         onResolve({
           variant: 'info',
           message: item.create
-            ? `節點 DB 已新增 ${item.nodeName}（verified:false），索引已重生並通過 parity audit。之後請執行「節點導出」爬取補齊 metadata，才能匯出到 UE。`
-            : `節點 DB 已更新（${item.nodeName}：${body.changedKeys.join('、')}），索引已重生並通過 parity audit。`,
+            ? t('agentChat.dbEditCreated', { node: item.nodeName })
+            : t('agentChat.dbEditUpdated', { node: item.nodeName, keys: body.changedKeys.join(t('common.listSep')) }),
         });
       } else {
-        onResolve({ variant: 'error', message: `節點 DB 修改失敗（已回滾）：${body.error}` });
+        onResolve({ variant: 'error', message: t('agentChat.dbEditFailed', { error: body.error }) });
       }
     } catch {
-      onResolve({ variant: 'error', message: '節點 DB 修改請求失敗' });
+      onResolve({ variant: 'error', message: t('agentChat.dbEditRequestFailed') });
     }
   };
   return (
     <div className="agent-crawl-proposal agent-item">
       <div className="agent-crawl-title">
-        <Icon name="hash" size={12} /> Agent 提議{item.create ? '新增節點' : '修改節點 DB'}：{item.nodeName}（UE {item.ueVersion}）
+        <Icon name="hash" size={12} /> {t(item.create ? 'agentChat.dbProposeCreate' : 'agentChat.dbProposeModify', { node: item.nodeName, ue: item.ueVersion })}
       </div>
       {item.create && (
         <div className="agent-crawl-note">
-          新節點以 <b>verified:false</b> 落庫（export metadata 尚不存在）；之後執行「節點導出」爬取補齊後才能匯出到 UE。
+          {t('agentChat.dbCreateNotePre')}<b>verified:false</b>{t('agentChat.dbCreateNotePost')}
         </div>
       )}
       <ul className="agent-dbedit-lines">
-        {dbPatchSummary(item.patch).map((l, i) => <li key={i}>{l}</li>)}
+        {dbPatchSummary(item.patch, t).map((l, i) => <li key={i}>{l}</li>)}
       </ul>
-      {item.rationale && <div className="agent-crawl-note">依據：{item.rationale}</div>}
+      {item.rationale && <div className="agent-crawl-note">{t('agentChat.dbRationale', { rationale: item.rationale })}</div>}
       <div className="agent-crawl-note">
-        nodes-ue{item.ueVersion}.json 是<b>公開資料檔</b>——只接受乾淨的 Epic／公開 UE 資料。
-        套用後會自動重生索引並跑 parity audit，失敗即回滾。
+        {t('agentChat.dbPublicNotePre', { ue: item.ueVersion })}<b>{t('agentChat.dbPublicNoteBold')}</b>{t('agentChat.dbPublicNotePost')}
       </div>
       {item.pendingApproval
-        ? <div className="agent-crawl-resolved">已送出管理員審批——核准後會寫入公開 DB 並回報到此對話。</div>
+        ? <div className="agent-crawl-resolved">{t('agentChat.dbPendingApproval')}</div>
         : item.resolved
-        ? <div className="agent-crawl-resolved">已處理</div>
+        ? <div className="agent-crawl-resolved">{t('agentChat.crawlHandled')}</div>
         : (
           <button className="agent-crawl-approve" disabled={busy} onClick={() => void approve()}>
-            {busy ? '套用中…' : '套用修改'}
+            {busy ? t('agentChat.dbApplying') : t('agentChat.dbApply')}
           </button>
         )}
     </div>
@@ -291,13 +295,14 @@ function DbEditProposalView({ item, onResolve }: {
 
 /** Collapsible block listing plain-language diff lines after a successful write. */
 function DiffBlockView({ item, onToggle }: { item: DiffBlock; onToggle: () => void }) {
+  const { t } = useTranslation();
   const open = !item.collapsed;
   return (
     <div className={'agent-diff agent-item' + (open ? ' open' : '')}>
       <button type="button" className="agent-diff-header" onClick={onToggle}>
         <Icon name="caret" size={11} className="caret" />
         <Icon name="hash" size={11} />
-        <span>變更摘要 · {item.lines.length} 項</span>
+        <span>{t('agentChat.diffSummary', { n: item.lines.length })}</span>
       </button>
       {open && (
         <ul className="agent-diff-lines">
@@ -323,6 +328,9 @@ export interface AgentChatProps {
 }
 
 export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
+  const { t, i18n } = useTranslation();
+  // The UI language to ask the agent to reply in (the catalog only has these two).
+  const language: 'zh-Hant' | 'en' = i18n.language === 'en' ? 'en' : 'zh-Hant';
   const { state, open, highlightNodes, requestAgentExport, startCrawl, bumpMetadata, setAgentActivity } = useStore();
   const { connection, currentPath, selectedNodeId } = state;
 
@@ -470,7 +478,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
 
   const handleDeleteSession = useCallback(async () => {
     if (streaming || !sessionId) return;
-    if (!window.confirm('刪除此對話？已寫入的圖檔不受影響。')) return;
+    if (!window.confirm(t('agentChat.deleteConfirm'))) return;
     try {
       await fetch(`/api/agent/sessions/${sessionId}`, { method: 'DELETE', cache: 'no-store' });
     } catch { /* best-effort */ }
@@ -482,7 +490,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       setItems([]);
       setUsage(null);
     }
-  }, [streaming, sessionId, fetchSessions, loadSession]);
+  }, [streaming, sessionId, fetchSessions, loadSession, t]);
 
   // ── View helpers ───────────────────────────────────────────────────────────
 
@@ -555,7 +563,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
         cache: 'no-store',
       });
       if (!r.ok) {
-        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: `還原請求失敗（HTTP ${r.status}）` }]);
+        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: t('agentChat.undoFailedHttp', { status: r.status }) }]);
         return;
       }
       const body = await r.json() as AgentUndoResponse;
@@ -564,15 +572,15 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
         setCanRedo(body.canRedo);
         setItems(prev => [...prev, {
           kind: 'notice', variant: 'info',
-          message: `已還原上一步（${count} 個檔案）`,
+          message: t('agentChat.undoDone', { n: count }),
         }]);
       } else {
-        setItems(prev => [...prev, { kind: 'notice', variant: 'info', message: '沒有可還原的步驟' }]);
+        setItems(prev => [...prev, { kind: 'notice', variant: 'info', message: t('agentChat.undoNothing') }]);
       }
     } catch {
-      setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '還原請求失敗' }]);
+      setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: t('agentChat.undoFailed') }]);
     }
-  }, [streaming, sessionId]);
+  }, [streaming, sessionId, t]);
 
   const handleRedo = useCallback(async () => {
     if (streaming) return;
@@ -584,7 +592,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
         cache: 'no-store',
       });
       if (!r.ok) {
-        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: `重做請求失敗（HTTP ${r.status}）` }]);
+        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: t('agentChat.redoFailedHttp', { status: r.status }) }]);
         return;
       }
       const body = await r.json() as AgentRedoResponse;
@@ -592,16 +600,16 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
         setCanRedo(body.canRedo);
         setItems(prev => [...prev, {
           kind: 'notice', variant: 'info',
-          message: `已重做（${body.redone.length} 個檔案）`,
+          message: t('agentChat.redoDone', { n: body.redone.length }),
         }]);
       } else {
         setCanRedo(false);
-        setItems(prev => [...prev, { kind: 'notice', variant: 'info', message: '沒有可重做的步驟' }]);
+        setItems(prev => [...prev, { kind: 'notice', variant: 'info', message: t('agentChat.redoNothing') }]);
       }
     } catch {
-      setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '重做請求失敗' }]);
+      setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: t('agentChat.redoFailed') }]);
     }
-  }, [streaming, sessionId]);
+  }, [streaming, sessionId, t]);
 
   // Clipboard images → pending attachments. Plain-text pastes keep the
   // default behaviour (no preventDefault unless an image was actually found).
@@ -667,22 +675,26 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     // resurrect the dead session in the sidebar.
     let sessionClosed = false;
 
+    // Build the request. `language` is now declared on AgentChatRequest;
+    // the server reads it to reply in the user's chosen UI language.
+    const chatReq = {
+      text: userText,
+      graphPath: currentPath ?? undefined,
+      selectedNodeId: selectedNodeId ?? undefined,
+      thinking: effThinking !== 'off' ? effThinking : undefined,
+      // Absent = on (the default); only the off state is sent explicitly.
+      webSearch: effWebOn ? undefined : false,
+      // The UI language the agent should reply in (mirrors the user's
+      // localStorage 'ui-language' / team default via i18n.language).
+      language,
+      images: sendImages.length > 0
+        ? sendImages.map(im => ({ mediaType: im.mediaType, data: im.data }))
+        : undefined,
+      sessionId: sid ?? undefined,
+    };
+
     try {
-      for await (const event of streamChat(
-        {
-          text: userText,
-          graphPath: currentPath ?? undefined,
-          selectedNodeId: selectedNodeId ?? undefined,
-          thinking: effThinking !== 'off' ? effThinking : undefined,
-          // Absent = on (the default); only the off state is sent explicitly.
-          webSearch: effWebOn ? undefined : false,
-          images: sendImages.length > 0
-            ? sendImages.map(im => ({ mediaType: im.mediaType, data: im.data }))
-            : undefined,
-          sessionId: sid ?? undefined,
-        },
-        ac.signal,
-      )) {
+      for await (const event of streamChat(chatReq, ac.signal)) {
         // Side effects stay here; item building lives in the shared reducer.
         if (event.type === 'graph_written') {
           open(event.path);
@@ -704,9 +716,9 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       }
     } catch (e: unknown) {
       if ((e as Error)?.name === 'AbortError') {
-        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '已中斷' }]);
+        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: t('agentChat.aborted') }]);
       } else {
-        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: (e as Error)?.message ?? '連線錯誤' }]);
+        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: (e as Error)?.message ?? t('agentChat.connError') }]);
       }
     } finally {
       abortRef.current = null;
@@ -717,7 +729,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       // deletion and re-add the dead session; the local filter already removed it).
       if (!sessionClosed) void fetchSessions();
     }
-  }, [streaming, currentPath, selectedNodeId, open, effThinking, effWebOn, pendingImages, sessionId, fetchSessions, highlightNodes, requestAgentExport]);
+  }, [streaming, currentPath, selectedNodeId, open, effThinking, effWebOn, language, pendingImages, sessionId, fetchSessions, highlightNodes, requestAgentExport, t]);
 
   // Agent-tab attention cue: pulse while streaming; if a reply finishes while
   // another tab is visible, leave a steady dot until the user opens the tab.
@@ -758,13 +770,13 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     // First line = clean card title; the instruction to the model lives in the
     // collapsed detail so prompt-speak never headlines the conversation.
     const title = c.status === 'success'
-      ? `${pending.kind} 爬取已完成`
-      : `${pending.kind} 爬取失敗（exit ${c.exitCode ?? '?'}）`;
+      ? t('agentChat.crawlReportDone', { kind: pending.kind })
+      : t('agentChat.crawlReportFailed', { kind: pending.kind, exit: c.exitCode ?? '?' });
     const instruction = c.status === 'success'
-      ? '（給 AI）這是你先前請求的爬取。請繼續先前的工作，需要的話重新查詢索引。'
-      : '（給 AI）這是你先前請求的爬取。請根據 log 找出失敗原因，用白話向使用者說明並給出解法。';
-    void handleSend(`（系統回報）${title}\n${instruction}\n\nlog 尾段：\n${tail}`);
-  }, [state.crawl, streaming, handleSend]);
+      ? t('agentChat.crawlReportInstrSuccess')
+      : t('agentChat.crawlReportInstrFailure');
+    void handleSend(t('agentChat.crawlReportBody', { title, instruction, tail }));
+  }, [state.crawl, streaming, handleSend, t]);
 
   // 問 AI / post-import explain: consume the store's one-shot ask request.
   // Waits for the provider status so an unconfigured agent silently drops it
@@ -799,20 +811,20 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
         cache: 'no-store',
       });
       if (!r.ok) {
-        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: `重新生成請求失敗（HTTP ${r.status}）` }]);
+        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: t('agentChat.regenFailedHttp', { status: r.status }) }]);
         return;
       }
       const body = await r.json() as AgentRegenerateResponse;
       if (!body.ok) {
-        setItems(prev => [...prev, { kind: 'notice', variant: 'info', message: '沒有可重新生成的回覆' }]);
+        setItems(prev => [...prev, { kind: 'notice', variant: 'info', message: t('agentChat.regenNothing') }]);
         return;
       }
       await loadSession(sessionId);
       await handleSend(body.text);
     } catch {
-      setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '重新生成請求失敗' }]);
+      setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: t('agentChat.regenFailed') }]);
     }
-  }, [streaming, sessionId, loadSession, handleSend]);
+  }, [streaming, sessionId, loadSession, handleSend, t]);
 
   // Download the conversation as a Markdown file (pure client-side).
   const downloadMarkdown = useCallback(() => {
@@ -848,7 +860,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       <div className="agent-panel">
         <div className="agent-loading">
           <Icon name="refresh" size={16} className="spin" style={{ color: 'var(--accent)' }} />
-          <span>載入中…</span>
+          <span>{t('agentChat.loading')}</span>
         </div>
       </div>
     );
@@ -860,13 +872,12 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       <div className="agent-panel">
         <div className="agent-uncfg">
           <Icon name="chip" size={28} style={{ color: 'var(--accent)', marginBottom: 12 }} />
-          <div className="agent-uncfg-title">AI 助手尚未設定</div>
+          <div className="agent-uncfg-title">{t('agentChat.unconfiguredTitle')}</div>
           <div className="agent-uncfg-desc">
-            請先在 Config 分頁的「AI 助手」區塊設定 LLM 提供商和 API Key，
-            再回來使用對話式材質生成。
+            {t('agentChat.unconfiguredDesc')}
           </div>
           <button className="btn primary" style={{ marginTop: 16 }} onClick={onGotoConfig}>
-            <Icon name="settings" size={13} /> 前往 Config 設定
+            <Icon name="settings" size={13} /> {t('agentChat.gotoConfig')}
           </button>
         </div>
       </div>
@@ -884,7 +895,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     : null;
   const menuOpen = quickOpen || slashQuery !== null;
   const visibleCommands = slashQuery
-    ? QUICK_COMMANDS.filter(c => c.cmd.slice(1).startsWith(slashQuery) || c.label.toLowerCase().includes(slashQuery))
+    ? QUICK_COMMANDS.filter(c => c.cmd.slice(1).startsWith(slashQuery) || t(`agentChat.${c.labelKey}`).toLowerCase().includes(slashQuery))
     : QUICK_COMMANDS;
   const cmdDisabled = (c: QuickCommand): boolean => {
     if (c.kind === 'send') return streaming;
@@ -903,7 +914,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     if (cmdDisabled(c)) return;
     setQuickOpen(false);
     setInput('');
-    if (c.kind === 'send' && c.text) void handleSend(c.text);
+    if (c.kind === 'send' && c.textKey) void handleSend(t(`agentChat.${c.textKey}`));
     else if (c.kind === 'regen') void handleRegenerate();
     else if (c.kind === 'undo') void handleUndo();
     else if (c.kind === 'redo') void handleRedo();
@@ -917,7 +928,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       void startCrawl('workmf', mfRoot);
       setItems(prev => [...prev, {
         kind: 'notice', variant: 'info',
-        message: `已開始爬取專案 MF 索引（${mfRoot}）——進度在 Config 分頁，完成後會自動回報給 AI。`,
+        message: t('agentChat.crawlmfStarted', { root: mfRoot }),
       }]);
     }
   };
@@ -937,7 +948,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
   const toolTotal = [...toolCounts.values()].reduce((acc, c) => acc + c.n, 0);
   const toolBreakdown = [...toolCounts.entries()]
     .sort((a, b) => b[1].n - a[1].n)
-    .map(([name, c]) => `${name} ×${c.n}${c.fail > 0 ? `（${c.fail} 失敗）` : ''}`)
+    .map(([name, c]) => `${name} ×${c.n}${c.fail > 0 ? t('agentChat.toolFailSuffix', { n: c.fail }) : ''}`)
     .join('\n');
 
   return (
@@ -948,16 +959,20 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
         <span className="agent-provider">{status.provider} · {status.model}</span>
         <span className="grow" />
         {toolTotal > 0 && (
-          <span className="agent-usage" title={`本會話工具呼叫：\n${toolBreakdown}`}>
-            {toolTotal} 工具
+          <span className="agent-usage" title={t('agentChat.toolCallsTitle', { breakdown: toolBreakdown })}>
+            {t('agentChat.toolCount', { n: toolTotal })}
           </span>
         )}
         {usage && (
           <span
             className="agent-usage"
-            title={`輸入 ${fmtTokens(usage.input)} · 輸出 ${fmtTokens(usage.output)} tokens${usage.cached > 0 ? ` · 快取命中 ${fmtTokens(usage.cached)}（約 1 折計費）` : ''}${usage.estimated ? '（估算值）' : ''}`}
+            title={
+              t('agentChat.usageTitle', { input: fmtTokens(usage.input), output: fmtTokens(usage.output) })
+              + (usage.cached > 0 ? t('agentChat.usageTitleCached', { cached: fmtTokens(usage.cached) }) : '')
+              + (usage.estimated ? t('agentChat.usageTitleEstimated') : '')
+            }
           >
-            {usage.estimated ? '約 ' : ''}{fmtTokens(usageTotal)} tokens
+            {usage.estimated ? t('agentChat.usageApproxPrefix') : ''}{t('agentChat.tokens', { n: fmtTokens(usageTotal) })}
             {usage.cached > 0 && <span className="agent-usage-cached">⚡{fmtTokens(usage.cached)}</span>}
           </span>
         )}
@@ -967,33 +982,33 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
               <button
                 className="agent-bar-btn"
                 onClick={() => void handleRegenerate()}
-                title="還原上一輪的檔案變更並重新生成回覆"
+                title={t('agentChat.regenTitle')}
               >
-                <Icon name="refresh" size={11} /> 重新生成
+                <Icon name="refresh" size={11} /> {t('agentChat.regen')}
               </button>
             )}
             <button
               className="agent-bar-btn"
               onClick={() => void handleUndo()}
-              title="還原上一步的檔案變更"
+              title={t('agentChat.undoTitle')}
             >
-              <Icon name="history" size={11} /> 還原
+              <Icon name="history" size={11} /> {t('agentChat.undo')}
             </button>
             {canRedo && (
               <button
                 className="agent-bar-btn"
                 onClick={() => void handleRedo()}
-                title="重做：取消上一次還原"
+                title={t('agentChat.redoTitle')}
               >
-                <Icon name="refresh" size={11} /> 重做
+                <Icon name="refresh" size={11} /> {t('agentChat.redo')}
               </button>
             )}
             <button
               className="agent-bar-btn"
               onClick={() => void handleNewSession()}
-              title="開始新的對話（目前對話保留在歷史）"
+              title={t('agentChat.newChatTitle')}
             >
-              <Icon name="plus" size={11} /> 新對話
+              <Icon name="plus" size={11} /> {t('agentChat.newChat')}
             </button>
           </>
         )}
@@ -1007,12 +1022,12 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           value={sessionId ?? ''}
           disabled={streaming}
           onChange={e => { if (e.target.value) void loadSession(e.target.value); }}
-          title="切換歷史對話"
+          title={t('agentChat.switchSession')}
         >
-          {sessionId === null && <option value="">（新對話）</option>}
-          {sessionId !== null && !currentInList && <option value={sessionId}>（目前對話）</option>}
+          {sessionId === null && <option value="">{t('agentChat.optionNewSession')}</option>}
+          {sessionId !== null && !currentInList && <option value={sessionId}>{t('agentChat.optionCurrentSession')}</option>}
           {sessions.map(s => (
-            <option key={s.id} value={s.id}>{sessionLabel(s)}</option>
+            <option key={s.id} value={s.id}>{sessionLabel(s, t('agentChat.untitledSession'))}</option>
           ))}
         </select>
         {sessionId !== null && !streaming && state.auth?.mode === 'team' && state.auth.role === 'admin' && (
@@ -1020,15 +1035,15 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             className={'agent-bar-btn' + (state.publicAgent.id === sessionId ? ' on' : '')}
             onClick={() => void togglePublic()}
             title={state.publicAgent.id === sessionId
-              ? '取消系統主Agent：成員將看不到此會話'
-              : '設為系統主Agent：全體成員可即時唯讀圍觀此會話'}
+              ? t('agentChat.unsetPublicTitle')
+              : t('agentChat.setPublicTitle')}
           >
-            <Icon name="eye" size={11} /> {state.publicAgent.id === sessionId ? '主Agent' : '設為主Agent'}
+            <Icon name="eye" size={11} /> {state.publicAgent.id === sessionId ? t('agentChat.publicAgent') : t('agentChat.setPublicAgent')}
           </button>
         )}
         {sessionId !== null && !streaming && (
-          <button className="agent-bar-btn" onClick={() => void handleDeleteSession()} title="刪除此對話">
-            <Icon name="x" size={11} /> 刪除
+          <button className="agent-bar-btn" onClick={() => void handleDeleteSession()} title={t('agentChat.deleteSessionTitle')}>
+            <Icon name="x" size={11} /> {t('agentChat.delete')}
           </button>
         )}
       </div>
@@ -1038,19 +1053,22 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
         {items.length === 0 && (
           <div className="agent-empty">
             <Icon name="bolt" size={26} className="agent-empty-icon" />
-            <div className="agent-empty-title">開始對話，生成 UE 材質</div>
-            <div className="agent-empty-sub">用白話描述想要的效果，AI 會即時生成節點圖，改錯了隨時還原</div>
+            <div className="agent-empty-title">{t('agentChat.emptyTitle')}</div>
+            <div className="agent-empty-sub">{t('agentChat.emptySub')}</div>
             <div className="agent-empty-examples">
-              {EXAMPLE_PROMPTS.map((p, i) => (
-                <button
-                  key={i}
-                  className="agent-example-btn"
-                  onClick={() => void handleSend(p)}
-                  disabled={streaming}
-                >
-                  {p}
-                </button>
-              ))}
+              {EXAMPLE_PROMPT_KEYS.map((key, i) => {
+                const p = t(`agentChat.${key}`);
+                return (
+                  <button
+                    key={i}
+                    className="agent-example-btn"
+                    onClick={() => void handleSend(p)}
+                    disabled={streaming}
+                  >
+                    {p}
+                  </button>
+                );
+              })}
             </div>
           </div>
         )}
@@ -1061,8 +1079,8 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
               <div key={i} className={'agent-bubble agent-item ' + item.role + (isStreamingBubble ? ' streaming' : '')}>
                 <span className="agent-bubble-text">{item.text}</span>
                 {item.images != null && item.images > 0 && (
-                  <span className="agent-bubble-imgs" title="此訊息附帶了圖片">
-                    <Icon name="clip" size={10} /> 圖片 ×{item.images}
+                  <span className="agent-bubble-imgs" title={t('agentChat.bubbleImagesTitle')}>
+                    <Icon name="clip" size={10} /> {t('agentChat.bubbleImages', { n: item.images })}
                   </span>
                 )}
               </div>
@@ -1093,7 +1111,11 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           if (item.kind === 'turnUsage') {
             return (
               <div key={i} className="agent-turn-usage agent-item">
-                本輪 {fmtTokens(item.input + item.output)} tokens（輸入 {fmtTokens(item.input)}／輸出 {fmtTokens(item.output)}{item.estimated ? '，估算' : ''}）
+                {t(item.estimated ? 'agentChat.turnUsageEstimated' : 'agentChat.turnUsage', {
+                  total: fmtTokens(item.input + item.output),
+                  input: fmtTokens(item.input),
+                  output: fmtTokens(item.output),
+                })}
               </div>
             );
           }
@@ -1136,26 +1158,26 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           <div className="agent-img-previews">
             {pendingImages.map((im, i) => (
               <span key={i} className="agent-img-chip">
-                <img src={`data:${im.mediaType};base64,${im.data}`} alt={`附圖 ${i + 1}`} />
+                <img src={`data:${im.mediaType};base64,${im.data}`} alt={t('agentChat.imageAlt', { n: i + 1 })} />
                 <button
                   type="button"
-                  aria-label="移除圖片"
-                  title="移除圖片"
+                  aria-label={t('agentChat.removeImage')}
+                  title={t('agentChat.removeImage')}
                   onClick={() => setPendingImages(prev => prev.filter((_, j) => j !== i))}
                 >
                   <Icon name="x" size={9} />
                 </button>
               </span>
             ))}
-            <span className="agent-img-note">隨下一則訊息送出（需視覺模型）</span>
+            <span className="agent-img-note">{t('agentChat.imgNote')}</span>
           </div>
         )}
         <div className="agent-inputbox">
           <div className="agent-quick">
             <button
               className="agent-quick-btn"
-              title="快捷指令（或在輸入框打 / 喚出）"
-              aria-label="快捷指令"
+              title={t('agentChat.quickCmdTitle')}
+              aria-label={t('agentChat.quickCmdLabel')}
               onClick={() => setQuickOpen(o => !o)}
             >
               <Icon name="bolt" size={13} />
@@ -1170,11 +1192,11 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
                     onClick={() => runQuickCommand(c)}
                   >
                     <code className="agent-quick-cmd">{c.cmd}</code>
-                    <span>{c.label}</span>
+                    <span>{t(`agentChat.${c.labelKey}`)}</span>
                   </button>
                 ))}
                 {visibleCommands.length === 0 && (
-                  <div className="agent-quick-empty">沒有符合的指令</div>
+                  <div className="agent-quick-empty">{t('agentChat.quickNoMatch')}</div>
                 )}
               </div>
             )}
@@ -1182,7 +1204,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           <textarea
             ref={inputRef}
             className="agent-input"
-            placeholder="描述你想要的材質效果…（/ 喚出快捷指令；可直接貼上圖片）"
+            placeholder={t('agentChat.inputPlaceholder')}
             value={input}
             rows={1}
             onChange={e => setInput(e.target.value)}
@@ -1207,7 +1229,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             }}
           />
           {streaming ? (
-            <button className="agent-stop-btn" onClick={handleStop} title="停止生成" aria-label="停止">
+            <button className="agent-stop-btn" onClick={handleStop} title={t('agentChat.stopTitle')} aria-label={t('agentChat.stop')}>
               <Icon name="stop" size={12} />
             </button>
           ) : (
@@ -1215,8 +1237,8 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
               className="agent-send-btn"
               disabled={!input.trim()}
               onClick={() => void handleSend(input)}
-              title="送出"
-              aria-label="送出"
+              title={t('agentChat.sendTitle')}
+              aria-label={t('agentChat.send')}
             >
               <Icon name="send" size={14} />
             </button>
@@ -1226,17 +1248,17 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
           <span className="agent-input-ctrls">
             <label
               className="agent-think"
-              title={memberLock ? '思考程度已由管理員鎖定' : '模型思考程度：越高越深思但越慢、越耗 token'}
+              title={memberLock ? t('agentChat.thinkingLockedTitle') : t('agentChat.thinkingTitle')}
             >
-              思考
+              {t('agentChat.thinkingLabel')}
               <select
                 className={effThinking !== 'off' ? 'on' : ''}
                 value={effThinking}
                 disabled={streaming || !!memberLock}
                 onChange={e => changeThinking(e.target.value as AgentThinkingLevel)}
               >
-                {(Object.keys(THINKING_LABELS) as AgentThinkingLevel[]).map(lv => (
-                  <option key={lv} value={lv}>{THINKING_LABELS[lv]}</option>
+                {THINKING_LEVELS.map(lv => (
+                  <option key={lv} value={lv}>{t(`agentChat.${THINKING_LABEL_KEYS[lv]}`)}</option>
                 ))}
               </select>
             </label>
@@ -1247,17 +1269,17 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
               onClick={toggleWeb}
               aria-pressed={effWebOn}
               title={memberLock
-                ? '聯網搜尋已由管理員鎖定'
+                ? t('agentChat.webLockedTitle')
                 : effWebOn
-                  ? '聯網搜尋：開——回覆前自判是否需要查網路佐證。點擊關閉（agent 將完全不連網）'
-                  : '聯網搜尋：關——web_search／web_fetch 已停用，agent 不會連網。點擊開啟'}
+                  ? t('agentChat.webOnTitle')
+                  : t('agentChat.webOffTitle')}
             >
-              <Icon name="globe" size={11} /> 聯網搜尋：{effWebOn ? '開' : '關'}
+              <Icon name="globe" size={11} /> {effWebOn ? t('agentChat.webToggleOn') : t('agentChat.webToggleOff')}
             </button>
-            {memberLock && <span className="agent-lock-note" title="思考程度與聯網開關由管理員統一設定"><Icon name="lock" size={10} /> 管理員鎖定</span>}
+            {memberLock && <span className="agent-lock-note" title={t('agentChat.lockNoteTitle')}><Icon name="lock" size={10} /> {t('agentChat.lockNote')}</span>}
           </span>
-          <span>Enter 送出 · Shift+Enter 換行</span>
-          {streaming && <span className="responding">回應中…</span>}
+          <span>{t('agentChat.inputHint')}</span>
+          {streaming && <span className="responding">{t('agentChat.responding')}</span>}
         </div>
       </div>
     </div>

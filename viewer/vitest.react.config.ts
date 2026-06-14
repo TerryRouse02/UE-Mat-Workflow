@@ -31,5 +31,11 @@ export default defineConfig({
   test: {
     environment: 'happy-dom',
     include: ['tests/**/*.test.tsx'],
+    // Initialize i18next once before any component renders, exactly as the app
+    // entry (web/src/main.tsx) does. Without this, react-i18next's t() echoes
+    // the key (e.g. "teamPanel.disableBtn") and every assertion on rendered UI
+    // text fails. happy-dom's localStorage is empty, so resolveInitialLang()
+    // falls back to 'zh-Hant' — tests see the original Traditional-Chinese copy.
+    setupFiles: ['./web/src/i18n.ts'],
   },
 });

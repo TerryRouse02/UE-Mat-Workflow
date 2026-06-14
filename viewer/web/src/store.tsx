@@ -1,5 +1,8 @@
 import React, { createContext, useContext, useReducer, useEffect, useCallback, useMemo } from 'react';
+import i18n from './i18n';
+import { useTranslation } from 'react-i18next';
 import { connect } from './ws-client';
+import type { UiLang } from './lib/lang';
 import { startCrawlRequest, cancelCrawlRequest, type CrawlAction, type CrawlKind } from './crawlRequest';
 import type { ServerMessage, GraphPayload, FileEntry } from './protocol';
 import type { EnvStatus } from '../../server/crawl-types';
@@ -83,6 +86,9 @@ export interface AuthStatus {
   /** Team mode: when set, member thinking/🌐 controls are forced to these
       values (UI grays them out; the server enforces regardless). */
   memberLock?: { thinking: 'off' | 'low' | 'medium' | 'high'; webSearch: boolean };
+  /** Team mode: the team-configured default UI language. Applied to the live UI
+      ONLY when the user has not made a local 'ui-language' choice (local wins). */
+  language?: UiLang;
 }
 
 type Action =
@@ -251,6 +257,7 @@ interface Ctx {
 const C = createContext<Ctx | null>(null);
 
 export function StoreProvider({ children }: { children: React.ReactNode }) {
+  const { t } = useTranslation();
   const [state, dispatch] = useReducer(reducer, initial);
   const wsRef = React.useRef<ReturnType<typeof connect> | null>(null);
 
@@ -330,6 +337,19 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wsAllowed]);
 
+  // Apply the TEAM DEFAULT UI language whenever auth status is (re)applied, but
+  // ONLY when the user has not made a local 'ui-language' choice — a per-browser
+  // override always wins. Runs after the auth is stored in state, covering every
+  // setAuth path (status probe, login/setup, refreshAuth). No-op in local mode
+  // (no team default) and when a local choice exists.
+  const teamLang = state.auth?.language;
+  useEffect(() => {
+    if (!teamLang) return;
+    let hasLocal = false;
+    try { hasLocal = !!localStorage.getItem('ui-language'); } catch { /* ignore */ }
+    if (!hasLocal && i18n.language !== teamLang) void i18n.changeLanguage(teamLang);
+  }, [teamLang]);
+
   const refreshEnv = useCallback(async () => {
     try {
       const r = await fetch('/api/env', { cache: 'no-store' });
@@ -360,8 +380,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
 
   const stopCrawl = useCallback(() => {
     void cancelCrawlRequest();
-    dispatch({ type: 'crawlLog', line: '使用者已要求停止' });
-  }, []);
+    dispatch({ type: 'crawlLog', line: t('store.crawlStopRequested') });
+  }, [t]);
 
   const resetCrawl = useCallback(() => {
     dispatch({ type: 'crawlReset' });
@@ -448,11 +468,11 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(body),
       });
-      const data = (await r.json().catch(() => ({}))) as { error?: string; username?: string; role?: 'admin' | 'user' };
+      const data = (await r.json().catch(() => ({}))) as { error?: string; username?: string; role?: 'admin' | 'user'; language?: 'zh-Hant' | 'en' };
       if (!r.ok) return { ok: false as const, error: data.error || `HTTP ${r.status}` };
       dispatch({
         type: 'setAuth',
-        auth: { mode: 'team', needsSetup: false, authed: true, username: data.username, role: data.role },
+        auth: { mode: 'team', needsSetup: false, authed: true, username: data.username, role: data.role, language: data.language },
       });
       return { ok: true as const };
     } catch (e) {

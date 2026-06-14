@@ -54,6 +54,11 @@ export interface AgentChatRequest {
    * session (created on demand). The web UI always sends an explicit id.
    */
   sessionId?: string;
+  /**
+   * UI language the agent should reply in. Absent → 'zh-Hant' (server default).
+   * Mirrors the user's effective language (localStorage 'ui-language' or team default).
+   */
+  language?: 'zh-Hant' | 'en';
 }
 
 /** Response from POST /api/agent/web-test — mirrored from server/agent/agent-types.ts */
@@ -210,6 +215,8 @@ export interface AgentExplainRequest {
   graphPath?: string;
   /** Node id within the graph (optional, used with graphPath). */
   nodeId?: string;
+  /** UI language the explanation should be written in. Absent → 'zh-Hant'. */
+  language?: 'zh-Hant' | 'en';
 }
 
 /** Response from POST /api/agent/explain — mirrored from server/agent/agent-types.ts */

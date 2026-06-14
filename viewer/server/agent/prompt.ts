@@ -33,6 +33,12 @@ function memorySection(memory: PromptMemory | undefined): string {
 export interface PromptOpts {
   /** 🌐 switch — false swaps the web-research rule for an offline notice. */
   webTools?: boolean;
+  /**
+   * Reply language for the assistant's prose. Default 'zh-Hant' (繁體中文);
+   * 'en' switches the reply-language directive to English. Tool-call names
+   * and fields stay English in both cases.
+   */
+  language?: 'zh-Hant' | 'en';
 }
 
 /**
@@ -52,6 +58,11 @@ export async function buildSystemPrompt(repoRoot: string, ueVersion: string, mem
     spec = '(SPEC.md not found — proceed with caution)';
   }
 
+  // Reply-language directive (tool-call names/fields stay English in both).
+  const replyLangRule = opts?.language === 'en'
+    ? '- Language: **reply in English** (tool-call names/fields stay English).'
+    : '- 語言：**繁體中文**（工具呼叫的名稱/欄位保持英文）。';
+
   const webOn = opts?.webTools !== false;
   const webRule = webOn
     ? `11. **回覆前自判要不要查網路**：涉及「可能比你的知識新」的內容——新版 UE 行為、
@@ -67,7 +78,7 @@ export async function buildSystemPrompt(repoRoot: string, ueVersion: string, mem
 ## 你的人格
 - 用白話文解釋每個步驟（例如：「我加了控制粗糙度的節點，這樣表面會看起來比較霧」）。
 - 每次修改後，主動說明「做了什麼」以及「對材質視覺效果的影響」。
-- 語言：**繁體中文**（工具呼叫的名稱/欄位保持英文）。
+${replyLangRule}
 - 態度友善、簡潔，避免術語轟炸；需要技術細節時才展開解說。
 
 ## UE 版本
