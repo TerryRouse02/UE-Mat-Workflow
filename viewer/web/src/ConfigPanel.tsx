@@ -1020,6 +1020,47 @@ function AiSection({ saveAgentConfig }: AiSectionProps) {
   );
 }
 
+// ─── §5 LanguageSettingsSection ─────────────────────────────────────────────
+
+// Per-browser UI-language preference (localStorage 'ui-language'). Stays
+// user-changeable in EVERY mode: the 團隊 default is applied only when no local
+// choice exists (store.tsx), so this override always wins. Rendered in the 設定
+// sub-tab for local/admin users AND directly in the team-member branch (members
+// get no sub-tabs but must still be able to pick their own language).
+function LanguageSettingsSection() {
+  const { t, i18n } = useTranslation();
+  return (
+    <div className="cfg-sec">
+      <div className="sech">
+        <Icon name="settings" size={13} />
+        <span className="sect">{t('configPanel.settingsTitle')}</span>
+        <span className="secd">{t('configPanel.settingsHint')}</span>
+      </div>
+      <div className="field">
+        <label>
+          {t('configPanel.uiLanguage')}{' '}
+          <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.uiLanguageHint')}</span>
+        </label>
+        <div className="lang-seg" role="group" aria-label={t('configPanel.uiLanguage')}>
+          {([['zh-Hant', '繁體中文'], ['en', 'English']] as const).map(([lng, label]) => (
+            <button
+              key={lng}
+              className={'btn sm' + (i18n.language === lng ? ' primary' : '')}
+              aria-pressed={i18n.language === lng}
+              onClick={() => {
+                localStorage.setItem('ui-language', lng);
+                void i18n.changeLanguage(lng);
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── ConfigPanel (public export) ────────────────────────────────────────────
 
 export interface ConfigPanelProps {
@@ -1032,12 +1073,12 @@ export interface ConfigPanelProps {
 }
 
 export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPanelProps) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { state, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig } = useStore();
   const { env, crawl, connection } = state;
   // The panel got crowded (UE paths + env checks + crawls + LLM/Web + team) —
   // a segmented sub-tab keeps each concern on a short page.
-  const [cfgTab, setCfgTab] = useState<'crawl' | 'ai' | 'team'>('crawl');
+  const [cfgTab, setCfgTab] = useState<'crawl' | 'ai' | 'team' | 'settings'>('crawl');
 
   // Each crawl scope reads its own content root; the advanced/maintenance crawls
   // (export/enginemf) take no root.
@@ -1121,6 +1162,7 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
     return (
       <div className="cfg">
         <MyAccountSection />
+        <LanguageSettingsSection />
         <div className="cfg-notice">
           <div className="ni"><Icon name="settings" size={20} /></div>
           <div className="nt">{t('configPanel.memberNoticeTitle')}</div>
@@ -1152,42 +1194,19 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
   return (
     <div className="cfg">
       <div className="cfg-tabs" role="tablist">
-        {([['crawl', t('configPanel.tabCrawl')], ['ai', t('configPanel.tabAi')], ['team', t('configPanel.tabTeam')]] as const).map(([k, label]) => (
+        {([['crawl', t('configPanel.tabCrawl')], ['ai', t('configPanel.tabAi')], ['team', t('configPanel.tabTeam')], ['settings', t('configPanel.tabSettings')]] as const).map(([k, label]) => (
           <button
             key={k}
             role="tab"
             aria-selected={cfgTab === k}
             className={'cfg-tab' + (cfgTab === k ? ' on' : '')}
-            onClick={() => setCfgTab(k as 'crawl' | 'ai' | 'team')}
+            onClick={() => setCfgTab(k)}
           >
             {label}
           </button>
         ))}
       </div>
 
-      {/* Local UI-language preference. Stays user-changeable even in Team mode —
-          Team only provides a default; this local override always wins. */}
-      <div className="field" style={{ marginTop: 8 }}>
-        <label>
-          {t('configPanel.uiLanguage')}{' '}
-          <span style={{ color: 'var(--text-mute)' }}>{t('configPanel.uiLanguageHint')}</span>
-        </label>
-        <div className="lang-seg" role="group" aria-label={t('configPanel.uiLanguage')}>
-          {([['zh-Hant', '繁體中文'], ['en', 'English']] as const).map(([lng, label]) => (
-            <button
-              key={lng}
-              className={'btn sm' + (i18n.language === lng ? ' primary' : '')}
-              aria-pressed={i18n.language === lng}
-              onClick={() => {
-                localStorage.setItem('ui-language', lng);
-                void i18n.changeLanguage(lng);
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      </div>
       {cfgTab === 'crawl' && (
         <>
           <PathsSection
@@ -1218,6 +1237,7 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
           {state.auth?.mode === 'team' && state.auth.authed && <MyAccountSection />}
         </>
       )}
+      {cfgTab === 'settings' && <LanguageSettingsSection />}
     </div>
   );
 }
