@@ -180,12 +180,28 @@ export class AnthropicAdapter implements Provider {
       return;
     }
 
-    // Usage accumulated across message_start + message_delta.
-    let inputTokens = 0;
+    // Usage accumulated across message_start + message_delta. input_tokens
+    // EXCLUDES the cached prefix, so cache_read/cache_creation are summed back
+    // at emit time → the loop's context gate sees the FULL size.
+    let rawInputTokens = 0;
     let outputTokens = 0;
     let cacheReadTokens = 0;
     let cacheCreationTokens = 0;
     let stopReason: 'end' | 'tool_use' | 'max_tokens' = 'end';
+
+    // Fold a usage object into the running totals (last present value wins).
+    // Anthropic reports input/cache numbers in message_start; some Anthropic-
+    // COMPATIBLE endpoints (e.g. Kimi /coding) report them ONLY in message_delta
+    // — read from BOTH, or the cache hit is lost and ⚡ never shows. The fold-back
+    // stays correct because no single event ever pairs a cache-inclusive
+    // input_tokens with a non-zero cache_read.
+    const applyUsage = (usage: Record<string, unknown> | undefined): void => {
+      if (!usage) return;
+      if (typeof usage.input_tokens === 'number') rawInputTokens = usage.input_tokens;
+      if (typeof usage.cache_read_input_tokens === 'number') cacheReadTokens = usage.cache_read_input_tokens;
+      if (typeof usage.cache_creation_input_tokens === 'number') cacheCreationTokens = usage.cache_creation_input_tokens;
+      if (typeof usage.output_tokens === 'number') outputTokens = usage.output_tokens;
+    };
 
     // Currently streaming tool_use content block, if any.
     let currentTool: ToolBlockAcc | null = null;
@@ -214,15 +230,7 @@ export class AnthropicAdapter implements Provider {
 
       switch (evtType) {
         case 'message_start': {
-          const usage = (evt.message as Record<string, unknown> | undefined)?.usage as Record<string, number> | undefined;
-          if (usage) {
-            // With prompt caching, input_tokens EXCLUDES the cached prefix —
-            // the loop's context gating needs the full context size, so sum
-            // all three. Cache numbers are kept separately for telemetry.
-            cacheReadTokens = usage.cache_read_input_tokens ?? 0;
-            cacheCreationTokens = usage.cache_creation_input_tokens ?? 0;
-            inputTokens = (usage.input_tokens ?? 0) + cacheReadTokens + cacheCreationTokens;
-          }
+          applyUsage((evt.message as Record<string, unknown> | undefined)?.usage as Record<string, unknown> | undefined);
           break;
         }
 
@@ -283,8 +291,8 @@ export class AnthropicAdapter implements Provider {
         case 'message_delta': {
           // message_delta usage carries CUMULATIVE totals, not deltas — last
           // value wins (same rule as the OpenAI adapter), never accumulate.
-          const usage = evt.usage as Record<string, number> | undefined;
-          if (usage && typeof usage.output_tokens === 'number') outputTokens = usage.output_tokens;
+          // Kimi-style endpoints surface the cache split here, not in message_start.
+          applyUsage(evt.usage as Record<string, unknown> | undefined);
           const delta = evt.delta as Record<string, unknown> | undefined;
           if (delta?.stop_reason) {
             stopReason = mapStopReason(delta.stop_reason as string);
@@ -293,6 +301,7 @@ export class AnthropicAdapter implements Provider {
         }
 
         case 'message_stop': {
+          const inputTokens = rawInputTokens + cacheReadTokens + cacheCreationTokens;
           if (inputTokens > 0 || outputTokens > 0) {
             yield {
               type: 'usage',

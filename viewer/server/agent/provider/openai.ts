@@ -195,7 +195,7 @@ export class OpenAIAdapter implements Provider {
     // OpenAI sends a final usage-only chunk, but some compat servers attach
     // usage to the last choices chunk instead — capture from anywhere, emit
     // at most once before done (last value wins; totals, not deltas).
-    let lastUsage: { inputTokens: number; outputTokens: number } | null = null;
+    let lastUsage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number } | null = null;
 
     // abortSafe: a user abort mid-stream is a normal cancellation — end the
     // stream silently instead of surfacing a fake error (see sse.ts).
@@ -207,11 +207,21 @@ export class OpenAIAdapter implements Provider {
         continue;
       }
 
-      const usage = chunk.usage as Record<string, number> | undefined;
+      const usage = chunk.usage as Record<string, unknown> | undefined;
       if (usage) {
+        // Prompt-cache hits: OpenAI nests it as prompt_tokens_details.cached_tokens;
+        // DeepSeek reports it flat as prompt_cache_hit_tokens. UNLIKE Anthropic, the
+        // cached count is a SUBSET already inside prompt_tokens — report it alongside,
+        // never fold it back into inputTokens.
+        const details = usage.prompt_tokens_details as Record<string, unknown> | undefined;
+        const cached =
+          (typeof details?.cached_tokens === 'number' ? details.cached_tokens : 0) ||
+          (typeof usage.prompt_cache_hit_tokens === 'number' ? usage.prompt_cache_hit_tokens : 0);
         lastUsage = {
-          inputTokens: usage.prompt_tokens ?? 0,
-          outputTokens: usage.completion_tokens ?? 0,
+          inputTokens: typeof usage.prompt_tokens === 'number' ? usage.prompt_tokens : 0,
+          outputTokens: typeof usage.completion_tokens === 'number' ? usage.completion_tokens : 0,
+          // Omitted when zero so cache-less responses keep the old usage shape.
+          ...(cached > 0 ? { cacheReadTokens: cached } : {}),
         };
       }
 

@@ -134,8 +134,16 @@ adapter）。usage 解析同步修正：開快取後 Anthropic 的 `input_tokens
 部分，adapter 把 `input_tokens + cache_read + cache_creation` 加總成
 StreamEvent 的 `inputTokens`（loop 的 contextTokens 閘門靠它），cache 數字另以
 `cacheReadTokens`/`cacheCreationTokens` 欄位回報（0 時省略）→ loop 轉成 SSE
-usage 事件的 `cachedTokens` → UI 狀態列顯示 ⚡ 快取命中。openai-compatible 後端
-（OpenAI/DeepSeek/Qwen）是伺服器端自動前綴快取，無需 code、自動受益。
+usage 事件的 `cachedTokens` → UI 狀態列顯示 ⚡ 快取命中。**相容端點坑（2026-06-14，Kimi
+`/coding`）**：官方 Anthropic 把 cache 數放在 `message_start`，但 Kimi-K2.6 等相容端點
+**只在 `message_delta`** 才給真正的 `cache_read_input_tokens`（`message_start` 該欄為 0、
+`input_tokens` 是含快取的全量）。adapter 因此用 `applyUsage()` 從 **message_start 與
+message_delta 兩者**都折入（last-present-wins），emit 時才 `raw + cache_read + cache_creation`
+求和——少讀任一個 ⚡ 就掉。openai-compatible 後端
+（OpenAI/DeepSeek/Qwen）是伺服器端自動前綴快取；adapter 另讀
+`usage.prompt_tokens_details.cached_tokens`（DeepSeek 方言 `prompt_cache_hit_tokens`）
+回報為 `cacheReadTokens`，同樣亮 ⚡。**與 Anthropic 相反**：OpenAI 的 `prompt_tokens`
+已含快取份額，故 `inputTokens` 維持原值、**絕不加總**（>0 才掛欄位，保持舊 usage 形狀）。
 
 **圖片輸入（2026-06-12）**：中性 `ImageBlock {type:'image', mediaType, data(base64)}`
 進 ContentBlock union；anthropic 映射成 base64 source block、openai 映射成

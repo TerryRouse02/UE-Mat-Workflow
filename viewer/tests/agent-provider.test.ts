@@ -500,6 +500,73 @@ describe('Usage events', () => {
 });
 
 // ---------------------------------------------------------------------------
+// §8b  OpenAI prompt-cache hits
+// OpenAI/DeepSeek bill cached prompt tokens at a discount; the cached count is
+// a SUBSET already inside prompt_tokens (unlike Anthropic, which excludes it).
+// So inputTokens must stay = prompt_tokens; cacheReadTokens is reported alongside.
+// ---------------------------------------------------------------------------
+
+describe('OpenAI prompt-cache hits', () => {
+  it('reports prompt_tokens_details.cached_tokens as cacheReadTokens without inflating inputTokens', async () => {
+    const fixture = [
+      'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":800}}}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    const adapter = new OpenAIAdapter(
+      { provider: 'openai-compatible', model: 'gpt-4o', apiKey: 'k' },
+      fakeFetch(fixture),
+    );
+    const events = await collect(adapter.stream(SIMPLE_REQ));
+    const usage = events.find((e): e is Extract<StreamEvent, { type: 'usage' }> => e.type === 'usage');
+    expect(usage).toEqual({
+      type: 'usage',
+      inputTokens: 1000,   // prompt_tokens already INCLUDES the cached share — never summed
+      outputTokens: 5,
+      cacheReadTokens: 800,
+    });
+  });
+
+  it('reports the DeepSeek prompt_cache_hit_tokens dialect as cacheReadTokens', async () => {
+    const fixture = [
+      'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":5,"prompt_cache_hit_tokens":640,"prompt_cache_miss_tokens":360}}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    const adapter = new OpenAIAdapter(
+      { provider: 'openai-compatible', model: 'deepseek-chat', apiKey: 'k' },
+      fakeFetch(fixture),
+    );
+    const events = await collect(adapter.stream(SIMPLE_REQ));
+    const usage = events.find((e): e is Extract<StreamEvent, { type: 'usage' }> => e.type === 'usage');
+    expect(usage).toEqual({
+      type: 'usage',
+      inputTokens: 1000,
+      outputTokens: 5,
+      cacheReadTokens: 640,
+    });
+  });
+
+  it('omits cacheReadTokens when cached_tokens is zero (keeps the old usage shape)', async () => {
+    const fixture = [
+      'data: {"choices":[{"delta":{"content":"hi"},"finish_reason":null}]}\n\n',
+      'data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n',
+      'data: {"choices":[],"usage":{"prompt_tokens":50,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":0}}}\n\n',
+      'data: [DONE]\n\n',
+    ];
+    const adapter = new OpenAIAdapter(
+      { provider: 'openai-compatible', model: 'gpt-4o', apiKey: 'k' },
+      fakeFetch(fixture),
+    );
+    const events = await collect(adapter.stream(SIMPLE_REQ));
+    const usage = events.find((e): e is Extract<StreamEvent, { type: 'usage' }> => e.type === 'usage');
+    expect(usage).toEqual({ type: 'usage', inputTokens: 50, outputTokens: 5 });
+  });
+});
+
+// ---------------------------------------------------------------------------
 // §9  Non-2xx response → error event + no throw
 // ---------------------------------------------------------------------------
 
@@ -1172,6 +1239,34 @@ describe('Anthropic cumulative usage (BUG-12)', () => {
     const events = await collect(adapter.stream(SIMPLE_REQ));
     const usage = events.find(e => e.type === 'usage');
     expect(usage).toEqual({ type: 'usage', inputTokens: 100, outputTokens: 25 });
+  });
+});
+
+// Anthropic-COMPATIBLE endpoints (Kimi /coding) report cache usage in
+// message_delta, not message_start. The adapter must fold usage from BOTH
+// events or the cache hit is lost and ⚡ never shows.
+describe('Anthropic-compatible cache usage in message_delta (Kimi)', () => {
+  it('captures cache_read_input_tokens that only appears on message_delta', async () => {
+    // Observed shape from https://api.kimi.com/coding (model kimi-k2.6): message_start
+    // carries the FULL input_tokens with cache_read=0; the real split arrives in
+    // message_delta (input_tokens excl cache + cache_read_input_tokens).
+    const fixture = [
+      'data: {"type":"message_start","message":{"usage":{"input_tokens":9017,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}}\n\n',
+      'data: {"type":"content_block_start","index":0,"content_block":{"type":"text"}}\n\n',
+      'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"OK"}}\n\n',
+      'data: {"type":"content_block_stop","index":0}\n\n',
+      'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":902,"cache_creation_input_tokens":0,"cache_read_input_tokens":8115,"output_tokens":3}}\n\n',
+      'data: {"type":"message_stop"}\n\n',
+    ];
+    const adapter = new AnthropicAdapter({ provider: 'anthropic', model: 'kimi-k2.6', apiKey: 'k' }, fakeFetch(fixture));
+    const events = await collect(adapter.stream(SIMPLE_REQ));
+    const usage = events.find(e => e.type === 'usage');
+    expect(usage).toEqual({
+      type: 'usage',
+      inputTokens: 9017,   // 902 + 8115 — full context, regardless of which event split it
+      outputTokens: 3,
+      cacheReadTokens: 8115,
+    });
   });
 });
 
