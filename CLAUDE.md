@@ -297,6 +297,14 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
   OLD pin name to the NEW one — we lack the function's input GUIDs (sibling matgraphs don't store them), so
   name-match is the only wire-survival path. Capturing `ExpressionInputId`/`ExpressionOutputId` in the crawl
   would make wires survive via UE's native GUID path too.
+- **UE T3D OMITS properties equal to their CDO default — never `?? 0` a dimension.** UE's text export skips any
+  property whose value matches the class default, so a comment at the default width (400) ships with NO
+  graph-node `NodeWidth` line (and a default-height one no `NodeHeight`). `ueImport.ts` reads comment size with
+  a fallback to the inner `MaterialExpressionComment` `SizeX`/`SizeY` (always written) — the old `NodeWidth ?? 0`
+  collapsed such a box to zero width, so its geometric `contains` (which member nodes fall inside the rect) came
+  back empty and the whole comment frame vanished on import. The same trap applies to any other property parsed
+  with a `?? <assumed default>`: confirm the assumed default equals UE's CDO default, or read the always-present
+  source instead.
 
 ## Read next
 
