@@ -20,6 +20,7 @@ import type {
   AgentThinkingLevel,
   ProviderStatus,
   AgentUndoResponse,
+  AgentRedoResponse,
   AgentRegenerateResponse,
   AgentDbEditResponse,
   AgentSessionMeta,
@@ -66,7 +67,7 @@ const WEB_SEARCH_STORAGE_KEY = 'agent-web-search';
 interface QuickCommand {
   cmd: string;                                   // slash form, e.g. "/validate"
   label: string;
-  kind: 'send' | 'regen' | 'undo' | 'md' | 'new' | 'crawlmf';
+  kind: 'send' | 'regen' | 'undo' | 'redo' | 'md' | 'new' | 'crawlmf';
   text?: string;                                 // canned prompt for kind 'send'
 }
 
@@ -79,6 +80,7 @@ const QUICK_COMMANDS: QuickCommand[] = [
   { cmd: '/help',     label: 'AI 能幫我做什麼',     kind: 'send', text: '請介紹你能幫我做什麼：可用的工具、能直接執行與只能提案的操作，以及建議的工作流程。' },
   { cmd: '/regen',    label: '重新生成上一回覆',   kind: 'regen' },
   { cmd: '/undo',     label: '還原上一步',         kind: 'undo' },
+  { cmd: '/redo',     label: '重做（取消還原）',    kind: 'redo' },
   { cmd: '/md',       label: '匯出對話 Markdown',  kind: 'md' },
   { cmd: '/new',      label: '開始新對話',         kind: 'new' },
   { cmd: '/crawlmf',  label: '爬取專案 MF 索引（完成後回報給 AI）', kind: 'crawlmf' },
@@ -332,6 +334,9 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
+  // Whether a redo is currently available (set by undo/redo responses; cleared
+  // by any fresh turn — send / regenerate / new / switch — which forks history).
+  const [canRedo, setCanRedo] = useState(false);
   // Per-turn reasoning effort; persisted so the choice survives reloads.
   const [thinking, setThinking] = useState<AgentThinkingLevel>(() => {
     try {
@@ -401,6 +406,9 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       setItems(reduced);
       setUsage(total);
       setSessionId(id);
+      // Switching sessions: the new session's redo availability is unknown
+      // until its next undo — start hidden rather than show a stale button.
+      setCanRedo(false);
     } catch { /* keep the current view */ }
   }, []);
 
@@ -442,6 +450,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     }
     setItems([]);
     setUsage(null);
+    setCanRedo(false);
   }, [streaming]);
 
   // Team mode: designate / clear this session as the announcement channel.
@@ -552,6 +561,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       const body = await r.json() as AgentUndoResponse;
       if (body.ok) {
         const count = body.restored.length;
+        setCanRedo(body.canRedo);
         setItems(prev => [...prev, {
           kind: 'notice', variant: 'info',
           message: `已還原上一步（${count} 個檔案）`,
@@ -561,6 +571,35 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       }
     } catch {
       setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '還原請求失敗' }]);
+    }
+  }, [streaming, sessionId]);
+
+  const handleRedo = useCallback(async () => {
+    if (streaming) return;
+    try {
+      const r = await fetch('/api/agent/redo', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(sessionId ? { sessionId } : {}),
+        cache: 'no-store',
+      });
+      if (!r.ok) {
+        setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: `重做請求失敗（HTTP ${r.status}）` }]);
+        return;
+      }
+      const body = await r.json() as AgentRedoResponse;
+      if (body.ok) {
+        setCanRedo(body.canRedo);
+        setItems(prev => [...prev, {
+          kind: 'notice', variant: 'info',
+          message: `已重做（${body.redone.length} 個檔案）`,
+        }]);
+      } else {
+        setCanRedo(false);
+        setItems(prev => [...prev, { kind: 'notice', variant: 'info', message: '沒有可重做的步驟' }]);
+      }
+    } catch {
+      setItems(prev => [...prev, { kind: 'notice', variant: 'error', message: '重做請求失敗' }]);
     }
   }, [streaming, sessionId]);
 
@@ -597,6 +636,9 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     setPendingImages([]);
     setInput('');
     setStreaming(true);
+    // A fresh turn forks history: the server clears the redo stack on the next
+    // write, so hide the redo button immediately.
+    setCanRedo(false);
 
     // Ensure a persistent session exists; fall back to the server's implicit
     // session when the endpoint is unavailable.
@@ -747,6 +789,8 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
   // the normal chat flow — "try a different take" without retyping.
   const handleRegenerate = useCallback(async () => {
     if (streaming || !sessionId) return;
+    // Destructive rewind: the server clears the redo stack — hide redo.
+    setCanRedo(false);
     try {
       const r = await fetch('/api/agent/regenerate', {
         method: 'POST',
@@ -846,6 +890,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     if (c.kind === 'send') return streaming;
     if (c.kind === 'regen') return streaming || !sessionId || items.length === 0;
     if (c.kind === 'undo') return streaming;
+    if (c.kind === 'redo') return streaming || !canRedo;
     if (c.kind === 'new') return streaming;
     if (c.kind === 'crawlmf') {
       // Crawls are admin-only in team mode — a member's request would 403.
@@ -861,6 +906,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     if (c.kind === 'send' && c.text) void handleSend(c.text);
     else if (c.kind === 'regen') void handleRegenerate();
     else if (c.kind === 'undo') void handleUndo();
+    else if (c.kind === 'redo') void handleRedo();
     else if (c.kind === 'md') downloadMarkdown();
     else if (c.kind === 'new') void handleNewSession();
     else if (c.kind === 'crawlmf') {
@@ -933,6 +979,15 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             >
               <Icon name="history" size={11} /> 還原
             </button>
+            {canRedo && (
+              <button
+                className="agent-bar-btn"
+                onClick={() => void handleRedo()}
+                title="重做：取消上一次還原"
+              >
+                <Icon name="refresh" size={11} /> 重做
+              </button>
+            )}
             <button
               className="agent-bar-btn"
               onClick={() => void handleNewSession()}

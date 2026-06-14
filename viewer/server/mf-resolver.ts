@@ -86,6 +86,55 @@ async function resolveSiblingFunction(
   };
 }
 
+// Rewrite MaterialFunctionCall OUTPUT connection pins from parseUET3D's positional
+// placeholders to the MF's real output names. parseUET3D (pure + client-capable) can't
+// know an MF's output names — they aren't in the T3D — so it encodes the output by
+// index: index 0 -> "Result", index N -> "Out<N>". The viewer and exporter both key MFC
+// outputs by the MF's REAL (mf-resolver-derived) ordered names, so a placeholder matches
+// nothing: the wire renders broken AND export collapses every such output to index 0.
+// This pass — run server-side, where MF indexes / sibling .matgraph.json files are
+// available — resolves each MFC's ordered outputs and rewrites the placeholder pins to
+// the real names. Idempotent: a pin that already names a real output is left untouched
+// (so a single-output MF whose output really is "Result" is never disturbed). Mutates
+// graph.connections in place; returns how many were rewritten.
+export async function resolveMfcOutputConnections(
+  graph: MatGraph,
+  graphDir: string,
+  opts: ResolveOptions = {},
+): Promise<{ rewrites: number; warnings: string[] }> {
+  const mfcIds = new Set(
+    graph.nodes.filter(n => n.type === 'MaterialFunctionCall').map(n => n.id),
+  );
+  if (mfcIds.size === 0) return { rewrites: 0, warnings: [] };
+
+  const { derivedPins, warnings } = await resolveMaterialFunctions(graph, graphDir, new Set(), opts);
+  let rewrites = 0;
+  for (const c of graph.connections) {
+    const sep = c.from.indexOf(':');
+    if (sep < 0) continue;
+    const id = c.from.slice(0, sep);
+    if (!mfcIds.has(id)) continue;
+    const pin = c.from.slice(sep + 1);
+    const outs = derivedPins[id]?.outputs;
+    if (!outs || outs.length === 0) continue;       // MF unresolved — keep the placeholder
+    // Decode parseUET3D's positional placeholder back to an output index FIRST, then map
+    // it to the real name. Decoding before any name comparison is what keeps this correct
+    // for an MF that happens to name an output literally "Result" or "Out<k>" at a
+    // DIFFERENT index than the placeholder encodes — a set-membership check would skip
+    // those and leave the wire broken (parseUET3D's encoding is purely positional:
+    // "Result" always means index 0, "Out<N>" always means index N).
+    let idx = -1;
+    if (pin === 'Result') idx = 0;
+    else { const m = /^Out(\d+)$/.exec(pin); if (m) idx = Number(m[1]); }
+    if (idx < 0 || idx >= outs.length) continue;    // not a placeholder, or out of range
+    const real = outs[idx].name;
+    if (real === pin) continue;                      // already the correct name (idempotent)
+    c.from = `${id}:${real}`;
+    rewrites++;
+  }
+  return { rewrites, warnings };
+}
+
 export async function resolveMaterialFunctions(
   graph: MatGraph,
   graphDir: string,
@@ -222,13 +271,31 @@ function pinsFromFunctionGraph(graph: MatGraph): DerivedPins {
   };
 }
 
+// Map a FunctionInput/Output node's authored type to the index type vocabulary
+// (Float1/Float2/Float3/Float4/Texture2D/StaticBool/MaterialAttributes/…), matching
+// what the WorkMF / Engine-MF crawl indexes emit. Accepts BOTH the raw UE enum a crawl
+// captures ("FunctionInput_Scalar") AND the shorthand some authored graphs use ("Scalar",
+// "VectorFloat3"). An unrecognised/absent type defaults to Float3 — UE's own default for a
+// FunctionInput whose type was never set (e.g. "Light Vector WorldSpace" → V3).
 function typeMapForInput(uiType?: string): string {
   switch (uiType) {
-    case 'Scalar':         return 'Float1';
-    case 'VectorFloat2':   return 'Float2';
-    case 'VectorFloat3':   return 'Float3';
-    case 'VectorFloat4':   return 'Float4';
-    case 'Texture2D':      return 'Texture2D';
-    default:               return 'Float3';
+    case 'Scalar':
+    case 'FunctionInput_Scalar':            return 'Float1';
+    case 'VectorFloat2':
+    case 'FunctionInput_Vector2':           return 'Float2';
+    case 'VectorFloat3':
+    case 'FunctionInput_Vector3':           return 'Float3';
+    case 'VectorFloat4':
+    case 'FunctionInput_Vector4':           return 'Float4';
+    case 'Texture2D':
+    case 'FunctionInput_Texture2D':         return 'Texture2D';
+    case 'FunctionInput_TextureCube':       return 'TextureCube';
+    case 'FunctionInput_VolumeTexture':     return 'VolumeTexture';
+    case 'FunctionInput_Texture2DArray':    return 'Texture2DArray';
+    case 'FunctionInput_TextureExternal':   return 'TextureExternal';
+    case 'FunctionInput_StaticBool':        return 'StaticBool';
+    case 'FunctionInput_Bool':              return 'Bool';
+    case 'FunctionInput_MaterialAttributes': return 'MaterialAttributes';
+    default:                                return 'Float3';
   }
 }

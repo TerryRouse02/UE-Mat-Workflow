@@ -55,10 +55,15 @@ The sidebar has four tabs:
 
 The viewer hot-reloads when files change.
 
-**Preview swatches** — materials whose BaseColor (or Emissive) chain folds to a constant
-(constants, parameters, lerp/multiply/etc.) show a color swatch in the file list and the
-canvas topbar. Chains through textures or Material Functions honestly show nothing rather
-than a guess.
+**Canvas topbar** — the toolbar above the node graph includes:
+- **Preview swatch** (if the graph folds to a constant) — materials whose BaseColor (or Emissive) chain folds to a constant (constants, parameters, lerp/multiply/etc.) show a color chip. Chains through textures or Material Functions honestly show nothing rather than a guess.
+- **Export button** — copy the graph as paste-ready UE T3D.
+- **Save layout button** (儲存版面) — in live mode, write each node's current position back into the open `.matgraph.json`. Dragging nodes does NOT persist positions on its own; you must click this button after moving them. Graphs imported from UE or previously saved automatically restore at their authored layout.
+
+**Node layout (hybrid)** — the viewer uses a hybrid layout system:
+- **Authored positions** — nodes with stored `pos:{x,y}` (from UE imports or manual "Save layout") render at their exact positions.
+- **Auto-layout** — nodes without positions are placed automatically by dagre, as before.
+Mixing both is safe: dragging any node updates its position, and "Save layout" persists ALL current positions.
 
 **Compare two graphs** — open one file, then pick **與目前圖比較 (Compare with open
 graph)** from any other file's `⋯` menu. The canvas shows the union with green = added,
@@ -77,7 +82,10 @@ PowerShell Core 7 (`pwsh`, installed via the official PowerShell `.pkg` or `brew
 
 In the Config tab you type your `ProjectPath` + `EngineRoot` and click **Save** (it writes
 `tools/node-t3d-metadata/local.config.json` for you — no JSON editing), watch the environment
-checklist turn green, then click the crawl buttons. The full walkthrough is in
+checklist turn green, then click the crawl buttons. If the **compiled plugin** check is red
+(first run on macOS, or after a UE upgrade), the environment-check step's **Compile Plugin**
+button builds the binary for your OS (Win64 `.dll` / Mac `.dylib`) — also no terminal. The full
+walkthrough is in
 [`tools/node-t3d-metadata/README.md`](./tools/node-t3d-metadata/README.md#trigger-a-crawl-from-the-web-viewer-no-terminal).
 
 ---
@@ -130,7 +138,9 @@ admin account and live re-binds, no restart) — or set `BIND_HOST=0.0.0.0` for
 Docker/scripted deployments — and the same server becomes a team workspace:
 
 - **Login + roles** — username/password with 7-day tokens (HttpOnly cookie).
-  First visit creates the admin; members are added in Config → 使用者管理.
+  On a LAN the first visit creates the admin; on a public deploy pre-seed it
+  with `ADMIN_USERNAME`/`ADMIN_PASSWORD` so nobody can race you to it. Members
+  are added in Config → 使用者管理.
 - **admin** keeps the full surface (agent chat, crawls, LLM key, user
   management); **user** gets the shared graphs, import/export, node explain —
   and a read-only view of the **announcement agent session** the admin
@@ -138,9 +148,11 @@ Docker/scripted deployments — and the same server becomes a team workspace:
 - The LLM API key stays server-side; no browser ever receives it.
 
 Docker / docker-compose / Caddy / nginx examples and the full ops guide live
-in [`deploy/`](./deploy/README.md). UE crawls still need a workstation with
-Unreal installed — run team mode bare-metal there, or generate the indexes on
-a workstation and mount them into the container.
+in [`deploy/`](./deploy/README.md) — the production stack ships automatic HTTPS,
+a non-root read-only container, security headers, and admin pre-seed; the LAN
+stack (`docker-compose.lan.yml`) is plain HTTP for a trusted network. UE crawls
+still need a workstation with Unreal installed — run team mode bare-metal there,
+or generate the indexes on a workstation and mount them into the container.
 
 Windows workstation admins can deploy and maintain LAN HTTPS with the
 Traditional Chinese helper under [`tools/viewer-https/`](./tools/viewer-https/README.zh-TW.md):
@@ -235,10 +247,10 @@ Produces a single self-contained `.html` file. Double-click to view.
 The clipboard bridge is **bidirectional**. In the viewer, click **導入 (Import)**, then
 paste a UE material selection — select nodes in the Material Editor, `Ctrl+C`, and paste
 into the box. The viewer reconstructs a `.matgraph.json` (node types, params, connections,
-comments, and reroutes) **fully locally — no Unreal needed**, writes it as a new project
+comments, reroutes, and **node positions**) **fully locally — no Unreal needed**, writes it as a new project
 folder under `graphs/`, and opens it.
 
-Anything it can't map — a UE class not in the node DB, or a Material Function whose pin
+The imported graph preserves each node's editor position, so it renders at its authored layout and exports back to UE unchanged (**faithful round-trip**). Anything it can't map — a UE class not in the node DB, or a Material Function whose pin
 names need its definition — is surfaced as a warning, never invented. (Reroute "knot" nodes
 are collapsed: the wire is re-pointed at the reroute's real source so nothing dangles.)
 

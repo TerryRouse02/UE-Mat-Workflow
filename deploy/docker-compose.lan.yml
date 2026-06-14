@@ -1,6 +1,12 @@
-# deploy/docker-compose.yml — team-mode viewer behind your reverse proxy.
+# deploy/docker-compose.lan.yml — LAN/dev stack (publishes 5790 directly).
 #
-#   docker compose -f deploy/docker-compose.yml up -d --build
+# ⚠️  DO NOT use on a public VPS. This file publishes the Node port straight to
+#     the host with no TLS, no admin pre-seed, and no container hardening. For an
+#     internet deployment use deploy/docker-compose.prod.yml (bundled Caddy HTTPS,
+#     internal-only 5790, ADMIN_* pre-seed, non-root read-only container). It is
+#     named *.lan.yml on purpose so `docker compose up` never defaults to it.
+#
+#   docker compose -f deploy/docker-compose.lan.yml up -d --build
 #
 # Pair it with Caddy (Caddyfile) or nginx (nginx.conf) for HTTPS, and set
 # COOKIE_SECURE=1 once TLS terminates in front. Without a proxy, keep this

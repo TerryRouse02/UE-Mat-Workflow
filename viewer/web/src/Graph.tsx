@@ -15,7 +15,7 @@ import { validateConnectionPins } from './validate';
 import { mfPinsUnresolved } from './graphDiagnostics';
 import { pinColor } from './theme/colors';
 import { splitRef } from './connstr';
-import { computeCommentBounds } from './commentBounds';
+import { buildCommentNodes } from './commentBounds';
 import { NodeExplainPopover } from './agent/NodeExplainPopover';
 
 function setHandleHighlight(nodeId: string, handleId: string | null | undefined, on: boolean) {
@@ -298,7 +298,13 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
       childNodeIds: c.contains,
     }));
 
-    const result = applyLayout(diffedNodes, rfEdges, clusters);
+    // Stored per-node positions (UE-imported or user-saved) drive the hybrid
+    // layout. In compare/diff view the payload is a synthetic union of two graphs,
+    // so ignore stored positions and let dagre lay the merged graph out cleanly.
+    const storedPos: Record<string, { x: number; y: number }> = {};
+    if (!diff) for (const n of graph.nodes) if (n.pos) storedPos[n.id] = n.pos;
+
+    const result = applyLayout(diffedNodes, rfEdges, clusters, storedPos);
     return { nodes: result.nodes, edges: rfEdges, clusterBounds: result.clusterBounds };
   }, [graph, derivedPins, db, onEnterMF, basePath, diff]);
 
@@ -386,33 +392,9 @@ function GraphInner({ payload, basePath, db, onEnterMF, onSelectNode, onPosition
       };
     };
 
-    const boundsMap = computeCommentBounds(graph.comments, nodeRect);
-
-    return graph.comments.map(c => {
-      const clusterId = 'comment-' + c.id;
-      const computed = boundsMap.get(c.id);
-
-      // Fall back to dagre cluster bounds if computeCommentBounds produced no rect.
-      const fallback = initialLayout.clusterBounds[clusterId];
-      const rect = computed ?? fallback;
-      if (!rect) return null;
-
-      return {
-        id: clusterId,
-        type: 'commentBox',
-        position: { x: rect.x, y: rect.y },
-        data: {
-          text: c.text,
-          color: c.color ?? '#888',
-          width: rect.width,
-          height: rect.height,
-        },
-        draggable: false,
-        selectable: false,
-        zIndex: -1,
-        style: { zIndex: -1 },
-      } as Node;
-    }).filter((n): n is Node => n !== null);
+    // buildCommentNodes resolves bounds (live rects → dagre cluster fallback) and emits
+    // nodes with explicit top-level width/height so React Flow never hides them mid-churn.
+    return buildCommentNodes(graph.comments, nodeRect, initialLayout.clusterBounds) as unknown as Node[];
   }, [graph.comments, nodes, initialLayout.clusterBounds]);
 
   const connSet = useMemo(() => {

@@ -340,7 +340,8 @@ export const toolDefs: ToolDef[] = [
       'Read and validate an existing .matgraph.json. Returns the graph JSON plus any errors/warnings. ' +
       'Call this before patch_graph to get the current on-disk state. ' +
       'For LARGE graphs, pass summary:true first — it returns only node ids/types + connection count ' +
-      '(an order of magnitude smaller); read the full graph only when you actually need params/connections.',
+      '(an order of magnitude smaller); read the full graph only when you actually need params/connections. ' +
+      'Nodes may carry an optional pos:{x,y} (UE editor position) on imported or user-saved graphs.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -378,12 +379,14 @@ export const toolDefs: ToolDef[] = [
       'error at a time. Returns plain-language diff lines on success. Supported ops:\n' +
       '- {op:"addNode", id?, type, params?} — add a node. Omit id to auto-generate one (returned ' +
       'in assignedIds keyed by op index); give an explicit id when a later op in the SAME batch ' +
-      'references the node. Explicit ids must be new and contain no ":".\n' +
+      'references the node. Explicit ids must be new and contain no ":". Optionally pass ' +
+      'pos:{x,y} (UE space) to place it; omit to let the viewer auto-place it near its wiring.\n' +
       '- {op:"insertNode", between:{from:"nodeId:pin", to:"nodeId:pin"}, type, id?, params?, ' +
       'inputPin?, outputPin?} — splice a new node into an EXISTING connection in ONE op ' +
       '(replaces disconnect + addNode + connect×2). Omitted pins are inferred from the type\'s ' +
       'DB signature (first input / first output pin); dynamic-pin and MaterialFunctionCall ' +
-      'types need explicit inputPin + outputPin.\n' +
+      'types need explicit inputPin + outputPin. pos:{x,y} is optional — it defaults to the ' +
+      'midpoint of the spliced connection when both endpoints are positioned.\n' +
       '- {op:"removeNode", id, heal?, healFrom?} — remove a node AND all its connections ' +
       '(cascades — never disconnect first). heal:true additionally splices the node\'s upstream ' +
       'source onto every pin the node fed, keeping the chain intact; when several input pins ' +
@@ -397,6 +400,9 @@ export const toolDefs: ToolDef[] = [
       '- {op:"connect", from:"nodeId:pin", to:"nodeId:pin"} — add a connection (target input pin must be free)\n' +
       '- {op:"disconnect", from:"nodeId:pin", to:"nodeId:pin"} — remove a connection\n' +
       '- {op:"setDescription", value} — set the graph description\n' +
+      '- {op:"setPosition", id, pos:{x,y}} — move a node to a UE-space position. Positions are ' +
+      'OPTIONAL: only set them when the user asks you to arrange/lay the graph out (or to match a ' +
+      'layout you can see); routine edits should leave placement to the viewer.\n' +
       'snake_case aliases (add_node, add_connection, set_param, …) are also accepted. ' +
       'Every op may carry an optional why:"…" string that shows up in the user-facing diff. ' +
       'Set dryRun:true to preview: applies + validates and returns the same diff/warnings, but ' +
@@ -415,7 +421,7 @@ export const toolDefs: ToolDef[] = [
                 type: 'string',
                 enum: [
                   'addNode', 'insertNode', 'removeNode', 'setParam', 'removeParam', 'setNodeType',
-                  'renameNode', 'connect', 'disconnect', 'setDescription',
+                  'renameNode', 'connect', 'disconnect', 'setDescription', 'setPosition',
                 ],
                 description: 'Operation kind',
               },

@@ -273,3 +273,49 @@ describe('系統主Agent live stream', () => {
     }
   });
 });
+
+describe('public-deploy hardening: infra/path redaction + cross-member explain', () => {
+  it('hides infra URLs + VPS paths from members and refuses cross-member explain', async () => {
+    const h = await setup();
+    try {
+      // Give the saved config real infra URLs + absolute UE paths so redaction is observable.
+      writeFileSync(resolve(h.root, 'tools/node-t3d-metadata/local.config.json'),
+        JSON.stringify({
+          Llm: { provider: 'anthropic', model: 'test', apiKey: 'sk-secret', baseUrl: 'http://10.0.0.5:1234/v1' },
+          Web: { proxyUrl: 'http://127.0.0.1:7890', searxngBaseUrl: 'http://10.0.0.9:8888' },
+          ProjectPath: '/srv/secret/MyGame.uproject', EngineRoot: '/opt/UE_5.7',
+        }) + '\n');
+
+      // /api/agent/status — admin sees infra URLs; member never does; apiKey never serialized.
+      const adminStatus = await (await fetch(`${h.base}/api/agent/status`, { headers: { cookie: h.admin } })).json();
+      expect(adminStatus.baseUrl).toBe('http://10.0.0.5:1234/v1');
+      expect(adminStatus.webProxyUrl).toBe('http://127.0.0.1:7890');
+      expect(adminStatus).not.toHaveProperty('apiKey');
+      const memberStatus = await (await fetch(`${h.base}/api/agent/status`, { headers: { cookie: h.artist } })).json();
+      expect(memberStatus.provider).toBe('anthropic');   // capability still visible
+      expect(memberStatus.hasApiKey).toBe(true);
+      expect(memberStatus.baseUrl).toBeUndefined();
+      expect(memberStatus.searxngBaseUrl).toBeUndefined();
+      expect(memberStatus.webProxyUrl).toBeUndefined();
+
+      // /api/env — admin sees absolute paths; member gets them nulled and no path leaks via details.
+      const adminEnv = await (await fetch(`${h.base}/api/env`, { headers: { cookie: h.admin } })).json();
+      expect(adminEnv.projectPath).toBe('/srv/secret/MyGame.uproject');
+      expect(adminEnv.engineRoot).toBe('/opt/UE_5.7');
+      const memberEnv = await (await fetch(`${h.base}/api/env`, { headers: { cookie: h.artist } })).json();
+      expect(memberEnv.projectPath).toBeNull();
+      expect(memberEnv.engineRoot).toBeNull();
+      expect(JSON.stringify(memberEnv)).not.toContain('/srv/secret');
+
+      // /api/agent/explain — a member cannot read another member's private graph topology.
+      const cross = await fetch(`${h.base}/api/agent/explain`,
+        json({ nodeType: 'Multiply', graphPath: 'users/bob/secret/secret.matgraph.json', nodeId: 'OUT' }, h.artist));
+      const crossBody = await cross.json();
+      expect(crossBody.ok).toBe(false);
+      expect(crossBody.error).toContain('無權');
+    } finally {
+      await h.server.close();
+      await rm(h.root, { recursive: true, force: true });
+    }
+  });
+});

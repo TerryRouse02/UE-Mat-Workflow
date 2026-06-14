@@ -1,0 +1,73 @@
+# deploy/docker-compose.prod.yml — production stack for a VPS.
+#
+# Pulls the CI-built image from GHCR (no building on the VPS) and bundles Caddy
+# for automatic HTTPS. Only 80/443 are exposed; the viewer's 5790 stays on the
+# internal compose network. Team data lives in named volumes, so updates never
+# wipe accounts / graphs / sessions / the LLM config.
+#
+#   cp deploy/.env.example deploy/.env   # set VIEWER_DOMAIN (+ optional IMAGE_TAG)
+#   ./deploy/update.sh                   # pull latest + (re)start
+#
+# Rollback to a known-good build:
+#   IMAGE_TAG=sha-abc1234 ./deploy/update.sh
+
+services:
+  ue-mat-viewer:
+    image: ${VIEWER_IMAGE:-ghcr.io/terryrouse02/ue-mat-workflow}:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    environment:
+      BIND_HOST: 0.0.0.0       # non-loopback bind → TEAM mode (login + roles)
+      COOKIE_SECURE: "1"        # auth cookie marked Secure (we are behind Caddy TLS)
+      # Pre-seed the admin BEFORE the listener accepts a request so no internet
+      # client can win the first-visitor-admin race. Both REQUIRED in prod — the
+      # :? makes compose refuse to start if unset. Set them in deploy/.env.
+      ADMIN_USERNAME: ${ADMIN_USERNAME:?set ADMIN_USERNAME in deploy/.env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?set ADMIN_PASSWORD in deploy/.env}
+    # Hardening: drop root + every capability, block privilege escalation, and run
+    # a read-only rootfs. All writes target the named volumes below (+ tmpfs /tmp),
+    # so read_only is safe; a popped process gains no root and no caps.
+    user: "1001:1001"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "5790"                  # internal only — NOT published to the host/internet
+    volumes:
+      - graphs:/app/graphs
+      - auth:/app/viewer/.auth
+      - agent-sessions:/app/viewer/.agent-sessions
+      - agent-checkpoints:/app/viewer/.agent-checkpoints
+      - agent-memory:/app/viewer/.agent-memory
+      - toolcfg:/app/tools/node-t3d-metadata
+      # Optional: a work-MF index generated on a UE workstation (crawls can't run
+      # in the container) so the team viewer resolves project Material Functions.
+      # - ./workmf-index.json:/app/agent-pack/workmf-index.json
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [ue-mat-viewer]
+    ports:
+      - "80:80"                 # ACME HTTP challenge + HTTP→HTTPS redirect
+      - "443:443"
+    environment:
+      VIEWER_DOMAIN: ${VIEWER_DOMAIN:?set VIEWER_DOMAIN in deploy/.env}
+      VIEWER_UPSTREAM: ue-mat-viewer:5790
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data        # persists Let's Encrypt certs across restarts
+      - caddy-config:/config
+
+volumes:
+  graphs:
+  auth:
+  agent-sessions:
+  agent-checkpoints:
+  agent-memory:
+  toolcfg:
+  caddy-data:
+  caddy-config:

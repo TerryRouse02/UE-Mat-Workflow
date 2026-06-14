@@ -63,6 +63,11 @@ pwsh -File ./tools/node-t3d-metadata/plugin-src/Scripts/Package-Plugin.ps1 `
   -EngineRoot /path/to/UnrealEngine
 ```
 
+`-EngineRoot` is optional when `local.config.json` already has it (the script falls back to
+that file). **Easier:** once `local.config.json` is set up you don't need a terminal at all —
+the viewer's Config tab → 環境檢查 step has a **編譯插件 / Compile Plugin** button that runs this
+exact build for the current OS (Win64 `.dll` or Mac `.dylib`) and turns the `plugin` check green.
+
 ### Per-machine config (skip retyping paths)
 
 `-ProjectPath` and `-EngineRoot` are long, machine-specific native paths. Instead of passing
@@ -201,6 +206,15 @@ what's still missing instead of guessing. All must be green before the crawl but
 | project | `ProjectPath` points to an existing `.uproject` **file** (not the folder) |
 | plugin | the compiled plugin binary is present (Win64 shipped in `compiled/`; on macOS, built locally) |
 | noShadow | no project-local `Plugins\UEMatExportMetadata` copy shadows the packaged plugin |
+
+When `plugin` is red (typically first run on macOS, or after a UE upgrade changes the plugin ABI),
+the **編譯插件 / Compile Plugin** button in this step builds the binary for the current OS via
+`Package-Plugin.ps1` (RunUAT BuildPlugin) — no terminal needed. It needs `platform` + `engine`
+green (a valid `EngineRoot`); progress streams in-panel and the check turns green on success.
+On **Windows** this writes directly into the git-tracked `compiled/UEMatExportMetadata/` (and
+rewrites the committed `.uplugin`), so expect a `git commit` afterward; on **macOS** it only
+touches the gitignored `Binaries/Mac` (the committed Win64 binary is built in a temp dir and left
+untouched).
 
 ### 4. Crawl
 

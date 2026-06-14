@@ -169,6 +169,23 @@ function mfPathToAssetRef(mfRef: string, root: string): string {
   return `${clean}/${base}.${base}`;
 }
 
+// UE tags every MaterialFunctionCall INPUT graph-pin name with its type, e.g. "UVs (V2)",
+// "Temporal Jitter (SB)". OUTPUT pins carry no tag. When UE reloads the function on paste it
+// regenerates these tagged names; it then re-wires by matching the OLD (clipboard) pin name to
+// the NEW one — so our exported pin name must carry the SAME tag or the wire drops. Map the
+// resolver's index type vocabulary (mf-resolver.ts typeMapForInput) to UE's abbreviation. The
+// import side strips a trailing " (1-3 chars)" (ueImport.stripPinTypeSuffix), so these round-trip.
+const MFC_INPUT_TYPE_TAG: Record<string, string> = {
+  Float1: 'S', Float2: 'V2', Float3: 'V3', Float4: 'V4',
+  Texture2D: 'T2d', TextureCube: 'TC', VolumeTexture: 'VT', TextureExternal: 'TX',
+  StaticBool: 'SB', Bool: 'B', MaterialAttributes: 'MA',
+};
+
+function mfcInputPinDisplay(name: string, type?: string): string {
+  const tag = type ? MFC_INPUT_TYPE_TAG[type] : undefined;
+  return tag ? `${name} (${tag})` : name;
+}
+
 function functionInputIndex(node: NodeJson, nodeMeta: NodeExportMeta, pinName: string, derivedPins: Record<string, DerivedPins>, warnings?: string[]): number {
   // Metadata is authoritative: an explicit FunctionInputs(n) mapping wins.
   const mapped = nodeMeta.inputs[pinName]?.property ?? '';
@@ -725,7 +742,14 @@ export function graphToUET3D(
       const mfRef = nodeMeta.functionAsset ?? (node.params?.MaterialFunction as string | undefined) ?? '';
       if (mfRef) {
         const assetRef = mfPathToAssetRef(mfRef, mfRoot);
-        lines.push(`${I}${I}${nodeMeta.functionRefProperty}=MaterialFunction'${quote(assetRef)}'`);
+        // Object-reference form UE's T3D parser actually resolves: the WHOLE reference is
+        // double-quoted, class path first, asset path in single quotes —
+        //   MaterialFunction="/Script/Engine.MaterialFunction'/Game/…/MF.MF'"
+        // The previous `MaterialFunction'"<path>"'` (double quotes INSIDE the single quotes)
+        // does NOT resolve: UE then can't reload the function on paste, so the call node shows
+        // only the pins we emitted (connected inputs, no outputs) and no pin types. Verified
+        // against tests/fixtures/ue-official-stress.t3d and the import parser (mfc-transform-import).
+        lines.push(`${I}${I}${nodeMeta.functionRefProperty}=${quote(`/Script/Engine.MaterialFunction'${assetRef}'`)}`);
         if (node.type === 'MaterialFunctionCall' && !mfRef.startsWith('/')) {
           warnings.push(`MaterialFunctionCall "${node.id}" -> create Material Function "${assetRef}" in UE for auto-link.`);
         }
@@ -805,6 +829,59 @@ export function graphToUET3D(
           lines.push(`${I}${I}Layers(${i})=(${parts.join(',')})`);
         });
       }
+    } else if (node.type === 'MaterialFunctionCall') {
+      // A MaterialFunctionCall pastes correctly only when the WHOLE function signature is on the
+      // clipboard: every input as FunctionInputs(i) in signature order (unconnected → OutputIndex=-1),
+      // every output as FunctionOutputs(i) + Outputs(i). UE reloads the function on paste and
+      // re-wires by matching the type-tagged graph-pin name (mfcInputPinDisplay), so connections
+      // ride the LinkedTo emitted with those pins below — not the ExpressionInputId, which we can't
+      // know without crawling the function's input GUIDs. Mirrors tests/fixtures/ue-official-stress.t3d.
+      const sigInputs = derivedPins[node.id]?.inputs ?? [];
+      const sigOutputs = derivedPins[node.id]?.outputs ?? [];
+      const incomingByPin = new Map<string, { srcId: string; srcPin: string; dstPin: string }>();
+      for (const c of incoming.get(node.id) ?? []) {
+        if (incomingByPin.has(c.dstPin)) {
+          warnings.push(`Node "${node.id}" input "${c.dstPin}" wired more than once - keeping the first (UE allows one wire per input).`);
+          continue;
+        }
+        incomingByPin.set(c.dstPin, c);
+      }
+      if (sigInputs.length === 0) {
+        // Signature unresolved (MF not in any index AND no sibling .matgraph.json). We can't
+        // complete the pin set, so emit just the connected inputs by best-effort index — the wires
+        // that exist still survive; the pins/outputs stay incomplete until the MF is crawled
+        // (functionInputIndex already warns when it can't place a pin).
+        for (const c of incomingByPin.values()) {
+          const src = byNodeId.get(c.srcId);
+          if (!src) continue;
+          const { index, mask } = srcRef(c.srcId, c.srcPin);
+          const idxPart = index > 0 ? `,OutputIndex=${index}` : '';
+          const mfcRef = `Expression=${src.expressionName}${idxPart}${maskBits(mask)},InputName=${quote(c.dstPin)}`;
+          lines.push(`${I}${I}FunctionInputs(${functionInputIndex(node, nodeMeta, c.dstPin, derivedPins, warnings)})=(Input=(${mfcRef}))`);
+        }
+      } else {
+        const known = new Set(sigInputs.map(p => p.name));
+        const mfName = typeof node.params?.MaterialFunction === 'string' ? node.params.MaterialFunction : 'the function';
+        for (const dstPin of incomingByPin.keys()) {
+          if (!known.has(dstPin)) warnings.push(`MaterialFunctionCall "${node.id}": wire into "${dstPin}" — no such input on ${mfName} — dropped.`);
+        }
+        sigInputs.forEach((pin, i) => {
+          const eid = guidFor(`mfc-in:${node.id}:${pin.name}`);
+          const c = incomingByPin.get(pin.name);
+          const src = c ? byNodeId.get(c.srcId) : undefined;
+          if (c && src) {
+            const { index, mask } = srcRef(c.srcId, c.srcPin);
+            const idxPart = index > 0 ? `,OutputIndex=${index}` : '';
+            lines.push(`${I}${I}FunctionInputs(${i})=(ExpressionInputId=${eid},Input=(Expression=${fqExpressionRef(src)}${idxPart}${maskBits(mask)},InputName=${quote(pin.name)}))`);
+          } else {
+            lines.push(`${I}${I}FunctionInputs(${i})=(ExpressionInputId=${eid},Input=(OutputIndex=-1,InputName=${quote(pin.name)}))`);
+          }
+        });
+        sigOutputs.forEach((pin, i) => {
+          lines.push(`${I}${I}FunctionOutputs(${i})=(ExpressionOutputId=${guidFor(`mfc-out:${node.id}:${pin.name}`)},Output=(OutputName=${quote(pin.name)}))`);
+        });
+        sigOutputs.forEach((pin, i) => lines.push(`${I}${I}Outputs(${i})=(OutputName=${quote(pin.name)})`));
+      }
     } else {
       const seenInputPins = new Set<string>();
       for (const connection of incoming.get(node.id) ?? []) {
@@ -876,8 +953,16 @@ export function graphToUET3D(
         lines.push(pinLine(node.id, p.name, 'output', pinLinks.get(pinKey(node.id, 'output', p.name)) ?? [], p.display));
       }
     } else {
+      // MaterialFunctionCall input graph-pins carry UE's type tag in the display name ("UVs (V2)");
+      // the PinId stays keyed on the bare name so LinkedTo (both ends) and the source's target pinId
+      // remain self-consistent. The tagged display is what lets UE re-wire after it reloads the
+      // function on paste (it matches old→new pins by name). Output pins are untagged, as in UE.
+      const mfcInputs = node.type === 'MaterialFunctionCall'
+        ? new Map((derivedPins[node.id]?.inputs ?? []).map(p => [p.name, p.type]))
+        : undefined;
       for (const pinName of nodeInputPins(node, nodeMeta, derivedPins)) {
-        lines.push(pinLine(node.id, pinName, 'input', pinLinks.get(pinKey(node.id, 'input', pinName)) ?? []));
+        const display = mfcInputs ? mfcInputPinDisplay(pinName, mfcInputs.get(pinName)) : pinName;
+        lines.push(pinLine(node.id, pinName, 'input', pinLinks.get(pinKey(node.id, 'input', pinName)) ?? [], display));
       }
       for (const p of nodeOutputPins(node, nodeMeta, derivedPins)) {
         lines.push(pinLine(node.id, p.name, 'output', pinLinks.get(pinKey(node.id, 'output', p.name)) ?? [], p.display));

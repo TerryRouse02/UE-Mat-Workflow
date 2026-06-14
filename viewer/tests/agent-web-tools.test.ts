@@ -46,6 +46,16 @@ describe('guardPublicUrl', () => {
     expect(await guardPublicUrl('http://[::1]/')).toMatch(/blocked/);
   });
 
+  it('blocks cloud-metadata hostnames even when DNS resolution is skipped (proxy path)', async () => {
+    // .internal suffix already blocks the GCP form; the bare-label aliases reach
+    // the dedicated metadata guard. Either way the fetch is refused.
+    expect(await guardPublicUrl('http://metadata.google.internal/', undefined, { skipDnsResolve: true })).toMatch(/blocked/);
+    expect(await guardPublicUrl('http://metadata/computeMetadata/v1/', undefined, { skipDnsResolve: true })).toMatch(/metadata/);
+    expect(await guardPublicUrl('http://instance-data/latest/', undefined, { skipDnsResolve: true })).toMatch(/metadata/);
+    // A normal public host with DNS skipped still passes (proxy resolves it).
+    expect(await guardPublicUrl('https://example.com/', undefined, { skipDnsResolve: true })).toBeNull();
+  });
+
   it('DNS-resolves hostnames and blocks any private answer (rebinding shapes)', async () => {
     expect(await guardPublicUrl('https://example.com/', publicLookup)).toBeNull();
     expect(await guardPublicUrl('https://evil.example/', privateLookup)).toMatch(/blocked/);

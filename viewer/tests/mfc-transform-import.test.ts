@@ -136,9 +136,11 @@ describe('parseUET3D — MaterialFunctionCall input pin names', () => {
       },
     };
     const { text, warnings } = graphToUET3D(graph, layout, META, derived);
-    // UVs -> index 0, Rotation Angle (0-1) -> index 2 (distinct, not both 0).
-    expect(text).toMatch(/FunctionInputs\(0\)=\(Input=\(Expression=/);
-    expect(text).toMatch(/FunctionInputs\(2\)=\(Input=\(Expression=/);
+    // UVs -> index 0, Rotation Angle (0-1) -> index 2 (distinct, not both 0); the unwired
+    // Rotation Center fills index 1 as OutputIndex=-1 so the full signature rides the clipboard.
+    expect(text).toMatch(/FunctionInputs\(0\)=\(ExpressionInputId=[0-9A-F]{32},Input=\(Expression=/);
+    expect(text).toMatch(/FunctionInputs\(1\)=\(ExpressionInputId=[0-9A-F]{32},Input=\(OutputIndex=-1,InputName="Rotation Center"\)\)/);
+    expect(text).toMatch(/FunctionInputs\(2\)=\(ExpressionInputId=[0-9A-F]{32},Input=\(Expression=/);
     expect(warnings.filter(w => /defaulting to FunctionInputs\(0\)/.test(w))).toEqual([]);
   });
 });

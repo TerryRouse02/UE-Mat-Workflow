@@ -23,7 +23,7 @@
 - **現況（2026-06-11 收尾）**：M0–M5 全數落地，並完成後續批次——持久會話＋兩層記憶＋
   自動/手動壓縮（M7/M7b/M11-1）、思考串流、檔案管理／剪貼簿／爬取提案／DB 修改提案
   ／公網存取／爬取 log／視窗情境查詢 共 24 工具、畫布變更高亮、問 AI／匯入後解說入口、
-  系統回報卡＋爬取結果回流、斜槽快捷指令（11 個）、會話 Markdown 匯出、每輪用量顯示、
+  系統回報卡＋爬取結果回流、斜槽快捷指令（12 個）、會話 Markdown 匯出、每輪用量顯示、
   Agent 分頁 keep-alive＋注意力小點、聊天欄寬度拖曳。功能快照見 §12。
 
 ## 1. 整合點（已核實，含證據位置）
@@ -350,7 +350,8 @@ runAgent(userText, session):
   可重播 transcript（user 文字＋SSE 事件，text/thinking 落盤時合併）＋ meta。
   `AgentChatRequest.sessionId` 顯式綁定（未知 id → 404）；無 id 走 current-session 舊流程。
   CRUD：`GET/POST /api/agent/sessions`、`GET/DELETE /api/agent/sessions/:id`。
-  undo 收 `{sessionId}`；reset 只「中止＋脫離」不刪檔。undo 棧不跨重啟（已記錄的限制）。
+  undo/redo 收 `{sessionId}`；reset 只「中止＋脫離」不刪檔。undo/redo 棧落盤
+  （`.agent-checkpoints/<id>/.stack.json`），**跨重啟存活**（2026-06-13；先前的「不跨重啟」限制已解除）。
 - 記憶（M7b）：longterm（跨會話）＋ session（隨會話）兩層，僅經 read/update_memory 工具寫；
   每輪 user turn 重讀並注入 system prompt。刪會話連帶刪其 session 記憶，longterm 不動。
 - 壓縮（M11-1）：`contextTokens`（當前上下文，見 §3.4）過 `COMPACT_THRESHOLD`
@@ -371,6 +372,16 @@ runAgent(userText, session):
 undo = 還原最後一個 turn 的所有 pre-image（原不存在的檔則刪除），棧式彈出。
 `.gitignore` 加 `viewer/.agent-checkpoints/`。
 
+**跨重啟 undo + redo（2026-06-13）**：undo/redo 棧落盤成
+`<sessionDir>/.stack.json`（`{undo:[], redo:[]}`），`createCheckpointStore` 首次
+async 操作時從磁碟重建（無 manifest 的舊會話則掃目錄、依 `-turn<N>` 序號重排），
+所以歷史跨重啟存活。**使用者面的 undo**（`/api/agent/undo`，`redoable:true`）在還原
+pre-image 前先把當前（post-image）狀態擷取到 `<sessionDir>/.redo/<turnN>/`，並把該 turn
+移上 redo 棧；**redo**（`/api/agent/redo`）重套 post-image、移回 undo 棧。create/modify/
+delete 以「bytes 或 ABSENT 標記」對稱處理。新 turn 一旦寫入即清空 redo 棧（歷史分叉）；
+regenerate 的破壞性回捲走 **非 redoable** undo（丟棄該 turn＋清空 redo）。undo/redo 都
+只還原檔案狀態、不動對話歷史，且共用同一 `allowedRoot` 圍欄（永不還原 `graphs/` 之外）。
+
 ### System prompt（prompt.ts）
 
 新手人格：白話、邊做邊解釋（「我加了控制粗糙度的節點，表面會變霧」）、zh-TW 回覆。
@@ -387,8 +398,9 @@ get_signature 再連線；MF 必查 `get_mf_signature`；改圖前先 `read_grap
 |---|---|---|---|
 | `/api/agent/chat` | POST → `text/event-stream` | 對話 loop，串 AgentSseEvent | `sameOrigin` |
 | `/api/agent/explain` | POST（JSON 回應，非串流） | hover「深入解說」一次性 LLM | `sameOrigin` |
-| `/api/agent/undo` | POST | 還原上一 turn 的 pre-image | `sameOrigin`；限 `graphs/` |
-| `/api/agent/regenerate` | POST | 回捲最後一輪（檔案＋history＋transcript）並回傳 user 文字供前端重送 | `sameOrigin`；串流中 409；turnSeq 不回退 |
+| `/api/agent/undo` | POST | 還原上一 turn 的 pre-image（redoable：擷取 post-image 並移上 redo 棧）；回 `{restored, canUndo, canRedo}` | `sameOrigin`；限 `graphs/`；串流中／mutating 409 |
+| `/api/agent/redo` | POST | 重套上一個被還原 turn 的 post-image；回 `{redone, canUndo, canRedo}` | `sameOrigin`；限 `graphs/`；串流中／mutating 409 |
+| `/api/agent/regenerate` | POST | 回捲最後一輪（檔案＋history＋transcript）並回傳 user 文字供前端重送（非 redoable，清空 redo 棧） | `sameOrigin`；串流中 409；turnSeq 不回退 |
 | `/api/agent/db-edit` | POST | 套用使用者核准的節點 DB 修改（驗證→寫入→重生索引→parity audit，失敗回滾） | `sameOrigin`；單飛（套用中 409） |
 | `/api/agent/reset` | POST | 清空 session | `sameOrigin` |
 | `/api/agent/status` | GET | `ProviderStatus`（永不含 apiKey） | 同 `/api/env` |
@@ -432,7 +444,7 @@ interface AgentChatRequest {
 | 檔 / 元件 | 動作 |
 |---|---|
 | `Sidebar.tsx` | 第四分頁 `Agent`；**snapshot 模式隱藏**。live 模式下 AgentChat 以 display-toggled **keep-alive** 包裹常駐（待回報爬取、進行中串流、未送出輸入跨分頁存活）；分頁標籤帶注意力小點（串流中脈衝 `run`、離開分頁期間完成回覆則常亮 `new`） |
-| `agent/AgentChat.tsx` | 對話 UI：敘事逐字、思考卡（live 自動捲動）、工具步驟行、diff 區塊、系統回報卡（摺疊）、爬取／DB 修改確認卡、每輪 token 用量行、輸入框（`/` 喚出快捷指令選單）、停止／還原／重新生成／新對話、會話列表切換刪除、⚡ 快捷指令（11 個：/validate /explain /export /compact /log /help /regen /undo /md /new /crawlmf）、Markdown 匯出；`status.configured === false` 引導去 Config；空狀態起手範例 |
+| `agent/AgentChat.tsx` | 對話 UI：敘事逐字、思考卡（live 自動捲動）、工具步驟行、diff 區塊、系統回報卡（摺疊）、爬取／DB 修改確認卡、每輪 token 用量行、輸入框（`/` 喚出快捷指令選單）、停止／還原／重做（redo 可用時才顯示）／重新生成／新對話、會話列表切換刪除、⚡ 快捷指令（12 個：/validate /explain /export /compact /log /help /regen /undo /redo /md /new /crawlmf）、Markdown 匯出；`status.configured === false` 引導去 Config；空狀態起手範例 |
 | `agent/transcript.ts` | 純 reducer（live SSE 與會話重播共用同一實作）：ChatItem 建構、（系統回報）前綴 → 摺疊卡、per-turn 用量、`transcriptToMarkdown` |
 | `agent/sse.ts` | fetch + ReadableStream 解析 SSE + AbortController |
 | `Graph.tsx` | hover 停留（≈500ms）→ `NodeExplainPopover`（第一層純前端零請求；「深入解說」才呼叫 `/api/agent/explain`；平移/縮放/拖節點即關閉）；`agentHighlight` → 變更節點脈衝高亮＋fitView |
@@ -490,8 +502,8 @@ interface AgentChatRequest {
   錯誤一律餵回模型自修，使用者只看最終成果。
 - **修改與回退**：patch 式增量修改（10 op 含意圖級 insertNode／removeNode heal、
   snake_case 別名、自動 id、批次報錯一次列全部、dryRun 預覽；op 清單寫進 tool
-  schema，修改不再整檔重寫）、還原上一步（undo）、重新生成上一回覆（檔案＋歷史＋
-  transcript 一併回捲）。
+  schema，修改不再整檔重寫）、還原上一步（undo）＋重做（redo；兩者跨重啟存活，
+  純檔案狀態回退）、重新生成上一回覆（檔案＋歷史＋transcript 一併回捲）。
 - **貼圖輸入**：輸入框直接貼上圖片（≤3 張、≤5MB/張）→縮圖預覽→隨訊息送進
   視覺模型；anthropic／openai 兩方言都支援；不支援視覺的模型回明確換模提示。
 - **Team 管控**：管理員可鎖定成員的思考檔位＋聯網開關（成員 UI 變灰顯示強制值，
@@ -512,7 +524,7 @@ interface AgentChatRequest {
   輸入框旁 🌐 開關（默認開＝回覆前自判要不要查網路；關＝該輪完全不聯網）。
 - **會話**：落盤持久＋列表切換刪除＋重播；兩層記憶；自動/手動壓縮（contextTokens 口徑）；
   每輪 token 用量＋累計消費顯示；Markdown 匯出。
-- **快捷指令**：⚡ 選單或輸入 `/` 篩選執行（11 個，含 /crawlmf 直接爬取並回報）。
+- **快捷指令**：⚡ 選單或輸入 `/` 篩選執行（12 個，含 /redo 與 /crawlmf 直接爬取並回報）。
 - **體驗**：Agent 分頁 keep-alive＋注意力小點、欄寬拖曳、思考程度旋鈕（off/low/medium/high）。
 - **團隊模式（BIND_HOST 非 loopback 或 web 切換）**：預設 agent 面是 admin 專屬（gate 在
   http-server 的 `isAdminOnly`，例外只有 status/explain/public-session）。admin 可把任一

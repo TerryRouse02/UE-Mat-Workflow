@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import type { MatGraph, NodeSource } from './protocol';
+import type { ParamDef } from '../../server/db-types';
 import { useStore } from './store';
 import { useDb } from './dbContext';
 import { pinColor, catColor } from './theme/colors';
@@ -83,6 +84,186 @@ function isCodeLike(v: unknown): v is string {
   return typeof v === 'string' && (v.includes('\n') || v.length > 40);
 }
 
+// ─── Editable params (value-only) ──────────────────────────────────────────
+// The Inspector lets a human/TA tweak VALUE params in place — numbers, colours,
+// toggles, enums — and writes them straight back to the .matgraph.json. It
+// never touches structural params (asset refs, arrays of objects, names that
+// identify a node), which stay read-only. The server re-validates on write.
+
+type EditKind =
+  | { kind: 'number' }
+  | { kind: 'bool' }
+  | { kind: 'enum'; values: string[] }
+  | { kind: 'vector'; len: number }
+  | null;
+
+function paramEditKind(def: ParamDef | undefined, value: unknown): EditKind {
+  const t = def?.type;
+  if (t === 'Bool') return { kind: 'bool' };
+  if (t === 'Float' || t === 'Int') return { kind: 'number' };
+  if (t === 'Enum') return def?.values?.length ? { kind: 'enum', values: def.values } : null;
+  if ((t === 'Float3' || t === 'Float4') && Array.isArray(value)
+      && value.every(n => typeof n === 'number' && Number.isFinite(n))) {
+    return { kind: 'vector', len: value.length };
+  }
+  if (t) return null; // a typed but non-value param (Name, String, TextureRef, arrays…)
+  // No DB def (unknown node / param absent from the def) → infer from the value,
+  // staying value-only: never enable free-string editing without a known enum.
+  if (typeof value === 'boolean') return { kind: 'bool' };
+  if (typeof value === 'number') return { kind: 'number' };
+  if (Array.isArray(value) && value.length >= 1 && value.length <= 4
+      && value.every(n => typeof n === 'number' && Number.isFinite(n))) {
+    return { kind: 'vector', len: value.length };
+  }
+  return null;
+}
+
+// Clamp a 0–1 float to a 2-digit hex channel and back, for the colour swatch.
+function chToHex(n: number): string {
+  const c = Math.max(0, Math.min(255, Math.round(n * 255)));
+  return c.toString(16).padStart(2, '0');
+}
+function vecToHex(v: number[]): string {
+  return '#' + chToHex(v[0] ?? 0) + chToHex(v[1] ?? 0) + chToHex(v[2] ?? 0);
+}
+function hexToCh(hex: string, i: number): number {
+  return parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16) / 255;
+}
+
+interface ParamRowProps {
+  paramKey: string;
+  value: unknown;
+  def: ParamDef | undefined;
+  editable: boolean;
+  nodeId: string;
+  openPath: string | null;
+  setNodeParam: (path: string, nodeId: string, key: string, value: unknown) => Promise<{ ok: boolean; error?: string }>;
+}
+
+function ParamRow({ paramKey, value, def, editable, nodeId, openPath, setNodeParam }: ParamRowProps) {
+  const ek = editable && openPath ? paramEditKind(def, value) : null;
+  const [err, setErr] = useState<string | null>(null);
+
+  const commit = async (next: unknown) => {
+    if (!openPath) return;
+    setErr(null);
+    const r = await setNodeParam(openPath, nodeId, paramKey, next);
+    if (!r.ok) setErr(r.error ?? '寫入失敗');
+  };
+
+  // Long / multi-line strings stay in the read-only code block.
+  if (isCodeLike(value)) {
+    return (
+      <div style={{ marginBottom: 9 }}>
+        <div className="kv"><span className="k">{paramKey}</span></div>
+        <CodeBlock value={value} />
+      </div>
+    );
+  }
+
+  if (!ek) {
+    return (
+      <div className="kv">
+        <span className="k">{paramKey}</span>
+        <span className="v">{JSON.stringify(value)}</span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="kv param-edit">
+      <span className="k">{paramKey}</span>
+      <span className="v pe-ctrl">
+        {ek.kind === 'bool' && (
+          <input
+            type="checkbox"
+            checked={value === true}
+            onChange={e => void commit(e.target.checked)}
+          />
+        )}
+        {ek.kind === 'enum' && (
+          <select
+            value={typeof value === 'string' ? value : ''}
+            onChange={e => void commit(e.target.value)}
+          >
+            {!ek.values.includes(String(value)) && value != null && (
+              <option value={String(value)}>{String(value)}</option>
+            )}
+            {ek.values.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+          </select>
+        )}
+        {ek.kind === 'number' && (
+          <NumberField value={typeof value === 'number' ? value : 0} onCommit={commit} />
+        )}
+        {ek.kind === 'vector' && Array.isArray(value) && (
+          <VectorField vec={value as number[]} len={ek.len} onCommit={commit} />
+        )}
+      </span>
+      {err && <span className="pe-err" title={err}>!</span>}
+    </div>
+  );
+}
+
+// A number input that only writes on blur / Enter (so a half-typed value never
+// hits disk), reverting to the live value if left blank or unparseable.
+function NumberField({ value, onCommit }: { value: number; onCommit: (v: number) => void }) {
+  const [text, setText] = useState(String(value));
+  const focused = useRef(false);
+  useEffect(() => { if (!focused.current) setText(String(value)); }, [value]);
+
+  const fire = () => {
+    const n = parseFloat(text);
+    if (!Number.isFinite(n)) { setText(String(value)); return; }
+    if (n !== value) onCommit(n);
+  };
+  return (
+    <input
+      className="pe-num"
+      inputMode="decimal"
+      value={text}
+      onChange={e => setText(e.target.value)}
+      onFocus={() => { focused.current = true; }}
+      onBlur={() => { focused.current = false; fire(); }}
+      onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+    />
+  );
+}
+
+// A colour/vector editor: per-component number inputs plus a swatch picker for
+// the RGB triple (the swatch is a convenience; the number inputs are
+// authoritative and accept HDR values > 1).
+function VectorField({ vec, len, onCommit }: { vec: number[]; len: number; onCommit: (v: number[]) => void }) {
+  const labels = ['R', 'G', 'B', 'A'];
+  const setComp = (i: number, n: number) => {
+    const next = vec.slice();
+    next[i] = n;
+    onCommit(next);
+  };
+  return (
+    <span className="pe-vec">
+      {len >= 3 && (
+        <input
+          type="color"
+          className="pe-swatch"
+          value={vecToHex(vec)}
+          onChange={e => {
+            const next = vec.slice();
+            for (let i = 0; i < 3; i++) next[i] = hexToCh(e.target.value, i);
+            onCommit(next);
+          }}
+          title="快速取色（0–1；如需 HDR>1 請用右側數值）"
+        />
+      )}
+      {Array.from({ length: len }).map((_, i) => (
+        <span key={i} className="pe-comp">
+          <span className="pe-comp-l">{labels[i] ?? i}</span>
+          <NumberField value={vec[i] ?? 0} onCommit={n => setComp(i, n)} />
+        </span>
+      ))}
+    </span>
+  );
+}
+
 // ─── NodeInspector ───────────────────────────────────────────────────────────
 
 function NodeInspector({
@@ -96,11 +277,18 @@ function NodeInspector({
   issues: GraphIssue[];
 }) {
   const { db } = useDb();
+  const { state: store, setNodeParam } = useStore();
   const reserved = new Set(db.reservedTypes ?? []);
   const def = db.nodes[node.type];
   const unknown = isUnknownNodeType(node.type, db, reserved);
   const params = Object.entries(node.params ?? {});
   const catCol = catColor(def?.category);
+
+  // Value-param editing is a live-server feature: snapshot/offline has no write
+  // path. The open file is the last breadcrumb entry.
+  const openPath = store.breadcrumb[store.breadcrumb.length - 1] ?? null;
+  const paramsEditable = store.connection === 'live' && openPath != null;
+  const paramDefFor = (key: string): ParamDef | undefined => def?.params?.find(p => p.name === key);
 
   // Resolved pins
   const livePins = derivedPins?.[node.id];
@@ -175,18 +363,21 @@ function NodeInspector({
       <PinList label="輸入 pin" pins={inputPins} />
       <PinList label="輸出 pin" pins={outputPins} />
 
-      {/* Parameters */}
+      {/* Parameters — value types are editable in live mode; the rest read-only */}
       {params.length > 0 && (
         <div className="panel right isec">
           <div className="lbl">參數 Parameters</div>
           {params.map(([k, v]) => (
-            <div key={k} style={{ marginBottom: isCodeLike(v) ? 9 : 0 }}>
-              <div className="kv">
-                <span className="k">{k}</span>
-                {!isCodeLike(v) && <span className="v">{JSON.stringify(v)}</span>}
-              </div>
-              {isCodeLike(v) && <CodeBlock value={v} />}
-            </div>
+            <ParamRow
+              key={k}
+              paramKey={k}
+              value={v}
+              def={paramDefFor(k)}
+              editable={paramsEditable}
+              nodeId={node.id}
+              openPath={openPath}
+              setNodeParam={setNodeParam}
+            />
           ))}
         </div>
       )}

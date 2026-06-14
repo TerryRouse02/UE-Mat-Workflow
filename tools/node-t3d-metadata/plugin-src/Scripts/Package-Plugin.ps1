@@ -21,13 +21,39 @@ function Find-RepoRoot([string]$StartPath) {
     }
 }
 
+# Per-machine tooling config: read tools/node-t3d-metadata/local.config.json (the
+# gitignored real file, NOT the committed local.config.example.json template) and
+# return the requested property, or $null when the file or property is absent.
+# Mirrors the helper in Invoke-NodeT3DMetadataMaintenance.ps1 so this script can run
+# standalone (the web "compile plugin" button spawns it with no path args).
+function Get-LocalConfigValue([string]$Name, [string]$BundleDir) {
+    $ConfigPath = Join-Path $BundleDir "local.config.json"
+    if (-not (Test-Path -LiteralPath $ConfigPath)) {
+        return $null
+    }
+    $Config = Get-Content -LiteralPath $ConfigPath -Raw | ConvertFrom-Json
+    if ($null -eq $Config) {
+        return $null
+    }
+    $Property = $Config.PSObject.Properties[$Name]
+    if ($null -eq $Property) {
+        return $null
+    }
+    return $Property.Value
+}
+
 $PluginRoot = Split-Path -Parent $PSScriptRoot
 $BundleRoot = Split-Path -Parent $PluginRoot
 if ([string]::IsNullOrWhiteSpace($WorkflowRoot)) {
     $WorkflowRoot = Find-RepoRoot $BundleRoot
 }
+# An explicit -EngineRoot CLI arg always wins; otherwise fall back to
+# local.config.json so the web compile button can run this script with no args.
 if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
-    throw "EngineRoot is required. Pass -EngineRoot <path-to-UnrealEngine>."
+    $EngineRoot = Get-LocalConfigValue "EngineRoot" $BundleRoot
+}
+if ([string]::IsNullOrWhiteSpace($EngineRoot)) {
+    throw "EngineRoot is required. Pass -EngineRoot <path-to-UnrealEngine>, or set EngineRoot in tools/node-t3d-metadata/local.config.json."
 }
 if ([string]::IsNullOrWhiteSpace($PackageDir)) {
     $PackageDir = Join-Path $BundleRoot "compiled\UEMatExportMetadata"

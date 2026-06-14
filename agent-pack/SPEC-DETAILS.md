@@ -78,8 +78,9 @@ values UE omits as defaults fall back to the DB defaults, same as authored graph
   parent material auto-links its calls. The emitted T3D token is
   `MaterialFunction=MaterialFunction'"<assetPath>"'` — the inner double-quotes are required
   and the outer single-quotes are UE's object-reference syntax; UE resolves the call by that
-  object path on paste. Positions (`x`/`y`) remain forbidden in the JSON — export synthesizes
-  them from layout.
+  object path on paste. Positions (`pos:{x,y}`) are OPTIONAL in the JSON — they round-trip
+  on UE import / user save and render at their authored layout; otherwise export synthesizes
+  them from dagre's layout.
 - For `/Engine/...` asset paths, the reference pastes resolved but cannot be previewed in
   the viewer (no local copy of the engine .uasset).
 

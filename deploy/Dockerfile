@@ -8,8 +8,10 @@
 #   Unreal install and therefore run on a workstation, never in this image
 #   (the env probe keeps the crawl buttons disabled here).
 # - BIND_HOST=0.0.0.0 switches the server into team mode (login + roles).
-#   First visit creates the admin account.
-# - Persist the volumes listed in docker-compose.yml or team accounts,
+#   On a public deploy set ADMIN_USERNAME/ADMIN_PASSWORD so the admin is
+#   pre-seeded at startup (closes the first-visitor-admin race); otherwise the
+#   first visitor creates the admin via the Setup screen (LAN/dev only).
+# - Persist the volumes listed in docker-compose.prod.yml or team accounts,
 #   agent sessions, and the LLM config vanish with the container.
 
 # ── build stage ──────────────────────────────────────────────────────────────
@@ -47,6 +49,16 @@ COPY agent-pack agent-pack
 # tools dir — mount that too.
 RUN mkdir -p tools/node-t3d-metadata graphs \
     viewer/.auth viewer/.agent-sessions viewer/.agent-checkpoints viewer/.agent-memory
+
+# Run unprivileged. chown only the writable mountpoints so fresh named volumes
+# (which inherit the mountpoint's ownership on first mount) stay writable by this
+# uid; the rest of the image is root-owned and can be mounted read-only (see
+# docker-compose.prod.yml). A popped Node process is then non-root with no caps.
+RUN groupadd --system --gid 1001 appgroup \
+ && useradd --system --uid 1001 --gid appgroup --no-create-home appuser \
+ && chown -R appuser:appgroup tools/node-t3d-metadata graphs \
+    viewer/.auth viewer/.agent-sessions viewer/.agent-checkpoints viewer/.agent-memory
+USER appuser
 
 EXPOSE 5790
 CMD ["node", "viewer/dist/server/index.js"]

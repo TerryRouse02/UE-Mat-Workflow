@@ -1,20 +1,20 @@
 import { createServer, type Server, type IncomingMessage } from 'node:http';
-import { networkInterfaces } from 'node:os';
-import { readFile, readdir, mkdir, writeFile, access, rm } from 'node:fs/promises';
+import { networkInterfaces, homedir } from 'node:os';
+import { readFile, readdir, mkdir, writeFile, access, rm, stat } from 'node:fs/promises';
 import { resolve, join, extname, relative, dirname } from 'node:path';
 import { WebSocketServer, WebSocket } from 'ws';
 import { watchGraphs } from './watcher.js';
 import { loadGraph } from './graph-loader.js';
 import { evaluateGraphPreview, type PreviewGraph } from './graph-preview.js';
-import { materialStructureWarnings } from './schema.js';
-import { resolveMaterialFunctions } from './mf-resolver.js';
+import { materialStructureWarnings, validateGraph } from './schema.js';
+import { resolveMaterialFunctions, resolveMfcOutputConnections } from './mf-resolver.js';
+import type { MatGraph } from './types.js';
 import { loadWorkMfIndex } from './workmf-index.js';
 import { probeEnv } from './crawl-env.js';
 import { loadFreshness, recordFreshness } from './crawl-freshness.js';
 import { createCrawlRunner, type CrawlEvent, PROJECTMAT_STAGING_REL } from './crawl-runner.js';
-import type { CrawlFreshness } from './crawl-types.js';
 import type { ServerMessage, ClientMessage, FileEntry } from './ws-protocol.js';
-import { isInside, toPosixPath, slugifyGraphName, writeGraph } from './graph-write.js';
+import { isInside, toPosixPath, slugifyGraphName, writeGraph, isEditableParamValue } from './graph-write.js';
 export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
 import { importProjectMaterials, PROJECT_DIR } from './projectmat-importer.js';
 import type { ExportMeta } from '../web/src/export/export-meta-types.js';
@@ -22,7 +22,7 @@ import { runAgent, createSession, estimateMessagesTokens, VIEW_CONTEXT_PREFIX, t
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
-import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentResetResponse, AgentRegenerateResponse, AgentTestResponse, AgentWebTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse, AgentDbEditRequest, AgentDbEditResponse, AgentPublicSessionResponse } from './agent/agent-types.js';
+import type { AgentSseEvent, AgentChatRequest, AgentUndoResponse, AgentRedoResponse, AgentResetResponse, AgentRegenerateResponse, AgentTestResponse, AgentWebTestResponse, AgentExplainRequest, AgentExplainResponse, AgentTranscriptEntry, AgentSessionDetail, AgentSessionsListResponse, AgentSessionCreateResponse, AgentDbEditRequest, AgentDbEditResponse, AgentPublicSessionResponse } from './agent/agent-types.js';
 import { webSearch, type WebSearchConfig } from './agent/web-tools.js';
 import { applyDbEdit } from './agent/db-edit.js';
 import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/session-store.js';
@@ -129,6 +129,10 @@ const isMatGraph = (g: unknown): g is { type: string; name?: string; nodes: unkn
   !!g && typeof g === 'object' &&
   ((g as { type?: unknown }).type === 'Material' || (g as { type?: unknown }).type === 'MaterialFunction') &&
   Array.isArray((g as { nodes?: unknown }).nodes);
+
+/** Per-user / global agent-session ceilings — a public-deploy DoS backstop. */
+const MAX_SESSIONS_PER_USER = 50;
+const MAX_SESSIONS_TOTAL = 500;
 
 export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   const graphsRoot = resolve(opts.repoRoot, 'graphs');
@@ -401,8 +405,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     loop.offTopicStrikes = persisted.offTopicStrikes ?? 0;
     const active: ActiveSession = {
       loop,
-      // NOTE: the checkpoint turn stack is in-memory — undo history does not
-      // survive a server restart (pre-images on disk are simply orphaned).
+      // The checkpoint store rebuilds its undo/redo stacks from disk
+      // (.agent-checkpoints/<id>/.stack.json) on first use, so undo/redo
+      // history survives a server restart.
       checkpoint: createCheckpointStore(resolve(opts.repoRoot, 'viewer'), id),
       memory: createMemoryStore(resolve(opts.repoRoot, 'viewer'), id, persisted.owner),
       transcript: persisted.transcript,
@@ -491,13 +496,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
    */
   async function handleFilesOp(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    let body: { op?: unknown; path?: unknown; to?: unknown };
+    let body: { op?: unknown; path?: unknown; to?: unknown; nodeId?: unknown; key?: unknown; value?: unknown; remove?: unknown; positions?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
 
     const op = body.op;
-    if (op !== 'rename' && op !== 'duplicate' && op !== 'delete') {
-      sendJson(res, 400, { error: 'op must be rename | duplicate | delete' });
+    if (op !== 'rename' && op !== 'duplicate' && op !== 'delete' && op !== 'param' && op !== 'layout') {
+      sendJson(res, 400, { error: 'op must be rename | duplicate | delete | param | layout' });
       return;
     }
     const graphsRoot = resolve(opts.repoRoot, 'graphs');
@@ -516,6 +521,73 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
     if (!(await pathExists(src))) { sendJson(res, 404, { error: '找不到檔案' }); return; }
+
+    // op 'param' — edit a single node parameter VALUE in place (the human/TA
+    // "tweak a number/color/toggle" path). Deliberately value-only: structural
+    // params (arrays of objects, asset refs the inspector renders read-only) are
+    // never written here. The whole graph is re-validated before it touches disk,
+    // and the watcher then broadcasts the reload to every client.
+    if (op === 'param') {
+      const nodeId = body.nodeId;
+      const key = body.key;
+      if (typeof nodeId !== 'string' || !nodeId || typeof key !== 'string' || !key) {
+        sendJson(res, 400, { error: 'param edit requires a node id and key' });
+        return;
+      }
+      const removing = body.remove === true;
+      if (!removing && !isEditableParamValue(body.value)) {
+        sendJson(res, 400, { error: 'param value must be a number, boolean, string, or numeric array' });
+        return;
+      }
+      let parsed: { nodes?: Array<{ id?: unknown; params?: Record<string, unknown> }> };
+      try { parsed = JSON.parse(await readFile(src, 'utf-8')); }
+      catch { sendJson(res, 422, { error: '檔案無法解析，無法編輯參數' }); return; }
+      const node = Array.isArray(parsed.nodes) ? parsed.nodes.find(n => n?.id === nodeId) : undefined;
+      if (!node) { sendJson(res, 404, { error: `找不到節點 ${nodeId}` }); return; }
+      if (removing) {
+        if (node.params && typeof node.params === 'object') delete node.params[key];
+      } else {
+        if (!node.params || typeof node.params !== 'object') node.params = {};
+        node.params[key] = body.value;
+      }
+      const { errors } = validateGraph(parsed);
+      if (errors.length) { sendJson(res, 400, { error: '驗證失敗：' + errors.join('; ') }); return; }
+      // Authored .matgraph.json files are 2-space indented with a trailing
+      // newline — same as graph-write's writeGraph — so this round-trips cleanly.
+      await writeFile(src, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
+      sendJson(res, 200, { ok: true });
+      return;
+    }
+
+    // op 'layout' — persist node POSITIONS (the human "儲存版面" path). Writes each
+    // node's pos:{x,y} from the supplied map; value-only, never reshapes the graph.
+    // Like 'param' it re-validates before touching disk and the watcher broadcasts
+    // the reload. AI/snapshot graphs without positions simply never send this op.
+    if (op === 'layout') {
+      const positions = body.positions;
+      if (!positions || typeof positions !== 'object' || Array.isArray(positions)) {
+        sendJson(res, 400, { error: 'layout edit requires a positions map { nodeId: {x,y} }' });
+        return;
+      }
+      const posMap = positions as Record<string, unknown>;
+      let parsed: { nodes?: Array<{ id?: unknown; pos?: { x: number; y: number } }> };
+      try { parsed = JSON.parse(await readFile(src, 'utf-8')); }
+      catch { sendJson(res, 422, { error: '檔案無法解析，無法儲存版面' }); return; }
+      if (!Array.isArray(parsed.nodes)) { sendJson(res, 422, { error: '檔案沒有 nodes，無法儲存版面' }); return; }
+      let applied = 0;
+      for (const node of parsed.nodes) {
+        const p = posMap[String(node?.id)] as { x?: unknown; y?: unknown } | undefined;
+        if (p && typeof p === 'object' && Number.isFinite(p.x) && Number.isFinite(p.y)) {
+          node.pos = { x: Math.round(p.x as number), y: Math.round(p.y as number) };
+          applied++;
+        }
+      }
+      const { errors } = validateGraph(parsed);
+      if (errors.length) { sendJson(res, 400, { error: '驗證失敗：' + errors.join('; ') }); return; }
+      await writeFile(src, JSON.stringify(parsed, null, 2) + '\n', 'utf-8');
+      sendJson(res, 200, { ok: true, applied });
+      return;
+    }
 
     if (op === 'delete') {
       await rm(src, { force: true });
@@ -546,6 +618,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // project folder under graphs/. The existing watcher then picks it up and the
   // client navigates to it. This is the ONLY write path the server exposes.
   async function handleImport(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin import requests are refused' }); return; }
     let payload: { name?: unknown; graph?: unknown; dest?: unknown };
     try { payload = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
@@ -568,11 +641,85 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     let relPath: string;
     try {
       const folderRel = personal ? `${baseRel}/${finalName}` : finalName;
+      // Resolve MaterialFunctionCall OUTPUT pin placeholders (Result / Out<N>) from the
+      // client parse to the MF's real names before the file lands — so a clipboard import
+      // gets the same correct wiring as a projectmat crawl. Best-effort: a resolve failure
+      // (e.g. an MF whose signature isn't indexed and has no sibling yet) must not block it.
+      try {
+        const graphDir = resolve(graphsRoot, folderRel);
+        const [{ index: workMfIndex }, { index: engineMfIndex }] = await Promise.all([
+          loadWorkMfIndex(workMfIndexPath),
+          loadWorkMfIndex(engineMfIndexPath),
+        ]);
+        await resolveMfcOutputConnections(graph as unknown as MatGraph, graphDir, { workMfIndex, engineMfIndex });
+      } catch { /* best-effort: never block the import on MF resolution */ }
       relPath = await writeGraph(graphsRoot, folderRel, finalName, graph);
     } catch (e) {
       sendJson(res, 500, { error: `failed to write file: ${(e as Error).message}` }); return;
     }
     sendJson(res, 200, { path: relPath, name: finalName });
+  }
+
+  /**
+   * GET /api/fs/list?path=<abs dir> — host directory lister that powers the
+   * Config tab's UE-path picker (the 「瀏覽」 buttons). LOCAL MODE ONLY: a
+   * team server must never expose its filesystem to remote members, so this
+   * 403s whenever mode === 'team'. The loopback bind + same-origin check are
+   * the trust boundary, exactly like POST /api/config.
+   *
+   * Returns the resolved directory, its parent (null at the root), the
+   * platform separator, any Windows drive roots, and the child entries
+   * (dirs first, dotfiles hidden).
+   */
+  async function handleFsList(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (mode === 'team') { sendJson(res, 403, { error: '團隊模式不提供主機檔案瀏覽，請手動輸入路徑。' }); return; }
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    const url = new URL(req.url ?? '/', 'http://localhost');
+    const raw = (url.searchParams.get('path') ?? '').trim();
+
+    // Windows drive roots so the picker can hop between C:\, D:\… On POSIX the
+    // single '/' is reachable by walking up with `parent`, so no roots needed.
+    const roots: string[] = [];
+    if (process.platform === 'win32') {
+      for (const letter of 'ABCDEFGHIJKLMNOPQRSTUVWXYZ') {
+        try { await access(`${letter}:\\`); roots.push(`${letter}:\\`); } catch { /* no such drive */ }
+      }
+    }
+
+    // Empty path → start at the user's home dir (a friendly, always-readable spot).
+    let dir = raw || homedir();
+    try {
+      const st = await stat(dir);
+      if (!st.isDirectory()) dir = dirname(dir); // a file path was passed → list its folder
+    } catch {
+      sendJson(res, 400, { error: `無法存取路徑：${dir}` });
+      return;
+    }
+
+    const entries: Array<{ name: string; dir: boolean }> = [];
+    try {
+      for (const d of await readdir(dir, { withFileTypes: true })) {
+        if (d.name.startsWith('.')) continue; // hide dotfiles — noise for a path picker
+        let isDir = d.isDirectory();
+        if (d.isSymbolicLink()) {
+          try { isDir = (await stat(join(dir, d.name))).isDirectory(); } catch { continue; }
+        }
+        entries.push({ name: d.name, dir: isDir });
+      }
+    } catch (e) {
+      sendJson(res, 403, { error: `無法讀取資料夾：${(e as Error).message}` });
+      return;
+    }
+    entries.sort((a, b) => (a.dir === b.dir ? a.name.localeCompare(b.name) : a.dir ? -1 : 1));
+
+    const parent = dirname(dir);
+    sendJson(res, 200, {
+      path: dir,
+      parent: parent === dir ? null : parent,
+      sep: process.platform === 'win32' ? '\\' : '/',
+      roots,
+      entries,
+    });
   }
 
   /**
@@ -881,6 +1028,21 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     try { return new URL(origin).host === req.headers.host; } catch { return false; }
   }
 
+  // Real client IP for rate limiting. Behind the prod reverse proxy (Caddy on the
+  // internal compose network) req.socket.remoteAddress is the proxy's container
+  // IP, so without this every internet client would share ONE login bucket — a
+  // trivial lock-out DoS and a useless brute-force limit. When bound to a
+  // non-loopback host (team / Docker, where the only upstream is the trusted
+  // proxy) trust the first X-Forwarded-For hop; otherwise use the socket address.
+  function clientIp(req: IncomingMessage): string {
+    if (currentBindHost !== '127.0.0.1' && currentBindHost !== 'localhost' && currentBindHost !== '::1') {
+      const xff = req.headers['x-forwarded-for'];
+      const first = (Array.isArray(xff) ? xff[0] : xff)?.split(',')[0]?.trim();
+      if (first) return first;
+    }
+    return req.socket.remoteAddress ?? 'unknown';
+  }
+
   function crawlEventToMsg(e: CrawlEvent): ServerMessage {
     if (e.type === 'started') return { kind: 'crawlStarted', jobId: e.jobId, crawlKind: e.kind };
     if (e.type === 'log') return { kind: 'crawlLog', jobId: e.jobId, line: e.line };
@@ -899,7 +1061,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         await readFile(resolve(opts.repoRoot, 'agent-pack', 'nodes-ue5.7.export.json'), 'utf-8'),
       ) as ExportMeta;
       const stagingDir = resolve(opts.repoRoot, PROJECTMAT_STAGING_REL);
-      const { imported, warnings } = await importProjectMaterials({ stagingDir, graphsRoot, exportMeta });
+      // MF indexes let phase 2 resolve MaterialFunctionCall OUTPUT pin names against the
+      // official /Engine index + the user's /Game work index (sibling MFs cover the rest).
+      const [{ index: workMfIndex }, { index: engineMfIndex }] = await Promise.all([
+        loadWorkMfIndex(workMfIndexPath),
+        loadWorkMfIndex(engineMfIndexPath),
+      ]);
+      const { imported, warnings } = await importProjectMaterials({ stagingDir, graphsRoot, exportMeta, workMfIndex, engineMfIndex });
       log(`project materials: imported ${imported.length}${imported.length ? ` (${imported.join(', ')})` : ''}`);
       for (const w of warnings) log(`  warning: ${w}`);
     } catch (e) {
@@ -909,11 +1077,25 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   async function handleCrawl(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin crawl requests are refused' }); return; }
+    // Server-side env gate (team mode only — the Docker/public case): the crawl
+    // spawns UnrealEditor-Cmd via pwsh. In a container (host is Linux, no UE) the
+    // spawn would just ENOENT after a misleading 200 — reject up front with a
+    // clean 503. A bare-metal team workstation passes (platform + engine ready).
+    if (mode === 'team') {
+      const probe = await probeEnv(opts.repoRoot);
+      if (!probe.checks.platform.ok || !probe.checks.engine.ok) {
+        sendJson(res, 503, { error: '此主機無法執行爬取（需安裝 Unreal 的 Windows/macOS 工作站）。', checks: probe.checks });
+        return;
+      }
+    }
     let body: { kind?: unknown; contentRoots?: unknown };
     try { body = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     const kind = body.kind;
-    if (kind !== 'export' && kind !== 'enginemf' && kind !== 'workmf' && kind !== 'projectmat') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
+    if (kind !== 'export' && kind !== 'enginemf' && kind !== 'workmf' && kind !== 'projectmat' && kind !== 'compile') { sendJson(res, 400, { error: `unknown crawl kind: ${String(kind)}` }); return; }
+    // contentRoots scopes an editor crawl (workmf/projectmat). 'compile' is a plugin
+    // build that takes no scope — reject it explicitly so the contract is unambiguous.
+    if (kind === 'compile' && body.contentRoots !== undefined) { sendJson(res, 400, { error: 'contentRoots is not accepted for the compile kind' }); return; }
     // contentRoots (workmf only) becomes a literal arg to the spawned editor. Constrain it
     // to a single UE content root — leading '/', word segments — so it can never start with
     // '-' (PowerShell param injection) or carry shell/path-escape chars (no comma → no second arg).
@@ -939,7 +1121,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
    * already running (single-job lock).
    */
   function startCrawlJob(
-    kind: 'export' | 'enginemf' | 'workmf' | 'projectmat',
+    kind: 'export' | 'enginemf' | 'workmf' | 'projectmat' | 'compile',
     contentRoots: string | undefined,
     onDone?: (status: 'success' | 'error', exitCode: number | null) => void,
   ): string {
@@ -952,9 +1134,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       if (kind === 'projectmat' && e.type === 'done' && e.status === 'success') {
         void importStagedProjectMaterials(e.jobId);
       }
-      // Record freshness timestamp after any successful crawl.
-      if (e.type === 'done' && e.status === 'success') {
-        void recordFreshness(opts.repoRoot, kind as keyof CrawlFreshness, new Date().toISOString());
+      // Record freshness timestamp after any successful crawl. 'compile' is a plugin
+      // build, not a data crawl — it refreshes no agent-pack file, so it gets no
+      // freshness entry (and narrowing it out makes kind exactly keyof CrawlFreshness).
+      if (e.type === 'done' && e.status === 'success' && kind !== 'compile') {
+        void recordFreshness(opts.repoRoot, kind, new Date().toISOString());
       }
       if (e.type === 'done') onDone?.(e.status, e.exitCode ?? null);
     }, contentRoots ? { contentRoots } : undefined);
@@ -1007,8 +1191,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     }
   }
 
-  /** GET /api/agent/status — returns ProviderStatus (never contains apiKey). */
-  async function handleAgentStatus(res: import('node:http').ServerResponse) {
+  /** GET /api/agent/status — returns ProviderStatus (never contains apiKey).
+   *  Infra URLs (LLM baseUrl, SearXNG, proxy) are redacted for non-admins. */
+  async function handleAgentStatus(res: import('node:http').ServerResponse, user: AuthUser | null) {
     const config = await readLlmConfig();
     const status: ProviderStatus = config
       ? {
@@ -1028,6 +1213,14 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       status.hasBraveKey = web.braveApiKey !== undefined;
       status.searxngBaseUrl = web.searxngBaseUrl;
       status.webProxyUrl = web.proxyUrl;
+    }
+    // Members must not learn internal infrastructure topology: the LLM base URL,
+    // SearXNG instance, and proxy host are admin-only. provider/model + the
+    // has*Key booleans stay so the member UI can show agent capability.
+    if (mode === 'team' && user && user.role !== 'admin') {
+      delete status.baseUrl;
+      delete status.searxngBaseUrl;
+      delete status.webProxyUrl;
     }
     sendJson(res, 200, status);
   }
@@ -1157,7 +1350,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       // fully unwound — wait it out so undo never races an in-flight write.
       await active.unwind;
 
-      const restored = await active.checkpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'));
+      // redoable: keep the turn's pre-image and capture a post-image so the
+      // user can redo. (regenerate's destructive rewind passes no opts.)
+      const restored = await active.checkpoint.undoLastTurn(resolve(opts.repoRoot, 'graphs'), { redoable: true });
 
       if (restored === null) {
         const body: AgentUndoResponse = { ok: false, reason: 'nothing-to-undo' };
@@ -1170,7 +1365,68 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         .filter(p => !p.startsWith('!SKIPPED:'))
         .map(p => relative(resolve(opts.repoRoot, 'graphs'), p));
 
-      const body: AgentUndoResponse = { ok: true, restored: relPaths };
+      const body: AgentUndoResponse = {
+        ok: true, restored: relPaths,
+        canUndo: active.checkpoint.canUndo(), canRedo: active.checkpoint.canRedo(),
+      };
+      sendJson(res, 200, body);
+    } finally {
+      active.mutating = false;
+    }
+  }
+
+  /**
+   * POST /api/agent/redo — re-apply the last undone turn's file writes. The
+   * mirror of handleAgentUndo: file-state only, the conversation history is
+   * untouched (undo/redo here are pure file reverts, not history rewinds).
+   */
+  async function handleAgentRedo(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+
+    let sessionId = currentSessionId;
+    try {
+      const raw = await readBody(req);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { sessionId?: unknown };
+        if (typeof parsed.sessionId === 'string' && SESSION_ID_RE.test(parsed.sessionId)) {
+          sessionId = parsed.sessionId;
+        }
+      }
+    } catch { /* empty/invalid body → current session */ }
+
+    const active = sessionId ? await resumeSession(sessionId) : null;
+    // Foreign sessions answer exactly like missing ones — no existence leak.
+    if (!active || !canTouchSession(user, active.owner)) {
+      sendJson(res, 200, { ok: false, reason: 'nothing-to-redo' } satisfies AgentRedoResponse);
+      return;
+    }
+    if (active.streaming) {
+      sendJson(res, 409, { error: '對話進行中，無法重做。請等待完成後再試。' });
+      return;
+    }
+    if (active.mutating) {
+      sendJson(res, 409, { error: '另一個還原／重做正在進行中，請稍候。' });
+      return;
+    }
+    active.mutating = true;
+    try {
+      // Wait out a stopped chat's unwind (see handleAgentUndo).
+      await active.unwind;
+
+      const redone = await active.checkpoint.redoLastTurn(resolve(opts.repoRoot, 'graphs'));
+      if (redone === null) {
+        sendJson(res, 200, { ok: false, reason: 'nothing-to-redo' } satisfies AgentRedoResponse);
+        return;
+      }
+
+      const relPaths = redone
+        .filter(p => !p.startsWith('!SKIPPED:'))
+        .map(p => relative(resolve(opts.repoRoot, 'graphs'), p));
+
+      const body: AgentRedoResponse = {
+        ok: true, redone: relPaths,
+        canUndo: active.checkpoint.canUndo(), canRedo: active.checkpoint.canRedo(),
+      };
       sendJson(res, 200, body);
     } finally {
       active.mutating = false;
@@ -1372,6 +1628,14 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   /** POST /api/agent/sessions — create a fresh persistent session. */
   async function handleAgentSessionsCreate(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    // Cap session creation so a credentialed client cannot exhaust the VPS disk /
+    // memory by looping POST /api/agent/sessions.
+    const all = await sessionStore.list();
+    if (all.length >= MAX_SESSIONS_TOTAL) { sendJson(res, 429, { error: '工作階段總數已達上限。' }); return; }
+    if (mode === 'team' && user && user.role !== 'admin') {
+      const mine = all.filter((m) => m.owner === user.username).length;
+      if (mine >= MAX_SESSIONS_PER_USER) { sendJson(res, 429, { error: `已達個人工作階段上限（${MAX_SESSIONS_PER_USER}）。` }); return; }
+    }
     let ueVersion: string | undefined;
     try {
       const raw = await readBody(req);
@@ -1567,7 +1831,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   }
 
   /** POST /api/agent/explain — one-shot LLM node explanation (JSON, not SSE). */
-  async function handleAgentExplain(req: IncomingMessage, res: import('node:http').ServerResponse) {
+  async function handleAgentExplain(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
 
     let body: AgentExplainRequest;
@@ -1621,6 +1885,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // Build optional graph context (degrade silently on any failure).
     let graphContext: string | undefined;
     if (body.graphPath && body.nodeId) {
+      // Ownership gate, mirroring handleGraphGet: a member must not read another
+      // member's personal-workspace graph topology through the explain prompt.
+      if (!canSeePath(user, body.graphPath)) {
+        sendJson(res, 200, { ok: false, error: '無權存取此圖表。' } satisfies AgentExplainResponse);
+        return;
+      }
       graphContext = await buildGraphContext(
         resolve(opts.repoRoot, 'graphs'),
         body.graphPath,
@@ -1926,8 +2196,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       // members watch deltas in real time (the end-of-turn publicAgent
       // broadcast still triggers the authoritative transcript re-fetch).
       if (isPublicTurn) {
-        const dmsg: ServerMessage = { kind: 'publicAgentDelta', id: active.loop.id, event: out };
-        for (const c of wss.clients) safeSend(c, dmsg);
+        for (const c of wss.clients) {
+          const safeEvent = redactDeltaForRecipient(wsIdentity.get(c) ?? null, out);
+          safeSend(c, { kind: 'publicAgentDelta', id: active.loop.id, event: safeEvent });
+        }
       }
       res.write(`data: ${JSON.stringify(out)}\n\n`);
       // Mirror every emitted event into the replayable transcript (text and
@@ -2004,6 +2276,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           tokenCeiling: llmConfig.contextLimit,
           // 🌐 switch: absent = on (the loop removes the web tools when false).
           webToolsEnabled,
+          // NB: request_crawl/propose_db_edit stay AVAILABLE to members on
+          // purpose — they create proposals that divert into the admin approval
+          // inbox (the emit intercept above marks them pendingApproval). Token
+          // spend is bounded by the per-user daily quota, not by hiding the tool.
           // Pasted images (validated in handleAgentChat) ride this turn only.
           images: body.images,
         },
@@ -2240,37 +2516,52 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
     if (await authStore.hasUsers()) { sendJson(res, 409, { error: 'already set up' }); return; }
+    // Rate-limit the bootstrap: on a public deploy this is the pre-auth admin-claim
+    // surface. (The real race-closer is the ADMIN_USERNAME/ADMIN_PASSWORD startup
+    // pre-seed — when set, hasUsers() is already true and this 409s.)
+    const ip = clientIp(req);
+    if (loginLimiter.blocked(ip)) { sendJson(res, 429, { error: 'too many setup attempts — try again later' }); return; }
     let body: { username?: unknown; password?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     const created = await authStore.createUser(String(body.username ?? ''), String(body.password ?? ''), 'admin');
-    if (!created.ok) { sendJson(res, 400, { error: created.error }); return; }
+    if (!created.ok) { loginLimiter.fail(ip); sendJson(res, 400, { error: created.error }); return; }
     const username = String(body.username);
     const token = await authStore.issueToken(username);
     setAuthCookie(res, token);
-    sendJson(res, 200, { authed: true, username, role: 'admin', token });
+    // Token via cookie (browser) + X-Auth-Token header (script/CLI Bearer) — never
+    // in the JSON body, so it can't leak into response-body logs.
+    res.setHeader('X-Auth-Token', token);
+    sendJson(res, 200, { authed: true, username, role: 'admin' });
   }
 
   async function handleAuthLogin(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    const ip = req.socket.remoteAddress ?? 'unknown';
-    if (loginLimiter.blocked(ip)) { sendJson(res, 429, { error: 'too many failed logins — try again later' }); return; }
+    const ip = clientIp(req);
     let body: { username?: unknown; password?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    // Two buckets: per-IP (one host hammering) AND per-username (a distributed
+    // credential-stuffing run that spreads guesses for one account across many
+    // IPs). Either being full blocks the attempt.
+    const userKey = `user:${String(body.username ?? '')}`;
+    if (loginLimiter.blocked(ip) || loginLimiter.blocked(userKey)) { sendJson(res, 429, { error: 'too many failed logins — try again later' }); return; }
     const user = await authStore.verifyPassword(String(body.username ?? ''), String(body.password ?? ''));
     if (!user) {
       loginLimiter.fail(ip);
+      loginLimiter.fail(userKey);
       sendJson(res, 401, { error: '帳號或密碼錯誤' });
       return;
     }
     loginLimiter.succeed(ip);
-    // The raw token is also returned in the body for script/CLI use
-    // (Authorization: Bearer) — the browser flow relies on the cookie alone.
+    loginLimiter.succeed(userKey);
+    // Token via cookie (browser) + X-Auth-Token header (script/CLI Bearer) — never
+    // in the JSON body, so it can't leak into response-body logs.
     const token = await authStore.issueToken(user.username);
     setAuthCookie(res, token);
-    sendJson(res, 200, { authed: true, username: user.username, role: user.role, token });
+    res.setHeader('X-Auth-Token', token);
+    sendJson(res, 200, { authed: true, username: user.username, role: user.role });
   }
 
   async function handleAuthLogout(req: IncomingMessage, res: import('node:http').ServerResponse) {
@@ -2333,7 +2624,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (!r.ok) { sendJson(res, 400, { error: r.error }); return; }
     const token = await authStore.issueToken(user.username);
     setAuthCookie(res, token);
-    sendJson(res, 200, { ok: true, token });
+    res.setHeader('X-Auth-Token', token);
+    sendJson(res, 200, { ok: true });
   }
 
   // Track all open HTTP sockets so we can destroy them during forced shutdown.
@@ -2467,7 +2759,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'GET' && urlPath === '/api/env') {
       try {
         const [env, freshness] = await Promise.all([probeEnv(opts.repoRoot), loadFreshness(opts.repoRoot)]);
-        sendJson(res, 200, { ...env, freshness });
+        // Members get the readiness flags but NOT the absolute VPS paths (the
+        // crawl UI is admin-only anyway). Strip projectPath/engineRoot and the
+        // path-bearing check detail strings for non-admin team users.
+        const safe = (mode === 'team' && gateUser && gateUser.role !== 'admin')
+          ? redactEnvForMember(env) : env;
+        sendJson(res, 200, { ...safe, freshness });
       }
       catch (e) { console.error('env probe error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
@@ -2485,6 +2782,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'GET' && urlPath === '/api/graph') {
       try { await handleGraphGet(req, res, gateUser); }
       catch (e) { console.error('graph fetch error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'GET' && urlPath === '/api/fs/list') {
+      try { await handleFsList(req, res); }
+      catch (e) { console.error('fs list error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'GET' && urlPath === '/api/workmf') {
@@ -2509,7 +2811,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/explain') {
-      try { await handleAgentExplain(req, res); }
+      try { await handleAgentExplain(req, res, gateUser); }
       catch (e) { console.error('agent explain handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
@@ -2519,7 +2821,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       return;
     }
     if (req.method === 'GET' && urlPath === '/api/agent/status') {
-      try { await handleAgentStatus(res); }
+      try { await handleAgentStatus(res, gateUser); }
       catch (e) { console.error('agent status handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
@@ -2590,6 +2892,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'POST' && urlPath === '/api/agent/undo') {
       try { await handleAgentUndo(req, res, gateUser); }
       catch (e) { console.error('agent undo handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/agent/redo') {
+      try { await handleAgentRedo(req, res, gateUser); }
+      catch (e) { console.error('agent redo handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/agent/regenerate') {
@@ -2792,6 +3099,34 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   function filesFor(user: AuthUser | null, files: FileEntry[]): FileEntry[] {
     return files.filter((f) => canSeePath(user, f.path));
   }
+  // 系統主Agent deltas fan out to EVERY connected member. Strip personal-workspace
+  // paths the recipient cannot otherwise see (a graph_written.path, or a
+  // users/<other>/… path inside a tool_start summary) so the live stream never
+  // leaks a path the file-list / open gate would withhold.
+  function redactDeltaForRecipient(user: AuthUser | null, ev: AgentSseEvent): AgentSseEvent {
+    if (mode !== 'team' || !user || user.role === 'admin') return ev;
+    if (ev.type === 'graph_written' && !canSeePath(user, ev.path)) {
+      return { ...ev, path: '（個人工作區）' };
+    }
+    if (ev.type === 'tool_start') {
+      const redacted = ev.summary.replace(/users\/[^/\s]+\/[^\s）]*/g,
+        (p) => (canSeePath(user, p) ? p : 'users/…（私有）'));
+      if (redacted !== ev.summary) return { ...ev, summary: redacted };
+    }
+    return ev;
+  }
+  // Strip absolute VPS paths from the env probe for non-admin members: null the
+  // projectPath/engineRoot and replace the not-ready engine/project/noShadow
+  // detail strings (which embed those paths) with a neutral message. The ok
+  // flags survive so the member UI still reflects readiness.
+  function redactEnvForMember(env: Awaited<ReturnType<typeof probeEnv>>): Awaited<ReturnType<typeof probeEnv>> {
+    const pathChecks = new Set(['engine', 'project', 'noShadow']);
+    const checks: typeof env.checks = {};
+    for (const [k, v] of Object.entries(env.checks)) {
+      checks[k] = (!v.ok && pathChecks.has(k)) ? { ok: false, detail: '尚未就緒（詳情僅管理員可見）' } : v;
+    }
+    return { ...env, projectPath: null, engineRoot: null, checks };
+  }
   function onlineUsers(): string[] {
     const names = new Set<string>();
     for (const u of wsIdentity.values()) if (u) names.add(u.username);
@@ -2893,6 +3228,21 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     openSockets.add(sock);
     sock.once('close', () => openSockets.delete(sock));
   });
+
+  // Close the first-visitor-admin race on public deploys: when team mode starts
+  // with no accounts and ADMIN_USERNAME/ADMIN_PASSWORD are provided (the prod
+  // compose requires them), create the admin BEFORE the listener accepts a single
+  // request — so no internet client can claim admin in the boot window. With no
+  // env creds (LAN / dev / bare metal) the in-browser Setup flow is unchanged.
+  if (mode === 'team' && authStore && !(await authStore.hasUsers())) {
+    const bootUser = process.env.ADMIN_USERNAME?.trim();
+    const bootPass = process.env.ADMIN_PASSWORD;
+    if (bootUser && bootPass) {
+      const created = await authStore.createUser(bootUser, bootPass, 'admin');
+      if (created.ok) console.log(`[auth] pre-seeded admin "${bootUser}" from ADMIN_USERNAME/ADMIN_PASSWORD`);
+      else console.error(`[auth] admin pre-seed failed: ${created.error}`);
+    }
+  }
 
   // Local-first: bind loopback unless BIND_HOST opts into team mode. The crawl
   // endpoint spawns UnrealEditor-Cmd.exe, so a non-loopback bind is only safe

@@ -309,12 +309,21 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
       continue;
     }
     if (top.className === '/Script/UnrealEd.MaterialGraphNode_Comment') {
-      const sc = splitBody(top.bodyLines).scalars;
-      const kv = new Map(sc.map(scalarKV).filter(Boolean) as [string, string][]);
+      const { nested, scalars } = splitBody(top.bodyLines);
+      const kv = new Map(scalars.map(scalarKV).filter(Boolean) as [string, string][]);
+      // UE OMITS graph-node NodeWidth/NodeHeight when they equal the comment CDO default
+      // (default width 400), so a default-sized comment ships with no NodeWidth line. The inner
+      // MaterialExpressionComment ALWAYS carries SizeX/SizeY — fall back to it. Without this a
+      // missing NodeWidth defaulted to 0, collapsing the box so its `contains` (recovered
+      // geometrically below) came back empty and the whole comment frame vanished on import.
+      const fill = nested.find(n => !n.className) ?? nested.find(n => n.className);
+      const inner = new Map(splitBody(fill?.bodyLines ?? []).scalars.map(scalarKV).filter(Boolean) as [string, string][]);
+      const dim = (node: string | undefined, size: string | undefined) =>
+        node != null ? Number(node) : size != null ? Number(size) : 0;
       comments.push({
         x: Number(kv.get('NodePosX') ?? 0), y: Number(kv.get('NodePosY') ?? 0),
-        w: Number(kv.get('NodeWidth') ?? 0), h: Number(kv.get('NodeHeight') ?? 0),
-        text: unquoteStr(kv.get('NodeComment') ?? '""'),
+        w: dim(kv.get('NodeWidth'), inner.get('SizeX')), h: dim(kv.get('NodeHeight'), inner.get('SizeY')),
+        text: unquoteStr(kv.get('NodeComment') ?? inner.get('Text') ?? '""'),
         color: rgbaToHex(kv.get('CommentColor') ?? '(R=0.5,G=0.5,B=0.5,A=1.0)'),
       });
       continue;
@@ -649,7 +658,16 @@ export function parseUET3D(text: string, meta: ExportMeta, opts: { name?: string
     type: graphType,
     name: opts.name ?? 'imported',
     nodes: [
-      ...importNodes.map(n => (Object.keys(n.params).length ? { id: n.id, type: n.type, params: n.params } : { id: n.id, type: n.type })),
+      // Carry each node's UE editor position (rounded to UE's integer space) so an
+      // imported graph renders at its authored layout and round-trips back to UE
+      // unchanged. The MaterialOutput root carries no expression position; the
+      // viewer's hybrid layout places it by its wiring (CLAUDE.md invariant #6).
+      ...importNodes.map(n => ({
+        id: n.id,
+        type: n.type,
+        ...(Object.keys(n.params).length ? { params: n.params } : {}),
+        pos: { x: Math.round(n.pos.x), y: Math.round(n.pos.y) },
+      })),
       ...(outputNode ? [outputNode] : []),
     ],
     connections,

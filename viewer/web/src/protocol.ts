@@ -7,7 +7,11 @@ export interface NodeProvenance {
   freshnessTs: string | null;
 }
 
-export interface NodeJson { id: string; type: string; params?: Record<string, unknown>; }
+// `pos` is the node's UE editor position (integer UE space). OPTIONAL: present on
+// UE-imported / user-saved graphs so they render at their authored layout and
+// round-trip back to UE unchanged; absent on AI-authored graphs, which dagre
+// auto-lays-out. See CLAUDE.md invariant #6 (hybrid layout).
+export interface NodeJson { id: string; type: string; params?: Record<string, unknown>; pos?: { x: number; y: number }; }
 export interface ConnectionJson { from: string; to: string; }
 export interface CommentJson { id: string; text: string; color?: string; contains: string[]; }
 

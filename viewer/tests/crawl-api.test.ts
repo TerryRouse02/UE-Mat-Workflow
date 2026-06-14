@@ -161,6 +161,21 @@ describe('crawl API', () => {
     await server.close();
   }, 5000);
 
+  it('POST /api/crawl accepts the compile kind (plugin build, not rejected as unknown)', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const r = await request(server.port, 'POST', '/api/crawl', { headers: { origin: `http://127.0.0.1:${server.port}` }, body: JSON.stringify({ kind: 'compile' }) });
+    expect(r.status).toBe(200);
+    expect(JSON.parse(r.body).jobId).toMatch(/^crawl-/);
+    await server.close();
+  }, 5000);
+
+  it('POST /api/crawl rejects contentRoots for the compile kind (it takes no editor scope)', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const r = await request(server.port, 'POST', '/api/crawl', { headers: { origin: `http://127.0.0.1:${server.port}` }, body: JSON.stringify({ kind: 'compile', contentRoots: '/Game' }) });
+    expect(r.status).toBe(400);
+    await server.close();
+  }, 5000);
+
   it('POST /api/crawl accepts a single content root but rejects multiple / malformed', async () => {
     const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
     const origin = `http://127.0.0.1:${server.port}`;

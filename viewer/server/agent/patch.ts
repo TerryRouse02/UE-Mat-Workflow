@@ -18,6 +18,9 @@ export interface AddNodeOp {
   id?: string;
   type: string;
   params?: Record<string, unknown>;
+  /** UE editor position (UE space). Optional — omit to let the viewer auto-place
+      the node near its wiring; set it (or use setPosition) to control placement. */
+  pos?: { x: number; y: number };
   why?: string;
 }
 
@@ -34,6 +37,10 @@ export interface InsertNodeOp {
   inputPin?: string;
   /** Omitted → first output pin of the type's DB signature (needs pinLookup). */
   outputPin?: string;
+  /** UE editor position. Optional — defaults to the midpoint of the spliced
+      connection's endpoints when both carry a position; else the viewer
+      auto-places it. */
+  pos?: { x: number; y: number };
   why?: string;
 }
 
@@ -99,6 +106,13 @@ export interface SetDescriptionOp {
   why?: string;
 }
 
+export interface SetPositionOp {
+  op: 'setPosition';
+  id: string;
+  pos: { x: number; y: number };
+  why?: string;
+}
+
 export type PatchOp =
   | AddNodeOp
   | InsertNodeOp
@@ -109,12 +123,13 @@ export type PatchOp =
   | RenameNodeOp
   | ConnectOp
   | DisconnectOp
-  | SetDescriptionOp;
+  | SetDescriptionOp
+  | SetPositionOp;
 
 /** Canonical op names, in the order the tool docstring lists them. */
 export const SUPPORTED_OPS = [
   'addNode', 'insertNode', 'removeNode', 'setParam', 'removeParam', 'setNodeType',
-  'renameNode', 'connect', 'disconnect', 'setDescription',
+  'renameNode', 'connect', 'disconnect', 'setDescription', 'setPosition',
 ] as const;
 
 /**
@@ -145,6 +160,8 @@ const OP_ALIASES: Record<string, PatchOp['op']> = {
   remove_connection: 'disconnect',
   delete_connection: 'disconnect',
   set_description: 'setDescription',
+  set_position: 'setPosition',
+  move_node: 'setPosition',
 };
 
 /** Resolve alias op names to canonical ones; canonical ops pass through unchanged. */
@@ -271,6 +288,9 @@ export function changedNodeIds(ops: PatchOp[]): string[] {
       case 'renameNode':
         ids.add(op.newId);
         break;
+      case 'setPosition':
+        ids.add(op.id);
+        break;
       case 'connect':
       case 'disconnect':
         ids.add(op.from.slice(0, op.from.indexOf(':')));
@@ -296,6 +316,7 @@ function applyOp(g: MatGraph, op: PatchOp, diff: string[], why: string, pinLooku
     case 'connect':    return applyConnect(g, op, diff, why);
     case 'disconnect': return applyDisconnect(g, op, diff, why);
     case 'setDescription': return applySetDescription(g, op, diff, why);
+    case 'setPosition': return applySetPosition(g, op, diff, why);
     default:
       // ops arrive as a blind cast from LLM output — an unknown op must produce
       // a clear applyError instead of falling through to undefined. Listing the
@@ -320,8 +341,25 @@ function applyAddNode(g: MatGraph, op: AddNodeOp, diff: string[], why: string): 
   if (op.params && Object.keys(op.params).length > 0) {
     node.params = op.params;
   }
+  if (op.pos && Number.isFinite(op.pos.x) && Number.isFinite(op.pos.y)) {
+    node.pos = { x: Math.round(op.pos.x), y: Math.round(op.pos.y) };
+  }
   g.nodes.push(node);
   diff.push(`加入了 \`${op.type}\` 節點「\`${op.id}\`」${why}`);
+  return null;
+}
+
+function applySetPosition(g: MatGraph, op: SetPositionOp, diff: string[], why: string): string | null {
+  const node = g.nodes.find(n => n.id === op.id);
+  if (!node) {
+    return `setPosition: node "${op.id}" not found`;
+  }
+  const p = op.pos;
+  if (!p || typeof p !== 'object' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) {
+    return 'setPosition: pos must be {x:<number>, y:<number>}';
+  }
+  node.pos = { x: Math.round(p.x), y: Math.round(p.y) };
+  diff.push(`把節點「\`${op.id}\`」移到 (${node.pos.x}, ${node.pos.y})${why}`);
   return null;
 }
 
@@ -448,6 +486,25 @@ function applyInsertNode(
   const node: Node = { id: op.id, type: op.type };
   if (op.params && Object.keys(op.params).length > 0) {
     node.params = op.params;
+  }
+  // Position: explicit beats the auto-midpoint of the spliced endpoints, so a
+  // node inserted into a positioned graph lands on the wire instead of being
+  // auto-placed. Endpoints are looked up before the node is pushed.
+  if (op.pos && Number.isFinite(op.pos.x) && Number.isFinite(op.pos.y)) {
+    node.pos = { x: Math.round(op.pos.x), y: Math.round(op.pos.y) };
+  } else {
+    const fromNode = g.nodes.find(n => n.id === b.from.slice(0, b.from.indexOf(':')));
+    const toNode = g.nodes.find(n => n.id === b.to.slice(0, b.to.indexOf(':')));
+    if (
+      fromNode?.pos && toNode?.pos &&
+      Number.isFinite(fromNode.pos.x) && Number.isFinite(fromNode.pos.y) &&
+      Number.isFinite(toNode.pos.x) && Number.isFinite(toNode.pos.y)
+    ) {
+      node.pos = {
+        x: Math.round((fromNode.pos.x + toNode.pos.x) / 2),
+        y: Math.round((fromNode.pos.y + toNode.pos.y) / 2),
+      };
+    }
   }
   g.connections.splice(connIdx, 1);
   g.nodes.push(node);

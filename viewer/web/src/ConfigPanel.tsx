@@ -6,12 +6,14 @@ import { MyAccountSection } from './MyAccount';
 import { TeamUsageSection } from './TeamUsage';
 import { ProposalInboxSection } from './ProposalInbox';
 import type { CrawlKind } from './crawlRequest';
+import { compilePluginAction } from './compilePluginState';
 import { diagnoseCrawl } from './crawlDiagnosis';
 import { Icon } from './Icon';
 import './config.css';
 import { fmtTimeCompact as fmtTime, relTimeMinutes as relTime } from './timeUtils';
 import { parseLogLine } from './uiHelpers';
 import type { ProviderStatus } from './agent/protocol';
+import { FsBrowser } from './FsBrowser';
 
 // ─── CRAWL_KIND_META ────────────────────────────────────────────────────────
 
@@ -41,6 +43,12 @@ const CRAWL_KIND_META: Record<CrawlKind, CrawlMeta> = {
     en: 'Re-crawl Engine Material Functions',
     desc: '掃描 /Engine/ 下所有官方 MaterialFunction，刷新引擎 MF 索引。僅在升版後需要。',
     refresh: '節點庫 · Engine MF 分頁',
+  },
+  compile: {
+    label: '編譯插件',
+    en: 'Compile Plugin Binary',
+    desc: '用 RunUAT BuildPlugin 為目前作業系統（Windows .dll 或 macOS .dylib）編譯爬取用的外掛二進位，放進 tools 的 compiled/。第一次使用、或升級引擎導致 ABI 不符時需要；完成後「已編譯外掛」檢查即轉綠。（Windows 上會更新已提交的 compiled/ 目錄，事後可能需要 git commit；macOS 只動 gitignored 的 Binaries/Mac）',
+    refresh: '環境檢查 · 已編譯外掛',
   },
 };
 
@@ -92,13 +100,17 @@ interface PathsSectionProps {
   saveConfig: (p: string, e: string) => Promise<{ ok: boolean; error?: string }>;
   initialProjectPath: string;
   initialEngineRoot: string;
+  /** Local mode only — the host file picker is hidden in team mode. */
+  allowBrowse: boolean;
 }
 
-function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot }: PathsSectionProps) {
+function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot, allowBrowse }: PathsSectionProps) {
   const [projectPath, setProjectPath] = useState(initialProjectPath);
   const [engineRoot, setEngineRoot] = useState(initialEngineRoot);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  // Which field's host-directory picker is open (null = none).
+  const [browsing, setBrowsing] = useState<'project' | 'engine' | null>(null);
 
   // Seed once from env, never clobber an edit in progress
   const seededRef = useRef(false);
@@ -135,6 +147,11 @@ function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot }: Pat
             placeholder="C:\Path\To\Project.uproject"
             onChange={e => setProjectPath(e.target.value)}
           />
+          {allowBrowse && (
+            <button className="inp-browse" title="瀏覽選取 .uproject 檔案" onClick={() => setBrowsing('project')}>
+              瀏覽
+            </button>
+          )}
         </div>
       </div>
       <div className="field">
@@ -147,8 +164,33 @@ function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot }: Pat
             placeholder="C:\Program Files\Epic Games\UE_5.7"
             onChange={e => setEngineRoot(e.target.value)}
           />
+          {allowBrowse && (
+            <button className="inp-browse" title="瀏覽選取引擎根目錄" onClick={() => setBrowsing('engine')}>
+              瀏覽
+            </button>
+          )}
         </div>
       </div>
+
+      {browsing === 'project' && (
+        <FsBrowser
+          pick="file"
+          fileExt="uproject"
+          initialPath={projectPath}
+          title="選取 .uproject 專案檔"
+          onPick={p => { setProjectPath(p); setBrowsing(null); }}
+          onClose={() => setBrowsing(null)}
+        />
+      )}
+      {browsing === 'engine' && (
+        <FsBrowser
+          pick="dir"
+          initialPath={engineRoot}
+          title="選取 UE 引擎根目錄"
+          onPick={p => { setEngineRoot(p); setBrowsing(null); }}
+          onClose={() => setBrowsing(null)}
+        />
+      )}
       <button
         className="btn sm"
         style={{ marginTop: 2 }}
@@ -171,10 +213,12 @@ function PathsSection({ saveConfig, initialProjectPath, initialEngineRoot }: Pat
 interface EnvSectionProps {
   env: import('../../server/crawl-types').EnvStatus | null;
   refreshEnv: () => void;
+  onCompile: () => void;
 }
 
-function EnvSection({ env, refreshEnv }: EnvSectionProps) {
+function EnvSection({ env, refreshEnv, onCompile }: EnvSectionProps) {
   const allOk = !!env?.ready;
+  const compile = compilePluginAction(env);
   return (
     <div className="cfg-sec">
       <div className="sech">
@@ -206,13 +250,25 @@ function EnvSection({ env, refreshEnv }: EnvSectionProps) {
           );
         })}
       </div>
-      <button
-        className="btn sm"
-        style={{ marginTop: 10 }}
-        onClick={() => void refreshEnv()}
-      >
-        <Icon name="refresh" size={13} /> 重新檢查
-      </button>
+      <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+        <button
+          className="btn sm"
+          onClick={() => void refreshEnv()}
+        >
+          <Icon name="refresh" size={13} /> 重新檢查
+        </button>
+        {/* Build the external plugin binary for this OS (Win64 .dll / Mac .dylib).
+            Runs on either platform via RunUAT, so a macOS user can produce the
+            gitignored .dylib here instead of dropping to a terminal. */}
+        <button
+          className={'btn sm' + (compile.emphasize ? ' primary' : '')}
+          disabled={!compile.enabled}
+          title={compile.hint}
+          onClick={onCompile}
+        >
+          <Icon name="chip" size={13} /> 編譯插件
+        </button>
+      </div>
     </div>
   );
 }
@@ -220,7 +276,9 @@ function EnvSection({ env, refreshEnv }: EnvSectionProps) {
 // ─── CrawlButton ────────────────────────────────────────────────────────────
 
 interface CrawlButtonProps {
-  k: CrawlKind;
+  // 'compile' is a plugin build with no freshness entry — it lives in EnvSection,
+  // never as a CrawlButton, so excluding it keeps the freshness lookup below sound.
+  k: Exclude<CrawlKind, 'compile'>;
   freshness: import('../../server/crawl-types').CrawlFreshness | undefined;
   justRan: CrawlKind | null;
   disabled: boolean;
@@ -434,9 +492,9 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
           <div className="run-title">{meta.label}</div>
           <div className="run-sub">
             {running
-              ? '執行中…（編輯器啟動需數分鐘）'
+              ? (kindKey === 'compile' ? '編譯中…（RunUAT 建置插件需數分鐘）' : '執行中…（編輯器啟動需數分鐘）')
               : ok
-              ? '完成，已即時刷新'
+              ? (kindKey === 'compile' ? '完成，外掛二進位已建置' : '完成，已即時刷新')
               : `${meta.label}失敗${crawl.exitCode != null ? `（exit ${crawl.exitCode}）` : ''}`
             }
           </div>
@@ -465,11 +523,16 @@ function RunPanel({ crawl, startRef, onStop, onReset, onRetry }: RunPanelProps) 
       {ok && (
         <div className="run-result ok">
           <div className="rt">
-            <Icon name="check" size={15} /> {meta.label}完成，已即時刷新
+            <Icon name="check" size={15} /> {meta.label}完成{kindKey === 'compile' ? '，外掛二進位已建置' : '，已即時刷新'}
           </div>
           {kindKey === 'projectmat' && (
             <div className="fix-text" style={{ color: 'var(--text-dim)' }}>
               → 已填入 Files 分頁的「工作」區（母材質，以及其引用到的專案 MF）。
+            </div>
+          )}
+          {kindKey === 'compile' && (
+            <div className="fix-text" style={{ color: 'var(--text-dim)' }}>
+              → 「環境檢查」的「已編譯外掛」已重新探測；正常會轉綠。
             </div>
           )}
         </div>
@@ -1132,8 +1195,9 @@ export function ConfigPanel({ mfRoot, setMfRoot, matRoot, setMatRoot }: ConfigPa
             saveConfig={saveConfig}
             initialProjectPath={env?.projectPath ?? ''}
             initialEngineRoot={env?.engineRoot ?? ''}
+            allowBrowse={state.auth?.mode !== 'team'}
           />
-          <EnvSection env={env} refreshEnv={() => void refreshEnv()} />
+          <EnvSection env={env} refreshEnv={() => void refreshEnv()} onCompile={() => onStart('compile')} />
           <CrawlOpsSection
             env={env}
             mfRoot={mfRoot}

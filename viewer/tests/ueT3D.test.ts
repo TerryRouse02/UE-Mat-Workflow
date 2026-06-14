@@ -530,8 +530,14 @@ describe('graphToUET3D', () => {
       mfc: { inputs: [{ name: 'BaseNormal', type: 'Float3' }], outputs: [{ name: 'Result', type: 'Float3' }] },
     };
     const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], mfc: [200, 0] }), META, derived, { mfContentRoot: '/Game/' });
-    expect(text).toContain("MaterialFunction=MaterialFunction'\"/Game/blend_normals.blend_normals\"'");
-    expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,InputName="BaseNormal"))');
+    expect(text).toContain("MaterialFunction=\"/Script/Engine.MaterialFunction'/Game/blend_normals.blend_normals'\"");
+    // Connected input: fully-qualified Expression ref + ExpressionInputId, in signature order.
+    expect(text).toMatch(/FunctionInputs\(0\)=\(ExpressionInputId=[0-9A-F]{32},Input=\(Expression="\/Script\/Engine\.MaterialExpressionConstant'MaterialGraphNode_0\.MaterialExpressionConstant_0'",InputName="BaseNormal"\)\)/);
+    // The output is emitted (FunctionOutputs + Outputs) so the call node shows it on paste.
+    expect(text).toMatch(/FunctionOutputs\(0\)=\(ExpressionOutputId=[0-9A-F]{32},Output=\(OutputName="Result"\)\)/);
+    expect(text).toContain('Outputs(0)=(OutputName="Result")');
+    // Input graph-pin carries UE's type tag (Float3 -> V3); output pin stays untagged.
+    expect(text).toContain('PinName="BaseNormal (V3)"');
     expect(warnings.some(w => /blend_normals.*auto-link|create.*blend_normals/i.test(w))).toBe(true);
   });
 
@@ -551,11 +557,64 @@ describe('graphToUET3D', () => {
       mfc: { inputs: [{ name: 'UV', type: 'Float2' }], outputs: [{ name: 'Result', type: 'Float3' }] },
     };
     const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], mfc: [200, 0] }), META, derived, { mfContentRoot: '/Game/' });
-    expect(text).toContain("MaterialFunction=MaterialFunction'\"/Game/Functions/MF_Foo.MF_Foo\"'");
-    expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,InputName="UV"))');
-    expect(text).toContain('PinName="Result"');
+    expect(text).toContain("MaterialFunction=\"/Script/Engine.MaterialFunction'/Game/Functions/MF_Foo.MF_Foo'\"");
+    expect(text).toMatch(/FunctionInputs\(0\)=\(ExpressionInputId=[0-9A-F]{32},Input=\(Expression="[^"]+MaterialExpressionConstant_0'",InputName="UV"\)\)/);
+    expect(text).toContain('PinName="UV (V2)"');   // Float2 -> V2 tag on the input pin
+    expect(text).toContain('PinName="Result"');     // output pin: untagged, as in UE
     // Asset path already starts with '/', so the "create MF in UE for auto-link" warning must NOT fire.
     expect(warnings.some(w => /auto-link/i.test(w))).toBe(false);
+  });
+
+  it('emits the FULL signature of a multi-output MaterialFunctionCall (the MF_RayMarch_Tangent shape)', () => {
+    // The reported bug: only CONNECTED inputs and NO outputs reached UE, so the call node pasted
+    // with blank pins and no outputs. Every input (connected + unconnected) must become a
+    // FunctionInputs(i); every output a FunctionOutputs(i) + Outputs(i); input graph-pins carry
+    // UE's type tag so UE re-wires by name after it reloads the function on paste.
+    const graph: MatGraph = {
+      schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
+      nodes: [
+        { id: 'tex', type: 'Constant', params: { R: 1 } },
+        { id: 'jit', type: 'Constant', params: { R: 1 } },
+        { id: 'mfc', type: 'MaterialFunctionCall', params: { MaterialFunction: '/Game/G1/MF_RayMarch.MF_RayMarch' } },
+        { id: 'sink', type: 'Multiply' },
+      ],
+      connections: [
+        { from: 'tex:Value', to: 'mfc:Texture Object' },
+        { from: 'jit:Value', to: 'mfc:Temporal Jitter' },
+        { from: 'mfc:Light Energy', to: 'sink:A' },        // an output wired downstream
+      ],
+    };
+    const derived: Record<string, DerivedPins> = {
+      mfc: {
+        inputs: [
+          { name: 'Texture Object', type: 'Texture2D' },     // T2d (connected)
+          { name: 'Max Steps', type: 'Float1' },             // S   (unconnected)
+          { name: 'Temporal Jitter', type: 'StaticBool' },   // SB  (connected)
+          { name: 'Heightmap Channel', type: 'Float4' },     // V4  (unconnected)
+        ],
+        outputs: [
+          { name: 'Light Energy', type: 'Float1' },
+          { name: 'Step Complexity', type: 'Float1' },
+        ],
+      },
+    };
+    const { text, warnings } = graphToUET3D(graph, layout({ tex: [0, 0], jit: [0, 100], mfc: [200, 0], sink: [400, 0] }), META, derived, { mfContentRoot: '/Game/' });
+    // Every input present, in signature order; unconnected ones as OutputIndex=-1.
+    expect(text).toMatch(/FunctionInputs\(0\)=\(ExpressionInputId=[0-9A-F]{32},Input=\(Expression=.*InputName="Texture Object"\)\)/);
+    expect(text).toMatch(/FunctionInputs\(1\)=\(ExpressionInputId=[0-9A-F]{32},Input=\(OutputIndex=-1,InputName="Max Steps"\)\)/);
+    expect(text).toMatch(/FunctionInputs\(2\)=\(ExpressionInputId=[0-9A-F]{32},Input=\(Expression=.*InputName="Temporal Jitter"\)\)/);
+    expect(text).toMatch(/FunctionInputs\(3\)=\(ExpressionInputId=[0-9A-F]{32},Input=\(OutputIndex=-1,InputName="Heightmap Channel"\)\)/);
+    // Both outputs present (FunctionOutputs + base Outputs) — the previously-missing half.
+    expect(text).toMatch(/FunctionOutputs\(0\)=\(ExpressionOutputId=[0-9A-F]{32},Output=\(OutputName="Light Energy"\)\)/);
+    expect(text).toMatch(/FunctionOutputs\(1\)=\(ExpressionOutputId=[0-9A-F]{32},Output=\(OutputName="Step Complexity"\)\)/);
+    expect(text).toContain('Outputs(0)=(OutputName="Light Energy")');
+    expect(text).toContain('Outputs(1)=(OutputName="Step Complexity")');
+    // Input graph-pins carry UE's type tag; outputs stay untagged.
+    expect(text).toContain('PinName="Texture Object (T2d)"');
+    expect(text).toContain('PinName="Temporal Jitter (SB)"');
+    expect(text).toContain('PinName="Heightmap Channel (V4)"');
+    expect(text).toContain('PinName="Light Energy"');
+    expect(warnings).toEqual([]);
   });
 
   it('resolves a MaterialFunctionCall input pin index from FunctionInputs(n) metadata', () => {
@@ -575,10 +634,10 @@ describe('graphToUET3D', () => {
     expect(warnings).toEqual([]);
   });
 
-  it('warns when a MaterialFunctionCall input pin is not found in the fallback', () => {
-    // Reserved MaterialFunctionCall meta has no input mappings, so the index falls back
-    // to derived-pin order. If the wired pin isn't in derivedPins, we keep a safe default
-    // (index 0) but surface a warning so the silent mis-wire becomes visible.
+  it('drops a MaterialFunctionCall wire whose target pin is not in the function signature', () => {
+    // With the signature resolved (derivedPins present), a wire into a pin the function does NOT
+    // have is invalid - UE discards it on paste. We drop it with a warning instead of emitting a
+    // bogus FunctionInputs entry, while still emitting every REAL input (here BaseNormal, unwired).
     const graph: MatGraph = {
       schemaVersion: '1.0', ueVersion: '5.7', type: 'Material', name: 'm',
       nodes: [
@@ -591,10 +650,10 @@ describe('graphToUET3D', () => {
       mfc: { inputs: [{ name: 'BaseNormal', type: 'Float3' }], outputs: [{ name: 'Result', type: 'Float3' }] },
     };
     const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], mfc: [200, 0] }), META, derived, { mfContentRoot: '/Game/' });
-    // Safe default index 0 is still emitted (the wire is not dropped silently).
-    expect(text).toContain('FunctionInputs(0)=(Input=(Expression=MaterialExpressionConstant_0,InputName="MissingPin"))');
-    // ...but the unresolved pin is now visible as a warning.
-    expect(warnings.some(w => /MissingPin/.test(w))).toBe(true);
+    // The real input is emitted, unconnected (no wire reached it).
+    expect(text).toMatch(/FunctionInputs\(0\)=\(ExpressionInputId=[0-9A-F]{32},Input=\(OutputIndex=-1,InputName="BaseNormal"\)\)/);
+    expect(text).not.toContain('InputName="MissingPin"');  // the bogus pin never becomes an entry
+    expect(warnings.some(w => /MissingPin/.test(w))).toBe(true);  // and the dropped wire is surfaced
   });
 
   it('passes through an engine-path MaterialFunction without a warning', () => {
@@ -604,7 +663,7 @@ describe('graphToUET3D', () => {
       connections: [],
     };
     const { text, warnings } = graphToUET3D(graph, layout({ mfc: [0, 0] }), META, { mfc: { inputs: [], outputs: [] } });
-    expect(text).toContain("MaterialFunction=MaterialFunction'\"/Engine/Functions/Engine_MaterialFunctions02/Utility/Foo.Foo\"'");
+    expect(text).toContain("MaterialFunction=\"/Script/Engine.MaterialFunction'/Engine/Functions/Engine_MaterialFunctions02/Utility/Foo.Foo'\"");
     expect(warnings).toEqual([]);
   });
 
@@ -619,7 +678,7 @@ describe('graphToUET3D', () => {
     };
     const { text, warnings } = graphToUET3D(graph, layout({ src: [0, 0], blend: [200, 0] }), META, NO_PINS);
     expect(text).toContain('Begin Object Class=/Script/Engine.MaterialExpressionMaterialFunctionCall');
-    expect(text).toContain("MaterialFunction=MaterialFunction'\"/Engine/Functions/Engine_MaterialFunctions02/Utility/BlendAngleCorrectedNormals.BlendAngleCorrectedNormals\"'");
+    expect(text).toContain("MaterialFunction=\"/Script/Engine.MaterialFunction'/Engine/Functions/Engine_MaterialFunctions02/Utility/BlendAngleCorrectedNormals.BlendAngleCorrectedNormals'\"");
     expect(text).toContain('FunctionInputs(1)=(Input=(Expression=MaterialExpressionConstant_0,InputName="AdditionalNormal"))');
     expect(warnings).toEqual([]);
   });

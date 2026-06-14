@@ -1,7 +1,25 @@
 # deploy/Caddyfile — HTTPS reverse proxy for the team-mode viewer.
 # Caddy provisions certificates automatically and proxies WebSockets without
 # extra configuration. Remember to start the viewer with COOKIE_SECURE=1.
+#
+# Both knobs have defaults, so this file works as-is for a host-run Caddy in
+# front of a loopback-published viewer. docker-compose.prod.yml overrides them
+# via env (VIEWER_DOMAIN=your domain, VIEWER_UPSTREAM=ue-mat-viewer:5790) so the
+# SAME file also drives the bundled-Caddy production stack.
 
-mat.example.com {
-	reverse_proxy 127.0.0.1:5790
+{$VIEWER_DOMAIN:mat.example.com} {
+	reverse_proxy {$VIEWER_UPSTREAM:127.0.0.1:5790}
+
+	# Security response headers for the public deployment. HSTS pins HTTPS after
+	# the first visit; the rest blunt clickjacking, MIME-sniffing, and referrer
+	# leakage. The CSP permits Vite's inline bundle scripts/styles + the same-origin
+	# WebSocket and forbids framing — tighten script-src to a nonce later if wanted.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Frame-Options           "DENY"
+		X-Content-Type-Options    "nosniff"
+		Referrer-Policy           "strict-origin-when-cross-origin"
+		Content-Security-Policy   "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:; frame-ancestors 'none'"
+		-Server
+	}
 }

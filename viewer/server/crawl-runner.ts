@@ -11,7 +11,7 @@ import { resolve } from 'node:path';
 // an injectable spawnImpl + commandFor so it is fully unit-testable off-Windows
 // with a mock script; the Windows end-to-end run is verified separately.
 
-export type CrawlKind = 'export' | 'enginemf' | 'workmf' | 'projectmat';
+export type CrawlKind = 'export' | 'enginemf' | 'workmf' | 'projectmat' | 'compile';
 
 export type CrawlEvent =
   | { type: 'started'; jobId: string; kind: CrawlKind }
@@ -74,6 +74,14 @@ export const defaultCommandFor: CommandFor = (repoRoot, kind, opts, platform = p
       // (importProjectMaterials). Optional -ContentRoots narrows the /Game scan.
       return ps('plugin-src/Scripts/Run-ProjectMaterials.ps1',
         ['-StagingDir', resolve(repoRoot, PROJECTMAT_STAGING_REL), ...(opts?.contentRoots ? ['-ContentRoots', opts.contentRoots] : [])]);
+    case 'compile':
+      // Build the external UE plugin binary for THIS host OS — Win64 .dll or Mac
+      // .dylib — via RunUAT BuildPlugin, then drop it into tools/.../compiled/. No
+      // editor run, no metadata regen: this is the one-time (or post-engine-upgrade)
+      // build that turns the env "compiled plugin" check green on either platform.
+      // Package-Plugin.ps1 falls back to local.config.json for EngineRoot when no
+      // explicit -EngineRoot is passed, so it runs standalone with no args.
+      return ps('plugin-src/Scripts/Package-Plugin.ps1', []);
   }
 };
 

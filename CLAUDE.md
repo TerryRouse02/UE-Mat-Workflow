@@ -84,7 +84,11 @@ outcome injected into the requester's session); per-user daily quotas live in
 personal workspaces (WS file list + reads filtered per socket identity); the
 public session (系統主Agent) live-streams deltas over `publicAgentDelta`;
 `GET /api/export-html` bakes snapshots server-side; `POST /api/files` is human
-rename/duplicate/delete.
+rename/duplicate/delete + the `param` op (Inspector value-only param write-back —
+number/colour/bool/enum, re-validated then watcher-broadcast) + the `layout` op
+(「儲存版面」: writes each node's `pos`, re-validated then watcher-broadcast). `GET /api/fs/list`
+is the Config-tab path picker's directory lister (LOCAL mode only — 403s in team
+mode, never exposes a server's filesystem to remote members).
 Local mode constructs no auth store and skips every gate — behavior unchanged. `mode`,
 `authStore`, `secureCookies`, and `currentBindHost` are mutable runtime state; the `Team`
 object persists in `local.config.json`.
@@ -92,13 +96,16 @@ object persists in `local.config.json`.
 - `http-server.ts` — routes + WS. HTTP: `GET /api/env`, `GET /api/agent-pack/:file`
   (filename allowlist), `GET /api/workmf`,
   `GET /api/graph?path=` (stateless resolved-graph fetch — powers the web compare view;
-  canSeePath-guarded in team mode), `POST /api/config` (extended with optional `Llm`
+  canSeePath-guarded in team mode), `GET /api/fs/list?path=` (local-mode-only host
+  directory lister for the Config path picker; same-origin, 403 in team mode),
+  `POST /api/config` (extended with optional `Llm`
   object for AI config), `POST /api/crawl`, `POST /api/import`,
   `POST /api/agent/chat` (SSE — agent conversation loop),
   `GET /api/agent/status` (ProviderStatus — never contains apiKey),
   `POST /api/agent/explain` (one-shot LLM node explanation; JSON response; sameOrigin; concurrent-safe),
-  `POST /api/agent/undo` (restore previous checkpoint turn; sameOrigin; 409 while streaming),
-  `POST /api/agent/regenerate` (rewind last user turn — files+history+transcript — and return its text for a client re-send; sameOrigin; 409 while streaming),
+  `POST /api/agent/undo` (restore previous checkpoint turn — redoable: captures a post-image + pushes the turn onto the redo stack; sameOrigin; 409 while streaming),
+  `POST /api/agent/redo` (re-apply the last undone turn's post-image; sameOrigin; 409 while streaming),
+  `POST /api/agent/regenerate` (rewind last user turn — files+history+transcript — and return its text for a client re-send; non-redoable, clears the redo stack; sameOrigin; 409 while streaming),
   `POST /api/agent/db-edit` (apply a user-approved node-DB edit: validate → write → regen index → parity audit, rollback on failure; sameOrigin; single-flight),
   `POST /api/agent/reset` (abort in-flight chat + clear session; sameOrigin),
   `POST /api/agent/test` (verify the SAVED LLM config with one minimal request; sameOrigin),
@@ -170,7 +177,8 @@ object persists in `local.config.json`.
   open graph's `ueVersion`. **Baked at build time** (`dbRegistry.ts`, `engineMfRegistry.ts` via
   `import.meta.glob`) so snapshot/offline renders; **re-fetched at runtime** in live mode
   (`agentPackClient.ts`) so a crawl refreshes without a rebuild.
-- `Graph.tsx` + `layout.ts` — React Flow render; dagre auto-layout (no x/y in the JSON).
+- `Graph.tsx` + `layout.ts` — React Flow render; **hybrid layout** — honours stored `pos`
+  (UE-imported / user-saved), dagre-places the rest (invariant #6).
   Hover (≈500ms) on a node opens `NodeExplainPopover`; pane-click / Escape closes it.
 - `diff.ts` — pure graph-diff (`computeGraphDiff`/`buildDiffPayload`): union graph + per-node
   (added/removed/changed) and per-connection statuses. FileList's 「與目前圖比較」menu item
@@ -214,7 +222,14 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
 5. **Single sources of truth.** Crawl commands: `crawl-runner.ts` `defaultCommandFor` only. Wire
    types: `ws-protocol.ts` ↔ `web/src/protocol.ts` (mirror). Node-free shared types
    (`crawl-types.ts`, `workmf-types.ts`) exist so the web tsc program never pulls in `node:` typings.
-6. **No `x`/`y` positions in `.matgraph.json`.** Layout is dagre's job.
+6. **Node positions in `.matgraph.json` are OPTIONAL (`pos:{x,y}`, UE integer space).** Present on
+   UE-imported / user-saved graphs so they render at their authored layout and round-trip back to UE
+   unchanged; absent on AI-authored graphs. The viewer's **hybrid layout** (`layout.ts`) honours stored
+   positions and dagre-places only the nodes that lack one — a graph with NO `pos` lays out exactly as
+   before. Keep `pos` OPTIONAL on every producer (never require it). Dragging never auto-persists:
+   positions are written only by the explicit「儲存版面」button (`POST /api/files` op `layout`) or the
+   agent's `setPosition` / `addNode` / `insertNode` (auto-midpoint) `pos` ops — so a stray drag can
+   never dirty a committed graph.
 7. **Auth secrets stay server-side and out of git.** `viewer/.auth/` (scrypt hashes +
    hashed tokens) is gitignored like `local.config.json` (LLM key); neither may ever be
    echoed in an HTTP response, baked into a bundle, or committed. Local mode must stay
@@ -262,6 +277,34 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
   build. A mismatch surfaces as a crawl-time load error → repackage with `-ForcePackage`.
 - **snapshot ≠ live.** The exported single-file HTML has no server: it uses baked data, hides the
   Config tab's crawl controls, and never fetches the work-MF index.
+- **MaterialFunctionCall OUTPUT pins are resolved server-side, not at parse.** `parseUET3D` (pure,
+  client-capable) can't know an MF's output names — they aren't in the T3D — so it encodes MFC outputs
+  positionally: index 0 → `Result`, index N → `Out<N>`. `mf-resolver.ts` `resolveMfcOutputConnections`
+  rewrites those placeholders to the MF's real ordered names (engine/work index, or a sibling
+  `.matgraph.json`). It runs in `importProjectMaterials` — which is therefore **two-phase** (write ALL
+  staged dumps first so sibling MFs exist, *then* resolve) — and in `handleImport` (clipboard, best-effort).
+  Decode is **positional** (`Result`=0, `Out<N>`=N); never skip by name membership, or an MF that names an
+  output literally `Result`/`Out1` at another index mis-resolves. Don't collapse the importer to one-phase.
+- **MaterialFunctionCall EXPORT emits the WHOLE signature, not just the wires.** `export/ueT3D.ts` writes a
+  MFC as UE itself does (tests/fixtures/ue-official-stress.t3d): the function ref as
+  `MaterialFunction="/Script/Engine.MaterialFunction'<path>'"` (NOT `MaterialFunction'"<path>"'` — that does
+  not resolve, so UE can't reload the function and the node pastes with only the connected pins and no
+  outputs), EVERY input as `FunctionInputs(i)` in signature order (unwired → `OutputIndex=-1`), EVERY output
+  as `FunctionOutputs(i)` + `Outputs(i)`. Pins come from `derivedPins` (so the function must resolve — index
+  or sibling `.matgraph.json`); an unresolved MF falls back to connected-only. Input graph-pin names carry
+  UE's type tag (`"UVs (V2)"`, `mfcInputPinDisplay`); the PinId stays keyed on the bare name. The tag is what
+  preserves wires: UE reloads the function on paste, regenerates tagged pins, and re-links by matching the
+  OLD pin name to the NEW one — we lack the function's input GUIDs (sibling matgraphs don't store them), so
+  name-match is the only wire-survival path. Capturing `ExpressionInputId`/`ExpressionOutputId` in the crawl
+  would make wires survive via UE's native GUID path too.
+- **UE T3D OMITS properties equal to their CDO default — never `?? 0` a dimension.** UE's text export skips any
+  property whose value matches the class default, so a comment at the default width (400) ships with NO
+  graph-node `NodeWidth` line (and a default-height one no `NodeHeight`). `ueImport.ts` reads comment size with
+  a fallback to the inner `MaterialExpressionComment` `SizeX`/`SizeY` (always written) — the old `NodeWidth ?? 0`
+  collapsed such a box to zero width, so its geometric `contains` (which member nodes fall inside the rect) came
+  back empty and the whole comment frame vanished on import. The same trap applies to any other property parsed
+  with a `?? <assumed default>`: confirm the assumed default equals UE's CDO default, or read the always-present
+  source instead.
 
 ## Read next
 
