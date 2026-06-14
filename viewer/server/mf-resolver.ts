@@ -271,13 +271,31 @@ function pinsFromFunctionGraph(graph: MatGraph): DerivedPins {
   };
 }
 
+// Map a FunctionInput/Output node's authored type to the index type vocabulary
+// (Float1/Float2/Float3/Float4/Texture2D/StaticBool/MaterialAttributes/…), matching
+// what the WorkMF / Engine-MF crawl indexes emit. Accepts BOTH the raw UE enum a crawl
+// captures ("FunctionInput_Scalar") AND the shorthand some authored graphs use ("Scalar",
+// "VectorFloat3"). An unrecognised/absent type defaults to Float3 — UE's own default for a
+// FunctionInput whose type was never set (e.g. "Light Vector WorldSpace" → V3).
 function typeMapForInput(uiType?: string): string {
   switch (uiType) {
-    case 'Scalar':         return 'Float1';
-    case 'VectorFloat2':   return 'Float2';
-    case 'VectorFloat3':   return 'Float3';
-    case 'VectorFloat4':   return 'Float4';
-    case 'Texture2D':      return 'Texture2D';
-    default:               return 'Float3';
+    case 'Scalar':
+    case 'FunctionInput_Scalar':            return 'Float1';
+    case 'VectorFloat2':
+    case 'FunctionInput_Vector2':           return 'Float2';
+    case 'VectorFloat3':
+    case 'FunctionInput_Vector3':           return 'Float3';
+    case 'VectorFloat4':
+    case 'FunctionInput_Vector4':           return 'Float4';
+    case 'Texture2D':
+    case 'FunctionInput_Texture2D':         return 'Texture2D';
+    case 'FunctionInput_TextureCube':       return 'TextureCube';
+    case 'FunctionInput_VolumeTexture':     return 'VolumeTexture';
+    case 'FunctionInput_Texture2DArray':    return 'Texture2DArray';
+    case 'FunctionInput_TextureExternal':   return 'TextureExternal';
+    case 'FunctionInput_StaticBool':        return 'StaticBool';
+    case 'FunctionInput_Bool':              return 'Bool';
+    case 'FunctionInput_MaterialAttributes': return 'MaterialAttributes';
+    default:                                return 'Float3';
   }
 }

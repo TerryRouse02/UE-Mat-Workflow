@@ -285,6 +285,18 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
   staged dumps first so sibling MFs exist, *then* resolve) — and in `handleImport` (clipboard, best-effort).
   Decode is **positional** (`Result`=0, `Out<N>`=N); never skip by name membership, or an MF that names an
   output literally `Result`/`Out1` at another index mis-resolves. Don't collapse the importer to one-phase.
+- **MaterialFunctionCall EXPORT emits the WHOLE signature, not just the wires.** `export/ueT3D.ts` writes a
+  MFC as UE itself does (tests/fixtures/ue-official-stress.t3d): the function ref as
+  `MaterialFunction="/Script/Engine.MaterialFunction'<path>'"` (NOT `MaterialFunction'"<path>"'` — that does
+  not resolve, so UE can't reload the function and the node pastes with only the connected pins and no
+  outputs), EVERY input as `FunctionInputs(i)` in signature order (unwired → `OutputIndex=-1`), EVERY output
+  as `FunctionOutputs(i)` + `Outputs(i)`. Pins come from `derivedPins` (so the function must resolve — index
+  or sibling `.matgraph.json`); an unresolved MF falls back to connected-only. Input graph-pin names carry
+  UE's type tag (`"UVs (V2)"`, `mfcInputPinDisplay`); the PinId stays keyed on the bare name. The tag is what
+  preserves wires: UE reloads the function on paste, regenerates tagged pins, and re-links by matching the
+  OLD pin name to the NEW one — we lack the function's input GUIDs (sibling matgraphs don't store them), so
+  name-match is the only wire-survival path. Capturing `ExpressionInputId`/`ExpressionOutputId` in the crawl
+  would make wires survive via UE's native GUID path too.
 
 ## Read next
 
