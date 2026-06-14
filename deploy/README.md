@@ -96,6 +96,16 @@ VPS never compiles, holds no source, and rolls back by tag. Pieces:
 - `deploy/update.sh` — `pull` + `up -d` + prune. `deploy/.env` holds the domain,
   the tag, and the admin credentials.
 
+**Prerequisites on the VPS:** Docker Engine + Compose v2
+(`curl -fsSL https://get.docker.com | sudo sh`, then re-login so your user is in
+the `docker` group), and inbound **80 + 443** reachable from the internet.
+
+> ⚠️ **Open 80/443 at your cloud provider's security group / firewall — not just
+> the in-VM `ufw`.** They are independent layers; if the cloud firewall blocks
+> port 80, Let's Encrypt's challenge never reaches Caddy and no certificate is
+> issued. This is the #1 cause of "containers are Up but HTTPS won't load". Leave
+> 5790 closed (it stays on the internal compose network).
+
 One-time VPS setup:
 
 ```bash
@@ -112,9 +122,48 @@ The admin account is created from `ADMIN_USERNAME` / `ADMIN_PASSWORD` **before**
 the server accepts a request, so there is no first-visitor race to win — just
 log in with those credentials at `https://<your domain>` and add members.
 
-Updating: merge to `main` → CI green → image published → on the VPS run
-`./deploy/update.sh`. Rollback: `IMAGE_TAG=sha-abc1234 ./deploy/update.sh`.
+### Day-2 maintenance
+
+**Ship an update** — three steps:
+
+1. Merge your change to `main`.
+2. Wait for GitHub **Actions** to go green (**CI** → **Deploy image**); the new
+   image lands on GHCR as `:latest` and `:sha-<commit>`.
+3. On the VPS, one line:
+
+   ```bash
+   cd <repo> && git pull && ./deploy/update.sh
+   ```
+
+`update.sh` does `pull` + `up -d` + image prune — it only swaps the image.
+Accounts, graphs, sessions, the LLM key, and Caddy's certs live in named volumes
+and **survive every update**. `git pull` is strictly needed only when the
+`deploy/` config itself changed (compose / Caddyfile / `update.sh`), but running
+it every time is the safe habit — `.env` is gitignored, so it is never clobbered.
 (`deploy.yml` must already be on `main` for the post-CI trigger to fire.)
+
+**Roll back** to a known-good build (sha tags are immutable):
+
+```bash
+IMAGE_TAG=sha-abc1234 ./deploy/update.sh
+```
+
+**Handy alias + common ops** (optional — adjust the path to your clone):
+
+```bash
+echo "alias mat='docker compose --env-file ~/<repo>/deploy/.env -f ~/<repo>/deploy/docker-compose.prod.yml'" >> ~/.bashrc && source ~/.bashrc
+mat ps                       # are both containers Up?
+mat logs -f ue-mat-viewer    # app logs
+mat logs -f caddy            # certificate / reverse-proxy logs
+mat restart ue-mat-viewer    # restart just the viewer
+```
+
+**Health check after an update:**
+
+```bash
+mat ps
+curl -sI https://<your domain> | head -1   # "HTTP/2 200" = good
+```
 
 > Secrets at rest: the LLM key (`local.config.json`) and the auth store live in
 > Docker named volumes as plain files on the VPS disk. Password hashes are scrypt
