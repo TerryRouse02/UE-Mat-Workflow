@@ -142,6 +142,11 @@ export interface RemoveCommentOp {
   why?: string;
 }
 
+export interface AutoLayoutOp {
+  op: 'autoLayout';
+  why?: string;
+}
+
 export type PatchOp =
   | AddNodeOp
   | InsertNodeOp
@@ -156,13 +161,14 @@ export type PatchOp =
   | SetPositionOp
   | AddCommentOp
   | SetCommentOp
-  | RemoveCommentOp;
+  | RemoveCommentOp
+  | AutoLayoutOp;
 
 /** Canonical op names, in the order the tool docstring lists them. */
 export const SUPPORTED_OPS = [
   'addNode', 'insertNode', 'removeNode', 'setParam', 'removeParam', 'setNodeType',
   'renameNode', 'connect', 'disconnect', 'setDescription', 'setPosition',
-  'addComment', 'setComment', 'removeComment',
+  'addComment', 'setComment', 'removeComment', 'autoLayout',
 ] as const;
 
 /**
@@ -199,6 +205,9 @@ const OP_ALIASES: Record<string, PatchOp['op']> = {
   set_comment: 'setComment',
   remove_comment: 'removeComment',
   delete_comment: 'removeComment',
+  auto_layout: 'autoLayout',
+  format_graph: 'autoLayout',
+  clear_positions: 'autoLayout',
 };
 
 /** Resolve alias op names to canonical ones; canonical ops pass through unchanged. */
@@ -372,6 +381,7 @@ function applyOp(g: MatGraph, op: PatchOp, diff: string[], why: string, pinLooku
     case 'addComment': return applyAddComment(g, op, diff, why);
     case 'setComment': return applySetComment(g, op, diff, why);
     case 'removeComment': return applyRemoveComment(g, op, diff, why);
+    case 'autoLayout': return applyAutoLayout(g, op, diff, why);
     default:
       // ops arrive as a blind cast from LLM output — an unknown op must produce
       // a clear applyError instead of falling through to undefined. Listing the
@@ -740,5 +750,22 @@ function applyRemoveComment(g: MatGraph, op: RemoveCommentOp, diff: string[], wh
   }
   g.comments!.splice(idx, 1);
   diff.push(`移除了註解框「\`${op.id}\`」${why}`);
+  return null;
+}
+
+// Hand layout back to the viewer: strip every stored x/y so the hybrid layout
+// (layout.ts) falls through to pure dagre — the one-click "Format Graph"/tidy for
+// a messy or UE-imported graph. Aligns with the "no manual coordinates" rule:
+// the canonical AI-authored form carries no pos. Idempotent (no pos → no-op).
+function applyAutoLayout(g: MatGraph, _op: AutoLayoutOp, diff: string[], why: string): string | null {
+  let cleared = 0;
+  for (const n of g.nodes) {
+    if (n.pos) { delete n.pos; cleared++; }
+  }
+  if (cleared === 0) {
+    diff.push(`重新排版：此圖未含座標，渲染時本就自動排版（dagre）${why}`);
+  } else {
+    diff.push(`重新排版：清除了 ${cleared} 個節點的座標，交由自動排版（dagre）整理${why}`);
+  }
   return null;
 }

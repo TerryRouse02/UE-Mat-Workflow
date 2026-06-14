@@ -238,7 +238,7 @@ MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 | `get_mf_signature` | `{assetPath}` | MF 針腳簽名 | `/Engine/`→engine index；其他→workmf index；查無→提示跑對應爬取，**不得編造針腳名** |
 | `read_graph` | `{path, summary?}` | 目前 matgraph JSON＋既存錯誤/警告（compact、不 pretty-print；`summary:true` 只回節點 id/type＋連線數，大圖先定向省一個量級） | 路徑限 `graphs/` 內、限 `.matgraph.json` |
 | `write_graph` | `{path, graph, overwrite?}` | `{ok, warnings}` 或錯誤清單 | **先 validate＋MF 解析＋針腳查 DB，不過不落盤**；初建用；**拒絕覆寫非本對話建立的既有檔**（`overwrite:true` 僅限使用者明確要求整檔重寫） |
-| `patch_graph` | `{path, ops[], dryRun?}` | `{ok, diff[], changedNodeIds, assignedIds?}` 或 `{applyErrors[]}` | 修改用（增量優先於 write_graph 重寫）；14 op（含意圖級 insertNode／removeNode heal、註解框 add/set/removeComment）＋snake_case 別名＋自動 id＋批次報錯＋dryRun 預覽；見 §5 |
+| `patch_graph` | `{path, ops[], dryRun?}` | `{ok, diff[], changedNodeIds, assignedIds?}` 或 `{applyErrors[]}` | 修改用（增量優先於 write_graph 重寫）；15 op（含意圖級 insertNode／removeNode heal、註解框 add/set/removeComment、autoLayout 重排）＋snake_case 別名＋自動 id＋批次報錯＋dryRun 預覽；見 §5 |
 | `validate_graph` | `{path \| graph}` | 完整錯誤＋警告＋未解析 MF 針腳 | `validateGraph`+`materialStructureWarnings`+`mf-resolver` |
 | `get_graph_errors` | `{path}` | 既存問題清單 | debug 用 |
 
@@ -255,7 +255,7 @@ MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 修改走 patch、初建走 write_graph。理由：LLM 輸出 diff 而非整圖（省 token、防截斷），
 且 **op 列表本身就是白話 diff**，不需二次生成。
 
-14 個 op（欄位對齊 schema 真實形狀；`why` 為可選的一句使用者看得懂的說明）：
+15 個 op（欄位對齊 schema 真實形狀；`why` 為可選的一句使用者看得懂的說明）：
 
 ```jsonc
 { "op": "addNode",    "id": "...", "type": "...", "params": {...}, "why": "..." }  // id 可省略→自動產生
@@ -273,6 +273,7 @@ MVP **不做** JSON-in-text fallback parser——不可靠且掩蓋問題。
 { "op": "addComment", "id": "...?", "text": "...", "contains": ["nodeId"], "color": "...?" }  // 註解框；id 可省略→自動產生
 { "op": "setComment", "id": "...", "text": "...?", "contains": ["..."], "color": "...?" }      // 只改你傳的欄位，其餘保留
 { "op": "removeComment", "id": "..." }                                  // 刪一個註解框
+{ "op": "autoLayout" }                                                  // 清掉所有 x/y，交還 dagre 自動排版（Format Graph）
 ```
 
 **可發現性（2026-06-11）**：op 清單完整寫進 tool description＋inputSchema 的 `op` enum
@@ -286,7 +287,8 @@ applyPatch 與 changedNodeIds 共用同一映射。
 addNode→「加入了 `<type>` 節點「`<id>`」」；removeNode→「移除了節點「`<id>`」及其 N 條連線」；
 setParam→「將「`<id>`」的 `<key>` 改為 `<value>`」；connect→「連接 `<from>` → `<to>`」；
 disconnect→「斷開 `<from>` → `<to>`」；renameNode→「將「`<oldId>`」改名為「`<newId>`」（同步更新 N 條連線）」；
-addComment→「加入了註解框「`<id>`」」；setComment→「更新了註解框「`<id>`」」；removeComment→「移除了註解框「`<id>`」」。
+addComment→「加入了註解框「`<id>`」」；setComment→「更新了註解框「`<id>`」」；removeComment→「移除了註解框「`<id>`」」；
+autoLayout→「重新排版：清除了 N 個節點的座標，交由自動排版（dagre）整理」。
 
 Apply flow：讀現圖 → 逐 op 套用，**收集全部失敗 op 一次回**
 `{applyErrors: [{opIndex, message}…]}`（2026-06-12；先前 fail-fast 一輪只回一錯，
@@ -513,7 +515,7 @@ interface AgentChatRequest {
 
 - **對話生圖**：白話描述 → 即時節點圖（watcher 重繪）＋白話 diff＋變更節點畫布高亮；
   錯誤一律餵回模型自修，使用者只看最終成果。
-- **修改與回退**：patch 式增量修改（14 op 含意圖級 insertNode／removeNode heal、註解框增刪改、
+- **修改與回退**：patch 式增量修改（15 op 含意圖級 insertNode／removeNode heal、註解框增刪改、autoLayout 重排、
   snake_case 別名、自動 id、批次報錯一次列全部、dryRun 預覽；op 清單寫進 tool
   schema，修改不再整檔重寫）、還原上一步（undo）＋重做（redo；兩者跨重啟存活，
   純檔案狀態回退）、重新生成上一回覆（檔案＋歷史＋transcript 一併回捲）。

@@ -405,10 +405,14 @@ export const toolDefs: ToolDef[] = [
       'layout you can see); routine edits should leave placement to the viewer.\n' +
       '- {op:"addComment", id?, text, contains?, color?} — add a comment frame. Omit id to ' +
       'auto-generate one (returned in assignedIds); contains is the node ids the frame wraps ' +
-      '(omit for a free-floating label); color is an optional hex string.\n' +
+      '(omit for a free-floating label); color is an optional hex — pick a muted, consistent ' +
+      'frame colour (e.g. #2E4A5A / #3E5E3A / #5A3E3E / #4A3E5A), not a random bright one.\n' +
       '- {op:"setComment", id, text?, contains?, color?} — update an existing comment; only the ' +
       'fields you pass change (the rest are kept). Prefer this over rewriting the whole file.\n' +
       '- {op:"removeComment", id} — delete a comment frame.\n' +
+      '- {op:"autoLayout"} — tidy the WHOLE graph: clears every stored x/y so the viewer re-runs ' +
+      'its automatic dagre layout (the one-click "Format Graph" for a messy or UE-imported graph). ' +
+      'Prefer this over hand-placing nodes with setPosition.\n' +
       'snake_case aliases (add_node, add_connection, set_param, …) are also accepted. ' +
       'Every op may carry an optional why:"…" string that shows up in the user-facing diff. ' +
       'Set dryRun:true to preview: applies + validates and returns the same diff/warnings, but ' +
@@ -428,7 +432,7 @@ export const toolDefs: ToolDef[] = [
                 enum: [
                   'addNode', 'insertNode', 'removeNode', 'setParam', 'removeParam', 'setNodeType',
                   'renameNode', 'connect', 'disconnect', 'setDescription', 'setPosition',
-                  'addComment', 'setComment', 'removeComment',
+                  'addComment', 'setComment', 'removeComment', 'autoLayout',
                 ],
                 description: 'Operation kind',
               },

@@ -1054,3 +1054,44 @@ describe('removeComment', () => {
     expect(g.comments).toHaveLength(1); // input untouched
   });
 });
+
+// ---------------------------------------------------------------------------
+// autoLayout — clears stored positions so the viewer re-runs dagre (Format Graph)
+// ---------------------------------------------------------------------------
+
+describe('autoLayout', () => {
+  it('clears every stored position and reports the count', () => {
+    const g = baseGraph();
+    g.nodes[0].pos = { x: 10, y: 20 };
+    g.nodes[1].pos = { x: 30, y: 40 };
+    const r = applyPatch(g, [{ op: 'autoLayout' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.nodes.every(n => n.pos === undefined)).toBe(true);
+    expect(r.diff[0]).toMatch(/重新排版.*2/);
+  });
+
+  it('succeeds (no-op) when no node has a position', () => {
+    const g = baseGraph();
+    const r = applyPatch(g, [{ op: 'autoLayout' }]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.diff[0]).toMatch(/重新排版/);
+  });
+
+  it('accepts the format_graph alias', () => {
+    const g = baseGraph();
+    g.nodes[0].pos = { x: 1, y: 2 };
+    const r = applyPatch(g, [{ op: 'format_graph' } as unknown as PatchOp]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.graph.nodes[0].pos).toBeUndefined();
+  });
+
+  it('does not mutate the input graph', () => {
+    const g = baseGraph();
+    g.nodes[0].pos = { x: 1, y: 2 };
+    applyPatch(g, [{ op: 'autoLayout' }]);
+    expect(g.nodes[0].pos).toEqual({ x: 1, y: 2 }); // input untouched
+  });
+});
