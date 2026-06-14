@@ -7,7 +7,8 @@ import { watchGraphs } from './watcher.js';
 import { loadGraph } from './graph-loader.js';
 import { evaluateGraphPreview, type PreviewGraph } from './graph-preview.js';
 import { materialStructureWarnings, validateGraph } from './schema.js';
-import { resolveMaterialFunctions } from './mf-resolver.js';
+import { resolveMaterialFunctions, resolveMfcOutputConnections } from './mf-resolver.js';
+import type { MatGraph } from './types.js';
 import { loadWorkMfIndex } from './workmf-index.js';
 import { probeEnv } from './crawl-env.js';
 import { loadFreshness, recordFreshness } from './crawl-freshness.js';
@@ -613,6 +614,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // project folder under graphs/. The existing watcher then picks it up and the
   // client navigates to it. This is the ONLY write path the server exposes.
   async function handleImport(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: 'cross-origin import requests are refused' }); return; }
     let payload: { name?: unknown; graph?: unknown; dest?: unknown };
     try { payload = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
@@ -635,6 +637,18 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     let relPath: string;
     try {
       const folderRel = personal ? `${baseRel}/${finalName}` : finalName;
+      // Resolve MaterialFunctionCall OUTPUT pin placeholders (Result / Out<N>) from the
+      // client parse to the MF's real names before the file lands — so a clipboard import
+      // gets the same correct wiring as a projectmat crawl. Best-effort: a resolve failure
+      // (e.g. an MF whose signature isn't indexed and has no sibling yet) must not block it.
+      try {
+        const graphDir = resolve(graphsRoot, folderRel);
+        const [{ index: workMfIndex }, { index: engineMfIndex }] = await Promise.all([
+          loadWorkMfIndex(workMfIndexPath),
+          loadWorkMfIndex(engineMfIndexPath),
+        ]);
+        await resolveMfcOutputConnections(graph as unknown as MatGraph, graphDir, { workMfIndex, engineMfIndex });
+      } catch { /* best-effort: never block the import on MF resolution */ }
       relPath = await writeGraph(graphsRoot, folderRel, finalName, graph);
     } catch (e) {
       sendJson(res, 500, { error: `failed to write file: ${(e as Error).message}` }); return;
@@ -1028,7 +1042,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         await readFile(resolve(opts.repoRoot, 'agent-pack', 'nodes-ue5.7.export.json'), 'utf-8'),
       ) as ExportMeta;
       const stagingDir = resolve(opts.repoRoot, PROJECTMAT_STAGING_REL);
-      const { imported, warnings } = await importProjectMaterials({ stagingDir, graphsRoot, exportMeta });
+      // MF indexes let phase 2 resolve MaterialFunctionCall OUTPUT pin names against the
+      // official /Engine index + the user's /Game work index (sibling MFs cover the rest).
+      const [{ index: workMfIndex }, { index: engineMfIndex }] = await Promise.all([
+        loadWorkMfIndex(workMfIndexPath),
+        loadWorkMfIndex(engineMfIndexPath),
+      ]);
+      const { imported, warnings } = await importProjectMaterials({ stagingDir, graphsRoot, exportMeta, workMfIndex, engineMfIndex });
       log(`project materials: imported ${imported.length}${imported.length ? ` (${imported.join(', ')})` : ''}`);
       for (const w of warnings) log(`  warning: ${w}`);
     } catch (e) {

@@ -277,6 +277,14 @@ plugin's gitignored `Binaries/Mac` locally via `Package-Plugin.ps1`. See `tools/
   build. A mismatch surfaces as a crawl-time load error → repackage with `-ForcePackage`.
 - **snapshot ≠ live.** The exported single-file HTML has no server: it uses baked data, hides the
   Config tab's crawl controls, and never fetches the work-MF index.
+- **MaterialFunctionCall OUTPUT pins are resolved server-side, not at parse.** `parseUET3D` (pure,
+  client-capable) can't know an MF's output names — they aren't in the T3D — so it encodes MFC outputs
+  positionally: index 0 → `Result`, index N → `Out<N>`. `mf-resolver.ts` `resolveMfcOutputConnections`
+  rewrites those placeholders to the MF's real ordered names (engine/work index, or a sibling
+  `.matgraph.json`). It runs in `importProjectMaterials` — which is therefore **two-phase** (write ALL
+  staged dumps first so sibling MFs exist, *then* resolve) — and in `handleImport` (clipboard, best-effort).
+  Decode is **positional** (`Result`=0, `Out<N>`=N); never skip by name membership, or an MF that names an
+  output literally `Result`/`Out1` at another index mis-resolves. Don't collapse the importer to one-phase.
 
 ## Read next
 
