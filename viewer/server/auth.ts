@@ -52,6 +52,12 @@ export const TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 const SCRYPT_KEYLEN = 32;
 
+/** scrypt(password, salt) → hex. The single source of truth for the auth hash
+ *  parameters; shared by the user store and the pending-registration store. */
+export function hashPassword(password: string, saltHex: string): string {
+  return scryptSync(password, Buffer.from(saltHex, 'hex'), SCRYPT_KEYLEN).toString('hex');
+}
+
 interface StoredUser {
   saltHex: string;
   hashHex: string;
@@ -66,7 +72,12 @@ export type AuthResult = { ok: true } | { ok: false; error: string };
 
 export interface AuthStore {
   hasUsers(): Promise<boolean>;
+  /** True if a user with this exact name exists (name-only; no timing guarantees). */
+  verifyExists(username: string): Promise<boolean>;
   createUser(username: string, password: string, role: Role): Promise<AuthResult>;
+  /** Land a PRE-COMPUTED scrypt hash directly (registration approval — the
+   *  plaintext was hashed at register time and never reaches this call). */
+  createUserPrehashed(username: string, saltHex: string, hashHex: string, role: Role): Promise<AuthResult>;
   verifyPassword(username: string, password: string): Promise<AuthUser | null>;
   /** Returns the RAW token (shown to the client once); only its hash is stored. */
   issueToken(username: string): Promise<string>;
@@ -121,10 +132,6 @@ export function createAuthStore(viewerRoot: string): AuthStore {
   const loadUsers = () => readJson<UsersFile>(usersPath, { users: {} });
   const loadTokens = () => readJson<TokensFile>(tokensPath, { tokens: {} });
 
-  function hashPassword(password: string, saltHex: string): string {
-    return scryptSync(password, Buffer.from(saltHex, 'hex'), SCRYPT_KEYLEN).toString('hex');
-  }
-
   function tokenDigest(raw: string): string {
     return createHash('sha256').update(raw).digest('hex');
   }
@@ -142,6 +149,11 @@ export function createAuthStore(viewerRoot: string): AuthStore {
     return Object.keys(f.users).length > 0;
   }
 
+  async function verifyExists(username: string): Promise<boolean> {
+    const f = await loadUsers();
+    return Object.prototype.hasOwnProperty.call(f.users, username);
+  }
+
   function createUser(username: string, password: string, role: Role): Promise<AuthResult> {
     return enqueue(async () => {
       const v = validateCredentials(username, password);
@@ -156,6 +168,21 @@ export function createAuthStore(viewerRoot: string): AuthStore {
         role,
         createdAt: new Date().toISOString(),
       };
+      await writeJson(usersPath, f);
+      return { ok: true };
+    });
+  }
+
+  function createUserPrehashed(username: string, saltHex: string, hashHex: string, role: Role): Promise<AuthResult> {
+    return enqueue(async () => {
+      if (!USERNAME_RE.test(username)) return { ok: false, error: 'invalid username' };
+      if (!/^[0-9a-f]{32}$/.test(saltHex) || !/^[0-9a-f]{64}$/.test(hashHex)) {
+        return { ok: false, error: 'invalid credential material' };
+      }
+      if (role !== 'admin' && role !== 'user') return { ok: false, error: 'invalid role' };
+      const f = await loadUsers();
+      if (f.users[username]) return { ok: false, error: 'user already exists' };
+      f.users[username] = { saltHex, hashHex, role, createdAt: new Date().toISOString() };
       await writeJson(usersPath, f);
       return { ok: true };
     });
@@ -253,7 +280,7 @@ export function createAuthStore(viewerRoot: string): AuthStore {
   }
 
   return {
-    hasUsers, createUser, verifyPassword, issueToken, validateToken,
+    hasUsers, verifyExists, createUser, createUserPrehashed, verifyPassword, issueToken, validateToken,
     revokeToken, listUsers, deleteUser, setPassword,
   };
 }

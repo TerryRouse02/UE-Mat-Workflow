@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import {
-  resolveMode, createAuthStore, createLoginLimiter, validateCredentials,
+  resolveMode, createAuthStore, createLoginLimiter, validateCredentials, hashPassword,
   LOGIN_MAX_FAILURES, LOGIN_WINDOW_MS, TOKEN_TTL_MS,
 } from '../server/auth.js';
 
@@ -159,5 +159,34 @@ describe('createLoginLimiter', () => {
     limiter.succeed('1.2.3.4'); // a successful login clears the count
     for (let i = 0; i < LOGIN_MAX_FAILURES - 1; i++) limiter.fail('1.2.3.4');
     expect(limiter.blocked('1.2.3.4')).toBe(false);
+  });
+});
+
+describe('hashPassword (shared scrypt)', () => {
+  it('is deterministic for the same password+salt and differs across salts', () => {
+    const a = hashPassword('correct horse', 'aa'.repeat(16));
+    const b = hashPassword('correct horse', 'aa'.repeat(16));
+    const c = hashPassword('correct horse', 'bb'.repeat(16));
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+    expect(a).toMatch(/^[0-9a-f]{64}$/); // 32-byte key, hex
+  });
+});
+
+describe('createUserPrehashed + verifyExists', () => {
+  it('lands a precomputed hash so the user can then log in; rejects duplicates', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'auth-prehash-'));
+    const store = createAuthStore(dir);
+    const saltHex = 'cd'.repeat(16);
+    const hashHex = hashPassword('s3cret-pw', saltHex);
+
+    expect(await store.verifyExists('bob')).toBe(false);
+    const r = await store.createUserPrehashed('bob', saltHex, hashHex, 'user');
+    expect(r.ok).toBe(true);
+    expect(await store.verifyExists('bob')).toBe(true);
+    expect(await store.verifyPassword('bob', 's3cret-pw')).toEqual({ username: 'bob', role: 'user' });
+    expect((await store.createUserPrehashed('bob', saltHex, hashHex, 'user')).ok).toBe(false);
+
+    await rm(dir, { recursive: true, force: true });
   });
 });
