@@ -29,6 +29,7 @@ import { createSessionStore, appendTranscript, SESSION_ID_RE } from './agent/ses
 import { createMemoryStore } from './agent/memory-store.js';
 import { createUsageStore } from './agent/usage-store.js';
 import { createProposalStore } from './agent/proposal-store.js';
+import { createPendingRegistrationStore } from './pending-registrations.js';
 import { explainNode, buildGraphContext, RESERVED_NODE_DESCRIPTIONS } from './agent/explain.js';
 import { buildSnapshot } from './html-export.js';
 import { loadHttpsBootstrap, readHttpsInstaller } from './https-bootstrap.js';
@@ -158,7 +159,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   /** Admin lock: when set, member chat turns run with THESE values — whatever
       the member's client sends is overridden (UI shows the controls grayed). */
   interface MemberLock { thinking: 'off' | 'low' | 'medium' | 'high'; webSearch: boolean }
-  interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean; memberAgent?: boolean; quotas?: Record<string, number>; memberLock?: MemberLock | null; language?: 'zh-Hant' | 'en' }
+  interface TeamConfig { enabled?: boolean; bindHost?: string; secureCookies?: boolean; memberAgent?: boolean; quotas?: Record<string, number>; memberLock?: MemberLock | null; language?: 'zh-Hant' | 'en'; allowRegistration?: boolean }
   async function readTeamConfig(): Promise<TeamConfig> {
     try {
       const parsed = parseJsonAllowingBom(await readFile(localConfigPath, 'utf-8')) as { Team?: TeamConfig };
@@ -212,7 +213,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // Member→admin approval queue (request_crawl / propose_db_edit from member
   // turns land here; the outcome is injected back into the member's session).
   const proposalStore = createProposalStore(resolve(opts.repoRoot, 'viewer'));
+  // Self-service registration: OFF by default — on a public deploy, opening
+  // registration must be a deliberate admin action, not automatic on team enable.
+  let allowRegistration: boolean = savedTeam.allowRegistration === true;
+  const pendingRegStore = createPendingRegistrationStore(resolve(opts.repoRoot, 'viewer'));
+  const DEFAULT_REGISTRATION_QUOTA = 50_000; // tokens/day seeded on approval
   const loginLimiter = createLoginLimiter();
+  const registerLimiter = createLoginLimiter(); // reuse the sliding-window shape, per-IP
   const COOKIE_NAME = 'uemw_token';
 
   /** Token from `Authorization: Bearer` (scripts) or the auth cookie (browser+WS). */
@@ -252,6 +259,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (urlPath === '/api/config' || urlPath === '/api/crawl' || urlPath === '/api/crawl/cancel') return true;
     if (urlPath === '/api/team') return true;
     if (urlPath === '/api/auth/users' || urlPath.startsWith('/api/auth/users/')) return true;
+    // Admin approval queue for self-registrations. (`/api/auth/register` singular
+    // is the PUBLIC sign-up endpoint and does not match this prefix.)
+    if (urlPath.startsWith('/api/auth/registrations')) return true;
     if (urlPath.startsWith('/api/agent/')) {
       // Open to every member regardless of the agent switch:
       if (urlPath === '/api/agent/status' || urlPath === '/api/agent/explain'
@@ -275,10 +285,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     for (const ws of wss.clients) safeSend(ws, msg);
   }
 
-  /** Approval-queue size changed → admin inboxes re-fetch. */
+  /** Approval-queue size changed → admin inboxes re-fetch. Pending count folds in
+   *  both agent proposals (crawl/db-edit) AND self-registrations, which share the
+   *  inbox section. */
   async function broadcastProposals(): Promise<void> {
     try {
-      const msg: ServerMessage = { kind: 'proposals', pending: await proposalStore.pendingCount() };
+      const pending = (await proposalStore.pendingCount()) + (await pendingRegStore.pendingCount());
+      const msg: ServerMessage = { kind: 'proposals', pending };
       for (const ws of wss.clients) safeSend(ws, msg);
     } catch (e) { console.error('proposals broadcast failed:', e); }
   }
@@ -2410,6 +2423,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       memberAgent: memberAgentEnabled,
       memberLock,
       language: teamLanguage,
+      allowRegistration,
       quotas,
       usageToday: await usageStore.today(),
       online: mode === 'team' ? onlineUsers() : [],
@@ -2421,7 +2435,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
 
   async function handleTeamPost(req: IncomingMessage, res: import('node:http').ServerResponse) {
     if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
-    let body: { enabled?: unknown; bindHost?: unknown; secureCookies?: unknown; memberAgent?: unknown; quotas?: unknown; memberLock?: unknown; language?: unknown; username?: unknown; password?: unknown };
+    let body: { enabled?: unknown; bindHost?: unknown; secureCookies?: unknown; memberAgent?: unknown; quotas?: unknown; memberLock?: unknown; language?: unknown; allowRegistration?: unknown; username?: unknown; password?: unknown };
     try { body = JSON.parse(await readBody(req, 64_000)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     // The env lock pins the BIND (mode switch); plain settings stay editable.
@@ -2439,6 +2453,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       if (typeof body.memberAgent === 'boolean' && body.memberAgent !== memberAgentEnabled) {
         memberAgentEnabled = body.memberAgent;
         await saveTeamConfig({ memberAgent: memberAgentEnabled });
+      }
+      if (typeof body.allowRegistration === 'boolean' && body.allowRegistration !== allowRegistration) {
+        allowRegistration = body.allowRegistration;
+        await saveTeamConfig({ allowRegistration });
       }
       if (body.memberLock !== undefined) {
         // null clears the lock; an object must be a fully valid lock.
@@ -2536,6 +2554,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       needsSetup: !(await authStore.hasUsers()),
       authed: !!user,
       memberAgent: memberAgentEnabled,
+      // Login screen reads this (pre-auth) to decide whether to show the Register tab.
+      allowRegistration,
       // Members read this to gray out + display the forced control values.
       ...(memberLock ? { memberLock } : {}),
       // SOFT team default language — a non-enforced seed the frontend uses to
@@ -2581,6 +2601,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // IPs). Either being full blocks the attempt.
     const userKey = `user:${String(body.username ?? '')}`;
     if (loginLimiter.blocked(ip) || loginLimiter.blocked(userKey)) { sendJson(res, 429, { error: 'too many failed logins — try again later' }); return; }
+    // A self-registration not yet approved cannot log in — report its status
+    // transparently (the chosen posture) before touching the real user store.
+    const pend = await pendingRegStore.get(String(body.username ?? ''));
+    if (pend) {
+      sendJson(res, 403, { error: pend.status === 'denied' ? '你的註冊申請已被拒絕' : '帳號審核中，請等待管理員批准' });
+      return;
+    }
     const user = await authStore.verifyPassword(String(body.username ?? ''), String(body.password ?? ''));
     if (!user) {
       loginLimiter.fail(ip);
@@ -2596,6 +2623,30 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     setAuthCookie(res, token);
     res.setHeader('X-Auth-Token', token);
     sendJson(res, 200, { authed: true, username: user.username, role: user.role, ...(teamLanguage ? { language: teamLanguage } : {}) });
+  }
+
+  /** Public self-service registration → lands in the admin approval queue.
+   *  Gated by Team.allowRegistration; rate-limited per IP; queue-capped. */
+  async function handleAuthRegister(req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    if (!allowRegistration) { sendJson(res, 403, { error: '管理員尚未開放自助註冊' }); return; }
+    const ip = clientIp(req);
+    if (registerLimiter.blocked(ip)) { sendJson(res, 429, { error: '註冊嘗試過於頻繁，請稍後再試' }); return; }
+    let body: { username?: unknown; password?: unknown };
+    try { body = JSON.parse(await readBody(req, 64_000)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    const username = String(body.username ?? '');
+    // Reject a name that already belongs to a real user (not only a pending one).
+    if (USERNAME_RE.test(username) && await authStore.verifyExists(username)) {
+      registerLimiter.fail(ip);
+      sendJson(res, 400, { error: '此使用者名稱已被使用' });
+      return;
+    }
+    const r = await pendingRegStore.register(username, String(body.password ?? ''), ip);
+    if (!r.ok) { registerLimiter.fail(ip); sendJson(res, 400, { error: r.error }); return; }
+    await broadcastProposals(); // bump the admin inbox badge
+    sendJson(res, 200, { ok: true });
   }
 
   async function handleAuthLogout(req: IncomingMessage, res: import('node:http').ServerResponse) {
@@ -2662,10 +2713,53 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     sendJson(res, 200, { ok: true });
   }
 
+  // ─── Registration approval (admin-only; gated above) ──────────────────────
+  async function handleRegistrationsList(res: import('node:http').ServerResponse) {
+    if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+    sendJson(res, 200, { registrations: await pendingRegStore.list() });
+  }
+
+  /** POST /api/auth/registrations/:username { action: 'approve' | 'deny' }.
+   *  approve → create the real user from the stored hash + seed the daily quota;
+   *  deny → keep the entry as 'denied' until its 24h expiry so login can say so. */
+  async function handleRegistrationResolve(username: string, req: IncomingMessage, res: import('node:http').ServerResponse) {
+    if (!authStore) { sendJson(res, 404, { error: 'not available in local mode' }); return; }
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    let body: { action?: unknown };
+    try { body = JSON.parse(await readBody(req, 64_000)); }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+    const entry = await pendingRegStore.get(username);
+    if (!entry || entry.status !== 'pending') { sendJson(res, 404, { error: '註冊申請不存在或已處理' }); return; }
+
+    if (body.action === 'deny') {
+      await pendingRegStore.markDenied(username);
+      await broadcastProposals();
+      sendJson(res, 200, { ok: true, status: 'denied' });
+      return;
+    }
+    if (body.action !== 'approve') { sendJson(res, 400, { error: 'action must be approve | deny' }); return; }
+
+    const material = await pendingRegStore.approveMaterial(username);
+    if (!material) { sendJson(res, 404, { error: '註冊申請不存在或已處理' }); return; }
+    const created = await authStore.createUserPrehashed(username, material.saltHex, material.hashHex, 'user');
+    if (!created.ok) { sendJson(res, 409, { error: created.error }); return; }
+    quotas = { ...quotas, [username]: DEFAULT_REGISTRATION_QUOTA };
+    await saveTeamConfig({ quotas });
+    await broadcastProposals();
+    sendJson(res, 200, { ok: true, status: 'approved' });
+  }
+
   // Track all open HTTP sockets so we can destroy them during forced shutdown.
   // Without this, http.close() only stops accepting new connections but waits
   // for existing keep-alive connections to drain — which can take up to 300 s on
   // some Node versions, hanging every test that calls server.close().
+  // Expire stale registrations (24h) without waiting for a read; broadcast so the
+  // admin inbox badge decays live. unref() so it never keeps the process alive.
+  const regSweep = setInterval(() => {
+    void pendingRegStore.pruneExpired().then((changed) => { if (changed) void broadcastProposals(); });
+  }, 10 * 60 * 1000);
+  regSweep.unref();
+
   const openSockets = new Set<import('node:net').Socket>();
   const http: Server = createServer(async (req, res) => {
     const urlPath = (req.url || '/').split('?')[0];
@@ -2684,6 +2778,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'POST' && urlPath === '/api/auth/login') {
       try { await handleAuthLogin(req, res); }
       catch (e) { console.error('auth login error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/auth/register') {
+      try { await handleAuthRegister(req, res); }
+      catch (e) { console.error('auth register error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'POST' && urlPath === '/api/auth/logout') {
@@ -2764,6 +2863,20 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           catch (e) { console.error('auth user password error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
           return;
         }
+      }
+    }
+
+    if (urlPath === '/api/auth/registrations' && req.method === 'GET') {
+      try { await handleRegistrationsList(res); }
+      catch (e) { console.error('registrations list error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    {
+      const m = urlPath.match(/^\/api\/auth\/registrations\/([A-Za-z0-9_.-]{1,32})$/);
+      if (m && req.method === 'POST' && USERNAME_RE.test(m[1])) {
+        try { await handleRegistrationResolve(m[1], req, res); }
+        catch (e) { console.error('registration resolve error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+        return;
       }
     }
 
@@ -3226,7 +3339,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       const publicId = await sessionStore.getPublicId();
       if (publicId) send(ws, { kind: 'publicAgent', id: publicId, streaming: activeSessions.get(publicId)?.streaming === true });
       // Replay the approval-queue size (admin inbox badge).
-      if (mode === 'team') send(ws, { kind: 'proposals', pending: await proposalStore.pendingCount() });
+      if (mode === 'team') send(ws, { kind: 'proposals', pending: (await proposalStore.pendingCount()) + (await pendingRegStore.pendingCount()) });
     } catch (e) {
       console.error('connection handler error:', e);
     }
@@ -3287,6 +3400,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       http.listen(opts.port, currentBindHost, () => { http.removeListener('error', rej); res(); });
     });
   } catch (e) {
+    clearInterval(regSweep);
     await watcher.close();
     throw e;
   }
@@ -3298,6 +3412,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     port: actualPort,
     mode,
     async close() {
+      clearInterval(regSweep);
       await watcher.close();
       // Cancel any running crawl child process so it does not outlive the server.
       runner.cancel();
