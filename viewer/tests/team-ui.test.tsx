@@ -20,6 +20,7 @@ import { TeamUsageSection } from '../web/src/TeamUsage.js';
 
 const loginFn = vi.fn(async () => ({ ok: true }));
 const setupFn = vi.fn(async () => ({ ok: true }));
+const registerFn = vi.fn(async () => ({ ok: true }));
 
 let mockAuth: Record<string, unknown> = { mode: 'team', needsSetup: false, authed: false };
 let mockPublicAgent: { id: string | null; streaming: boolean; version: number } = { id: null, streaming: false, version: 0 };
@@ -38,6 +39,7 @@ vi.mock('../web/src/store.tsx', () => ({
     },
     login: loginFn,
     setupAdmin: setupFn,
+    register: registerFn,
     logout: vi.fn(),
     refreshAuth: vi.fn(async () => undefined),
   }),
@@ -47,6 +49,7 @@ vi.mock('../web/src/store.tsx', () => ({
 beforeEach(() => {
   loginFn.mockClear();
   setupFn.mockClear();
+  registerFn.mockClear();
   mockAuth = { mode: 'team', needsSetup: false, authed: false };
   mockPublicAgent = { id: null, streaming: false, version: 0 };
 });
@@ -98,6 +101,29 @@ describe('Login screen', () => {
     fireEvent.change(screen.getByPlaceholderText('至少 8 字元'), { target: { value: 'wrong-password' } });
     fireEvent.click(screen.getByText('登入'));
     expect(await screen.findByText('帳號或密碼錯誤')).toBeTruthy();
+  });
+
+  it('register tab (only when allowRegistration): submits via store.register, then shows the awaiting-approval notice', async () => {
+    mockAuth = { mode: 'team', needsSetup: false, authed: false, allowRegistration: true };
+    render(<Login />);
+    fireEvent.click(screen.getByRole('tab', { name: '註冊' }));
+    expect(screen.getByText('註冊新帳號')).toBeTruthy();
+
+    fireEvent.change(screen.getByPlaceholderText(/1–32 字元/), { target: { value: 'alice' } });
+    const pw = document.querySelectorAll('input[type="password"]');
+    fireEvent.change(pw[0], { target: { value: 'password1' } }); // password
+    fireEvent.change(pw[1], { target: { value: 'password1' } }); // confirm
+    fireEvent.click(screen.getByText('送出註冊'));
+
+    await waitFor(() => expect(registerFn).toHaveBeenCalledWith('alice', 'password1'));
+    expect(await screen.findByText(/等待管理員批准/)).toBeTruthy();
+    expect(loginFn).not.toHaveBeenCalled();
+  });
+
+  it('hides the Register tab when allowRegistration is off', () => {
+    mockAuth = { mode: 'team', needsSetup: false, authed: false, allowRegistration: false };
+    render(<Login />);
+    expect(screen.queryByRole('tab', { name: '註冊' })).toBeNull();
   });
 });
 

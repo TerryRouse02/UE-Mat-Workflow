@@ -21,6 +21,8 @@ interface TeamInfo {
   memberLock?: MemberLock | null;
   /** Team-wide DEFAULT UI language; members may override locally. */
   language?: TeamLanguage;
+  /** Admin switch: visitors may self-register on the login page (needs approval). */
+  allowRegistration?: boolean;
   port: number;
   hasUsers: boolean;
   urls: string[];
@@ -173,6 +175,15 @@ export function TeamPanel() {
               onChange={e => { setMemberAgent(e.target.checked); void post({ memberAgent: e.target.checked }); }}
             />
             {t('teamPanel.memberAgent')}
+          </label>
+          <label className="team-check">
+            <input
+              type="checkbox"
+              checked={info.allowRegistration === true}
+              disabled={busy}
+              onChange={e => { void post({ allowRegistration: e.target.checked }); }}
+            />
+            {t('teamPanel.allowRegistration')}
           </label>
           <label className="team-check">
             <input

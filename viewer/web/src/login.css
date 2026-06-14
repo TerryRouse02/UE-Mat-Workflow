@@ -69,3 +69,16 @@
   display: flex; align-items: center; justify-content: center;
   background: var(--bg-app); color: var(--text-mute); font-size: 13px;
 }
+
+/* Login / Register toggle (shown only when self-registration is open). */
+.login-tabs {
+  display: flex; gap: 2px; padding: 2px;
+  background: var(--bg-panel-2); border: 1px solid var(--border);
+  border-radius: var(--chip-radius); margin-bottom: 12px;
+}
+.login-tab {
+  flex: 1; padding: 6px 0; font-size: 13px;
+  color: var(--text-dim); background: none; border: none;
+  border-radius: 4px; cursor: pointer;
+}
+.login-tab.on { background: var(--bg-elev); color: var(--text); font-weight: 600; }
