@@ -83,6 +83,8 @@ export interface AuthStatus {
   role?: 'admin' | 'user';
   /** Team mode: the admin switch that lets members run their own agent sessions. */
   memberAgent?: boolean;
+  /** Team mode: admin has opened self-service registration on the login screen. */
+  allowRegistration?: boolean;
   /** Team mode: when set, member thinking/🌐 controls are forced to these
       values (UI grays them out; the server enforces regardless). */
   memberLock?: { thinking: 'off' | 'low' | 'medium' | 'high'; webSearch: boolean };
@@ -239,6 +241,9 @@ interface Ctx {
   login(username: string, password: string): Promise<{ ok: boolean; error?: string }>;
   /** Team mode first boot: create the admin account (POST /api/auth/setup). */
   setupAdmin(username: string, password: string): Promise<{ ok: boolean; error?: string }>;
+  /** Team mode: self-register (POST /api/auth/register). Does NOT log in — the
+   *  request waits in the admin approval queue. */
+  register(username: string, password: string): Promise<{ ok: boolean; error?: string }>;
   /** Team mode: revoke the token and drop back to the login screen. */
   logout(): Promise<void>;
   /** Re-fetch /api/auth/status (after a web-driven mode switch). */
@@ -486,6 +491,22 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const setupAdmin = useCallback((username: string, password: string) =>
     authPost('/api/auth/setup', { username, password }), [authPost]);
 
+  // Register does NOT use authPost: success must NOT flip auth.authed (the user
+  // is queued for admin approval, not logged in).
+  const register = useCallback(async (username: string, password: string): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const r = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+      const data = (await r.json().catch(() => ({}))) as { error?: string };
+      return r.ok ? { ok: true } : { ok: false, error: data.error || `HTTP ${r.status}` };
+    } catch (e) {
+      return { ok: false, error: (e as Error).message };
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     try { await fetch('/api/auth/logout', { method: 'POST' }); } catch { /* token may be dead already */ }
     dispatch({ type: 'setAuth', auth: { mode: 'team', needsSetup: false, authed: false } });
@@ -546,7 +567,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth, setNodeParam, saveLayout }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, logout, refreshAuth, setNodeParam, saveLayout]);
+  const value = useMemo(() => ({ state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, register, logout, refreshAuth, setNodeParam, saveLayout }), [state, open, enterMF, popBreadcrumb, startCrawl, stopCrawl, resetCrawl, refreshEnv, saveConfig, saveAgentConfig, highlightNodes, requestAgentExport, selectNode, askAgent, bumpMetadata, setAgentActivity, login, setupAdmin, register, logout, refreshAuth, setNodeParam, saveLayout]);
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 
