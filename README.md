@@ -138,7 +138,9 @@ admin account and live re-binds, no restart) — or set `BIND_HOST=0.0.0.0` for
 Docker/scripted deployments — and the same server becomes a team workspace:
 
 - **Login + roles** — username/password with 7-day tokens (HttpOnly cookie).
-  First visit creates the admin; members are added in Config → 使用者管理.
+  On a LAN the first visit creates the admin; on a public deploy pre-seed it
+  with `ADMIN_USERNAME`/`ADMIN_PASSWORD` so nobody can race you to it. Members
+  are added in Config → 使用者管理.
 - **admin** keeps the full surface (agent chat, crawls, LLM key, user
   management); **user** gets the shared graphs, import/export, node explain —
   and a read-only view of the **announcement agent session** the admin
@@ -146,9 +148,11 @@ Docker/scripted deployments — and the same server becomes a team workspace:
 - The LLM API key stays server-side; no browser ever receives it.
 
 Docker / docker-compose / Caddy / nginx examples and the full ops guide live
-in [`deploy/`](./deploy/README.md). UE crawls still need a workstation with
-Unreal installed — run team mode bare-metal there, or generate the indexes on
-a workstation and mount them into the container.
+in [`deploy/`](./deploy/README.md) — the production stack ships automatic HTTPS,
+a non-root read-only container, security headers, and admin pre-seed; the LAN
+stack (`docker-compose.lan.yml`) is plain HTTP for a trusted network. UE crawls
+still need a workstation with Unreal installed — run team mode bare-metal there,
+or generate the indexes on a workstation and mount them into the container.
 
 Windows workstation admins can deploy and maintain LAN HTTPS with the
 Traditional Chinese helper under [`tools/viewer-https/`](./tools/viewer-https/README.zh-TW.md):
