@@ -18,7 +18,7 @@ import { isInside, toPosixPath, slugifyGraphName, writeGraph, isEditableParamVal
 export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
 import { importProjectMaterials, PROJECT_DIR } from './projectmat-importer.js';
 import type { ExportMeta } from '../web/src/export/export-meta-types.js';
-import { runAgent, createSession, estimateMessagesTokens, VIEW_CONTEXT_PREFIX, type AgentLoopSession } from './agent/loop.js';
+import { runAgent, createSession, estimateMessagesTokens, VIEW_CONTEXT_PREFIX, type AgentLoopSession, type ApprovalDecision } from './agent/loop.js';
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
@@ -351,6 +351,13 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     abort: AbortController | null;
     /** Single-flight for undo/regenerate on this session's history. */
     mutating: boolean;
+    /**
+     * Write-approval gate (review mode): in-flight approval requests this
+     * session is awaiting, keyed by the approval_request id. POST /api/agent/
+     * approve resolves one; the loop registers/clears them. Owner-self-approval
+     * only (the endpoint checks canTouchSession) — never routed to the admin.
+     */
+    pendingApprovals: Map<string, (d: ApprovalDecision) => void>;
     /** Resolves when the most recent run on this session has FULLY unwound
      *  (finally ran, session persisted). The streaming lock is released the
      *  moment the client disconnects so a re-send never 409s, but the aborted
@@ -399,6 +406,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       mutating: false,
       unwind: Promise.resolve(),
       createdPaths: new Set<string>(),
+      pendingApprovals: new Map(),
     };
     // Never re-cache a session whose files are mid-deletion: the stale cache
     // entry would outlive destroySession and resurrect the session. Serving
@@ -438,6 +446,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       mutating: false,
       unwind: Promise.resolve(),
       createdPaths: new Set<string>(),
+      pendingApprovals: new Map(),
     };
     // Never re-cache a session whose files are mid-deletion: the stale cache
     // entry would outlive destroySession and resurrect the session. Serving
@@ -1631,6 +1640,42 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     sendJson(res, 200, body);
   }
 
+  /**
+   * POST /api/agent/approve — the session OWNER's decision on a pending
+   * approval_request (review mode). Resolves the loop's awaiting promise so the
+   * paused turn continues. Owner-self-approval ONLY: this is never an admin
+   * action (the write touches the user's OWN graph), unlike request_crawl /
+   * propose_db_edit. A pending approval lives only on a live, streaming session
+   * held in the cache — read it directly (resumeSession would resurrect a dead one).
+   */
+  async function handleAgentApprove(req: IncomingMessage, res: import('node:http').ServerResponse, user: AuthUser | null) {
+    if (!sameOrigin(req)) { sendJson(res, 403, { error: '跨來源請求已拒絕' }); return; }
+    let body: { sessionId?: unknown; requestId?: unknown; decision?: unknown; reason?: unknown };
+    try { body = JSON.parse(await readBody(req, 100_000)) as typeof body; }
+    catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
+
+    const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
+    const requestId = typeof body.requestId === 'string' ? body.requestId : '';
+    const decision = body.decision === 'approve' ? 'approve' : body.decision === 'reject' ? 'reject' : null;
+    if (!sessionId || !requestId || decision === null) {
+      sendJson(res, 400, { error: 'sessionId, requestId 與 decision（approve｜reject）為必填' });
+      return;
+    }
+    const active = activeSessions.get(sessionId);
+    if (!active || !canTouchSession(user, active.owner)) {
+      sendJson(res, 404, { error: '找不到指定的會話。' });
+      return;
+    }
+    const settle = active.pendingApprovals.get(requestId);
+    if (!settle) {
+      sendJson(res, 404, { error: '找不到待批准的操作（可能已逾時、已處理或已取消）。' });
+      return;
+    }
+    const reason = typeof body.reason === 'string' ? body.reason.slice(0, 500) : undefined;
+    settle({ approved: decision === 'approve', reason });
+    sendJson(res, 200, { ok: true });
+  }
+
   // ─── M7 session endpoints ───────────────────────────────────────────────────
 
   /** GET /api/agent/sessions — list persisted sessions, newest first.
@@ -2284,6 +2329,38 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     // teamLanguage. Default 'zh-Hant'; any unexpected value falls back to it.
     const language: 'zh-Hant' | 'en' = body.language === 'en' ? 'en' : 'zh-Hant';
 
+    // Write-approval mode (per turn, like 🌐 / thinking). Only an EXPLICIT
+    // 'review' arms the gate — a missing field means "no interactive approver"
+    // (non-web callers / tests) and must not hang awaiting an approval nobody
+    // can send. The web UI sends 'review' by default, so the user's default
+    // experience IS review. (Phase 2 adds 'auto'.) Self-approval only — the
+    // hook resolves on THIS owner's POST /api/agent/approve, never the admin.
+    const approvalMode: 'skip' | 'review' = body.approvalMode === 'review' ? 'review' : 'skip';
+    const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
+    // The loop emits approval_request / approval_resolved; this hook only
+    // registers a pending decision under the loop-supplied id and awaits the
+    // owner's POST /api/agent/approve (or a timeout / client disconnect).
+    const requestApproval = approvalMode === 'review'
+      ? (info: { id: string }): Promise<ApprovalDecision> =>
+          new Promise<ApprovalDecision>((resolveDecision) => {
+            let settled = false;
+            let timer: ReturnType<typeof setTimeout>;
+            const onAbort = (): void => settle({ approved: false, reason: 'aborted' });
+            const settle = (d: ApprovalDecision): void => {
+              if (settled) return;
+              settled = true;
+              active.pendingApprovals.delete(info.id);
+              clearTimeout(timer);
+              ac.signal.removeEventListener('abort', onAbort);
+              resolveDecision(d);
+            };
+            active.pendingApprovals.set(info.id, settle);
+            timer = setTimeout(() => settle({ approved: false, reason: 'timeout' }), APPROVAL_TIMEOUT_MS);
+            if (ac.signal.aborted) settle({ approved: false, reason: 'aborted' });
+            else ac.signal.addEventListener('abort', onAbort, { once: true });
+          })
+      : undefined;
+
     try {
       await runAgent(
         body.text,
@@ -2317,6 +2394,8 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           // Mechanize prompt rule 19: re-validate graphs written this turn at
           // finish and nudge once if the final state is objectively incomplete.
           selfCheckOnFinish: true,
+          // Write-approval gate (review mode). Absent in skip mode → no gate.
+          requestApproval,
         },
       );
     } catch (e) {
@@ -2968,6 +3047,11 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     if (req.method === 'POST' && urlPath === '/api/agent/chat') {
       try { await handleAgentChat(req, res, gateUser); }
       catch (e) { console.error('agent chat handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
+      return;
+    }
+    if (req.method === 'POST' && urlPath === '/api/agent/approve') {
+      try { await handleAgentApprove(req, res, gateUser); }
+      catch (e) { console.error('agent approve handler error:', e); if (!res.headersSent) sendJson(res, 500, { error: 'internal error' }); }
       return;
     }
     if (req.method === 'GET' && urlPath === '/api/agent/status') {

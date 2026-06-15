@@ -365,6 +365,7 @@ export const toolDefs: ToolDef[] = [
         path: { type: 'string', description: 'Relative path within graphs/ ending in .matgraph.json' },
         graph: { type: 'object', description: 'Complete matgraph object' },
         overwrite: { type: 'boolean', description: 'Allow replacing a pre-existing file. Only set this after the user explicitly confirmed rebuilding that exact file.' },
+        dryRun: { type: 'boolean', description: 'true = validate and return changedNodeIds WITHOUT writing the file' },
       },
       required: ['path', 'graph'],
     },
@@ -1249,6 +1250,22 @@ async function toolWriteGraph(
       .map(n => String(n.id));
   } catch {
     changed = newNodes.map(n => String(n.id));
+  }
+
+  // dryRun: validated, nothing written — the write-approval gate uses this to
+  // preview a create/overwrite (and skip prompting for an invalid graph). The
+  // loop's fan-out suppresses graph_written when it sees dryRun:true.
+  if (inp.dryRun === true) {
+    return {
+      content: JSON.stringify({
+        ok: true,
+        dryRun: true,
+        path: String(inp.path),
+        warnings: report.warnings,
+        unresolvedMfPins: report.unresolvedPins,
+        changedNodeIds: changed,
+      }),
+    };
   }
 
   // Clean — write. The loop injects a callCtx wrapper that supplies the real

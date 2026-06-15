@@ -2509,3 +2509,88 @@ describe('#1 wrap-up self-check gate', () => {
     expect(provider.calls).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// §  Write-approval gate (review mode) — Phase 1
+//    requestApproval pauses every mutating tool; approved → writes, rejected →
+//    nothing is written and the model gets a "user rejected" tool_result.
+// ---------------------------------------------------------------------------
+
+describe('write-approval gate', () => {
+  it('approved: emits approval_request/resolved and writes the graph', async () => {
+    const provider = new FakeProvider([
+      [{ type: 'tool_use', id: 'w', name: 'write_graph', input: { path: 'proj/appr.matgraph.json', graph: { ...VALID_GRAPH, name: 'appr' } } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '完成。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const seen: Array<{ tool: string; summary: string; diff?: string[] }> = [];
+    const requestApproval = async (info: { tool: string; path?: string; summary: string; diff?: string[] }) => {
+      seen.push({ tool: info.tool, summary: info.summary, diff: info.diff });
+      return { approved: true };
+    };
+    const events = await runAndCollect('做個材質', session, provider, ctx, undefined, { requestApproval });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0].tool).toBe('write_graph');
+    const req = events.find(e => e.type === 'approval_request');
+    const res = events.find(e => e.type === 'approval_resolved');
+    expect(req).toBeTruthy();
+    expect(res && res.type === 'approval_resolved' && res.decision).toBe('approved');
+    // The file landed on disk (approved → real write ran).
+    const written = await readFile(join(tmpDir, 'graphs', 'proj/appr.matgraph.json'), 'utf-8');
+    expect(JSON.parse(written).name).toBe('appr');
+  });
+
+  it('rejected: nothing is written and the model sees the rejection', async () => {
+    const seenMessages: ContentBlock[][] = [];
+    const provider: Provider = {
+      async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
+        seenMessages.push(structuredClone(req.messages.map(m => m.content)) as unknown as ContentBlock[]);
+        if (seenMessages.length === 1) {
+          yield { type: 'tool_use', id: 'w', name: 'write_graph', input: { path: 'proj/rej.matgraph.json', graph: { ...VALID_GRAPH, name: 'rej' } } };
+          yield { type: 'done', stopReason: 'tool_use' };
+          return;
+        }
+        yield { type: 'text_delta', text: '好的，已取消，請問你想怎麼調整？' };
+        yield { type: 'done', stopReason: 'end' };
+      },
+    };
+    const requestApproval = async () => ({ approved: false, reason: '改用 Add' });
+    const events = await runAndCollect('做個材質', session, provider as unknown as FakeProvider, ctx, undefined, { requestApproval });
+
+    // The graph was NOT written.
+    await expect(readFile(join(tmpDir, 'graphs', 'proj/rej.matgraph.json'), 'utf-8')).rejects.toThrow();
+    const res = events.find(e => e.type === 'approval_resolved');
+    expect(res && res.type === 'approval_resolved' && res.decision).toBe('rejected');
+    // The rejection (with the user's reason) reached the model as a tool_result.
+    const lastRound = seenMessages.at(-1) ?? [];
+    const rejectionSeen = JSON.stringify(lastRound).includes('拒絕') && JSON.stringify(lastRound).includes('改用 Add');
+    expect(rejectionSeen).toBe(true);
+  });
+
+  it('invalid patch is never sent for approval (model self-corrects)', async () => {
+    // Seed a valid file to patch.
+    await mkdir(join(tmpDir, 'graphs', 'proj'), { recursive: true });
+    await writeFile(join(tmpDir, 'graphs', 'proj', 'base.matgraph.json'), JSON.stringify({ ...VALID_GRAPH, name: 'base' }, null, 2));
+    const provider = new FakeProvider([
+      // A patch referencing a non-existent node → applyError, not a valid change.
+      [{ type: 'tool_use', id: 'p', name: 'patch_graph', input: { path: 'proj/base.matgraph.json', ops: [{ op: 'setParam', id: 'no_such_node', key: 'X', value: 1 }] } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '我修正一下。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    let asked = 0;
+    const requestApproval = async () => { asked += 1; return { approved: true }; };
+    const events = await runAndCollect('改一下', session, provider, ctx, undefined, { requestApproval });
+    expect(asked).toBe(0); // invalid change never prompted
+    expect(events.some(e => e.type === 'approval_request')).toBe(false);
+  });
+
+  it('skip mode (no hook) writes immediately with no approval events', async () => {
+    const provider = new FakeProvider([
+      [{ type: 'tool_use', id: 'w', name: 'write_graph', input: { path: 'proj/skip.matgraph.json', graph: { ...VALID_GRAPH, name: 'skip' } } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '完成。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const events = await runAndCollect('做個材質', session, provider, ctx);
+    expect(events.some(e => e.type === 'approval_request')).toBe(false);
+    const written = await readFile(join(tmpDir, 'graphs', 'proj/skip.matgraph.json'), 'utf-8');
+    expect(JSON.parse(written).name).toBe('skip');
+  });
+});

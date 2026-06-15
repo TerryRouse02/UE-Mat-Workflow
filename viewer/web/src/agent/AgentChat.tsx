@@ -37,6 +37,7 @@ import {
   type ThinkingItem,
   type CrawlProposal,
   type DbEditProposal,
+  type ApprovalRequest,
   type SystemReport,
   type UsageTotal,
   newTurnFlags,
@@ -61,6 +62,8 @@ const THINKING_LABEL_KEYS: Record<AgentThinkingLevel, string> = {
 const THINKING_STORAGE_KEY = 'agent-thinking-level';
 /** 🌐 switch persistence — anything but 'off' means on (default on). */
 const WEB_SEARCH_STORAGE_KEY = 'agent-web-search';
+/** Write-approval mode persistence ('skip' | 'review'); anything but 'skip' = review (default). */
+const APPROVAL_MODE_STORAGE_KEY = 'agent-approval-mode';
 
 // ─── Quick commands (⚡ menu / slash input) ──────────────────────────────────
 
@@ -219,6 +222,87 @@ function CrawlProposalView({ item, crawl, onApprove }: {
   );
 }
 
+/** Write-approval card (review mode) — the agent paused before a graph
+    mutation; the session OWNER approves/rejects via POST /api/agent/approve.
+    Self-approval only (never the admin). The server's approval_resolved event
+    flips item.resolved through the reducer; this only posts the decision. */
+function ApprovalRequestView({ item, sessionId, onError }: {
+  item: ApprovalRequest;
+  sessionId: string | null;
+  onError: (message: string) => void;
+}) {
+  const { t } = useTranslation();
+  const [busy, setBusy] = useState(false);
+  const [reason, setReason] = useState('');
+  const decide = async (decision: 'approve' | 'reject') => {
+    if (!sessionId) { onError(t('agentChat.approveNoSession')); return; }
+    setBusy(true);
+    try {
+      const r = await fetch('/api/agent/approve', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          sessionId,
+          requestId: item.id,
+          decision,
+          reason: decision === 'reject' && reason.trim() ? reason.trim() : undefined,
+        }),
+        cache: 'no-store',
+      });
+      if (!r.ok) {
+        const b = (await r.json().catch(() => ({}))) as { error?: string };
+        onError(b.error ?? `HTTP ${r.status}`);
+        setBusy(false);
+      }
+      // On success the server resumes the turn and emits approval_resolved,
+      // which flips item.resolved — leave the card in its busy state until then.
+    } catch {
+      onError(t('agentChat.approveRequestFailed'));
+      setBusy(false);
+    }
+  };
+
+  if (item.resolved) {
+    const label = item.decision === 'approved'
+      ? t('agentChat.approveApproved')
+      : item.decision === 'timeout'
+        ? t('agentChat.approveTimeout')
+        : t('agentChat.approveRejected');
+    return (
+      <div className="agent-approval agent-item resolved">
+        <div className="agent-approval-title"><Icon name="lock" size={12} /> {item.summary}</div>
+        <div className="agent-approval-resolved">{label}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="agent-approval agent-item">
+      <div className="agent-approval-title"><Icon name="lock" size={12} /> {t('agentChat.approveTitle')}</div>
+      <div className="agent-approval-summary">{item.summary}</div>
+      {item.diff && item.diff.length > 0 && (
+        <ul className="agent-approval-diff">
+          {item.diff.map((l, i) => <li key={i}>{l}</li>)}
+        </ul>
+      )}
+      <input
+        className="agent-approval-reason"
+        placeholder={t('agentChat.approveReasonPlaceholder')}
+        value={reason}
+        onChange={e => setReason(e.target.value)}
+        disabled={busy}
+      />
+      <div className="agent-approval-actions">
+        <button className="agent-approval-approve" disabled={busy} onClick={() => void decide('approve')}>
+          {busy ? t('agentChat.approveWorking') : t('agentChat.approveApprove')}
+        </button>
+        <button className="agent-approval-reject" disabled={busy} onClick={() => void decide('reject')}>
+          {t('agentChat.approveReject')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** One-line summary per patched DB field, shown on the approval card. */
 function dbPatchSummary(patch: Record<string, unknown>, t: (key: string, opts?: Record<string, unknown>) => string): string[] {
   return Object.entries(patch).map(([k, v]) => {
@@ -356,6 +440,11 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
   // timeliness before answering. OFF removes web_search/web_fetch server-side.
   const [webOn, setWebOn] = useState<boolean>(() => {
     try { return localStorage.getItem(WEB_SEARCH_STORAGE_KEY) !== 'off'; } catch { return true; }
+  });
+  // Write-approval mode (per-turn, persisted). 'review' (default) pauses every
+  // graph mutation for the user to approve; 'skip' applies writes immediately.
+  const [approvalMode, setApprovalMode] = useState<'skip' | 'review'>(() => {
+    try { return localStorage.getItem(APPROVAL_MODE_STORAGE_KEY) === 'skip' ? 'skip' : 'review'; } catch { return 'review'; }
   });
   // Team-mode admin lock: a member's thinking/🌐 controls are forced to the
   // admin-set values and grayed out (the server enforces them regardless).
@@ -538,6 +627,14 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     });
   }, []);
 
+  const toggleApprovalMode = useCallback(() => {
+    setApprovalMode(prev => {
+      const next = prev === 'review' ? 'skip' : 'review';
+      try { localStorage.setItem(APPROVAL_MODE_STORAGE_KEY, next); } catch { /* private mode etc. */ }
+      return next;
+    });
+  }, []);
+
   // Abort any in-flight stream on real unmount (e.g. switching into snapshot
   // mode — the Sidebar keep-alive normally keeps this mounted): otherwise the
   // fetch keeps streaming and its handlers setState on an unmounted component.
@@ -684,6 +781,8 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       thinking: effThinking !== 'off' ? effThinking : undefined,
       // Absent = on (the default); only the off state is sent explicitly.
       webSearch: effWebOn ? undefined : false,
+      // Write-approval mode for this turn (default 'review' on the server too).
+      approvalMode,
       // The UI language the agent should reply in (mirrors the user's
       // localStorage 'ui-language' / team default via i18n.language).
       language,
@@ -729,7 +828,7 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
       // deletion and re-add the dead session; the local filter already removed it).
       if (!sessionClosed) void fetchSessions();
     }
-  }, [streaming, currentPath, selectedNodeId, open, effThinking, effWebOn, language, pendingImages, sessionId, fetchSessions, highlightNodes, requestAgentExport, t]);
+  }, [streaming, currentPath, selectedNodeId, open, effThinking, effWebOn, approvalMode, language, pendingImages, sessionId, fetchSessions, highlightNodes, requestAgentExport, t]);
 
   // Agent-tab attention cue: pulse while streaming; if a reply finishes while
   // another tab is visible, leave a steady dot until the user opens the tab.
@@ -1148,6 +1247,16 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
               />
             );
           }
+          if (item.kind === 'approval') {
+            return (
+              <ApprovalRequestView
+                key={i}
+                item={item}
+                sessionId={sessionId}
+                onError={(message) => setItems(prev => [...prev, { kind: 'notice', variant: 'error', message }])}
+              />
+            );
+          }
           return null;
         })}
       </div>
@@ -1275,6 +1384,16 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
                   : t('agentChat.webOffTitle')}
             >
               <Icon name="globe" size={11} /> {effWebOn ? t('agentChat.webToggleOn') : t('agentChat.webToggleOff')}
+            </button>
+            <button
+              type="button"
+              className={'agent-approval-toggle' + (approvalMode === 'review' ? ' on' : '')}
+              disabled={streaming}
+              onClick={toggleApprovalMode}
+              aria-pressed={approvalMode === 'review'}
+              title={approvalMode === 'review' ? t('agentChat.approvalReviewTitle') : t('agentChat.approvalSkipTitle')}
+            >
+              <Icon name="lock" size={11} /> {approvalMode === 'review' ? t('agentChat.approvalReview') : t('agentChat.approvalSkip')}
             </button>
             {memberLock && <span className="agent-lock-note" title={t('agentChat.lockNoteTitle')}><Icon name="lock" size={10} /> {t('agentChat.lockNote')}</span>}
           </span>

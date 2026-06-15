@@ -82,6 +82,21 @@ export interface DbEditProposal {
   pendingApproval?: boolean;
 }
 
+/** A graph-mutating op (review mode) paused for the session OWNER's approval. */
+export interface ApprovalRequest {
+  kind: 'approval';
+  /** Matches the approval_request id; POST /api/agent/approve echoes it back. */
+  id: string;
+  tool: string;
+  path?: string;
+  summary: string;
+  diff?: string[];
+  /** Resolved once the user acts, the server reports approval_resolved, or on replay. */
+  resolved: boolean;
+  /** Final decision once resolved (drives the card's resolved state). */
+  decision?: 'approved' | 'rejected' | 'timeout';
+}
+
 /**
  * Messages the UI sends on the user's behalf (crawl-outcome reports) start
  * with this marker. They still travel as ordinary user messages to the model,
@@ -108,7 +123,7 @@ export interface TurnUsage {
   estimated: boolean;
 }
 
-export type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem | CrawlProposal | DbEditProposal | TurnUsage | SystemReport;
+export type ChatItem = TextBubble | ToolGroup | NoticeLine | DiffBlock | ThinkingItem | CrawlProposal | DbEditProposal | ApprovalRequest | TurnUsage | SystemReport;
 
 /** Cumulative token usage across the whole conversation. */
 export interface UsageTotal {
@@ -140,6 +155,10 @@ export function startUserTurn(items: ChatItem[], userText: string, imageCount?: 
   const collapsed = items.map(it => {
     if (it.kind === 'diff' || it.kind === 'tools') return { ...it, collapsed: true };
     if ((it.kind === 'crawlProposal' || it.kind === 'dbEditProposal') && !it.resolved) return { ...it, resolved: true };
+    // A still-pending approval card can never outlive its turn (the server
+    // resolves it before the turn ends); guard anyway so a stale card can't
+    // dangle into the next turn.
+    if (it.kind === 'approval' && !it.resolved) return { ...it, resolved: true };
     return it;
   });
   if (userText.startsWith(SYSTEM_REPORT_PREFIX)) {
@@ -295,6 +314,29 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
         pendingApproval: event.pendingApproval === true,
       }];
 
+    case 'approval_request': {
+      // The turn paused for the owner to approve a mutating op. The next text
+      // run opens a fresh bubble (like tool_start).
+      flags.needsNewBubble = true;
+      return [...items, {
+        kind: 'approval',
+        id: event.id,
+        tool: event.tool,
+        path: event.path,
+        summary: event.summary,
+        diff: event.diff,
+        resolved: false,
+      }];
+    }
+
+    case 'approval_resolved': {
+      const idx = items.findIndex(it => it.kind === 'approval' && it.id === event.id && !it.resolved);
+      if (idx < 0) return items;
+      const updated = [...items];
+      updated[idx] = { ...(updated[idx] as ApprovalRequest), resolved: true, decision: event.decision };
+      return updated;
+    }
+
     case 'done': {
       // Turn finished — auto-collapse tool groups; diffs stay open until the
       // next user message so the result remains in view. Flush the turn's
@@ -338,8 +380,10 @@ export function reduceTranscript(transcript: AgentTranscriptEntry[]): { items: C
       items = applyAgentEvent(items, entry.event, flags);
     }
   }
-  // Replayed proposals are history, never actionable again.
-  items = items.map(it => (it.kind === 'crawlProposal' || it.kind === 'dbEditProposal' ? { ...it, resolved: true } : it));
+  // Replayed proposals / approval cards are history, never actionable again.
+  items = items.map(it =>
+    (it.kind === 'crawlProposal' || it.kind === 'dbEditProposal' || it.kind === 'approval')
+      ? { ...it, resolved: true } : it);
   return { items, usage };
 }
 
@@ -409,6 +453,15 @@ export function transcriptToMarkdown(
         out.push(`> 🛠 ${i18n.t('transcript.dbEditProposalLine', { action: it.create ? i18n.t('transcript.dbEditCreate') : i18n.t('transcript.dbEditModify'), nodeName: it.nodeName, fields: Object.keys(it.patch).join(i18n.t('common.listSep')) })}`);
         out.push('');
         break;
+      case 'approval': {
+        const mark = it.decision === 'approved' ? '✅' : it.decision === 'rejected' ? '🚫' : it.decision === 'timeout' ? '⌛' : '⏳';
+        out.push(`> ${mark} ${i18n.t('transcript.approvalLine', { summary: it.summary })}`);
+        if (it.diff && it.diff.length > 0) {
+          for (const line of it.diff) out.push(`>   - ${line}`);
+        }
+        out.push('');
+        break;
+      }
       case 'systemReport':
         out.push(`> 🛰 ${i18n.t('transcript.systemReportLine', { title: it.title })}`);
         if (it.detail) {

@@ -100,7 +100,9 @@ object persists in `local.config.json`.
   directory lister for the Config path picker; same-origin, 403 in team mode),
   `POST /api/config` (extended with optional `Llm`
   object for AI config), `POST /api/crawl`, `POST /api/import`,
-  `POST /api/agent/chat` (SSE — agent conversation loop),
+  `POST /api/agent/chat` (SSE — agent conversation loop; per-turn `approvalMode`),
+  `POST /api/agent/approve` (write-approval gate, review mode — the session OWNER's approve/reject on a
+  paused graph mutation; sameOrigin; owner-self-approval via `canTouchSession`, never routed to the admin),
   `GET /api/agent/status` (ProviderStatus — never contains apiKey),
   `POST /api/agent/explain` (one-shot LLM node explanation; JSON response; sameOrigin; concurrent-safe),
   `POST /api/agent/undo` (restore previous checkpoint turn — redoable: captures a post-image + pushes the turn onto the redo stack; sameOrigin; 409 while streaming),
@@ -124,7 +126,12 @@ object persists in `local.config.json`.
   checkpoints/undo, sessions, memory, compaction, web access, DB-edit apply). The design
   contract + per-file map live in `viewer/AGENT_DESIGN.md` — read that before touching it.
   Key invariants: the agent only PROPOSES crawls/DB edits; user-approved cards call the
-  state-changing endpoints. `contextTokens` (last round in+out) gates compaction and the
+  state-changing endpoints. A separate **write-approval gate** (review mode, default in the web UI)
+  pauses every graph mutation (write/patch/rename/delete) for the session OWNER to approve via
+  `POST /api/agent/approve` before it lands — owner-self-approval, never the admin (contrast with the
+  crawl/DB-edit proposals, which DO divert to the admin in member mode). The loop owns the
+  `approval_request`/`approval_resolved` SSE contract; the http hook only registers + awaits the
+  decision. Gate is opt-in via `RunAgentOptions.requestApproval` (absent → skip → unchanged behavior). `contextTokens` (last round in+out) gates compaction and the
   context ceiling; `totalTokens` is cumulative spend for display only. The Anthropic
   adapter sets prompt-cache breakpoints (last tool def / system / last message block)
   and folds `cache_read+cache_creation` back into `inputTokens` so the context gate

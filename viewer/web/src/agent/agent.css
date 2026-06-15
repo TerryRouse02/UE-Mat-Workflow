@@ -241,6 +241,16 @@
 .agent-web-toggle:hover { border-color:var(--border-strong); color:var(--text); }
 .agent-web-toggle.on { color:var(--accent); border-color:var(--accent-dim); background:var(--accent-ghost); }
 .agent-web-toggle:disabled { opacity:.4; cursor:not-allowed; }
+.agent-approval-toggle {
+  all:unset; cursor:pointer;
+  display:inline-flex; align-items:center; gap:3px;
+  font-family:inherit; font-size:10px; color:var(--text-mute);
+  border:1px solid var(--border); border-radius:5px; padding:1px 6px;
+  background:var(--bg-panel-2);
+}
+.agent-approval-toggle:hover { border-color:var(--border-strong); color:var(--text); }
+.agent-approval-toggle.on { color:var(--accent); border-color:var(--accent-dim); background:var(--accent-ghost); }
+.agent-approval-toggle:disabled { opacity:.4; cursor:not-allowed; }
 .agent-lock-note {
   display:inline-flex; align-items:center; gap:3px;
   font-size:10px; color:var(--text-mute); cursor:default;
@@ -306,6 +316,35 @@
 }
 .agent-crawl-approve:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .agent-crawl-approve:disabled { opacity: .5; cursor: not-allowed; }
+
+/* ─── Write-approval card (review mode) ───────────────────────────────────── */
+.agent-approval {
+  border: 1px solid var(--accent-dim); border-radius: 8px;
+  padding: 9px 11px; background: var(--accent-ghost);
+  display: flex; flex-direction: column; gap: 6px;
+}
+.agent-approval.resolved { border-color: var(--border); background: var(--bg-panel-2); }
+.agent-approval-title { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); font-weight: 600; }
+.agent-approval-summary { font-size: 11.5px; color: var(--text); }
+.agent-approval-diff { margin: 0; padding-left: 18px; font-size: 11px; color: var(--text-dim); }
+.agent-approval-diff li { margin: 2px 0; }
+.agent-approval-resolved { font-size: 11px; color: var(--text-dim); font-style: italic; }
+.agent-approval-reason {
+  all: unset; box-sizing: border-box; width: 100%;
+  font-family: inherit; font-size: 11px; color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px;
+  background: var(--bg-panel);
+}
+.agent-approval-reason:focus { border-color: var(--accent-dim); }
+.agent-approval-reason:disabled { opacity: .5; }
+.agent-approval-actions { display: flex; gap: 8px; }
+.agent-approval-approve, .agent-approval-reject {
+  padding: 5px 16px; border-radius: 6px; font: inherit; font-size: 12px; cursor: pointer;
+  border: 1px solid var(--border-strong); background: var(--bg-elev); color: var(--text);
+}
+.agent-approval-approve:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.agent-approval-reject:hover:not(:disabled) { border-color: var(--danger, #c25); color: var(--danger, #c25); }
+.agent-approval-approve:disabled, .agent-approval-reject:disabled { opacity: .5; cursor: not-allowed; }
 
 /* Quick-command (lightning) menu, anchored bottom-left of the input box */
 .agent-quick { position:absolute; left:8px; bottom:7px; }

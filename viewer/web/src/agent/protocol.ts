@@ -20,6 +20,8 @@ export type AgentSseEvent =
   | { type: 'crawl_proposal'; kind: 'workmf' | 'projectmat'; contentRoot: string; pendingApproval?: boolean } // UI shows a confirm card; user approves via POST /api/crawl
   | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; create: boolean; patch: Record<string, unknown>; rationale: string; pendingApproval?: boolean } // UI shows a confirm card; user approves via POST /api/agent/db-edit
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean; cachedTokens?: number } // cachedTokens = prompt-cache hits within inputTokens (billed ~10%)
+  | { type: 'approval_request'; id: string; tool: string; path?: string; summary: string; diff?: string[] } // review mode: the turn paused for the session OWNER to approve this mutating op (POST /api/agent/approve)
+  | { type: 'approval_resolved'; id: string; decision: 'approved' | 'rejected' | 'timeout'; reason?: string } // outcome of the matching approval_request (persisted so replay shows the resolved card)
   | { type: 'compacted'; message: string }                           // old turns summarized into session memory
   | { type: 'notice'; text: string }                                 // transient system note (e.g. retrying after a provider hiccup, wrap-up self-check)
   | { type: 'limit'; kind: 'iters' | 'cost' | 'failures'; message: string }
@@ -60,7 +62,29 @@ export interface AgentChatRequest {
    * Mirrors the user's effective language (localStorage 'ui-language' or team default).
    */
   language?: 'zh-Hant' | 'en';
+  /**
+   * Write-approval mode for THIS turn (per-turn, like the 🌐 / thinking knobs).
+   * - 'review' (default): every mutating tool call pauses for the session OWNER
+   *   to approve via POST /api/agent/approve.
+   * - 'skip': no gate — writes apply immediately.
+   * Phase 2 will add 'auto'. The web UI sends 'review' by default; a MISSING
+   * field is treated as skip server-side (only explicit 'review' arms the gate).
+   */
+  approvalMode?: 'skip' | 'review';
 }
+
+/** Body for POST /api/agent/approve — mirrored from server/agent/agent-types.ts */
+export interface AgentApproveRequest {
+  sessionId: string;
+  requestId: string;
+  decision: 'approve' | 'reject';
+  reason?: string;
+}
+
+/** Response from POST /api/agent/approve — mirrored from server/agent/agent-types.ts */
+export type AgentApproveResponse =
+  | { ok: true }
+  | { ok: false; error: string };
 
 /** Response from POST /api/agent/web-test — mirrored from server/agent/agent-types.ts */
 export type AgentWebTestResponse =

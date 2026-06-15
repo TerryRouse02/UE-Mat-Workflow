@@ -104,6 +104,13 @@ const READONLY_TOOLS = new Set([
 const WRITE_TOOL_NAMES = new Set(['write_graph', 'patch_graph']);
 
 /**
+ * Every graph-mutating tool — gated behind the write-approval hook (review
+ * mode) when `RunAgentOptions.requestApproval` is supplied. Superset of
+ * WRITE_TOOL_NAMES (which only feeds the validation circuit breaker).
+ */
+const MUTATING_TOOLS = new Set(['write_graph', 'patch_graph', 'rename_graph', 'delete_graph']);
+
+/**
  * Whether a provider error message is worth retrying. HTTP 408/409/425/429 and
  * any 5xx (incl. Anthropic's 529 overloaded) are transient; 4xx like 400/401/403/
  * 404 are caller/config errors and retrying only wastes time. Thrown fetch/network
@@ -235,6 +242,33 @@ function offTopicStrike(session: AgentLoopSession, lang: 'zh-Hant' | 'en'): { co
 
 export type EmitFn = (event: AgentSseEvent) => void;
 
+/** What the owner is asked to approve before a mutating tool runs (review mode). */
+export interface ApprovalRequestInfo {
+  /** Correlates the approval_request event with the awaiting hook + POST /api/agent/approve. */
+  id: string;
+  tool: string;
+  path?: string;
+  /** One-line zh-TW/en summary of the pending change. */
+  summary: string;
+  /** Plain-language diff lines (patch_graph) or a node summary (write_graph). */
+  diff?: string[];
+}
+
+/** The owner's decision delivered back to the loop (via POST /api/agent/approve). */
+export interface ApprovalDecision {
+  approved: boolean;
+  /** 'timeout' / 'aborted' are synthetic; any other value is the user's note. */
+  reason?: string;
+}
+
+/**
+ * Write-approval hook (review mode). Supplied by the caller; the loop calls it
+ * before each graph-mutating tool (write/patch/rename/delete) and only writes
+ * on approval. Absent → no gate (the pre-approval「skip」behavior, which is what
+ * every existing caller and the eval corpus get).
+ */
+export type RequestApprovalFn = (info: ApprovalRequestInfo) => Promise<ApprovalDecision>;
+
 /**
  * Map a successful tool result to its UI fan-out events: plain-language diff
  * lines, graph_written (writes/rename), and the viewer-action signals for
@@ -294,6 +328,57 @@ function fanOutToolResult(
       rationale: typeof parsed.rationale === 'string' ? parsed.rationale : '',
     });
   }
+}
+
+/** Pull the plain-language `diff` array out of a tool result, if present. */
+function parseDiffLines(content: string): string[] | undefined {
+  try {
+    const j = JSON.parse(content) as { diff?: unknown };
+    if (Array.isArray(j.diff) && j.diff.length > 0) return j.diff.map(String);
+  } catch { /* non-JSON */ }
+  return undefined;
+}
+
+/**
+ * Preview lines for a write_graph approval card: the changed nodes (from the
+ * dry-run's changedNodeIds, falling back to all nodes) as `id（type）`, capped.
+ * Language-neutral node identifiers — the localized headline rides in `summary`.
+ */
+function writeGraphNodeLines(graphInput: unknown, dryContent: string): string[] | undefined {
+  let changed: Set<string> | null = null;
+  try {
+    const j = JSON.parse(dryContent) as { changedNodeIds?: unknown };
+    if (Array.isArray(j.changedNodeIds)) changed = new Set(j.changedNodeIds.map(String));
+  } catch { /* non-JSON */ }
+  const g = graphInput as { nodes?: Array<{ id?: unknown; type?: unknown }> } | null;
+  if (!g || !Array.isArray(g.nodes)) return undefined;
+  const nodes = changed ? g.nodes.filter(n => changed!.has(String(n.id))) : g.nodes;
+  const CAP = 14;
+  const lines = nodes.slice(0, CAP).map(n => `${String(n.id)}（${String(n.type)}）`);
+  if (nodes.length > CAP) lines.push(`…+${nodes.length - CAP}`);
+  return lines.length > 0 ? lines : undefined;
+}
+
+/**
+ * The tool_result a model sees when the owner rejects (or lets time out) a
+ * mutating op in review mode. Steers it to STOP and ask, never to retry the
+ * write — the soft-stop the user asked for (an explicit reason is woven in).
+ */
+function approvalRejectionMessage(reason: string | undefined, lang: 'zh-Hant' | 'en'): string {
+  if (reason === 'timeout') {
+    return lang === 'en'
+      ? 'The user did not respond to the approval request in time, so this change was auto-cancelled. Briefly tell the user and ask how they want to proceed — do not retry automatically.'
+      : '使用者未在時限內回應批准請求，本次變更已自動取消。請簡短告知使用者並詢問下一步，不要自動重試。';
+  }
+  if (reason === 'aborted') {
+    return lang === 'en' ? 'The user cancelled the operation.' : '使用者取消了操作。';
+  }
+  const note = reason && reason.trim()
+    ? (lang === 'en' ? ` Reason: ${reason.trim()}` : `（理由：${reason.trim()}）`)
+    : '';
+  return lang === 'en'
+    ? `The user REJECTED this change.${note} Do NOT retry this write. Briefly explain to the user and ask what they would like to adjust.`
+    : `使用者拒絕了這次修改${note}。請勿重試這次寫入，改為向使用者簡短說明並詢問他們想怎麼調整。`;
 }
 
 /**
@@ -426,6 +511,16 @@ export interface RunAgentOptions {
    * Default 'zh-Hant'; 'en' is opt-in. Tool-call names/fields stay English.
    */
   language?: 'zh-Hant' | 'en';
+  /**
+   * Write-approval gate (review mode). When supplied, every graph-mutating tool
+   * (write_graph / patch_graph / rename_graph / delete_graph) pauses for this
+   * hook before it runs: approved → the tool runs; rejected → the model gets a
+   * "user rejected" tool_result and stops to ask, never writing. Absent → no
+   * gate (skip mode — the pre-approval behavior). An invalid change (a patch/
+   * write that fails the dry-run) is NEVER sent for approval — its validation
+   * error goes straight back to the model so it self-corrects.
+   */
+  requestApproval?: RequestApprovalFn;
 }
 
 const WEB_TOOL_NAMES = new Set(['web_search', 'web_fetch']);
@@ -458,6 +553,7 @@ export async function runAgent(
   const compactKeepTurns = options?.compactKeepTurns ?? COMPACT_KEEP_TURNS;
   const retryBaseMs = options?.retryBaseMs ?? STREAM_RETRY_BASE_MS;
   const selfCheckOnFinish = options?.selfCheckOnFinish === true;
+  const requestApproval = options?.requestApproval;
 
   // User-facing transcript strings — localized by replyLang.
   const ceilingMessage = (used: number): string =>
@@ -614,6 +710,52 @@ export async function runAgent(
       return { content: '此工具在目前的使用者權限下不可用，請改用其他方式完成任務或直接說明限制。', isError: true };
     }
     return dispatchTool(call.name, call.input, turnCtx);
+  };
+
+  // Write-approval gate (review mode). Preview the mutating change, ask the
+  // session OWNER, and run the real tool only on approval. An invalid change
+  // (dry-run fails) is returned to the model unchanged — never sent for
+  // approval. Only called when requestApproval is supplied.
+  const dispatchMutatingApproved = async (call: ToolUseBlock): Promise<{ content: string; isError?: boolean }> => {
+    const inp = (call.input ?? {}) as Record<string, unknown>;
+    const path = typeof inp.path === 'string' ? inp.path : undefined;
+    let summary: string;
+    let diff: string[] | undefined;
+
+    if (call.name === 'patch_graph') {
+      const dry = await dispatchTool('patch_graph', { ...inp, dryRun: true }, turnCtx);
+      if (dry.isError) return dry; // invalid patch → model self-corrects, no prompt
+      diff = parseDiffLines(dry.content);
+      summary = replyLang === 'en' ? `Modify graph: ${path ?? ''}` : `修改圖形：${path ?? ''}`;
+    } else if (call.name === 'write_graph') {
+      const dry = await dispatchTool('write_graph', { ...inp, dryRun: true }, turnCtx);
+      if (dry.isError) return dry;
+      const n = Array.isArray((inp.graph as { nodes?: unknown[] } | null)?.nodes)
+        ? (inp.graph as { nodes: unknown[] }).nodes.length : 0;
+      summary = replyLang === 'en' ? `Write graph: ${path ?? ''} (${n} nodes)` : `寫入圖形：${path ?? ''}（${n} 個節點）`;
+      diff = writeGraphNodeLines(inp.graph, dry.content);
+    } else if (call.name === 'rename_graph') {
+      summary = replyLang === 'en'
+        ? `Rename: ${String(inp.from ?? '')} → ${String(inp.to ?? '')}`
+        : `改名：${String(inp.from ?? '')} → ${String(inp.to ?? '')}`;
+    } else { // delete_graph
+      summary = replyLang === 'en' ? `Delete graph: ${path ?? ''}` : `刪除圖形：${path ?? ''}`;
+    }
+
+    // The loop owns the SSE contract: emit the request, ask the hook (which
+    // awaits the owner's POST /api/agent/approve), then emit the outcome.
+    const id = `appr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    emit({ type: 'approval_request', id, tool: call.name, path, summary, diff });
+    const decision = await requestApproval!({ id, tool: call.name, path, summary, diff });
+    emit({
+      type: 'approval_resolved',
+      id,
+      decision: decision.approved ? 'approved' : (decision.reason === 'timeout' ? 'timeout' : 'rejected'),
+      // Only surface a real user note; synthetic timeout/aborted stay internal.
+      reason: decision.reason && decision.reason !== 'timeout' && decision.reason !== 'aborted' ? decision.reason : undefined,
+    });
+    if (decision.approved) return dispatchGuarded(call);
+    return { content: approvalRejectionMessage(decision.reason, replyLang), isError: true };
   };
 
   // Identity of a tool call for the no-progress (duplicate-spin) breaker.
@@ -869,6 +1011,9 @@ export async function runAgent(
           result = offTopicStrike(session, replyLang);
           if (session.offTopicStrikes >= OFF_TOPIC_LIMIT) offTopicClosed = true;
         }
+      } else if (requestApproval && MUTATING_TOOLS.has(call.name)) {
+        // Review mode: pause for the owner before any graph mutation.
+        result = await dispatchMutatingApproved(call);
       } else {
         result = await dispatchGuarded(call);
       }

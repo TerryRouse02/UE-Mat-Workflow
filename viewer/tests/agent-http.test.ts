@@ -1970,3 +1970,134 @@ describe('🌐 chat switch (AgentChatRequest.webSearch)', () => {
     }
   }, 10000);
 });
+
+// ---------------------------------------------------------------------------
+// POST /api/agent/approve — write-approval gate (review mode), Phase 1
+// ---------------------------------------------------------------------------
+
+/** Drive an SSE chat that pauses on approval_request, firing `approve` for each. */
+async function streamWithApproval(
+  response: Response,
+  approve: (ev: AgentSseEvent & { type: 'approval_request' }) => Promise<void>,
+  timeoutMs = 15000,
+): Promise<AgentSseEvent[]> {
+  const events: AgentSseEvent[] = [];
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buf = '';
+  const deadline = Date.now() + timeoutMs;
+  try {
+    while (Date.now() < deadline) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      buf = buf.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+      const lines = buf.split('\n');
+      buf = lines.pop() ?? '';
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const payload = line.slice('data: '.length).trim();
+        if (payload === '[DONE]') return events;
+        let ev: AgentSseEvent;
+        try { ev = JSON.parse(payload) as AgentSseEvent; } catch { continue; }
+        events.push(ev);
+        if (ev.type === 'approval_request') await approve(ev);
+        if (ev.type === 'done') return events;
+      }
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* already released */ }
+  }
+  return events;
+}
+
+describe('POST /api/agent/approve (review mode)', () => {
+  it('approved: the paused write applies after the owner approves', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test', apiKey: 'sk-x' } });
+    const graphRelPath = 'appr_ok/m.matgraph.json';
+    const graphAbsPath = resolve(root, 'graphs', graphRelPath);
+    const provider = new FakeProvider([
+      [{ type: 'tool_use', id: 't1', name: 'write_graph', input: { path: graphRelPath, graph: VALID_GRAPH_V1 } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '已建立。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: () => provider });
+    try {
+      const base = `http://localhost:${server.port}`;
+      const sid = ((await (await fetch(`${base}/api/agent/sessions`, { method: 'POST' })).json()) as { id: string }).id;
+      const r = await fetch(`${base}/api/agent/chat`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '建立圖', sessionId: sid, approvalMode: 'review' }),
+      });
+      const events = await streamWithApproval(r, async (ev) => {
+        const ar = await fetch(`${base}/api/agent/approve`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sessionId: sid, requestId: ev.id, decision: 'approve' }),
+        });
+        expect(ar.status).toBe(200);
+      });
+      expect(events.some(e => e.type === 'approval_request')).toBe(true);
+      const res = events.find(e => e.type === 'approval_resolved');
+      expect(res && res.type === 'approval_resolved' && res.decision).toBe('approved');
+      expect(existsSync(graphAbsPath)).toBe(true);
+    } finally {
+      await server.close();
+    }
+  }, 20000);
+
+  it('rejected: the write never lands and the model is told', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test', apiKey: 'sk-x' } });
+    const graphRelPath = 'appr_no/m.matgraph.json';
+    const graphAbsPath = resolve(root, 'graphs', graphRelPath);
+    const provider = new FakeProvider([
+      [{ type: 'tool_use', id: 't1', name: 'write_graph', input: { path: graphRelPath, graph: VALID_GRAPH_V1 } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '好的，已取消。要怎麼調整？' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: () => provider });
+    try {
+      const base = `http://localhost:${server.port}`;
+      const sid = ((await (await fetch(`${base}/api/agent/sessions`, { method: 'POST' })).json()) as { id: string }).id;
+      const r = await fetch(`${base}/api/agent/chat`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '建立圖', sessionId: sid, approvalMode: 'review' }),
+      });
+      const events = await streamWithApproval(r, async (ev) => {
+        await fetch(`${base}/api/agent/approve`, {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ sessionId: sid, requestId: ev.id, decision: 'reject', reason: '改用 Add' }),
+        });
+      });
+      const res = events.find(e => e.type === 'approval_resolved');
+      expect(res && res.type === 'approval_resolved' && res.decision).toBe('rejected');
+      expect(existsSync(graphAbsPath)).toBe(false); // never written
+      expect(provider.calls).toBe(2); // model got the rejection and responded
+    } finally {
+      await server.close();
+    }
+  }, 20000);
+
+  it('skip mode (default when absent): writes immediately, no approval event', async () => {
+    const root = makeTmpRoot();
+    writeLocalConfig(root, { Llm: { provider: 'anthropic', model: 'test', apiKey: 'sk-x' } });
+    const graphRelPath = 'appr_skip/m.matgraph.json';
+    const graphAbsPath = resolve(root, 'graphs', graphRelPath);
+    const provider = new FakeProvider([
+      [{ type: 'tool_use', id: 't1', name: 'write_graph', input: { path: graphRelPath, graph: VALID_GRAPH_V1 } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '已建立。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const server = await startServer({ repoRoot: root, port: 0, webDist: '', providerFactory: () => provider });
+    try {
+      const base = `http://localhost:${server.port}`;
+      const r = await fetch(`${base}/api/agent/chat`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: '建立圖' }), // no approvalMode → skip
+      });
+      const events = await parseSseResponse(r, 12000);
+      expect(events.some(e => e.type === 'approval_request')).toBe(false);
+      expect(existsSync(graphAbsPath)).toBe(true);
+    } finally {
+      await server.close();
+    }
+  }, 20000);
+});
