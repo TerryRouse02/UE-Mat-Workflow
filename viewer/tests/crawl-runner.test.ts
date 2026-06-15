@@ -106,6 +106,27 @@ describe('createCrawlRunner', () => {
     expect(defaultCommandFor('/repo', 'export', { contentRoots: '/Game' }).args).not.toContain('-ContentRoots');
   });
 
+  it('passes -Asset (single-asset update) to workmf/projectmat only when given', () => {
+    // Absent by default.
+    expect(defaultCommandFor('/repo', 'workmf').args).not.toContain('-Asset');
+    expect(defaultCommandFor('/repo', 'projectmat').args).not.toContain('-Asset');
+    // workmf single-asset.
+    const wmf = defaultCommandFor('/repo', 'workmf', { asset: '/Game/Functions/MF_Foo.MF_Foo' });
+    const wi = wmf.args.indexOf('-Asset');
+    expect(wi).toBeGreaterThan(-1);
+    expect(wmf.args[wi + 1]).toBe('/Game/Functions/MF_Foo.MF_Foo');
+    // projectmat single-asset (keeps -StagingDir).
+    const pm = defaultCommandFor('/repo', 'projectmat', { asset: '/Game/Materials/M_Foo.M_Foo' });
+    expect(pm.args).toContain('-StagingDir');
+    const pi = pm.args.indexOf('-Asset');
+    expect(pi).toBeGreaterThan(-1);
+    expect(pm.args[pi + 1]).toBe('/Game/Materials/M_Foo.M_Foo');
+    // asset + contentRoots can coexist (commandlet ignores roots when asset is set).
+    const both = defaultCommandFor('/repo', 'workmf', { contentRoots: '/Game', asset: '/Game/Functions/MF_Foo.MF_Foo' });
+    expect(both.args).toContain('-ContentRoots');
+    expect(both.args).toContain('-Asset');
+  });
+
   it('maps export, enginemf, and projectmat to pwsh on macOS (no -ExecutionPolicy)', () => {
     const exportCmd = defaultCommandFor('/repo', 'export', undefined, 'darwin');
     expect(exportCmd.command).toBe('pwsh');

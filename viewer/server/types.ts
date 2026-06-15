@@ -31,4 +31,10 @@ export interface MatGraph {
   nodes: Node[];
   connections: Connection[];
   comments?: Comment[];
+  /** UE object path this graph was crawled from (e.g. "/Game/Materials/M_Foo.M_Foo").
+   *  OPTIONAL — set by the projectmat importer (from the crawl manifest) so the viewer
+   *  can re-crawl just this asset; absent on AI-authored / clipboard-imported graphs.
+   *  Lives only under the gitignored graphs/_project/, so a /Game path here is allowed
+   *  (CLAUDE.md invariant #1/#3 cover COMMITTED files; this never ships). */
+  sourcePath?: string;
 }

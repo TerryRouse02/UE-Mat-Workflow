@@ -9,7 +9,8 @@ export type CrawlAction =
 type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 // contentRoots is honoured for kind 'workmf' and 'projectmat' (ignored otherwise).
-export interface StartCrawlOpts { contentRoots?: string }
+// asset (a UE object path) switches those two kinds to single-asset update mode.
+export interface StartCrawlOpts { contentRoots?: string; asset?: string }
 
 export async function cancelCrawlRequest(fetchImpl: FetchLike = fetch): Promise<boolean> {
   try {
@@ -26,7 +27,11 @@ export async function startCrawlRequest(kind: CrawlKind, dispatch: (action: Craw
     const r = await fetchImpl('/api/crawl', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ kind, ...(opts.contentRoots ? { contentRoots: opts.contentRoots } : {}) }),
+      body: JSON.stringify({
+        kind,
+        ...(opts.contentRoots ? { contentRoots: opts.contentRoots } : {}),
+        ...(opts.asset ? { asset: opts.asset } : {}),
+      }),
     });
     if (!r.ok) {
       const msg = await r.json().catch(() => ({ error: `HTTP ${r.status}` }));

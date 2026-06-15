@@ -190,6 +190,32 @@ describe('crawl API', () => {
     await server.close();
   }, 5000);
 
+  it('POST /api/crawl accepts a valid single-asset path for workmf (single-asset update)', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const origin = `http://127.0.0.1:${server.port}`;
+    const r = await request(server.port, 'POST', '/api/crawl', { headers: { origin }, body: JSON.stringify({ kind: 'workmf', asset: '/Game/Functions/MF_Foo.MF_Foo' }) });
+    expect(r.status).toBe(200);
+    await server.close();
+  }, 5000);
+
+  it('POST /api/crawl rejects a malformed asset and asset on the wrong kind', async () => {
+    const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
+    const origin = `http://127.0.0.1:${server.port}`;
+    const bad = (body: object) => request(server.port, 'POST', '/api/crawl', { headers: { origin }, body: JSON.stringify(body) });
+    // Not an object path: missing leading '/'.
+    expect((await bad({ kind: 'projectmat', asset: 'M_Foo' })).status).toBe(400);
+    // Flag-injection shape.
+    expect((await bad({ kind: 'projectmat', asset: '-Command rm -rf' })).status).toBe(400);
+    // Comma (would smuggle a second arg).
+    expect((await bad({ kind: 'workmf', asset: '/Game/A.A,/Game/B.B' })).status).toBe(400);
+    // Two object suffixes.
+    expect((await bad({ kind: 'workmf', asset: '/Game/A.A.A' })).status).toBe(400);
+    // asset is not accepted for non-editor kinds.
+    expect((await bad({ kind: 'export', asset: '/Game/A.A' })).status).toBe(400);
+    expect((await bad({ kind: 'compile', asset: '/Game/A.A' })).status).toBe(400);
+    await server.close();
+  }, 5000);
+
   it('POST /api/crawl/cancel refuses a cross-origin request', async () => {
     const server = await startServer({ repoRoot: fixtureRepo(), port: 0, webDist: '' });
     const r = await request(server.port, 'POST', '/api/crawl/cancel', { headers: { origin: 'http://evil.example:1234' } });

@@ -828,6 +828,12 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
   // place). Anchors out anything that could be mistaken for a flag or carry path/shell-
   // escape characters (no comma either, so it can't smuggle a second arg).
   const CONTENT_ROOT_RE = /^\/\w+(\/\w+)*$/;
+  // A single UE OBJECT path for single-asset crawls, e.g. "/Game/Materials/M_Foo.M_Foo"
+  // (or without the ".M_Foo" object suffix). Same anti-injection discipline as
+  // CONTENT_ROOT_RE — leading '/', word segments, plus ONE optional '.' object
+  // suffix; never starts with '-', no comma/space/shell chars. NOT the same regex
+  // (content roots forbid the '.'). Capped length as a final guard.
+  const ASSET_PATH_RE = /^\/\w+(\/\w+)*(\.\w+)?$/;
   async function handleAgentPack(urlPath: string, res: import('node:http').ServerResponse) {
     const file = decodeURIComponent(urlPath.slice('/api/agent-pack/'.length));
     const candidate = resolve(agentPackRoot, file);
@@ -1117,7 +1123,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         return;
       }
     }
-    let body: { kind?: unknown; contentRoots?: unknown };
+    let body: { kind?: unknown; contentRoots?: unknown; asset?: unknown };
     try { body = JSON.parse(await readBody(req)); }
     catch (e) { sendJson(res, 400, { error: `bad request body: ${(e as Error).message}` }); return; }
     const kind = body.kind;
@@ -1134,8 +1140,17 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
       if (!CONTENT_ROOT_RE.test(cr)) { sendJson(res, 400, { error: 'invalid contentRoots — use a single UE content path like "/Game"' }); return; }
       contentRoots = cr;
     }
+    // asset (workmf/projectmat only) → single-asset update mode. Same literal-arg
+    // anti-injection guard as contentRoots, but its own object-path regex.
+    let asset: string | undefined;
+    if (body.asset !== undefined) {
+      if (kind !== 'workmf' && kind !== 'projectmat') { sendJson(res, 400, { error: 'asset is only accepted for the workmf/projectmat kinds' }); return; }
+      const a = String(body.asset).replace(/\s+/g, '');
+      if (a.length > 512 || !ASSET_PATH_RE.test(a)) { sendJson(res, 400, { error: 'invalid asset — use a single UE object path like "/Game/Materials/M_Foo.M_Foo"' }); return; }
+      asset = a;
+    }
     try {
-      const jobId = startCrawlJob(kind, contentRoots);
+      const jobId = startCrawlJob(kind, contentRoots, undefined, asset);
       sendJson(res, 200, { jobId });
     } catch (e) {
       // Already running — single-job lock.
@@ -1153,6 +1168,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     kind: 'export' | 'enginemf' | 'workmf' | 'projectmat' | 'compile',
     contentRoots: string | undefined,
     onDone?: (status: 'success' | 'error', exitCode: number | null) => void,
+    asset?: string,
   ): string {
     return runner.start(kind, (e) => {
       const msg = crawlEventToMsg(e);
@@ -1170,7 +1186,7 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
         void recordFreshness(opts.repoRoot, kind, new Date().toISOString());
       }
       if (e.type === 'done') onDone?.(e.status, e.exitCode ?? null);
-    }, contentRoots ? { contentRoots } : undefined);
+    }, (contentRoots || asset) ? { contentRoots, asset } : undefined);
   }
 
   // ─── Agent handlers ───────────────────────────────────────────────────────

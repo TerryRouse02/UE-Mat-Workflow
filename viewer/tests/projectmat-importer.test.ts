@@ -76,4 +76,49 @@ describe('importProjectMaterials', () => {
     expect(result.imported).toEqual([]);
     expect(result.warnings.length).toBeGreaterThan(0);
   });
+
+  it('stamps sourcePath from the crawl manifest and cleans the manifest up', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'projmat-'));
+    const graphsRoot = join(root, 'graphs');
+    const stagingDir = join(root, 'staging');
+    await mkdir(stagingDir, { recursive: true });
+    await writeFile(
+      join(stagingDir, 'M_Test.t3d'),
+      readFileSync(resolve(__dirname, 'fixtures/ue-make-material-attributes.t3d'), 'utf-8'),
+      'utf-8',
+    );
+    // Manifest: raw .t3d basename → UE object path. A non-string entry must be ignored.
+    await writeFile(
+      join(stagingDir, 'manifest.json'),
+      JSON.stringify({ M_Test: '/Game/Materials/M_Test.M_Test', Other: 123 }),
+      'utf-8',
+    );
+
+    const result = await importProjectMaterials({ stagingDir, graphsRoot, exportMeta });
+    expect(result.imported).toContain('M_Test');
+    const graph = JSON.parse(
+      await readFile(join(graphsRoot, '_project', 'M_Test', 'M_Test.matgraph.json'), 'utf-8'),
+    ) as { sourcePath?: string };
+    expect(graph.sourcePath).toBe('/Game/Materials/M_Test.M_Test');
+    // staging fully cleaned — .t3d removed per-file, manifest.json removed at the end.
+    expect(await readdir(stagingDir)).toEqual([]);
+  });
+
+  it('imports normally when no manifest is present (no sourcePath)', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'projmat-'));
+    const graphsRoot = join(root, 'graphs');
+    const stagingDir = join(root, 'staging');
+    await mkdir(stagingDir, { recursive: true });
+    await writeFile(
+      join(stagingDir, 'M_Test.t3d'),
+      readFileSync(resolve(__dirname, 'fixtures/ue-make-material-attributes.t3d'), 'utf-8'),
+      'utf-8',
+    );
+    const result = await importProjectMaterials({ stagingDir, graphsRoot, exportMeta });
+    expect(result.imported).toContain('M_Test');
+    const graph = JSON.parse(
+      await readFile(join(graphsRoot, '_project', 'M_Test', 'M_Test.matgraph.json'), 'utf-8'),
+    ) as { sourcePath?: string };
+    expect(graph.sourcePath).toBeUndefined();
+  });
 });

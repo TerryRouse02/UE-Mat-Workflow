@@ -35,6 +35,13 @@ export interface CrawlStartOpts {
   // or "/Game/Materials,/MyPlugin". Omitted → the script's own default (/Game,
   // the whole project Content/). Validated at the HTTP boundary before it reaches here.
   contentRoots?: string;
+  // SINGLE-ASSET mode for 'workmf'/'projectmat': a UE object path
+  // (e.g. "/Game/Materials/M_Foo.M_Foo"). When set, the crawl updates ONLY that
+  // asset (and — for a Material — the Material Functions it references,
+  // transitively) instead of the whole content root, overwriting just those
+  // entries/graphs. Validated at the HTTP boundary (ASSET_PATH_RE). Ignored for
+  // other kinds.
+  asset?: string;
 }
 
 export type SpawnImpl = (spec: SpawnSpec, cwd: string) => ChildProcess;
@@ -62,18 +69,31 @@ export const defaultCommandFor: CommandFor = (repoRoot, kind, opts, platform = p
       return ps('Invoke-NodeT3DMetadataMaintenance.ps1', ['-SkipViewerTests']);
     case 'enginemf':
       return ps('plugin-src/Scripts/Run-EngineMfIndex.ps1', []);
-    case 'workmf':
+    case 'workmf': {
       // Regenerates the gitignored agent-pack/workmf-index.json — the user's OWN
       // project Material Functions. The script reads ProjectPath/EngineRoot from
       // local.config.json (same fallback as enginemf). Optional -ContentRoots
       // narrows/widens which project folders are crawled (default /Game).
-      return ps('plugin-src/Scripts/Run-WorkMfIndex.ps1', opts?.contentRoots ? ['-ContentRoots', opts.contentRoots] : []);
-    case 'projectmat':
+      // -Asset switches to single-asset UPSERT: re-index only that MF (or, for a
+      // Material path, the MFs it references transitively) and merge into the
+      // existing index, leaving every other entry untouched.
+      const wargs: string[] = [];
+      if (opts?.contentRoots) wargs.push('-ContentRoots', opts.contentRoots);
+      if (opts?.asset) wargs.push('-Asset', opts.asset);
+      return ps('plugin-src/Scripts/Run-WorkMfIndex.ps1', wargs);
+    }
+    case 'projectmat': {
       // Exports each /Game UMaterial as a T3D dump into the staging dir (the
       // Windows/Codex commandlet); the server converts the dumps after the crawl
       // (importProjectMaterials). Optional -ContentRoots narrows the /Game scan.
-      return ps('plugin-src/Scripts/Run-ProjectMaterials.ps1',
-        ['-StagingDir', resolve(repoRoot, PROJECTMAT_STAGING_REL), ...(opts?.contentRoots ? ['-ContentRoots', opts.contentRoots] : [])]);
+      // -Asset switches to single-asset mode: re-dump only that Material (and its
+      // referenced MFs, transitively) WITHOUT wiping the staging dir, so the
+      // importer overwrites just those graphs/_project/<name> graphs.
+      const pargs = ['-StagingDir', resolve(repoRoot, PROJECTMAT_STAGING_REL)];
+      if (opts?.contentRoots) pargs.push('-ContentRoots', opts.contentRoots);
+      if (opts?.asset) pargs.push('-Asset', opts.asset);
+      return ps('plugin-src/Scripts/Run-ProjectMaterials.ps1', pargs);
+    }
     case 'compile':
       // Build the external UE plugin binary for THIS host OS — Win64 .dll or Mac
       // .dylib — via RunUAT BuildPlugin, then drop it into tools/.../compiled/. No

@@ -42,18 +42,35 @@ export async function importProjectMaterials(opts: {
     return { imported, warnings: [`project-materials staging dir not found: ${stagingDir}`] };
   }
 
+  // Optional manifest the commandlet writes alongside the dumps: raw .t3d basename
+  // (no extension) → the UE object path it came from. Lets the viewer re-crawl just
+  // this asset later (graph.sourcePath). Best-effort — a missing/garbled manifest
+  // only means no sourcePath, never a failed import.
+  let manifest: Record<string, string> = {};
+  try {
+    const m = JSON.parse(await readFile(join(stagingDir, 'manifest.json'), 'utf-8')) as unknown;
+    if (m && typeof m === 'object') {
+      for (const [k, v] of Object.entries(m as Record<string, unknown>)) {
+        if (typeof v === 'string') manifest[k] = v;
+      }
+    }
+  } catch { /* no manifest → no sourcePath */ }
+
   // Phase 1: parse + write every staged dump first, so ALL sibling MaterialFunctions are
   // on disk before phase 2 resolves MFC output pin names against them.
   const written: { name: string; graph: MatGraph }[] = [];
   for (const file of entries) {
     const full = join(stagingDir, file);
-    const name = slugifyGraphName(basename(file, extname(file)));
+    const rawBase = basename(file, extname(file));
+    const name = slugifyGraphName(rawBase);
     try {
       const text = await readFile(full, 'utf-8');
       // parseUET3D tags the graph as Material or MaterialFunction (via its
       // FunctionInput/Output nodes); both are kept and the Files panel separates
       // them into the 工作 區's 母材質 / 函式 groups by that type.
       const { graph, warnings: w } = parseUET3D(text, exportMeta, { name });
+      // Stamp the source UE object path (for in-viewer re-crawl) when the manifest knows it.
+      if (manifest[rawBase]) graph.sourcePath = manifest[rawBase];
       await writeGraph(graphsRoot, join(PROJECT_DIR, name), name, graph);
       imported.push(name);
       written.push({ name, graph });
@@ -84,6 +101,9 @@ export async function importProjectMaterials(opts: {
       warnings.push(`${name}: MFC output pin resolve failed: ${(e as Error).message}`);
     }
   }
+
+  // Best-effort manifest cleanup (the .t3d dumps were already removed per-file above).
+  await rm(join(stagingDir, 'manifest.json')).catch(() => { /* may not exist */ });
 
   return { imported, warnings };
 }

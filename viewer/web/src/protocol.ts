@@ -24,6 +24,9 @@ export interface MatGraph {
   nodes: NodeJson[];
   connections: ConnectionJson[];
   comments?: CommentJson[];
+  /** UE object path this graph was crawled from (projectmat importer only) — lets
+   *  the viewer re-crawl just this asset. Absent on AI-authored / clipboard graphs. */
+  sourcePath?: string;
 }
 
 export interface DerivedPins {
