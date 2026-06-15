@@ -2074,6 +2074,24 @@ describe('reply language — buildSystemPrompt directive', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// §22  Autonomous workflow directives — align → plan → build → wrap-up
+// ---------------------------------------------------------------------------
+
+describe('autonomous workflow — buildSystemPrompt directives', () => {
+  it('carries the requirement-alignment, planning, and wrap-up rules', async () => {
+    const sys = await buildSystemPrompt(REPO_ROOT, '5.7');
+    expect(sys).toContain('自主工作流');
+    // 17 — requirement alignment (clarify the key spec, don't interrogate).
+    expect(sys).toContain('需求不足先對齊');
+    // 18 — lightweight planning for complex tasks.
+    expect(sys).toContain('複雜任務先給一句計畫');
+    // 19 — final wrap-up self-check before declaring done.
+    expect(sys).toContain('收尾前自我複查');
+    expect(sys).toContain('未接到 MaterialOutput 的輸出');
+  });
+});
+
 describe('reply language — runAgent threads it into the system prompt', () => {
   class CapturingProvider extends FakeProvider {
     systems: string[] = [];
