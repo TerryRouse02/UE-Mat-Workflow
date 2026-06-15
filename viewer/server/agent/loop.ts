@@ -63,8 +63,9 @@ export const WRITE_FAIL_BREAKER = 3;
 /** Consecutive failed compact_context attempts before the loop stops. */
 export const COMPACT_FAIL_BREAKER = 2;
 /** Consecutive auto-review (LLM judge) rejections this turn before the loop
-    stops and asks the user instead of reflecting forever. */
-export const AUTO_REJECT_BREAKER = 3;
+    stops and ESCALATES TO THE USER (the human is the tiebreaker when the judge
+    and a confident agent disagree — the judge must not win by attrition). */
+export const AUTO_REJECT_BREAKER = 2;
 /** Off-topic strikes (report_off_topic calls) before the session is closed
     and deleted: 1 = remind, 2 = refuse + warn, 3 = close. Per-session,
     cumulative (persisted), never reset by on-topic messages. */
@@ -390,10 +391,13 @@ function approvalRejectionMessage(decision: ApprovalDecision, lang: 'zh-Hant' | 
     ? (lang === 'en' ? ` Reason: ${reason.trim()}` : `（原因：${reason.trim()}）`)
     : '';
   if (retry) {
-    // Auto mode: the judge gave actionable feedback — reflect and try again.
+    // Auto mode: a SECOND OPINION, not a verdict from authority. The agent may
+    // either fix a real problem OR stand its ground by documenting the intent —
+    // the judge's downgrade rule accepts a graph comment that explains the
+    // design, so a justified choice passes instead of being eroded.
     return lang === 'en'
-      ? `Automatic review did not pass this change.${note} Reflect on the reason, fix it, and try the change again.`
-      : `自動審查未通過這次修改${note}。請針對原因反思、修正後再試一次。`;
+      ? `An automatic reviewer raised a concern about this change.${note} If you believe your approach is correct, do NOT blindly change it — add a comment to the graph (addComment) explaining the design intent, and the reviewer will accept a justified choice. Only revise if there is a genuine problem, then retry.`
+      : `一位自動審查員對這次修改提出疑慮${note}。若你認為原本的做法是對的，不要盲目改動——在圖裡加一個註解（addComment）說明這樣設計的原因，審查看到合理說明就會放行；只有確實有問題才修正後重試。`;
   }
   // Review mode: the human declined — stop and ask.
   return lang === 'en'
@@ -799,10 +803,16 @@ export async function runAgent(
     if (decision.retry) {
       autoRejectStreak += 1;
       if (autoRejectStreak >= AUTO_REJECT_BREAKER && !breakerMessage) {
+        // Persistent disagreement → escalate to the USER (the tiebreaker), and
+        // present BOTH the change and the reviewer's objection + how to override.
+        const why = decision.reason && decision.reason.trim()
+          ? (replyLang === 'en' ? ` (reviewer's reason: ${decision.reason.trim()})` : `（審查理由：${decision.reason.trim()}）`)
+          : '';
         breakerMessage = replyLang === 'en'
-          ? `Automatic review rejected the change ${autoRejectStreak} times in a row, so I'm stopping. ` +
-            'Please adjust the request or tell me how you want to proceed.'
-          : `自動審查連續 ${autoRejectStreak} 次未通過，先停下來。請調整需求，或告訴我你希望怎麼做。`;
+          ? `Automatic review blocked my change to "${path ?? ''}" ${autoRejectStreak} times${why}. The reviewer and I disagree on this one. ` +
+            'If you think the review is wrong, switch the mode next to the input box to "Approve writes" to decide yourself, or "Auto-write" to apply it directly — or tell me how you want to adjust it.'
+          : `自動審查連續 ${autoRejectStreak} 次擋下我對「${path ?? ''}」的修改${why}。我和審查對這個修改有分歧。` +
+            '如果你覺得是審查判錯了，可以把輸入框旁的模式切到「寫入需批准」自己把關、或「自動寫入」直接套用；也可以告訴我要怎麼調整。';
       }
     }
     return { content: approvalRejectionMessage(decision, replyLang), isError: true, approvalRejected: true };

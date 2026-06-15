@@ -2619,9 +2619,10 @@ describe('auto-review gate', () => {
     // The first approval_request carried mode:'auto'.
     const req = events.find(e => e.type === 'approval_request');
     expect(req && req.type === 'approval_request' && req.mode).toBe('auto');
-    // The model saw the reflect-and-retry message (not a stop-and-ask one).
+    // The model saw the reflect-and-retry message (a rebuttable second opinion,
+    // not a stop-and-ask one).
     const seen = JSON.stringify(session.messages);
-    expect(seen).toContain('自動審查未通過');
+    expect(seen).toContain('提出疑慮');
     // It eventually passed → the graph is on disk.
     const written = await readFile(join(tmpDir, 'graphs', 'auto/a.matgraph.json'), 'utf-8');
     expect(JSON.parse(written).name).toBe('a');

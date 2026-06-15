@@ -407,13 +407,17 @@ runAgent(userText, session):
     **owner 自審**：團隊成員審自己 agent 對自己圖的寫入，永不轉送 admin（與 request_crawl/propose_db_edit 相反）。
   - **auto（Phase 2）**：hook 改呼叫 `judge.ts` `judgeChange()`——同 provider/model 的一次性無工具
     LLM 裁判，看「使用者需求＋變更（tool/summary/diff／write 的整圖）」。prompt 走**兩步＋嚴重度分級**
-    （資深 TA 人設去偏；STEP 1 對風險／合規／BaseColor/Metallic/Roughness/Specular/命名逐項標 PASS 或
-    FLAG[HIGH|LOW] 並引用節點與數值，使用者明確指定的值或附註才把 HIGH 降為 LOW；STEP 2：有任何 HIGH→
-    `VERDICT: REJECT — 原因`，否則 `APPROVE`）。`parseVerdict` 取**最後**一個 VERDICT 行（容忍 checklist 前言）。
-    拒絕回 `{retry:true}` → 回模型「自動審查未通過（原因…），
-    反思修正後再試」→ 模型修正再送審。連續 `AUTO_REJECT_BREAKER`(3) 次未過 → loop `limit(failures)`
-    停下問使用者。裁判**fail-open**（裁判錯誤／無法解析＝放行，因為是使用者自己的可 undo 圖，當機不該卡住 agent）；
-    裁判 token 計入 session 花費（團隊配額照算）。
+    （資深 TA 人設去偏；**判官沒有專案情境 → 對「可能刻意/專案特定」一律 PASS、只駁明確客觀缺陷**；
+    STEP 1 對風險／合規／BaseColor/Metallic/Roughness/Specular/命名逐項標 PASS 或 FLAG[HIGH|LOW] 並引用節點與數值；
+    STEP 2：有任何 HIGH→`VERDICT: REJECT — 原因`，否則 `APPROVE`）。**降級規則分兩類**：軟性項（Metallic 中間值/
+    Specular/命名）使用者明確指定值或解釋即降級；**客觀壞值（純黑/純白 BaseColor、Roughness 恰 0/1）只認「真正的原因」**
+    （圖內註解或「這是自發光材質」之類說明），光「就這樣」報個值不算。`parseVerdict` 取**最後**一個 VERDICT 行。
+    - **判官誤駁 → agent 動搖的防護（2026-06-15）**：拒絕回 `{retry:true}`，回模型的訊息把駁回定調為
+      **「可申辯的第二意見」**——「若你確信原做法對，別盲改，在圖裡加註解（addComment）說明原因，審查看到合理說明就放行」
+      （搭配上面的降級規則：圖內註解＝真正的原因）。連續 `AUTO_REJECT_BREAKER`(**2**) 次未過 → **升級給「人」當 tiebreaker**：
+      `limit(failures)` 訊息同時呈現「agent 的修改」＋「判官的反對理由」，並提示使用者可切「寫入需批准」自己把關或
+      「自動寫入」直接套用——判官不靠駁回次數贏。裁判**fail-open**（錯誤/無法解析＝放行，使用者自己的可 undo 圖，
+      當機不該卡住 agent）；裁判 token 計入 session 花費（團隊配額照算）。
 - **使用者永遠看不到原始驗證錯誤**：錯誤只回 tool_result 餵模型自修，0 error 才呈現成果＋白話說明。
 - 每輪不信記憶：修改前先 `read_graph` 對齊磁碟真實狀態（寫進 system prompt 的工具紀律）。
 - Session（M7，2026-06-11 取代「單一記憶體 session」）：會話落盤
