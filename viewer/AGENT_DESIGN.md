@@ -74,6 +74,7 @@ viewer/
 │     ├─ session-store.ts       # M7 會話落盤 → viewer/.agent-sessions/<id>.json
 │     ├─ memory-store.ts        # M7b 兩層記憶 → .agent-memory/longterm.md ＋ <id>.memory.md
 │     ├─ explain.ts             # hover「深入解說」一次性 LLM 路徑
+│     ├─ judge.ts               # auto 寫入審查的一次性 LLM 裁判（judgeChange，fail-open）
 │     ├─ web-tools.ts           # web_search / web_fetch（SSRF 防護、可注入 fetch/lookup）
 │     └─ agent-types.ts         # node-free wire 型別（鏡像 web/src/agent/protocol.ts）
 └─ web/src/agent/
@@ -395,16 +396,21 @@ runAgent(userText, session):
   server 存進 ToolContext，模型需要時呼叫 `get_viewport`。開啟中的圖是環境資訊，
   不是預設操作對象；建立 vs 修改的意圖分流寫進 system prompt 規則 13/14，
   `write_graph` 的覆寫硬守衛是最後防線。
-- **寫入審查閘（review 模式，Phase 1，2026-06-15）**：`RunAgentOptions.requestApproval` 注入時，
-  每個改圖工具（`write_graph`／`patch_graph`／`rename_graph`／`delete_graph`）落盤前先預覽
+- **寫入審查閘（2026-06-15）**：`RunAgentOptions.requestApproval` 注入時，每個改圖工具
+  （`write_graph`／`patch_graph`／`rename_graph`／`delete_graph`）落盤前先預覽
   （patch/write 走 dry-run 取 diff／node 清單；rename/delete 一句白話）→ loop emit `approval_request`
-  → 呼叫 hook（http 層註冊待批准、等 OWNER 的 `POST /api/agent/approve`，含逾時 10 分鐘／中止保底）→
-  emit `approval_resolved`。**批准**才 dispatch 真正的寫入；**拒絕／逾時**回模型一段「使用者拒絕，勿重試，
-  請停下來簡短詢問」的 tool_result（軟停——模型問一句即自然結束回合）。**無效變更（dry-run 失敗）
-  永不送審**，驗證錯誤直接回模型自修。SSE 事件由 **loop** 發（contract 單一來源、可單元測試）；hook 只做
-  註冊＋等待。缺省（無 hook）＝skip＝原本立即寫入行為——既有 caller／eval 全不受影響。
-  **owner 自審**：團隊成員審自己 agent 對自己圖的寫入，永不轉送 admin（與 request_crawl/propose_db_edit 相反）。
-  Phase 2 將加 'auto'（LLM 裁判走同一 hook）。
+  （帶 `mode`）→ 呼叫 hook → emit `approval_resolved`。**批准**才 dispatch 真正的寫入。
+  **無效變更（dry-run 失敗）永不送審**，驗證錯誤直接回模型自修。SSE 事件由 **loop** 發（contract
+  單一來源、可單元測試）；hook 只做決策。缺省（無 hook）＝skip＝原本立即寫入——既有 caller／eval 全不受影響。
+  - **review（Phase 1）**：hook 在 http 層註冊待批准、等 OWNER 的 `POST /api/agent/approve`
+    （逾時 10 分鐘／中止保底）。拒絕／逾時 → 回模型「勿重試、停下來簡短詢問」（軟停）。
+    **owner 自審**：團隊成員審自己 agent 對自己圖的寫入，永不轉送 admin（與 request_crawl/propose_db_edit 相反）。
+  - **auto（Phase 2）**：hook 改呼叫 `judge.ts` `judgeChange()`——同 provider/model 的一次性無工具
+    LLM 裁判，看「使用者需求＋變更（tool/summary/diff／write 的整圖）」依「風險／不合規／不規範」
+    rubric 回 `VERDICT: APPROVE`／`REJECT — 原因`。拒絕回 `{retry:true}` → 回模型「自動審查未通過（原因…），
+    反思修正後再試」→ 模型修正再送審。連續 `AUTO_REJECT_BREAKER`(3) 次未過 → loop `limit(failures)`
+    停下問使用者。裁判**fail-open**（裁判錯誤／無法解析＝放行，因為是使用者自己的可 undo 圖，當機不該卡住 agent）；
+    裁判 token 計入 session 花費（團隊配額照算）。
 - **使用者永遠看不到原始驗證錯誤**：錯誤只回 tool_result 餵模型自修，0 error 才呈現成果＋白話說明。
 - 每輪不信記憶：修改前先 `read_graph` 對齊磁碟真實狀態（寫進 system prompt 的工具紀律）。
 - Session（M7，2026-06-11 取代「單一記憶體 session」）：會話落盤
@@ -500,7 +506,7 @@ type AgentSseEvent =
   | { type: 'crawl_proposal'; kind: 'workmf' | 'projectmat'; contentRoot: string } // UI 顯示確認卡，使用者核准才呼叫 POST /api/crawl
   | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; create: boolean; patch: Record<string, unknown>; rationale: string } // UI 顯示確認卡，使用者核准才呼叫 POST /api/agent/db-edit
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
-  | { type: 'approval_request'; id: string; tool: string; path?: string; summary: string; diff?: string[] } // 寫入審查（review 模式）：暫停等 OWNER 批准（2026-06-15）
+  | { type: 'approval_request'; id: string; mode: 'review' | 'auto'; tool: string; path?: string; summary: string; diff?: string[] } // 寫入審查暫停（review＝OWNER 批准；auto＝LLM 裁判）（2026-06-15）
   | { type: 'approval_resolved'; id: string; decision: 'approved' | 'rejected' | 'timeout'; reason?: string } // 批准結果（落盤，重播顯示已解決卡）
   | { type: 'compacted'; message: string }                           // 壓縮通知（2026-06-11）
   | { type: 'notice'; text: string }                                 // 瞬時系統提示（重試／收尾自我複查，2026-06-15）
@@ -515,8 +521,8 @@ interface AgentChatRequest {
   text: string; ueVersion?: string; graphPath?: string;
   thinking?: 'off' | 'low' | 'medium' | 'high';
   sessionId?: string;   // M7：顯式綁定持久會話；web UI 一律帶
-  approvalMode?: 'skip' | 'review';  // 寫入審查（Phase 1，2026-06-15）：web 預設帶 'review'；
-                                     // server 缺省＝skip（只有顯式 'review' 才開閘，非互動呼叫不會卡住）
+  approvalMode?: 'skip' | 'review' | 'auto';  // 寫入審查（2026-06-15）：web 預設帶 'review'；
+                                     // server 缺省＝skip（只有顯式 'review'/'auto' 才開閘，非互動呼叫不會卡住）
 }
 ```
 
@@ -594,10 +600,11 @@ interface AgentChatRequest {
 - **情境理解**：前端隨訊息附帶目前開啟的圖＋選取節點，模型按需以 `get_viewport` 查詢
   （不注入 prompt——開啟中的圖是環境資訊，不是預設操作對象）；「建立」意圖一律寫新檔，
   write_graph 拒絕覆寫非本對話建立的檔；Inspector「問 AI」、匯入後自動解說、hover 節點兩層解說。
-- **寫入審查（2026-06-15，Phase 1）**：聊天框旁的「寫入需批准／自動寫入」開關（web 預設審查、localStorage 持久）。
-  審查模式下，agent 每次改圖（新建／修改／改名／刪除）都先跳批准卡（白話 diff＋可選理由），使用者按「批准」
-  才套用、「拒絕」則 agent 停下來簡短詢問。**自己審自己**——本地與團隊成員都審自己 agent 對自己圖的寫入，
-  永不發給管理員（與爬取／DB 修改提案的 admin 審不同）。Phase 2 將加「auto」模式（LLM 裁判自動審）。
+- **寫入審查（2026-06-15）**：聊天框旁的三檔開關「審查／自動審查／自動寫入」（web 預設審查、localStorage 持久）。
+  **審查**：agent 每次改圖（新建／修改／改名／刪除）都先跳批准卡（白話 diff＋可選理由），使用者按「批准」才套用、
+  「拒絕」則 agent 停下來簡短詢問——**自己審自己**（本地與團隊成員都審自己 agent 對自己圖的寫入，永不發給管理員，
+  與爬取／DB 修改提案的 admin 審不同）。**自動審查**：由 LLM 裁判依風險／不合規／不規範把關，退回時 agent 反思修正
+  再送審（連續 3 次未過就停下問你；裁判故障時放行不卡住）。**自動寫入**：不經審查直接套用。
 - **提案—批准模型**（agent 永遠拿不到的權限）：爬取（request_crawl → 確認卡 →
   既有 POST /api/crawl）；公開節點 DB 修改／verified 背書／create 補齊
   （propose_db_edit → 確認卡 → POST /api/agent/db-edit，套用→重生索引→audit→失敗回滾）。

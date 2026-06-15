@@ -2594,3 +2594,54 @@ describe('write-approval gate', () => {
     expect(JSON.parse(written).name).toBe('skip');
   });
 });
+
+// ---------------------------------------------------------------------------
+// §  Auto-review gate (auto mode) — Phase 2
+//    requestApproval returns retry-rejections (judge); the model reflects and
+//    retries; AUTO_REJECT_BREAKER stops the loop after N consecutive rejects.
+// ---------------------------------------------------------------------------
+
+describe('auto-review gate', () => {
+  it('reflect-and-retry: a judge rejection makes the model revise, then it passes', async () => {
+    const provider = new FakeProvider([
+      [{ type: 'tool_use', id: 'w1', name: 'write_graph', input: { path: 'auto/a.matgraph.json', graph: { ...VALID_GRAPH, name: 'a' } } }, { type: 'done', stopReason: 'tool_use' }],
+      // After the rejection the model revises and writes again.
+      [{ type: 'tool_use', id: 'w2', name: 'write_graph', input: { path: 'auto/a.matgraph.json', graph: { ...VALID_GRAPH, name: 'a' } } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '完成。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    let call = 0;
+    const requestApproval = async () => {
+      call += 1;
+      return call === 1 ? { approved: false, reason: '純黑 BaseColor', retry: true } : { approved: true };
+    };
+    const events = await runAndCollect('做個材質', session, provider, ctx, undefined, { requestApproval, approvalMode: 'auto' });
+
+    // The first approval_request carried mode:'auto'.
+    const req = events.find(e => e.type === 'approval_request');
+    expect(req && req.type === 'approval_request' && req.mode).toBe('auto');
+    // The model saw the reflect-and-retry message (not a stop-and-ask one).
+    const seen = JSON.stringify(session.messages);
+    expect(seen).toContain('自動審查未通過');
+    // It eventually passed → the graph is on disk.
+    const written = await readFile(join(tmpDir, 'graphs', 'auto/a.matgraph.json'), 'utf-8');
+    expect(JSON.parse(written).name).toBe('a');
+    expect(events.some(e => e.type === 'limit')).toBe(false);
+  });
+
+  it('stops with a failures limit after AUTO_REJECT_BREAKER consecutive rejects', async () => {
+    const provider = new FakeProvider([
+      [{ type: 'tool_use', id: 'w1', name: 'write_graph', input: { path: 'auto/b.matgraph.json', graph: { ...VALID_GRAPH, name: 'b' } } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'tool_use', id: 'w2', name: 'write_graph', input: { path: 'auto/b.matgraph.json', graph: { ...VALID_GRAPH, name: 'b' } } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'tool_use', id: 'w3', name: 'write_graph', input: { path: 'auto/b.matgraph.json', graph: { ...VALID_GRAPH, name: 'b' } } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'tool_use', id: 'w4', name: 'write_graph', input: { path: 'auto/b.matgraph.json', graph: { ...VALID_GRAPH, name: 'b' } } }, { type: 'done', stopReason: 'tool_use' }],
+    ]);
+    const requestApproval = async () => ({ approved: false, reason: 'nope', retry: true });
+    const events = await runAndCollect('做個材質', session, provider, ctx, undefined, { requestApproval, approvalMode: 'auto' });
+
+    const limit = events.find(e => e.type === 'limit');
+    expect(limit && limit.type === 'limit' && limit.kind).toBe('failures');
+    expect(limit && limit.type === 'limit' && limit.message.includes('自動審查')).toBe(true);
+    // Never written.
+    await expect(readFile(join(tmpDir, 'graphs', 'auto/b.matgraph.json'), 'utf-8')).rejects.toThrow();
+  });
+});

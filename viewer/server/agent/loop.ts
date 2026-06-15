@@ -62,6 +62,9 @@ export const VIEW_CONTEXT_PREFIX = '［視窗情境］';
 export const WRITE_FAIL_BREAKER = 3;
 /** Consecutive failed compact_context attempts before the loop stops. */
 export const COMPACT_FAIL_BREAKER = 2;
+/** Consecutive auto-review (LLM judge) rejections this turn before the loop
+    stops and asks the user instead of reflecting forever. */
+export const AUTO_REJECT_BREAKER = 3;
 /** Off-topic strikes (report_off_topic calls) before the session is closed
     and deleted: 1 = remind, 2 = refuse + warn, 3 = close. Per-session,
     cumulative (persisted), never reset by on-topic messages. */
@@ -242,7 +245,7 @@ function offTopicStrike(session: AgentLoopSession, lang: 'zh-Hant' | 'en'): { co
 
 export type EmitFn = (event: AgentSseEvent) => void;
 
-/** What the owner is asked to approve before a mutating tool runs (review mode). */
+/** What is reviewed before a mutating tool runs (review = human, auto = LLM judge). */
 export interface ApprovalRequestInfo {
   /** Correlates the approval_request event with the awaiting hook + POST /api/agent/approve. */
   id: string;
@@ -252,13 +255,21 @@ export interface ApprovalRequestInfo {
   summary: string;
   /** Plain-language diff lines (patch_graph) or a node summary (write_graph). */
   diff?: string[];
+  /** Resulting graph object (write_graph only) — for the auto judge; NOT emitted to the UI. */
+  graph?: unknown;
 }
 
-/** The owner's decision delivered back to the loop (via POST /api/agent/approve). */
+/** The decision delivered back to the loop (human via /approve, or the auto judge). */
 export interface ApprovalDecision {
   approved: boolean;
-  /** 'timeout' / 'aborted' are synthetic; any other value is the user's note. */
+  /** 'timeout' / 'aborted' are synthetic; any other value is the reviewer's note. */
   reason?: string;
+  /**
+   * On a rejection: true → tell the model to REFLECT and try again (auto mode,
+   * the judge gave actionable feedback); false/absent → tell it to STOP and ask
+   * the user (review mode — the human declined). Ignored when approved.
+   */
+  retry?: boolean;
 }
 
 /**
@@ -360,11 +371,13 @@ function writeGraphNodeLines(graphInput: unknown, dryContent: string): string[] 
 }
 
 /**
- * The tool_result a model sees when the owner rejects (or lets time out) a
- * mutating op in review mode. Steers it to STOP and ask, never to retry the
- * write — the soft-stop the user asked for (an explicit reason is woven in).
+ * The tool_result a model sees when a mutating op is rejected. Review-mode
+ * (human) rejections steer it to STOP and ask; auto-mode (judge, retry:true)
+ * rejections steer it to REFLECT and try again. Synthetic timeout/aborted are
+ * handled as terminal. An explicit reason is woven in either way.
  */
-function approvalRejectionMessage(reason: string | undefined, lang: 'zh-Hant' | 'en'): string {
+function approvalRejectionMessage(decision: ApprovalDecision, lang: 'zh-Hant' | 'en'): string {
+  const { reason, retry } = decision;
   if (reason === 'timeout') {
     return lang === 'en'
       ? 'The user did not respond to the approval request in time, so this change was auto-cancelled. Briefly tell the user and ask how they want to proceed — do not retry automatically.'
@@ -374,8 +387,15 @@ function approvalRejectionMessage(reason: string | undefined, lang: 'zh-Hant' | 
     return lang === 'en' ? 'The user cancelled the operation.' : '使用者取消了操作。';
   }
   const note = reason && reason.trim()
-    ? (lang === 'en' ? ` Reason: ${reason.trim()}` : `（理由：${reason.trim()}）`)
+    ? (lang === 'en' ? ` Reason: ${reason.trim()}` : `（原因：${reason.trim()}）`)
     : '';
+  if (retry) {
+    // Auto mode: the judge gave actionable feedback — reflect and try again.
+    return lang === 'en'
+      ? `Automatic review did not pass this change.${note} Reflect on the reason, fix it, and try the change again.`
+      : `自動審查未通過這次修改${note}。請針對原因反思、修正後再試一次。`;
+  }
+  // Review mode: the human declined — stop and ask.
   return lang === 'en'
     ? `The user REJECTED this change.${note} Do NOT retry this write. Briefly explain to the user and ask what they would like to adjust.`
     : `使用者拒絕了這次修改${note}。請勿重試這次寫入，改為向使用者簡短說明並詢問他們想怎麼調整。`;
@@ -521,6 +541,14 @@ export interface RunAgentOptions {
    * error goes straight back to the model so it self-corrects.
    */
   requestApproval?: RequestApprovalFn;
+  /**
+   * Which kind of gate `requestApproval` implements — drives the
+   * approval_request event's `mode` (so the web renders an interactive card for
+   * 'review' vs an informational「自動審查中」card for 'auto') and selects the
+   * auto reflect-and-retry breaker. Defaults to 'review'. Only meaningful when
+   * requestApproval is supplied.
+   */
+  approvalMode?: 'review' | 'auto';
 }
 
 const WEB_TOOL_NAMES = new Set(['web_search', 'web_fetch']);
@@ -554,6 +582,7 @@ export async function runAgent(
   const retryBaseMs = options?.retryBaseMs ?? STREAM_RETRY_BASE_MS;
   const selfCheckOnFinish = options?.selfCheckOnFinish === true;
   const requestApproval = options?.requestApproval;
+  const approvalMode = options?.approvalMode === 'auto' ? 'auto' : 'review';
 
   // User-facing transcript strings — localized by replyLang.
   const ceilingMessage = (used: number): string =>
@@ -631,6 +660,9 @@ export async function runAgent(
   // repeated failed compactions — instead of burning tokens until the ceiling.
   const writeFailCounts = new Map<string, number>();
   let compactFailCount = 0;
+  // Auto mode: consecutive LLM-judge rejections this turn. A successful (approved)
+  // mutation resets it; at AUTO_REJECT_BREAKER the loop stops and asks the user.
+  let autoRejectStreak = 0;
   let breakerMessage: string | null = null;
   // Set when an off-topic strike reaches OFF_TOPIC_LIMIT — terminate after the
   // tool results land (the http layer deletes the session on session_closed).
@@ -716,11 +748,13 @@ export async function runAgent(
   // session OWNER, and run the real tool only on approval. An invalid change
   // (dry-run fails) is returned to the model unchanged — never sent for
   // approval. Only called when requestApproval is supplied.
-  const dispatchMutatingApproved = async (call: ToolUseBlock): Promise<{ content: string; isError?: boolean }> => {
+  const dispatchMutatingApproved = async (call: ToolUseBlock): Promise<{ content: string; isError?: boolean; approvalRejected?: boolean }> => {
     const inp = (call.input ?? {}) as Record<string, unknown>;
     const path = typeof inp.path === 'string' ? inp.path : undefined;
     let summary: string;
     let diff: string[] | undefined;
+    // Resulting graph for the auto judge (write_graph only). Not emitted to the UI.
+    let graph: unknown;
 
     if (call.name === 'patch_graph') {
       const dry = await dispatchTool('patch_graph', { ...inp, dryRun: true }, turnCtx);
@@ -734,6 +768,7 @@ export async function runAgent(
         ? (inp.graph as { nodes: unknown[] }).nodes.length : 0;
       summary = replyLang === 'en' ? `Write graph: ${path ?? ''} (${n} nodes)` : `寫入圖形：${path ?? ''}（${n} 個節點）`;
       diff = writeGraphNodeLines(inp.graph, dry.content);
+      graph = inp.graph;
     } else if (call.name === 'rename_graph') {
       summary = replyLang === 'en'
         ? `Rename: ${String(inp.from ?? '')} → ${String(inp.to ?? '')}`
@@ -742,20 +777,35 @@ export async function runAgent(
       summary = replyLang === 'en' ? `Delete graph: ${path ?? ''}` : `刪除圖形：${path ?? ''}`;
     }
 
-    // The loop owns the SSE contract: emit the request, ask the hook (which
-    // awaits the owner's POST /api/agent/approve), then emit the outcome.
+    // The loop owns the SSE contract: emit the request (carrying the gate mode so
+    // the web renders an interactive vs informational card), ask the hook (human
+    // /approve or the LLM judge), then emit the outcome.
     const id = `appr-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    emit({ type: 'approval_request', id, tool: call.name, path, summary, diff });
-    const decision = await requestApproval!({ id, tool: call.name, path, summary, diff });
+    emit({ type: 'approval_request', id, mode: approvalMode, tool: call.name, path, summary, diff });
+    const decision = await requestApproval!({ id, tool: call.name, path, summary, diff, graph });
     emit({
       type: 'approval_resolved',
       id,
       decision: decision.approved ? 'approved' : (decision.reason === 'timeout' ? 'timeout' : 'rejected'),
-      // Only surface a real user note; synthetic timeout/aborted stay internal.
+      // Only surface a real reviewer note; synthetic timeout/aborted stay internal.
       reason: decision.reason && decision.reason !== 'timeout' && decision.reason !== 'aborted' ? decision.reason : undefined,
     });
-    if (decision.approved) return dispatchGuarded(call);
-    return { content: approvalRejectionMessage(decision.reason, replyLang), isError: true };
+    if (decision.approved) {
+      autoRejectStreak = 0; // a passed change clears the auto reflect streak
+      return dispatchGuarded(call);
+    }
+    // Auto-mode rejections reflect-and-retry; cap the streak so the loop stops
+    // and asks the user instead of looping the judge forever.
+    if (decision.retry) {
+      autoRejectStreak += 1;
+      if (autoRejectStreak >= AUTO_REJECT_BREAKER && !breakerMessage) {
+        breakerMessage = replyLang === 'en'
+          ? `Automatic review rejected the change ${autoRejectStreak} times in a row, so I'm stopping. ` +
+            'Please adjust the request or tell me how you want to proceed.'
+          : `自動審查連續 ${autoRejectStreak} 次未通過，先停下來。請調整需求，或告訴我你希望怎麼做。`;
+      }
+    }
+    return { content: approvalRejectionMessage(decision, replyLang), isError: true, approvalRejected: true };
   };
 
   // Identity of a tool call for the no-progress (duplicate-spin) breaker.
@@ -903,14 +953,16 @@ export async function runAgent(
     const toolResults: ToolResultBlock[] = [];
 
     // tool_end + circuit breakers + UI fan-out + push the result (original order).
-    const finishCall = (call: ToolUseBlock, result: { content: string; isError?: boolean }): void => {
+    const finishCall = (call: ToolUseBlock, result: { content: string; isError?: boolean; approvalRejected?: boolean }): void => {
       emit({
         type: 'tool_end',
         name: call.name,
         ok: !result.isError,
         summary: result.isError ? undefined : toolEndSummary(call.name, result.content),
       });
-      if (WRITE_TOOL_NAMES.has(call.name)) {
+      // An approval rejection is NOT a validation failure — it must not feed the
+      // same-file write-fail breaker (the auto reflect streak has its own cap).
+      if (WRITE_TOOL_NAMES.has(call.name) && !result.approvalRejected) {
         const path = String((call.input as Record<string, unknown> | null)?.path ?? '');
         if (result.isError) {
           const n = (writeFailCounts.get(path) ?? 0) + 1;
@@ -989,7 +1041,7 @@ export async function runAgent(
       emit({ type: 'tool_start', name: call.name, summary: toolSummary(call) });
       // compact_context / report_off_topic are handled here, not in tools.ts —
       // they need the session (and provider) that only the loop holds.
-      let result: { content: string; isError?: boolean };
+      let result: { content: string; isError?: boolean; approvalRejected?: boolean };
       if (call.name === 'compact_context') {
         const r = await compactNow(session, provider, model, ctx, emit, signal, compactKeepTurns, replyLang);
         result = r.ok

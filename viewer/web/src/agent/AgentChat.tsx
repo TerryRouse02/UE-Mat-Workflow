@@ -262,19 +262,34 @@ function ApprovalRequestView({ item, sessionId, onError }: {
     }
   };
 
+  const auto = item.mode === 'auto';
+  const icon = auto ? 'bolt' : 'lock';
+
   if (item.resolved) {
-    const label = item.decision === 'approved'
-      ? t('agentChat.approveApproved')
+    const base = item.decision === 'approved'
+      ? (auto ? t('agentChat.approveAutoApproved') : t('agentChat.approveApproved'))
       : item.decision === 'timeout'
         ? t('agentChat.approveTimeout')
-        : t('agentChat.approveRejected');
+        : (auto ? t('agentChat.approveAutoRejected') : t('agentChat.approveRejected'));
+    const label = item.decision === 'rejected' && item.reason ? `${base}：${item.reason}` : base;
     return (
       <div className="agent-approval agent-item resolved">
-        <div className="agent-approval-title"><Icon name="lock" size={12} /> {item.summary}</div>
+        <div className="agent-approval-title"><Icon name={icon} size={12} /> {item.summary}</div>
         <div className="agent-approval-resolved">{label}</div>
       </div>
     );
   }
+
+  // Auto mode: the LLM judge is deciding — informational card, no buttons.
+  if (auto) {
+    return (
+      <div className="agent-approval agent-item auto">
+        <div className="agent-approval-title"><Icon name="bolt" size={12} /> {t('agentChat.approveAutoJudging')}</div>
+        <div className="agent-approval-summary">{item.summary}</div>
+      </div>
+    );
+  }
+
   return (
     <div className="agent-approval agent-item">
       <div className="agent-approval-title"><Icon name="lock" size={12} /> {t('agentChat.approveTitle')}</div>
@@ -442,9 +457,13 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     try { return localStorage.getItem(WEB_SEARCH_STORAGE_KEY) !== 'off'; } catch { return true; }
   });
   // Write-approval mode (per-turn, persisted). 'review' (default) pauses every
-  // graph mutation for the user to approve; 'skip' applies writes immediately.
-  const [approvalMode, setApprovalMode] = useState<'skip' | 'review'>(() => {
-    try { return localStorage.getItem(APPROVAL_MODE_STORAGE_KEY) === 'skip' ? 'skip' : 'review'; } catch { return 'review'; }
+  // graph mutation for the user to approve; 'auto' lets an LLM judge decide;
+  // 'skip' applies writes immediately.
+  const [approvalMode, setApprovalMode] = useState<'skip' | 'review' | 'auto'>(() => {
+    try {
+      const v = localStorage.getItem(APPROVAL_MODE_STORAGE_KEY);
+      return v === 'skip' ? 'skip' : v === 'auto' ? 'auto' : 'review';
+    } catch { return 'review'; }
   });
   // Team-mode admin lock: a member's thinking/🌐 controls are forced to the
   // admin-set values and grayed out (the server enforces them regardless).
@@ -627,12 +646,9 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
     });
   }, []);
 
-  const toggleApprovalMode = useCallback(() => {
-    setApprovalMode(prev => {
-      const next = prev === 'review' ? 'skip' : 'review';
-      try { localStorage.setItem(APPROVAL_MODE_STORAGE_KEY, next); } catch { /* private mode etc. */ }
-      return next;
-    });
+  const changeApprovalMode = useCallback((v: 'skip' | 'review' | 'auto') => {
+    setApprovalMode(v);
+    try { localStorage.setItem(APPROVAL_MODE_STORAGE_KEY, v); } catch { /* private mode etc. */ }
   }, []);
 
   // Abort any in-flight stream on real unmount (e.g. switching into snapshot
@@ -1385,16 +1401,24 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
             >
               <Icon name="globe" size={11} /> {effWebOn ? t('agentChat.webToggleOn') : t('agentChat.webToggleOff')}
             </button>
-            <button
-              type="button"
-              className={'agent-approval-toggle' + (approvalMode === 'review' ? ' on' : '')}
-              disabled={streaming}
-              onClick={toggleApprovalMode}
-              aria-pressed={approvalMode === 'review'}
-              title={approvalMode === 'review' ? t('agentChat.approvalReviewTitle') : t('agentChat.approvalSkipTitle')}
+            <label
+              className="agent-approval-mode"
+              title={approvalMode === 'review' ? t('agentChat.approvalReviewTitle')
+                : approvalMode === 'auto' ? t('agentChat.approvalAutoTitle')
+                : t('agentChat.approvalSkipTitle')}
             >
-              <Icon name="lock" size={11} /> {approvalMode === 'review' ? t('agentChat.approvalReview') : t('agentChat.approvalSkip')}
-            </button>
+              <Icon name="lock" size={11} />
+              <select
+                className={approvalMode !== 'skip' ? 'on' : ''}
+                value={approvalMode}
+                disabled={streaming}
+                onChange={e => changeApprovalMode(e.target.value as 'skip' | 'review' | 'auto')}
+              >
+                <option value="review">{t('agentChat.approvalReview')}</option>
+                <option value="auto">{t('agentChat.approvalAuto')}</option>
+                <option value="skip">{t('agentChat.approvalSkip')}</option>
+              </select>
+            </label>
             {memberLock && <span className="agent-lock-note" title={t('agentChat.lockNoteTitle')}><Icon name="lock" size={10} /> {t('agentChat.lockNote')}</span>}
           </span>
           <span>{t('agentChat.inputHint')}</span>

@@ -17,7 +17,7 @@ export type AgentSseEvent =
   | { type: 'crawl_proposal'; kind: 'workmf' | 'projectmat'; contentRoot: string; pendingApproval?: boolean } // UI shows a confirm card; user approves via POST /api/crawl
   | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; create: boolean; patch: Record<string, unknown>; rationale: string; pendingApproval?: boolean } // UI shows a confirm card; user approves via POST /api/agent/db-edit
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean; cachedTokens?: number } // cachedTokens = prompt-cache hits within inputTokens (billed ~10%)
-  | { type: 'approval_request'; id: string; tool: string; path?: string; summary: string; diff?: string[] } // review mode: the turn paused for the session OWNER to approve this mutating op (POST /api/agent/approve)
+  | { type: 'approval_request'; id: string; mode: 'review' | 'auto'; tool: string; path?: string; summary: string; diff?: string[] } // the turn paused before a mutating op — review: OWNER approves (POST /api/agent/approve); auto: an LLM judge decides (no buttons)
   | { type: 'approval_resolved'; id: string; decision: 'approved' | 'rejected' | 'timeout'; reason?: string } // outcome of the matching approval_request (persisted so replay shows the resolved card)
   | { type: 'compacted'; message: string }                           // old turns summarized into session memory
   | { type: 'notice'; text: string }                                 // transient system note (e.g. retrying after a provider hiccup, wrap-up self-check)
@@ -66,11 +66,12 @@ export interface AgentChatRequest {
    * - 'skip': no gate — writes apply immediately (the pre-approval behavior).
    * Self-approval only: a team member approves their OWN agent's writes; it is
    * never routed to the admin (unlike request_crawl / propose_db_edit).
-   * Phase 2 will add 'auto' (an LLM judge). The web UI sends 'review' by
-   * default; a MISSING field means skip (only an explicit 'review' arms the
-   * gate — so a non-interactive caller never hangs awaiting an approval).
+   * 'auto' delegates the decision to an LLM judge (reflect-and-retry on reject,
+   * capped). The web UI sends 'review' by default; a MISSING field means skip
+   * (only an explicit 'review'/'auto' arms the gate — so a non-interactive
+   * caller never hangs awaiting an approval).
    */
-  approvalMode?: 'skip' | 'review';
+  approvalMode?: 'skip' | 'review' | 'auto';
 }
 
 /** Body for POST /api/agent/approve — the OWNER's decision on an approval_request. */

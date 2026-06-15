@@ -126,12 +126,14 @@ object persists in `local.config.json`.
   checkpoints/undo, sessions, memory, compaction, web access, DB-edit apply). The design
   contract + per-file map live in `viewer/AGENT_DESIGN.md` — read that before touching it.
   Key invariants: the agent only PROPOSES crawls/DB edits; user-approved cards call the
-  state-changing endpoints. A separate **write-approval gate** (review mode, default in the web UI)
-  pauses every graph mutation (write/patch/rename/delete) for the session OWNER to approve via
-  `POST /api/agent/approve` before it lands — owner-self-approval, never the admin (contrast with the
-  crawl/DB-edit proposals, which DO divert to the admin in member mode). The loop owns the
-  `approval_request`/`approval_resolved` SSE contract; the http hook only registers + awaits the
-  decision. Gate is opt-in via `RunAgentOptions.requestApproval` (absent → skip → unchanged behavior). `contextTokens` (last round in+out) gates compaction and the
+  state-changing endpoints. A separate **write-approval gate** (default 'review' in the web UI) pauses
+  every graph mutation (write/patch/rename/delete) before it lands. `review` = the session OWNER
+  approves via `POST /api/agent/approve` (owner-self-approval, never the admin — contrast with the
+  crawl/DB-edit proposals, which DO divert to the admin in member mode); `auto` = an LLM judge
+  (`agent/judge.ts`, fail-open) screens the change and rejections reflect-and-retry (capped by
+  `AUTO_REJECT_BREAKER`). The loop owns the `approval_request`/`approval_resolved` SSE contract (the
+  request carries `mode`); the http hook only decides. Gate is opt-in via
+  `RunAgentOptions.requestApproval` (absent / missing `approvalMode` → skip → unchanged behavior). `contextTokens` (last round in+out) gates compaction and the
   context ceiling; `totalTokens` is cumulative spend for display only. The Anthropic
   adapter sets prompt-cache breakpoints (last tool def / system / last message block)
   and folds `cache_read+cache_creation` back into `inputTokens` so the context gate
@@ -162,6 +164,7 @@ object persists in `local.config.json`.
   user-configured SearXNG base / proxy are trust-boundary exceptions to the SSRF guard;
   model-chosen URLs stay fully guarded.
 - `server/agent/explain.ts` — `explainNode()` one-shot LLM call (no tools); `buildGraphContext()` graph connection summary; `RESERVED_NODE_DESCRIPTIONS` built-in zh-TW descriptions for the four reserved node types.
+- `server/agent/judge.ts` — `judgeChange()` the auto-mode write-approval reviewer: one-shot tool-less LLM verdict (APPROVE / REJECT + reason) over the proposed change against a risk/compliance/convention rubric; **fail-open** (judge error → approve, since it gates the user's own undoable graph).
 - `schema.ts` — `validateGraph` (the `.matgraph.json` contract). `graph-loader.ts` — read+parse+validate.
 - `mf-resolver.ts` — resolves `MaterialFunctionCall` pins from sibling `.matgraph.json`,
   the engine-MF index, or the work-MF index. `workmf-index.ts` / `workmf-types.ts` (node-free types).

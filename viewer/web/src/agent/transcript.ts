@@ -82,11 +82,13 @@ export interface DbEditProposal {
   pendingApproval?: boolean;
 }
 
-/** A graph-mutating op (review mode) paused for the session OWNER's approval. */
+/** A graph-mutating op paused for review (review = OWNER buttons; auto = LLM judge). */
 export interface ApprovalRequest {
   kind: 'approval';
   /** Matches the approval_request id; POST /api/agent/approve echoes it back. */
   id: string;
+  /** 'review' renders approve/reject buttons; 'auto' renders an informational card. */
+  mode: 'review' | 'auto';
   tool: string;
   path?: string;
   summary: string;
@@ -95,6 +97,8 @@ export interface ApprovalRequest {
   resolved: boolean;
   /** Final decision once resolved (drives the card's resolved state). */
   decision?: 'approved' | 'rejected' | 'timeout';
+  /** Reason on a rejection (the auto judge's reason, or the user's note). */
+  reason?: string;
 }
 
 /**
@@ -321,6 +325,7 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
       return [...items, {
         kind: 'approval',
         id: event.id,
+        mode: event.mode,
         tool: event.tool,
         path: event.path,
         summary: event.summary,
@@ -333,7 +338,7 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
       const idx = items.findIndex(it => it.kind === 'approval' && it.id === event.id && !it.resolved);
       if (idx < 0) return items;
       const updated = [...items];
-      updated[idx] = { ...(updated[idx] as ApprovalRequest), resolved: true, decision: event.decision };
+      updated[idx] = { ...(updated[idx] as ApprovalRequest), resolved: true, decision: event.decision, reason: event.reason };
       return updated;
     }
 

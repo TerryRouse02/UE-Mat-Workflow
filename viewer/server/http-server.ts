@@ -18,7 +18,8 @@ import { isInside, toPosixPath, slugifyGraphName, writeGraph, isEditableParamVal
 export { isInside, toPosixPath, slugifyGraphName } from './graph-write.js';
 import { importProjectMaterials, PROJECT_DIR } from './projectmat-importer.js';
 import type { ExportMeta } from '../web/src/export/export-meta-types.js';
-import { runAgent, createSession, estimateMessagesTokens, VIEW_CONTEXT_PREFIX, type AgentLoopSession, type ApprovalDecision } from './agent/loop.js';
+import { runAgent, createSession, estimateMessagesTokens, VIEW_CONTEXT_PREFIX, type AgentLoopSession, type ApprovalDecision, type ApprovalRequestInfo } from './agent/loop.js';
+import { judgeChange } from './agent/judge.js';
 import { createCheckpointStore } from './agent/checkpoint.js';
 import { pickProvider } from './agent/provider/index.js';
 import { discoverVersions, getNodes } from './agent/query-bridge.js';
@@ -2330,35 +2331,53 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
     const language: 'zh-Hant' | 'en' = body.language === 'en' ? 'en' : 'zh-Hant';
 
     // Write-approval mode (per turn, like 🌐 / thinking). Only an EXPLICIT
-    // 'review' arms the gate — a missing field means "no interactive approver"
-    // (non-web callers / tests) and must not hang awaiting an approval nobody
-    // can send. The web UI sends 'review' by default, so the user's default
-    // experience IS review. (Phase 2 adds 'auto'.) Self-approval only — the
-    // hook resolves on THIS owner's POST /api/agent/approve, never the admin.
-    const approvalMode: 'skip' | 'review' = body.approvalMode === 'review' ? 'review' : 'skip';
+    // 'review'/'auto' arms the gate — a missing field means "no reviewer"
+    // (non-web callers / tests) and must not hang. The web UI sends 'review' by
+    // default, so the user's default experience IS review. Self-approval only —
+    // the review hook resolves on THIS owner's POST /api/agent/approve, never
+    // the admin; the auto hook delegates to an LLM judge.
+    const approvalMode: 'skip' | 'review' | 'auto' =
+      body.approvalMode === 'review' ? 'review' : body.approvalMode === 'auto' ? 'auto' : 'skip';
     const APPROVAL_TIMEOUT_MS = 10 * 60 * 1000;
-    // The loop emits approval_request / approval_resolved; this hook only
+    // review: the loop emits approval_request / approval_resolved; this hook only
     // registers a pending decision under the loop-supplied id and awaits the
     // owner's POST /api/agent/approve (or a timeout / client disconnect).
-    const requestApproval = approvalMode === 'review'
-      ? (info: { id: string }): Promise<ApprovalDecision> =>
-          new Promise<ApprovalDecision>((resolveDecision) => {
-            let settled = false;
-            let timer: ReturnType<typeof setTimeout>;
-            const onAbort = (): void => settle({ approved: false, reason: 'aborted' });
-            const settle = (d: ApprovalDecision): void => {
-              if (settled) return;
-              settled = true;
-              active.pendingApprovals.delete(info.id);
-              clearTimeout(timer);
-              ac.signal.removeEventListener('abort', onAbort);
-              resolveDecision(d);
-            };
-            active.pendingApprovals.set(info.id, settle);
-            timer = setTimeout(() => settle({ approved: false, reason: 'timeout' }), APPROVAL_TIMEOUT_MS);
-            if (ac.signal.aborted) settle({ approved: false, reason: 'aborted' });
-            else ac.signal.addEventListener('abort', onAbort, { once: true });
-          })
+    const reviewApproval = (info: ApprovalRequestInfo): Promise<ApprovalDecision> =>
+      new Promise<ApprovalDecision>((resolveDecision) => {
+        let settled = false;
+        let timer: ReturnType<typeof setTimeout>;
+        const onAbort = (): void => settle({ approved: false, reason: 'aborted' });
+        const settle = (d: ApprovalDecision): void => {
+          if (settled) return;
+          settled = true;
+          active.pendingApprovals.delete(info.id);
+          clearTimeout(timer);
+          ac.signal.removeEventListener('abort', onAbort);
+          resolveDecision(d);
+        };
+        active.pendingApprovals.set(info.id, settle);
+        timer = setTimeout(() => settle({ approved: false, reason: 'timeout' }), APPROVAL_TIMEOUT_MS);
+        if (ac.signal.aborted) settle({ approved: false, reason: 'aborted' });
+        else ac.signal.addEventListener('abort', onAbort, { once: true });
+      });
+    // auto: an LLM judge (same provider/model) screens the change. Rejections
+    // reflect-and-retry (retry:true); the loop caps the streak. Judge spend is
+    // booked to this session so the team quota counts it.
+    const autoApproval = async (info: ApprovalRequestInfo): Promise<ApprovalDecision> => {
+      const verdict = await judgeChange(provider, llmConfig.model, {
+        userRequest: body.text,
+        tool: info.tool,
+        path: info.path,
+        summary: info.summary,
+        diff: info.diff,
+        graph: info.graph,
+        language,
+      }, ac.signal);
+      active.loop.totalTokens += verdict.tokens;
+      return { approved: verdict.approved, reason: verdict.reason, retry: !verdict.approved };
+    };
+    const requestApproval = approvalMode === 'review' ? reviewApproval
+      : approvalMode === 'auto' ? autoApproval
       : undefined;
 
     try {
@@ -2394,8 +2413,10 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           // Mechanize prompt rule 19: re-validate graphs written this turn at
           // finish and nudge once if the final state is objectively incomplete.
           selfCheckOnFinish: true,
-          // Write-approval gate (review mode). Absent in skip mode → no gate.
+          // Write-approval gate. Absent in skip mode → no gate. approvalMode
+          // drives the approval_request event's mode + the auto reflect breaker.
           requestApproval,
+          approvalMode: approvalMode === 'auto' ? 'auto' : 'review',
         },
       );
     } catch (e) {
