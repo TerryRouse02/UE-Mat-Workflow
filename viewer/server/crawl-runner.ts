@@ -91,6 +91,13 @@ const realSpawn: SpawnImpl = (spec, cwd) => spawn(spec.command, spec.args, { cwd
 // truncated rather than growing the buffer without bound.
 const LINE_BUF_CAP = 1_000_000;
 const LOG_TAIL_CAP = 500;
+const DEFAULT_TIMEOUT_MS = 15 * 60_000;
+const COMPILE_TIMEOUT_MS = 60 * 60_000;
+
+export function timeoutForCrawlKind(kind: CrawlKind, overrideMs?: number): number {
+  if (overrideMs !== undefined) return overrideMs;
+  return kind === 'compile' ? COMPILE_TIMEOUT_MS : DEFAULT_TIMEOUT_MS;
+}
 
 function emptyCrawlMessage(kind: CrawlKind, lines: string[]): string | null {
   const text = lines.join('\n');
@@ -156,7 +163,6 @@ export interface CrawlRunner {
 export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): CrawlRunner {
   const spawnImpl = opts.spawnImpl ?? realSpawn;
   const commandFor = opts.commandFor ?? defaultCommandFor;
-  const timeoutMs = opts.timeoutMs ?? 15 * 60_000;
 
   let status: CrawlStatus = { status: 'idle' };
   let counter = 0;
@@ -173,15 +179,20 @@ export function createCrawlRunner(repoRoot: string, opts: RunnerOpts = {}): Craw
     emit({ type: 'started', jobId, kind });
 
     const logTail: string[] = [];
-    const splitter = lineSplitter((line) => {
+    const emitLogLine = (line: string) => {
       logTail.push(line);
       if (logTail.length > LOG_TAIL_CAP) logTail.shift();
       emit({ type: 'log', jobId, line });
-    });
+    };
+    const splitter = lineSplitter(emitLogLine);
     child.stdout?.on('data', (c: Buffer) => splitter.push(c));
     child.stderr?.on('data', (c: Buffer) => splitter.push(c));
 
-    const timer = setTimeout(() => { try { child.kill(); } catch { /* already gone */ } }, timeoutMs);
+    const timeoutMs = timeoutForCrawlKind(kind, opts.timeoutMs);
+    const timer = setTimeout(() => {
+      emitLogLine(`timed out after ${Math.round(timeoutMs / 60_000)} minute(s); terminating ${kind} job`);
+      try { child.kill(); } catch { /* already gone */ }
+    }, timeoutMs);
 
     let finished = false;
     const finish = (exitCode: number | null) => {

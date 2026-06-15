@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { tmpdir } from 'node:os';
-import { createCrawlRunner, defaultCommandFor, type CrawlEvent, type CommandFor } from '../server/crawl-runner';
+import { createCrawlRunner, defaultCommandFor, timeoutForCrawlKind, type CrawlEvent, type CommandFor } from '../server/crawl-runner';
 
 // Drive the runner with a real `node -e` subprocess as the mock crawl, so the
 // spawn plumbing, line splitting, and exit handling are all genuinely exercised
@@ -142,6 +142,12 @@ describe('createCrawlRunner', () => {
     expect(mac.args).toEqual(expect.arrayContaining(['-NoProfile', '-File']));
     expect(mac.args).not.toContain('-ExecutionPolicy');
     expect(mac.args.join(' ')).toMatch(/Package-Plugin\.ps1/);
+  });
+
+  it('allows plugin compilation longer than regular crawl jobs', () => {
+    expect(timeoutForCrawlKind('export')).toBe(15 * 60_000);
+    expect(timeoutForCrawlKind('compile')).toBe(60 * 60_000);
+    expect(timeoutForCrawlKind('compile', 1234)).toBe(1234);
   });
 
   it('rejects a second crawl while one is running (single-job lock)', async () => {
