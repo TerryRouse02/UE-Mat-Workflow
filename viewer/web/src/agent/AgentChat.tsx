@@ -234,7 +234,7 @@ function ApprovalRequestView({ item, sessionId, onError }: {
   sessionId: string | null;
   onError: (message: string) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState('');
   const decide = async (decision: 'approve' | 'reject') => {
@@ -274,7 +274,8 @@ function ApprovalRequestView({ item, sessionId, onError }: {
       : item.decision === 'timeout'
         ? t('agentChat.approveTimeout')
         : (auto ? t('agentChat.approveAutoRejected') : t('agentChat.approveRejected'));
-    const label = item.decision === 'rejected' && item.reason ? `${base}：${item.reason}` : base;
+    const sep = i18n.language?.startsWith('en') ? ': ' : '：';
+    const label = item.decision === 'rejected' && item.reason ? `${base}${sep}${item.reason}` : base;
     return (
       <div className="agent-approval agent-item resolved">
         <div className="agent-approval-title"><Icon name={icon} size={12} /> {item.summary}</div>
