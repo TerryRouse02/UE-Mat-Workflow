@@ -3202,6 +3202,104 @@ static TSharedRef<FJsonValue> MakeWorkMfPin(const FString& Name, const FString& 
     return MakeShared<FJsonValueObject>(Pin);
 }
 
+// Compute one work-MF index entry from a loaded UMaterialFunction. Shared by the
+// full crawl (WriteWorkMfIndex) and the single-asset merge so both produce byte-for-byte
+// identical entry shapes; OutKey is the map key, which MUST match the full crawl's
+// FAssetData::GetObjectPathString() (e.g. /Game/Functions/MF_Foo.MF_Foo).
+static TSharedRef<FJsonObject> BuildWorkMfEntry(UMaterialFunction* Function, FString& OutKey)
+{
+    // GetPathName() yields the same object path string the full crawl reads from
+    // FAssetData::GetObjectPathString() (PackageName + '.' + AssetName), so the
+    // single-asset merge upserts the existing entry instead of creating a stale duplicate.
+    OutKey = Function->GetPathName();
+
+    const FString PackageName = Function->GetOutermost()->GetName(); // /Game/Functions/MF_Foo
+    const FString DisplayName = Function->GetName();                 // MF_Foo
+
+    TArray<FFunctionExpressionInput> Inputs;
+    TArray<FFunctionExpressionOutput> Outputs;
+    Function->GetInputsAndOutputs(Inputs, Outputs);
+
+    Inputs.StableSort([](const FFunctionExpressionInput& A, const FFunctionExpressionInput& B)
+    {
+        const int32 PA = A.ExpressionInput ? A.ExpressionInput->SortPriority : 0;
+        const int32 PB = B.ExpressionInput ? B.ExpressionInput->SortPriority : 0;
+        return PA < PB;
+    });
+    Outputs.StableSort([](const FFunctionExpressionOutput& A, const FFunctionExpressionOutput& B)
+    {
+        const int32 PA = A.ExpressionOutput ? A.ExpressionOutput->SortPriority : 0;
+        const int32 PB = B.ExpressionOutput ? B.ExpressionOutput->SortPriority : 0;
+        return PA < PB;
+    });
+
+    TArray<TSharedPtr<FJsonValue>> InputArray;
+    for (int32 Index = 0; Index < Inputs.Num(); ++Index)
+    {
+        const UMaterialExpressionFunctionInput* In = Inputs[Index].ExpressionInput;
+        if (In == nullptr) { continue; }
+        InputArray.Add(MakeWorkMfPin(In->InputName.ToString(), MapFunctionInputType(In->InputType), Index));
+    }
+
+    TArray<TSharedPtr<FJsonValue>> OutputArray;
+    for (int32 Index = 0; Index < Outputs.Num(); ++Index)
+    {
+        const UMaterialExpressionFunctionOutput* Out = Outputs[Index].ExpressionOutput;
+        if (Out == nullptr) { continue; }
+        // FunctionOutput carries no declared type; "Float3" is a best-effort cosmetic default
+        // (the viewer falls back to the same when type is unknown). Names/order are exact.
+        OutputArray.Add(MakeWorkMfPin(Out->OutputName.ToString(), TEXT("Float3"), Index));
+    }
+
+    TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
+    Entry->SetStringField(TEXT("assetPath"), OutKey);
+    Entry->SetStringField(TEXT("displayName"), DisplayName);
+    Entry->SetStringField(TEXT("category"), FPackageName::GetLongPackagePath(PackageName));
+    Entry->SetArrayField(TEXT("inputs"), InputArray);
+    Entry->SetArrayField(TEXT("outputs"), OutputArray);
+    Entry->SetBoolField(TEXT("missing"), false);
+    return Entry;
+}
+
+// Forward-declared so the work-MF helpers above can share the project-MF predicate
+// defined later in this file with the project-material crawl.
+static bool IsProjectMaterialFunction(UMaterialFunctionInterface* Function);
+
+// Walk a material/function's MaterialFunctionCall expressions transitively, collecting
+// every distinct project (/Game, non-/Engine) UMaterialFunction it references. Used by the
+// single-asset work-MF merge to recompute exactly the entries a single material touches.
+template <typename TExpressionArray>
+static void CollectProjectMaterialFunctionsRecursive(
+    const TExpressionArray& Expressions,
+    TSet<FString>& VisitedPaths,
+    TArray<UMaterialFunction*>& OutFunctions)
+{
+    for (UMaterialExpression* Expression : Expressions)
+    {
+        UMaterialExpressionMaterialFunctionCall* FunctionCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression);
+        if (FunctionCall == nullptr || !IsProjectMaterialFunction(FunctionCall->MaterialFunction))
+        {
+            continue;
+        }
+
+        UMaterialFunction* Function = Cast<UMaterialFunction>(FunctionCall->MaterialFunction);
+        if (Function == nullptr)
+        {
+            continue;
+        }
+
+        const FString FunctionPath = Function->GetPathName();
+        if (VisitedPaths.Contains(FunctionPath))
+        {
+            continue;
+        }
+        VisitedPaths.Add(FunctionPath);
+        OutFunctions.Add(Function);
+
+        CollectProjectMaterialFunctionsRecursive(Function->GetExpressions(), VisitedPaths, OutFunctions);
+    }
+}
+
 static TArray<FString> ParseContentRoots(const FString& ContentRootsCsv)
 {
     TArray<FString> ContentRoots;
@@ -3221,9 +3319,139 @@ static TArray<FString> ParseContentRoots(const FString& ContentRootsCsv)
     return ContentRoots;
 }
 
-static bool WriteWorkMfIndex(const FString& OutPath, const FString& ContentRootsCsv, const FString& UeVersion, FString& OutError)
+// Single-asset work-MF merge. Load the existing workmf-index.json, recompute ONLY the
+// project MF entries the named asset references, upsert them in place (keyed identically
+// to the full crawl so no stale duplicates appear), and re-serialize the whole file.
+//   - A UMaterialFunction AssetPath recomputes just that one entry.
+//   - A UMaterial AssetPath walks its MaterialFunctionCalls transitively and recomputes
+//     every referenced project MF entry.
+// Engine/official (/Engine/...) MFs are never indexed (IsProjectMaterialFunction guards it).
+static bool MergeWorkMfIndexForAsset(
+    const FString& OutPath,
+    const FString& AssetPath,
+    const FString& EffectiveVersion,
+    FString& OutError)
+{
+    // Load the existing index (best-effort). A missing/garbled file is non-fatal: we start
+    // from an empty functions map so a first single-asset run still yields a valid index.
+    TSharedPtr<FJsonObject> ExistingRoot;
+    FString LoadError;
+    if (!LoadJsonFile(OutPath, ExistingRoot, LoadError) || !ExistingRoot.IsValid())
+    {
+        UE_LOG(LogTemp, Warning, TEXT("WorkMF: existing index not loaded (%s); starting a fresh index."), *LoadError);
+        ExistingRoot = MakeShared<FJsonObject>();
+    }
+
+    // Preserve the existing functions object so untouched entries survive verbatim.
+    TSharedPtr<FJsonObject> Functions;
+    const TSharedPtr<FJsonObject>* ExistingFunctions = nullptr;
+    if (ExistingRoot->TryGetObjectField(TEXT("functions"), ExistingFunctions) && ExistingFunctions != nullptr && ExistingFunctions->IsValid())
+    {
+        Functions = *ExistingFunctions;
+    }
+    else
+    {
+        Functions = MakeShared<FJsonObject>();
+    }
+
+    // Resolve the named asset. LoadObject accepts both bare package paths (/Game/MF_Foo)
+    // and full object paths (/Game/MF_Foo.MF_Foo); the server passes the object path.
+    UObject* LoadedObject = LoadObject<UObject>(nullptr, *AssetPath);
+    if (LoadedObject == nullptr)
+    {
+        OutError = FString::Printf(TEXT("WorkMF single-asset: failed to load asset '%s'."), *AssetPath);
+        return false;
+    }
+
+    TArray<UMaterialFunction*> FunctionsToIndex;
+    if (UMaterialFunction* AsFunction = Cast<UMaterialFunction>(LoadedObject))
+    {
+        if (!IsProjectMaterialFunction(AsFunction))
+        {
+            OutError = FString::Printf(TEXT("WorkMF single-asset: '%s' is not a project (/Game) Material Function."), *AssetPath);
+            return false;
+        }
+        FunctionsToIndex.Add(AsFunction);
+    }
+    else if (UMaterial* AsMaterial = Cast<UMaterial>(LoadedObject))
+    {
+        TSet<FString> VisitedPaths;
+        CollectProjectMaterialFunctionsRecursive(AsMaterial->GetExpressions(), VisitedPaths, FunctionsToIndex);
+    }
+    else
+    {
+        OutError = FString::Printf(
+            TEXT("WorkMF single-asset: '%s' is neither a UMaterial nor a UMaterialFunction."),
+            *AssetPath);
+        return false;
+    }
+
+    int32 Upserts = 0;
+    for (UMaterialFunction* Function : FunctionsToIndex)
+    {
+        if (Function == nullptr)
+        {
+            continue;
+        }
+        FString EntryKey;
+        TSharedRef<FJsonObject> Entry = BuildWorkMfEntry(Function, EntryKey); // EntryKey == full crawl's Asset.GetObjectPathString()
+        Functions->SetObjectField(EntryKey, Entry);
+        ++Upserts;
+    }
+
+    // Rebuild the root, carrying over the existing provenance/version envelope but
+    // refreshing the generated timestamp. Keep the full-crawl field set so the file
+    // shape stays identical regardless of which crawl wrote it last.
+    TSharedRef<FJsonObject> Provenance = MakeShared<FJsonObject>();
+    const TSharedPtr<FJsonObject>* ExistingProvenance = nullptr;
+    if (ExistingRoot->TryGetObjectField(TEXT("provenance"), ExistingProvenance) && ExistingProvenance != nullptr && ExistingProvenance->IsValid())
+    {
+        Provenance = (*ExistingProvenance).ToSharedRef();
+    }
+    Provenance->SetStringField(TEXT("ueVersion"), EffectiveVersion);
+    Provenance->SetStringField(TEXT("engineVersion"), FEngineVersion::Current().ToString());
+    Provenance->SetStringField(TEXT("generatedBy"), TEXT("UEMatExportMetadata"));
+    Provenance->SetStringField(TEXT("generatedAt"), FDateTime::UtcNow().ToIso8601());
+
+    TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+    Root->SetStringField(TEXT("schemaVersion"), TEXT("1.0"));
+    Root->SetStringField(TEXT("kind"), TEXT("workmf-index"));
+    Root->SetStringField(TEXT("ueVersion"), EffectiveVersion);
+    Root->SetObjectField(TEXT("provenance"), Provenance);
+    Root->SetObjectField(TEXT("functions"), Functions.ToSharedRef());
+
+    FString OutputText;
+    const TSharedRef<TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>> Writer =
+        TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>::Create(&OutputText);
+    if (!FJsonSerializer::Serialize(Root, Writer))
+    {
+        OutError = TEXT("Failed to serialize workmf-index JSON (single-asset merge).");
+        return false;
+    }
+
+    IFileManager::Get().MakeDirectory(*FPaths::GetPath(OutPath), true);
+    if (!FFileHelper::SaveStringToFile(OutputText, *OutPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+    {
+        OutError = FString::Printf(TEXT("Failed to write work-MF index: %s"), *OutPath);
+        return false;
+    }
+
+    UE_LOG(LogTemp, Display, TEXT("Merged work-MF index for asset '%s': %d entr(y/ies) upserted into %s"),
+        *AssetPath, Upserts, *OutPath);
+    return true;
+}
+
+static bool WriteWorkMfIndex(const FString& OutPath, const FString& ContentRootsCsv, const FString& UeVersion, const FString& AssetPath, FString& OutError)
 {
     const FString EffectiveVersion = UeVersion.IsEmpty() ? TEXT("5.7") : UeVersion;
+
+    // Single-asset merge: load the existing index, recompute only the entries the named
+    // asset references, upsert them in place, and re-serialize the whole file. Keeps every
+    // other project MF entry untouched.
+    if (!AssetPath.IsEmpty())
+    {
+        return MergeWorkMfIndexForAsset(OutPath, AssetPath, EffectiveVersion, OutError);
+    }
 
     FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
     IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
@@ -3265,51 +3493,9 @@ static bool WriteWorkMfIndex(const FString& OutPath, const FString& ContentRoots
             continue;
         }
 
-        const FString AssetPath = Asset.GetObjectPathString(); // e.g. /Game/Functions/MF_Foo.MF_Foo
-
-        TArray<FFunctionExpressionInput> Inputs;
-        TArray<FFunctionExpressionOutput> Outputs;
-        Function->GetInputsAndOutputs(Inputs, Outputs);
-
-        Inputs.StableSort([](const FFunctionExpressionInput& A, const FFunctionExpressionInput& B)
-        {
-            const int32 PA = A.ExpressionInput ? A.ExpressionInput->SortPriority : 0;
-            const int32 PB = B.ExpressionInput ? B.ExpressionInput->SortPriority : 0;
-            return PA < PB;
-        });
-        Outputs.StableSort([](const FFunctionExpressionOutput& A, const FFunctionExpressionOutput& B)
-        {
-            const int32 PA = A.ExpressionOutput ? A.ExpressionOutput->SortPriority : 0;
-            const int32 PB = B.ExpressionOutput ? B.ExpressionOutput->SortPriority : 0;
-            return PA < PB;
-        });
-
-        TArray<TSharedPtr<FJsonValue>> InputArray;
-        for (int32 Index = 0; Index < Inputs.Num(); ++Index)
-        {
-            const UMaterialExpressionFunctionInput* In = Inputs[Index].ExpressionInput;
-            if (In == nullptr) { continue; }
-            InputArray.Add(MakeWorkMfPin(In->InputName.ToString(), MapFunctionInputType(In->InputType), Index));
-        }
-
-        TArray<TSharedPtr<FJsonValue>> OutputArray;
-        for (int32 Index = 0; Index < Outputs.Num(); ++Index)
-        {
-            const UMaterialExpressionFunctionOutput* Out = Outputs[Index].ExpressionOutput;
-            if (Out == nullptr) { continue; }
-            // FunctionOutput carries no declared type; "Float3" is a best-effort cosmetic default
-            // (the viewer falls back to the same when type is unknown). Names/order are exact.
-            OutputArray.Add(MakeWorkMfPin(Out->OutputName.ToString(), TEXT("Float3"), Index));
-        }
-
-        TSharedRef<FJsonObject> Entry = MakeShared<FJsonObject>();
-        Entry->SetStringField(TEXT("assetPath"), AssetPath);
-        Entry->SetStringField(TEXT("displayName"), Asset.AssetName.ToString());
-        Entry->SetStringField(TEXT("category"), FPackageName::GetLongPackagePath(Asset.PackageName.ToString()));
-        Entry->SetArrayField(TEXT("inputs"), InputArray);
-        Entry->SetArrayField(TEXT("outputs"), OutputArray);
-        Entry->SetBoolField(TEXT("missing"), false);
-        Functions->SetObjectField(AssetPath, Entry);
+        FString EntryKey;
+        TSharedRef<FJsonObject> Entry = BuildWorkMfEntry(Function, EntryKey); // EntryKey == Asset.GetObjectPathString()
+        Functions->SetObjectField(EntryKey, Entry);
         ++Count;
     }
 
@@ -3466,6 +3652,7 @@ static void ExportProjectMaterialFunctionRecursive(
     UMaterialFunction* Function,
     const FString& StagingDir,
     TSet<FString>& ExportedFunctions,
+    TMap<FString, FString>& Manifest,
     int32& FunctionCount,
     int32& FailureCount)
 {
@@ -3482,11 +3669,15 @@ static void ExportProjectMaterialFunctionRecursive(
     ExportedFunctions.Add(FunctionPath);
 
     PrepareFunctionGraph(Function);
-    const FString FunctionOutPath = FPaths::Combine(StagingDir, MakeProjectMatT3DFileName(Function->GetFName()));
+    const FString FunctionFileName = MakeProjectMatT3DFileName(Function->GetFName());
+    const FString FunctionOutPath = FPaths::Combine(StagingDir, FunctionFileName);
     FString FunctionError;
     if (SaveGraphAsT3D(Function->MaterialGraph, FunctionOutPath, FunctionError))
     {
         ++FunctionCount;
+        // Manifest key is the staged base name (filename minus the .t3d extension),
+        // matching how the server keys it via basename(file, ".t3d").
+        Manifest.Add(FPaths::GetBaseFilename(FunctionFileName), Function->GetPathName());
         UE_LOG(LogTemp, Display, TEXT("Wrote project material function T3D: %s"), *FunctionOutPath);
     }
     else
@@ -3509,23 +3700,158 @@ static void ExportProjectMaterialFunctionRecursive(
             continue;
         }
 
-        ExportProjectMaterialFunctionRecursive(NestedFunction, StagingDir, ExportedFunctions, FunctionCount, FailureCount);
+        ExportProjectMaterialFunctionRecursive(NestedFunction, StagingDir, ExportedFunctions, Manifest, FunctionCount, FailureCount);
     }
 }
 
-static bool WriteProjectMaterials(const FString& StagingDir, const FString& ContentRootsCsv, FString& OutError)
+// Dump one UMaterial to its staged .t3d, record it in the manifest, and cascade every
+// project MF it references (transitively). Shared by the full crawl and the single-asset
+// path so both produce identical staged dumps + manifest entries.
+static void ExportProjectMaterial(
+    UMaterial* Material,
+    const FString& StagingDir,
+    TSet<FString>& ExportedFunctions,
+    TMap<FString, FString>& Manifest,
+    int32& MaterialCount,
+    int32& FunctionCount,
+    int32& FailureCount)
 {
-    const TArray<FString> ContentRoots = ParseContentRoots(ContentRootsCsv);
+    if (Material == nullptr)
+    {
+        return;
+    }
 
+    PrepareMaterialGraph(Material);
+    const FString MaterialFileName = MakeProjectMatT3DFileName(Material->GetFName());
+    const FString MaterialOutPath = FPaths::Combine(StagingDir, MaterialFileName);
+    FString Error;
+    if (SaveGraphAsT3D(Material->MaterialGraph, MaterialOutPath, Error))
+    {
+        ++MaterialCount;
+        // Manifest key is the staged base name (filename minus the .t3d extension),
+        // matching how the server keys it via basename(file, ".t3d").
+        Manifest.Add(FPaths::GetBaseFilename(MaterialFileName), Material->GetPathName());
+        UE_LOG(LogTemp, Display, TEXT("Wrote project material T3D: %s"), *MaterialOutPath);
+    }
+    else
+    {
+        ++FailureCount;
+        UE_LOG(LogTemp, Warning, TEXT("ProjectMat: %s"), *Error);
+    }
+
+    for (UMaterialExpression* Expression : Material->GetExpressions())
+    {
+        UMaterialExpressionMaterialFunctionCall* FunctionCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression);
+        if (FunctionCall == nullptr || !IsProjectMaterialFunction(FunctionCall->MaterialFunction))
+        {
+            continue;
+        }
+
+        UMaterialFunction* Function = Cast<UMaterialFunction>(FunctionCall->MaterialFunction);
+        if (Function == nullptr)
+        {
+            continue;
+        }
+
+        ExportProjectMaterialFunctionRecursive(Function, StagingDir, ExportedFunctions, Manifest, FunctionCount, FailureCount);
+    }
+}
+
+// Write the staging-dir manifest mapping each staged base name -> the asset's object path.
+// The server reads it best-effort (a missing/garbled manifest is non-fatal), so any failure
+// here is logged as a warning and does not fail the crawl.
+static void WriteProjectMatManifest(const FString& StagingDir, const TMap<FString, FString>& Manifest)
+{
+    TSharedRef<FJsonObject> Root = MakeShared<FJsonObject>();
+    for (const TPair<FString, FString>& Pair : Manifest)
+    {
+        Root->SetStringField(Pair.Key, Pair.Value);
+    }
+
+    FString OutputText;
+    const TSharedRef<TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>> Writer =
+        TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>::Create(&OutputText);
+    if (!FJsonSerializer::Serialize(Root, Writer))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ProjectMat: failed to serialize manifest.json (skipped)."));
+        return;
+    }
+
+    const FString ManifestPath = FPaths::Combine(StagingDir, TEXT("manifest.json"));
+    if (!FFileHelper::SaveStringToFile(OutputText, *ManifestPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("ProjectMat: failed to write manifest: %s"), *ManifestPath);
+        return;
+    }
+    UE_LOG(LogTemp, Display, TEXT("Wrote project material manifest: %s (%d entr(y/ies))"), *ManifestPath, Manifest.Num());
+}
+
+static bool WriteProjectMaterials(const FString& StagingDir, const FString& ContentRootsCsv, const FString& AssetPath, FString& OutError)
+{
     IFileManager& FileManager = IFileManager::Get();
     FileManager.MakeDirectory(*StagingDir, true);
 
+    // Keep the staging-dir wipe in BOTH modes: the server importer only overwrites graphs
+    // whose dumps are present this run, so stale .t3d files must be cleared either way.
     TArray<FString> StaleFiles;
     FileManager.FindFiles(StaleFiles, *FPaths::Combine(StagingDir, TEXT("*.t3d")), true, false);
     for (const FString& StaleFile : StaleFiles)
     {
         FileManager.Delete(*FPaths::Combine(StagingDir, StaleFile), false, true, true);
     }
+
+    TSet<FString> ExportedFunctions;
+    TMap<FString, FString> Manifest; // stagedBaseName -> objectPath (GetPathName())
+    int32 MaterialCount = 0;
+    int32 FunctionCount = 0;
+    int32 FailureCount = 0;
+
+    // Single-asset mode: skip the Asset Registry enumeration and dump just the named asset
+    // (a material, or a project material function), cascading its referenced project MFs.
+    if (!AssetPath.IsEmpty())
+    {
+        UObject* LoadedObject = LoadObject<UObject>(nullptr, *AssetPath);
+        if (LoadedObject == nullptr)
+        {
+            OutError = FString::Printf(TEXT("ProjectMat single-asset: failed to load asset '%s'."), *AssetPath);
+            return false;
+        }
+
+        if (UMaterial* Material = Cast<UMaterial>(LoadedObject))
+        {
+            ExportProjectMaterial(Material, StagingDir, ExportedFunctions, Manifest, MaterialCount, FunctionCount, FailureCount);
+        }
+        else if (UMaterialFunction* Function = Cast<UMaterialFunction>(LoadedObject))
+        {
+            if (!IsProjectMaterialFunction(Function))
+            {
+                OutError = FString::Printf(TEXT("ProjectMat single-asset: '%s' is not a project (/Game) Material Function."), *AssetPath);
+                return false;
+            }
+            ExportProjectMaterialFunctionRecursive(Function, StagingDir, ExportedFunctions, Manifest, FunctionCount, FailureCount);
+        }
+        else
+        {
+            OutError = FString::Printf(
+                TEXT("ProjectMat single-asset: '%s' is neither a UMaterial nor a UMaterialFunction."),
+                *AssetPath);
+            return false;
+        }
+
+        WriteProjectMatManifest(StagingDir, Manifest);
+
+        UE_LOG(LogTemp, Display, TEXT("Project material single-asset staged: %s (%d material(s), %d function(s), %d failure(s))"),
+            *StagingDir, MaterialCount, FunctionCount, FailureCount);
+
+        if (FailureCount > 0)
+        {
+            OutError = FString::Printf(TEXT("Project material crawl completed with %d failure(s)."), FailureCount);
+            return false;
+        }
+        return true;
+    }
+
+    const TArray<FString> ContentRoots = ParseContentRoots(ContentRootsCsv);
 
     FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
     IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
@@ -3547,11 +3873,6 @@ static bool WriteProjectMaterials(const FString& StagingDir, const FString& Cont
         return A.GetObjectPathString() < B.GetObjectPathString();
     });
 
-    TSet<FString> ExportedFunctions;
-    int32 MaterialCount = 0;
-    int32 FunctionCount = 0;
-    int32 FailureCount = 0;
-
     for (const FAssetData& Asset : Assets)
     {
         UMaterial* Material = Cast<UMaterial>(Asset.GetAsset());
@@ -3562,37 +3883,10 @@ static bool WriteProjectMaterials(const FString& StagingDir, const FString& Cont
             continue;
         }
 
-        PrepareMaterialGraph(Material);
-        const FString MaterialOutPath = FPaths::Combine(StagingDir, MakeProjectMatT3DFileName(Asset.AssetName));
-        FString Error;
-        if (SaveGraphAsT3D(Material->MaterialGraph, MaterialOutPath, Error))
-        {
-            ++MaterialCount;
-            UE_LOG(LogTemp, Display, TEXT("Wrote project material T3D: %s"), *MaterialOutPath);
-        }
-        else
-        {
-            ++FailureCount;
-            UE_LOG(LogTemp, Warning, TEXT("ProjectMat: %s"), *Error);
-        }
-
-        for (UMaterialExpression* Expression : Material->GetExpressions())
-        {
-            UMaterialExpressionMaterialFunctionCall* FunctionCall = Cast<UMaterialExpressionMaterialFunctionCall>(Expression);
-            if (FunctionCall == nullptr || !IsProjectMaterialFunction(FunctionCall->MaterialFunction))
-            {
-                continue;
-            }
-
-            UMaterialFunction* Function = Cast<UMaterialFunction>(FunctionCall->MaterialFunction);
-            if (Function == nullptr)
-            {
-                continue;
-            }
-
-            ExportProjectMaterialFunctionRecursive(Function, StagingDir, ExportedFunctions, FunctionCount, FailureCount);
-        }
+        ExportProjectMaterial(Material, StagingDir, ExportedFunctions, Manifest, MaterialCount, FunctionCount, FailureCount);
     }
+
+    WriteProjectMatManifest(StagingDir, Manifest);
 
     UE_LOG(LogTemp, Display, TEXT("Content roots crawled: %s"), *FString::Join(ContentRoots, TEXT(",")));
     UE_LOG(LogTemp, Display, TEXT("Project materials staged: %s (%d material(s), %d function(s), %d failure(s))"),
@@ -3774,8 +4068,12 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots, false);
         FString WorkMfUeVersion;
         FParse::Value(*Params, TEXT("UeVersion="), WorkMfUeVersion);
+        // Optional single-asset merge: when set, only this asset's referenced project MF
+        // entries are recomputed and upserted into the existing index. Empty = full crawl.
+        FString WorkMfAsset;
+        FParse::Value(*Params, TEXT("Asset="), WorkMfAsset, false);
         FString Error;
-        if (!WriteWorkMfIndex(WorkMfOutPath, ContentRoots, WorkMfUeVersion, Error))
+        if (!WriteWorkMfIndex(WorkMfOutPath, ContentRoots, WorkMfUeVersion, WorkMfAsset, Error))
         {
             UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
             return 16;
@@ -3792,8 +4090,13 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         // (e.g. /Game/A,/Game/B) is captured whole, not truncated at the comma —
         // matching the WorkMfOut/EngineMF path above.
         FParse::Value(*Params, TEXT("ContentRoots="), ContentRoots, false);
+        // Optional single-asset mode: dump only this material/function (+ its cascaded
+        // project MFs). Empty = full crawl over ContentRoots. Object paths may contain no
+        // commas, but parse with bShouldStopOnSeparator=false for symmetry with ContentRoots.
+        FString ProjectMatAsset;
+        FParse::Value(*Params, TEXT("Asset="), ProjectMatAsset, false);
         FString Error;
-        if (!WriteProjectMaterials(ProjectMatStagingDir, ContentRoots, Error))
+        if (!WriteProjectMaterials(ProjectMatStagingDir, ContentRoots, ProjectMatAsset, Error))
         {
             UE_LOG(LogTemp, Error, TEXT("%s"), *Error);
             return 18;
@@ -3864,7 +4167,8 @@ int32 UUEMatExportMetadataCommandlet::Main(const FString& Params)
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -SetMaterialAttributesSampleOut=<fixture.t3d>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -GetMaterialAttributesSampleOut=<fixture.t3d>"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -LandscapeLayerBlendSampleOut=<fixture.t3d>"));
-        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -ProjectMatStaging=<dir> [-ContentRoots=/Game]"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -ProjectMatStaging=<dir> [-ContentRoots=/Game] [-Asset=<object path>]"));
+        UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -WorkMfOut=<workmf-index.json> [-ContentRoots=/Game] [-Asset=<object path>]"));
         UE_LOG(LogTemp, Error, TEXT("   or: -run=UEMatExportMetadata -ClipboardIn=<clipboard.t3d> [-ImportClipboard]"));
         return 2;
     }

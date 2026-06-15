@@ -87,8 +87,9 @@ export const defaultCommandFor: CommandFor = (repoRoot, kind, opts, platform = p
       // Windows/Codex commandlet); the server converts the dumps after the crawl
       // (importProjectMaterials). Optional -ContentRoots narrows the /Game scan.
       // -Asset switches to single-asset mode: re-dump only that Material (and its
-      // referenced MFs, transitively) WITHOUT wiping the staging dir, so the
-      // importer overwrites just those graphs/_project/<name> graphs.
+      // referenced MFs, transitively). Staging is still cleared first, but the
+      // importer overwrites ONLY the graphs/_project/<name> graphs whose dumps are
+      // present — so every other crawled graph is left untouched.
       const pargs = ['-StagingDir', resolve(repoRoot, PROJECTMAT_STAGING_REL)];
       if (opts?.contentRoots) pargs.push('-ContentRoots', opts.contentRoots);
       if (opts?.asset) pargs.push('-Asset', opts.asset);
