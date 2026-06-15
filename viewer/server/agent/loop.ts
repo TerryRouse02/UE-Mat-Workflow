@@ -67,6 +67,62 @@ export const COMPACT_FAIL_BREAKER = 2;
     cumulative (persisted), never reset by on-topic messages. */
 export const OFF_TOPIC_LIMIT = 3;
 
+/**
+ * Transient provider failures (HTTP 429 / 5xx / 529 overloaded, network resets)
+ * are retried up to this many times — but ONLY when the failed round streamed
+ * NOTHING yet (no text/tool_use/usage), so a retry can never duplicate output
+ * already shown to the user. A mid-stream error is surfaced, not retried.
+ */
+export const STREAM_MAX_RETRIES = 2;
+/** Base backoff (ms) between stream retries; doubles each attempt (1s, 2s). */
+export const STREAM_RETRY_BASE_MS = 1000;
+
+/**
+ * Tools that only read (no writes, no session mutation, no UI fan-out) — a
+ * contiguous run of these in one assistant turn is dispatched CONCURRENTLY
+ * (B: parallel read-only). Anything not listed here (writes, proposals,
+ * compact_context, report_off_topic) stays sequential and acts as a barrier.
+ */
+const READONLY_TOOLS = new Set([
+  'search_nodes', 'get_node_signature', 'get_mf_signature', 'read_graph',
+  'validate_graph', 'get_graph_errors', 'list_graphs', 'get_viewport',
+  'search_mf', 'list_examples', 'read_example', 'read_memory', 'read_crawl_log',
+  'web_search', 'web_fetch',
+]);
+
+/** Tools that write a graph file — feed the same-file failure circuit breaker. */
+const WRITE_TOOL_NAMES = new Set(['write_graph', 'patch_graph']);
+
+/**
+ * Whether a provider error message is worth retrying. HTTP 408/409/425/429 and
+ * any 5xx (incl. Anthropic's 529 overloaded) are transient; 4xx like 400/401/403/
+ * 404 are caller/config errors and retrying only wastes time. Thrown fetch/network
+ * errors (no HTTP prefix) are matched by phrase.
+ */
+export function isRetryableStreamError(message: string): boolean {
+  const httpMatch = /^HTTP (\d{3})/i.exec(message);
+  if (httpMatch) {
+    const code = Number(httpMatch[1]);
+    return code === 408 || code === 409 || code === 425 || code === 429 || (code >= 500 && code <= 599);
+  }
+  return /(overloaded|rate.?limit|timed?.?out|econnreset|etimedout|eai_again|socket hang up|fetch failed|network error)/i.test(message);
+}
+
+/** Abortable delay — resolves immediately if the signal is (or becomes) aborted. */
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0 || signal?.aborted) return Promise.resolve();
+  return new Promise<void>((res) => {
+    const onAbort = (): void => finish();
+    const t = setTimeout(finish, ms);
+    function finish(): void {
+      clearTimeout(t);
+      signal?.removeEventListener('abort', onAbort);
+      res();
+    }
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Session type (server-side only)
 // ---------------------------------------------------------------------------
@@ -169,6 +225,67 @@ function offTopicStrike(session: AgentLoopSession, lang: 'zh-Hant' | 'en'): { co
 
 export type EmitFn = (event: AgentSseEvent) => void;
 
+/**
+ * Map a successful tool result to its UI fan-out events: plain-language diff
+ * lines, graph_written (writes/rename), and the viewer-action signals for
+ * clipboard export and crawl / DB-edit proposals. dryRun results write nothing,
+ * so their diff/graph_written fan-out is suppressed. Pure (no session state) so
+ * it can be shared by the sequential and concurrent dispatch paths.
+ */
+function fanOutToolResult(
+  call: ToolUseBlock,
+  content: string,
+  emit: EmitFn,
+  fallbackUeVersion: string,
+): void {
+  const inp = call.input as Record<string, unknown>;
+  let parsed: Record<string, unknown> = {};
+  try {
+    parsed = JSON.parse(content) as Record<string, unknown>;
+  } catch {
+    // Non-JSON result — nothing to fan out.
+    return;
+  }
+
+  if (parsed.ok && !parsed.dryRun && Array.isArray(parsed.diff) && parsed.diff.length > 0) {
+    emit({ type: 'diff', lines: parsed.diff as string[] });
+  }
+
+  if (WRITE_TOOL_NAMES.has(call.name) && !parsed.dryRun && typeof inp.path === 'string') {
+    const changedNodeIds =
+      Array.isArray(parsed.changedNodeIds) && parsed.changedNodeIds.length > 0
+        ? (parsed.changedNodeIds as unknown[]).map(String)
+        : undefined;
+    // Prefer the tool-reported path: write_graph may reroute a member's
+    // new graph into their personal workspace (users/<name>/...).
+    const writtenPath = typeof parsed.path === 'string' && parsed.path ? parsed.path : inp.path;
+    emit({ type: 'graph_written', path: writtenPath, changedNodeIds });
+  }
+  if (call.name === 'rename_graph' && parsed.ok && typeof parsed.to === 'string') {
+    emit({ type: 'graph_written', path: parsed.to });
+  }
+  if (call.name === 'export_to_clipboard' && parsed.ok && typeof parsed.path === 'string') {
+    emit({ type: 'export_request', path: parsed.path });
+  }
+  if (call.name === 'request_crawl' && parsed.ok && (parsed.kind === 'workmf' || parsed.kind === 'projectmat')) {
+    emit({
+      type: 'crawl_proposal',
+      kind: parsed.kind,
+      contentRoot: typeof parsed.contentRoot === 'string' ? parsed.contentRoot : '/Game',
+    });
+  }
+  if (call.name === 'propose_db_edit' && parsed.ok && typeof parsed.nodeName === 'string') {
+    emit({
+      type: 'db_edit_proposal',
+      nodeName: parsed.nodeName,
+      ueVersion: typeof parsed.ueVersion === 'string' ? parsed.ueVersion : fallbackUeVersion,
+      create: parsed.create === true,
+      patch: (parsed.patch && typeof parsed.patch === 'object' ? parsed.patch : {}) as Record<string, unknown>,
+      rationale: typeof parsed.rationale === 'string' ? parsed.rationale : '',
+    });
+  }
+}
+
 // ---------------------------------------------------------------------------
 // runAgent
 // ---------------------------------------------------------------------------
@@ -200,6 +317,8 @@ export interface RunAgentOptions {
   compactThreshold?: number;
   /** Override COMPACT_KEEP_TURNS. */
   compactKeepTurns?: number;
+  /** Override STREAM_RETRY_BASE_MS (tests pass 0 to avoid real backoff waits). */
+  retryBaseMs?: number;
   /**
    * Per-turn 🌐 switch (AgentChatRequest.webSearch; absent = true). false
    * removes web_search/web_fetch from the tool list the provider sees AND
@@ -254,6 +373,9 @@ export async function runAgent(
   const replyLang: 'zh-Hant' | 'en' = options?.language === 'en' ? 'en' : 'zh-Hant';
   const disabledTools = new Set(options?.disabledTools ?? []);
   if (!webEnabled) for (const n of WEB_TOOL_NAMES) disabledTools.add(n);
+  const compactThreshold = options?.compactThreshold ?? COMPACT_THRESHOLD;
+  const compactKeepTurns = options?.compactKeepTurns ?? COMPACT_KEEP_TURNS;
+  const retryBaseMs = options?.retryBaseMs ?? STREAM_RETRY_BASE_MS;
 
   // User-facing transcript strings — localized by replyLang.
   const ceilingMessage = (used: number): string =>
@@ -266,9 +388,7 @@ export async function runAgent(
   // part of this turn's system prompt.
   await maybeCompact(
     session, provider, model, ctx, emit, signal,
-    options?.compactThreshold ?? COMPACT_THRESHOLD,
-    options?.compactKeepTurns ?? COMPACT_KEEP_TURNS,
-    replyLang,
+    compactThreshold, compactKeepTurns, replyLang,
   );
 
   // Build system prompt (reads SPEC.md from disk at call time). Memory is
@@ -277,7 +397,9 @@ export async function runAgent(
   const memory = ctx.memory
     ? { longterm: await ctx.memory.read('longterm'), session: await ctx.memory.read('session') }
     : undefined;
-  const system = await buildSystemPrompt(ctx.repoRoot, session.ueVersion, memory, { webTools: webEnabled, language: options?.language });
+  // `let`: an in-loop auto-compaction (D) rebuilds it so the rest of the turn
+  // can see the freshly-written summary.
+  let system = await buildSystemPrompt(ctx.repoRoot, session.ueVersion, memory, { webTools: webEnabled, language: options?.language });
 
   // Append the new user message. If the previous turn ended with tool_results
   // (iter/cost ceiling or abort), the last message is already user-role —
@@ -311,7 +433,6 @@ export async function runAgent(
   // (M4 「回上一步」 semantics).
   const turnId = `${session.id}-turn${session.turnSeq}`;
   session.turnSeq += 1;
-  const writeTools = new Set(['write_graph', 'patch_graph']);
   const turnCtx: ToolContext = ctx.beforeWrite
     ? {
         ...ctx,
@@ -337,58 +458,129 @@ export async function runAgent(
   // tool results land (the http layer deletes the session on session_closed).
   let offTopicClosed = false;
 
-  for (let iter = 0; iter < maxIters; iter++) {
-    if (signal?.aborted) break;
+  // Once an in-loop auto-compaction reports it cannot help, stop retrying it
+  // every iteration (avoids busy no-op summarizer calls); the ceiling still guards.
+  let autoCompactBlocked = false;
 
-    // Check the context ceiling before sending (in case the previous round
-    // pushed us over). Compared against the CURRENT context size, not the
-    // cumulative spend — each round's input re-counts the whole history, so
-    // summing rounds would trip the limit long before the window is full.
-    if (session.contextTokens >= tokenCeiling) {
-      emit({
-        type: 'limit',
-        kind: 'cost',
-        message: ceilingMessage(session.contextTokens),
-      });
-      limitEmitted = true;
-      break;
-    }
-
-    // --- Stream from provider ---
-    const streamIter = provider.stream({
-      model,
-      messages: session.messages,
-      system,
-      tools: turnToolDefs,
-      maxTokens,
-      thinking: options?.thinking,
-      signal,
-    });
-
-    // Collect assistant turn while emitting text deltas.
+  // Stream one provider round into an assistant turn. Returns the collected
+  // content plus an error (yielded OR thrown) and whether anything streamed —
+  // the retry driver only retries when NOTHING streamed yet, so a retry can
+  // never duplicate text/tool_use already shown to the user.
+  const streamRound = async (): Promise<{
+    assistantContent: ContentBlock[];
+    toolUses: ToolUseBlock[];
+    errorMsg: string | null;
+    sawAnyEvent: boolean;
+    usageEmitted: boolean;
+    outputCharEstimate: number;
+  }> => {
     const assistantContent: ContentBlock[] = [];
     const toolUses: ToolUseBlock[] = [];
     let outputCharEstimate = 0;
     let usageEmitted = false;
-
-    for await (const event of streamIter) {
-      if (signal?.aborted) break;
-      await handleStreamEvent(
-        event,
-        assistantContent,
-        toolUses,
-        emit,
-        session,
-        (est) => { outputCharEstimate += est; },
-        () => { usageEmitted = true; },
-      );
+    let errorMsg: string | null = null;
+    let sawAnyEvent = false;
+    try {
+      const streamIter = provider.stream({
+        model, messages: session.messages, system, tools: turnToolDefs,
+        maxTokens, thinking: options?.thinking, signal,
+      });
+      for await (const event of streamIter) {
+        if (signal?.aborted) break;
+        if (event.type === 'error') { errorMsg = event.message; continue; }
+        // Set AFTER the error check: an HTTP-level failure (e.g. 529 overloaded)
+        // yields ONLY an error, so sawAnyEvent must stay false to be retryable.
+        sawAnyEvent = true;
+        await handleStreamEvent(
+          event, assistantContent, toolUses, emit, session,
+          (est) => { outputCharEstimate += est; },
+          () => { usageEmitted = true; },
+        );
+      }
+    } catch (e) {
+      // A thrown provider/network error (fetch reject) — same retry rules.
+      if (!signal?.aborted) errorMsg = e instanceof Error ? e.message : String(e);
     }
+    return { assistantContent, toolUses, errorMsg, sawAnyEvent, usageEmitted, outputCharEstimate };
+  };
+
+  // Apply the per-turn 🌐 / permission gates, then dispatch. compact_context and
+  // report_off_topic never reach here — the loop handles them inline (they need
+  // the live session/provider).
+  const dispatchGuarded = async (call: ToolUseBlock): Promise<{ content: string; isError?: boolean }> => {
+    if (!webEnabled && WEB_TOOL_NAMES.has(call.name)) {
+      return {
+        content: replyLang === 'en'
+          ? 'Web access has been turned off by the user (the 🌐 toggle next to the input box). Answer from the local node DB and existing knowledge, and clearly flag anything uncertain.'
+          : '聯網功能已由使用者關閉（輸入框旁的 🌐 開關）。請基於本地節點 DB 與既有知識回答，不確定的部分明確說明。',
+        isError: true,
+      };
+    }
+    if (disabledTools.has(call.name)) {
+      return { content: '此工具在目前的使用者權限下不可用，請改用其他方式完成任務或直接說明限制。', isError: true };
+    }
+    return dispatchTool(call.name, call.input, turnCtx);
+  };
+
+  for (let iter = 0; iter < maxIters; iter++) {
+    if (signal?.aborted) break;
+
+    // Proactive context gate (F) + in-loop auto-compaction (D). Size the request
+    // we are ABOUT to send (the history already carries this turn's appended
+    // tool_results), not the previous round; take the larger of the real
+    // last-round usage and a fresh chars/4 estimate so we never under-count.
+    const projectedContext = (): number =>
+      Math.max(session.contextTokens, estimateMessagesTokens(session.messages) + Math.ceil(system.length / 4));
+    let effective = projectedContext();
+
+    // A long agentic turn can outgrow the window mid-flight; the pre-loop
+    // maybeCompact only covers the turn's START (iter 0), so re-check here on
+    // later iterations and summarize+trim before the ceiling. After it reports
+    // it cannot help, stop attempting (autoCompactBlocked) to avoid busy no-ops.
+    if (iter > 0 && !autoCompactBlocked && ctx.memory && effective >= compactThreshold) {
+      const r = await compactNow(session, provider, model, ctx, emit, signal, compactKeepTurns, replyLang);
+      if (r.ok) {
+        // The fresh summary now lives in session memory — rebuild the system
+        // prompt so the rest of THIS turn can see it, and re-size.
+        const mem = ctx.memory
+          ? { longterm: await ctx.memory.read('longterm'), session: await ctx.memory.read('session') }
+          : undefined;
+        system = await buildSystemPrompt(ctx.repoRoot, session.ueVersion, mem, { webTools: webEnabled, language: options?.language });
+        effective = projectedContext();
+      } else {
+        autoCompactBlocked = true;
+      }
+    }
+
+    if (effective >= tokenCeiling) {
+      emit({ type: 'limit', kind: 'cost', message: ceilingMessage(effective) });
+      limitEmitted = true;
+      break;
+    }
+
+    // --- Stream from provider, retrying transient pre-content failures (C) ---
+    let round = await streamRound();
+    for (let attempt = 1;
+         round.errorMsg !== null && !round.sawAnyEvent && !signal?.aborted
+           && isRetryableStreamError(round.errorMsg) && attempt <= STREAM_MAX_RETRIES;
+         attempt++) {
+      emit({
+        type: 'text',
+        text: replyLang === 'en'
+          ? `\n(Connection issue — retrying ${attempt}/${STREAM_MAX_RETRIES}…)\n`
+          : `\n（連線中斷，重試中 ${attempt}/${STREAM_MAX_RETRIES}…）\n`,
+      });
+      await delay(retryBaseMs * 2 ** (attempt - 1), signal);
+      if (signal?.aborted) break;
+      round = await streamRound();
+    }
+
+    const { assistantContent, toolUses } = round;
 
     // If usage was never reported, estimate combined in+out from chars/4.
     // Include the system prompt and accumulated history (input) plus the
     // collected output text so the ceiling fires at approximately the right time.
-    if (!usageEmitted) {
-      // Estimate input: system prompt + all messages sent this turn.
+    if (!round.usageEmitted) {
       let inputChars = system.length;
       for (const msg of session.messages) {
         for (const blk of msg.content) {
@@ -399,20 +591,27 @@ export async function runAgent(
           }
         }
       }
-      const totalEstimate = (inputChars + outputCharEstimate) / 4;
+      const totalEstimate = (inputChars + round.outputCharEstimate) / 4;
       if (totalEstimate > 0) {
         session.totalTokens += totalEstimate;
         // The estimated input already covers system + full history → it IS
         // the context size, same as a real usage report's inputTokens.
         session.contextTokens = totalEstimate;
-        // Emit estimated usage event (output portion only for display).
         emit({
           type: 'usage',
           inputTokens: Math.round(inputChars / 4),
-          outputTokens: Math.round(outputCharEstimate / 4),
+          outputTokens: Math.round(round.outputCharEstimate / 4),
           estimated: true,
         });
       }
+    }
+
+    // Non-retryable / retries-exhausted error: surface it and stop. Discard any
+    // partial assistant content from the failed round so the history never keeps
+    // a dangling tool_use (which the next request would reject).
+    if (round.errorMsg !== null && !signal?.aborted) {
+      emit({ type: 'error', message: round.errorMsg });
+      break;
     }
 
     // Append assistant turn.
@@ -436,59 +635,21 @@ export async function runAgent(
       break;
     }
 
-    // --- Dispatch tools ---
+    // --- Dispatch tools (B: consecutive read-only calls run concurrently; ------
+    // writes / session-mutating tools stay sequential and act as barriers) ------
+    // A read must never observe a half-applied write, so a write first drains the
+    // in-flight read batch; tool_start / tool_end / tool_result keep model order.
     const toolResults: ToolResultBlock[] = [];
 
-    for (const call of toolUses) {
-      if (signal?.aborted) break;
-
-      // Emit tool_start with a human-readable summary.
-      emit({ type: 'tool_start', name: call.name, summary: toolSummary(call) });
-
-      // compact_context / report_off_topic are dispatched here, not in
-      // tools.ts — they need the session (and provider) that only the loop holds.
-      const result = call.name === 'compact_context'
-        ? await (async () => {
-            const r = await compactNow(
-              session, provider, model, ctx, emit, signal,
-              options?.compactKeepTurns ?? COMPACT_KEEP_TURNS,
-              replyLang,
-            );
-            return r.ok
-              ? { content: `已將先前 ${r.droppedTurns} 輪對話摘要進會話記憶並壓縮歷史。`, isError: false }
-              : { content: r.reason ?? '壓縮失敗。', isError: true };
-          })()
-        : call.name === 'report_off_topic'
-          ? offTopicStrike(session, replyLang)
-          : (!webEnabled && WEB_TOOL_NAMES.has(call.name))
-            // The tool was not offered this turn — a stray call (hallucinated
-            // or replayed from history) must not reach the network.
-            ? {
-                content: replyLang === 'en'
-                  ? 'Web access has been turned off by the user (the 🌐 toggle next to the input box). Answer from the local node DB and existing knowledge, and clearly flag anything uncertain.'
-                  : '聯網功能已由使用者關閉（輸入框旁的 🌐 開關）。請基於本地節點 DB 與既有知識回答，不確定的部分明確說明。',
-                isError: true,
-              }
-          : disabledTools.has(call.name)
-            // Withheld this turn (e.g. member sessions lose the proposal
-            // tools) — a stray call must not slip through either.
-            ? { content: '此工具在目前的使用者權限下不可用，請改用其他方式完成任務或直接說明限制。', isError: true }
-            : await dispatchTool(call.name, call.input, turnCtx);
-
-      if (call.name === 'report_off_topic' && session.offTopicStrikes >= OFF_TOPIC_LIMIT) {
-        offTopicClosed = true;
-      }
-
-      // Emit tool_end.
+    // tool_end + circuit breakers + UI fan-out + push the result (original order).
+    const finishCall = (call: ToolUseBlock, result: { content: string; isError?: boolean }): void => {
       emit({
         type: 'tool_end',
         name: call.name,
         ok: !result.isError,
         summary: result.isError ? undefined : toolEndSummary(call.name, result.content),
       });
-
-      // Feed the circuit breakers.
-      if (writeTools.has(call.name)) {
+      if (WRITE_TOOL_NAMES.has(call.name)) {
         const path = String((call.input as Record<string, unknown> | null)?.path ?? '');
         if (result.isError) {
           const n = (writeFailCounts.get(path) ?? 0) + 1;
@@ -504,75 +665,58 @@ export async function runAgent(
           writeFailCounts.delete(path);
         }
       }
+      if (!result.isError) fanOutToolResult(call, result.content, emit, session.ueVersion);
+      toolResults.push({ type: 'tool_result', toolUseId: call.id, content: result.content, isError: result.isError });
+    };
+
+    // In-flight concurrent read-only batch: {call, promise}.
+    const pending: Array<{ call: ToolUseBlock; promise: Promise<{ content: string; isError?: boolean }> }> = [];
+    const flushPending = async (): Promise<void> => {
+      for (const p of pending) finishCall(p.call, await p.promise);
+      pending.length = 0;
+    };
+
+    for (const call of toolUses) {
+      if (signal?.aborted) break;
+
+      if (READONLY_TOOLS.has(call.name)) {
+        // Kick the work off now; settle it (in order) on the next flush.
+        emit({ type: 'tool_start', name: call.name, summary: toolSummary(call) });
+        pending.push({ call, promise: dispatchGuarded(call) });
+        continue;
+      }
+
+      // Barrier: complete in-flight reads before a write / session-mutating tool.
+      await flushPending();
+      if (signal?.aborted) break;
+
+      emit({ type: 'tool_start', name: call.name, summary: toolSummary(call) });
+      // compact_context / report_off_topic are handled here, not in tools.ts —
+      // they need the session (and provider) that only the loop holds.
+      let result: { content: string; isError?: boolean };
       if (call.name === 'compact_context') {
+        const r = await compactNow(session, provider, model, ctx, emit, signal, compactKeepTurns, replyLang);
+        result = r.ok
+          ? { content: `已將先前 ${r.droppedTurns} 輪對話摘要進會話記憶並壓縮歷史。`, isError: false }
+          : { content: r.reason ?? '壓縮失敗。', isError: true };
         compactFailCount = result.isError ? compactFailCount + 1 : 0;
         if (compactFailCount >= COMPACT_FAIL_BREAKER) {
           breakerMessage = replyLang === 'en'
             ? `Compacting the context failed ${compactFailCount} times in a row, so I'm stopping. Please start a new conversation or try again later.`
             : `連續 ${compactFailCount} 次壓縮上下文都失敗，先停下來。請改用「新對話」或稍後再試。`;
         }
+      } else if (call.name === 'report_off_topic') {
+        result = offTopicStrike(session, replyLang);
+        if (session.offTopicStrikes >= OFF_TOPIC_LIMIT) offTopicClosed = true;
+      } else {
+        result = await dispatchGuarded(call);
       }
-
-      // Successful tool results fan out to UI events: plain-language diff lines
-      // (any tool that returns them), graph_written for writes/renames, and the
-      // viewer-action signals for clipboard export and crawl proposals.
-      if (!result.isError) {
-        const inp = call.input as Record<string, unknown>;
-        let parsed: Record<string, unknown> = {};
-        try {
-          parsed = JSON.parse(result.content) as Record<string, unknown>;
-        } catch {
-          // Non-JSON result — nothing to fan out.
-        }
-
-        // dryRun results carry the same diff/changedNodeIds but wrote nothing —
-        // emitting diff/graph_written would show a change that never happened.
-        if (parsed.ok && !parsed.dryRun && Array.isArray(parsed.diff) && parsed.diff.length > 0) {
-          emit({ type: 'diff', lines: parsed.diff as string[] });
-        }
-
-        if (writeTools.has(call.name) && !parsed.dryRun && typeof inp.path === 'string') {
-          const changedNodeIds =
-            Array.isArray(parsed.changedNodeIds) && parsed.changedNodeIds.length > 0
-              ? (parsed.changedNodeIds as unknown[]).map(String)
-              : undefined;
-          // Prefer the tool-reported path: write_graph may reroute a member's
-          // new graph into their personal workspace (users/<name>/...).
-          const writtenPath = typeof parsed.path === 'string' && parsed.path ? parsed.path : inp.path;
-          emit({ type: 'graph_written', path: writtenPath, changedNodeIds });
-        }
-        if (call.name === 'rename_graph' && parsed.ok && typeof parsed.to === 'string') {
-          emit({ type: 'graph_written', path: parsed.to });
-        }
-        if (call.name === 'export_to_clipboard' && parsed.ok && typeof parsed.path === 'string') {
-          emit({ type: 'export_request', path: parsed.path });
-        }
-        if (call.name === 'request_crawl' && parsed.ok && (parsed.kind === 'workmf' || parsed.kind === 'projectmat')) {
-          emit({
-            type: 'crawl_proposal',
-            kind: parsed.kind,
-            contentRoot: typeof parsed.contentRoot === 'string' ? parsed.contentRoot : '/Game',
-          });
-        }
-        if (call.name === 'propose_db_edit' && parsed.ok && typeof parsed.nodeName === 'string') {
-          emit({
-            type: 'db_edit_proposal',
-            nodeName: parsed.nodeName,
-            ueVersion: typeof parsed.ueVersion === 'string' ? parsed.ueVersion : session.ueVersion,
-            create: parsed.create === true,
-            patch: (parsed.patch && typeof parsed.patch === 'object' ? parsed.patch : {}) as Record<string, unknown>,
-            rationale: typeof parsed.rationale === 'string' ? parsed.rationale : '',
-          });
-        }
-      }
-
-      toolResults.push({
-        type: 'tool_result',
-        toolUseId: call.id,
-        content: result.content,
-        isError: result.isError,
-      });
+      finishCall(call, result);
     }
+
+    // Settle any trailing read-only batch. Skipped on abort — the gap-fill below
+    // answers the unsettled calls with synthetic aborted results instead.
+    if (!signal?.aborted) await flushPending();
 
     // Abort guard: if abort fired mid-dispatch we have fewer tool_results than
     // tool_use blocks. The assistant tool_use message is already in the

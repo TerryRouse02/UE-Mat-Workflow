@@ -330,20 +330,44 @@ setNodeType 換成同型 → 報錯（提示模型 op 無效果）。
 ```
 runAgent(userText, session):
   session.messages.push(user(userText))
-  for i in 0..MAX_ITERS:                      # MAX_ITERS = 8
-    stream = provider.stream({system, messages, tools, maxTokens})
-    assistant = collect(stream, ev => emitSse(ev))   # text_delta 邊收邊串給前端
-    messages.push(assistant)
-    if no toolUses: break                      # 最終回覆
-    for call in toolUses: results.push(dispatchTool(call, ctx))   # 寫入工具內含 validate
-    messages.push(toolResults(results))
-    if contextTokens > tokenCeiling: emit limit; break  # 比對當前上下文（最後一輪 in+out）；usage 缺失時以 chars/4 估算
+  maybeCompact(session)                        # 開頭壓縮（門檻以 contextTokens 比對）
+  for i in 0..MAX_ITERS:                        # MAX_ITERS = 8
+    effective = max(contextTokens, est(messages)+est(system))   # F：送前預估即將送出的大小
+    if i>0 and effective >= compactThreshold: compactNow()+rebuild(system)  # D：迴圈內自動壓縮
+    if effective >= tokenCeiling: emit limit; break             # F：送前 graceful 收尾（不再送超標請求）
+    round = streamRound() with retry            # C：streamRound 把 error（yield 或 throw）收進 round
+    while round.error && !round.sawAnyEvent && retryable && tries<STREAM_MAX_RETRIES:
+      emit retry-notice; backoff(2^n·base); round = streamRound()  # 只在「尚未串流任何內容」時重試
+    if round.error: emit error; break           # 不可重試／已串內容／重試耗盡 → 丟棄半截 assistant 收尾
+    assistant = round; messages.push(assistant)
+    if no toolUses: break                        # 最終回覆
+    dispatch(toolUses)                           # B：連續唯讀並行；寫入/特殊工具序列化且為屏障
+    messages.push(toolResults)                   # 順序＝模型原始順序（tool_start/end/result 皆是）
+    if contextTokens >= tokenCeiling: emit limit; break  # 工具回合後再查（最後一輪 in+out）
 ```
 
 - 護欄：`MAX_ITERS`、`TOKEN_CEILING`、撞上限 graceful 收尾（emit `limit` 事件，回報而非沉默）。
   「0 = 不限制」的語意收在 **loop 內**（caller 直接傳 0，不可自行換算）；不限制模式仍受
   token 天花板＋**連續失敗熔斷**約束：同檔連續 3 次寫入驗證失敗、或連續 2 次壓縮失敗 →
   emit `limit(kind:'failures')` 白話收尾（誠實 > 自信的錯）。
+- **瞬時錯誤重試（C，2026-06-15）**：`streamRound()` 把 provider 的 error（yield 的 `{type:'error'}`
+  **或** 串流中 throw 的網路例外）收進回傳值並記 `sawAnyEvent`（錯誤事件本身不算）。只有當這一輪
+  **尚未串流任何內容**（`!sawAnyEvent`）、錯誤可重試（`isRetryableStreamError`：HTTP 408/409/425/429
+  ／5xx／529，或 ECONNRESET/timeout/fetch failed 等網路詞），且未達 `STREAM_MAX_RETRIES`(2) 時才重試
+  ——指數退避（`retryBaseMs`·2^n，預設 1s，可中止；測試傳 0）、emit 一行 `text` 重試提示。**鐵則**：
+  retry 永不重複已串出的文字／tool_use（半截錯誤直接收尾，並丟棄半截 assistant 內容避免懸空 tool_use）。
+  4xx（400/401/403/404）視為設定錯不重試。
+- **並行唯讀分派（B，2026-06-15）**：`READONLY_TOOLS`（search/get/read/list/validate/web 等 15 個）的
+  **連續區段**以 `Promise.all` 並行；寫入／提案／`compact_context`／`report_off_topic` 序列化且作為**屏障**
+  （讀永不觀察到半套寫入——遇到寫入先 `flushPending` 收齊在途讀取）。`tool_start`／`tool_end`／
+  `tool_result` 一律維持模型原始順序（eval runner 以此比對）。中止時在途讀取不收齊，交給既有
+  synthetic aborted 補洞。fan-out（diff/graph_written/...）抽成純函式 `fanOutToolResult`，兩條路徑共用。
+- **迴圈內自動壓縮（D，2026-06-15）＋送前預估閘（F）**：每輪頂部用
+  `effective = max(contextTokens, est(messages)+est(system))` 量「即將送出」的大小（修正舊閘只看上一輪
+  contextTokens、漏算本輪剛追加的 tool_results）。`iter>0` 且 `effective ≥ compactThreshold` 時就地
+  `compactNow` 並**重建 system**（讓本輪後續看得到新摘要）；報告無法再壓即 `autoCompactBlocked` 停手避免空轉。
+  `effective ≥ tokenCeiling` 時送前就 graceful 收尾，不再送出注定超標的請求。開頭 `maxIters` 0、iter 0
+  仍由 pre-loop `maybeCompact` 覆蓋。
 - 🌐 開關（2026-06-11）：`AgentChatRequest.webSearch`（缺席＝開）。**開**＝prompt 規則 11
   升級為「回覆前自判時效性、主動查證再答」；**關**＝`web_search`/`web_fetch` 從該輪
   toolDefs 移除（模型根本看不到）＋dispatch 層拒絕流浪呼叫（雙保險），prompt 換成
@@ -537,8 +561,11 @@ interface AgentChatRequest {
 - **研究能力**：web_search 可插拔後端（Tavily／Brave／SearXNG＋DDG 保底、失敗自動退級）＋
   web_fetch（SSRF 防護、正文抽取、長頁 offset 分窗），引用附來源；可配 http 代理；
   輸入框旁 🌐 開關（默認開＝回覆前自判要不要查網路；關＝該輪完全不聯網）。
-- **會話**：落盤持久＋列表切換刪除＋重播；兩層記憶；自動/手動壓縮（contextTokens 口徑）；
-  每輪 token 用量＋累計消費顯示；Markdown 匯出。
+- **會話**：落盤持久＋列表切換刪除＋重播；兩層記憶；自動/手動壓縮（contextTokens 口徑，
+  含**迴圈內**長 turn 中途自動壓縮）；每輪 token 用量＋累計消費顯示；Markdown 匯出。
+- **韌性（2026-06-15）**：provider 瞬時錯誤（429/5xx/529 過載、網路中斷）在「尚未串流任何內容」時
+  自動指數退避重試（最多 2 次，可中止）；送出前以預估大小把關，注定超標的請求不再送出；長
+  agentic turn 的多個唯讀工具呼叫並行執行（寫入序列化），更快且不互相阻塞。
 - **快捷指令**：⚡ 選單或輸入 `/` 篩選執行（12 個，含 /redo 與 /crawlmf 直接爬取並回報）。
 - **體驗**：Agent 分頁 keep-alive＋注意力小點、欄寬拖曳、思考程度旋鈕（off/low/medium/high）。
 - **團隊模式（BIND_HOST 非 loopback 或 web 切換）**：預設 agent 面是 admin 專屬（gate 在

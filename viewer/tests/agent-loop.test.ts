@@ -5,7 +5,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdtemp, rm, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve, dirname } from 'node:path';
-import { runAgent, createSession, MAX_ITERS, TOKEN_CEILING, VIEW_CONTEXT_PREFIX, type AgentLoopSession, type EmitFn, type RunAgentOptions } from '../server/agent/loop.js';
+import { runAgent, createSession, MAX_ITERS, TOKEN_CEILING, STREAM_MAX_RETRIES, isRetryableStreamError, VIEW_CONTEXT_PREFIX, type AgentLoopSession, type EmitFn, type RunAgentOptions } from '../server/agent/loop.js';
 import { buildSystemPrompt } from '../server/agent/prompt.js';
 import { createCheckpointStore } from '../server/agent/checkpoint.js';
 import type { Provider, StreamEvent, ChatRequest, ContentBlock } from '../server/agent/provider/types.js';
@@ -2136,5 +2136,248 @@ describe('reply language — runAgent threads it into the system prompt', () => 
     expect(tr.isError).toBe(true);
     expect(tr.content).toMatch(/web/i);
     expect(tr.content).not.toContain('聯網功能已由使用者關閉');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §18  C — transient provider-error retry (only when nothing streamed yet)
+// ---------------------------------------------------------------------------
+
+/** Provider that pops a scripted turn per call; turns may be StreamEvent[] or a
+    thunk that THROWS (to simulate a network reject before any yield). */
+class ScriptedProvider implements Provider {
+  calls = 0;
+  constructor(private readonly turns: Array<StreamEvent[] | (() => never)>) {}
+  async *stream(_req: ChatRequest): AsyncGenerator<StreamEvent> {
+    const turn = this.turns[this.calls++] ?? [
+      { type: 'text_delta', text: '好的。' }, { type: 'done', stopReason: 'end' },
+    ];
+    if (typeof turn === 'function') turn(); // throws
+    for (const ev of turn) yield ev;
+  }
+}
+
+describe('C: transient-error retry', () => {
+  it('isRetryableStreamError classifies HTTP codes and network phrases', () => {
+    expect(isRetryableStreamError('HTTP 529: overloaded')).toBe(true);
+    expect(isRetryableStreamError('HTTP 503: unavailable')).toBe(true);
+    expect(isRetryableStreamError('HTTP 429: rate limited')).toBe(true);
+    expect(isRetryableStreamError('HTTP 408: timeout')).toBe(true);
+    expect(isRetryableStreamError('ECONNRESET')).toBe(true);
+    expect(isRetryableStreamError('fetch failed')).toBe(true);
+    // Caller/config errors are NOT retried.
+    expect(isRetryableStreamError('HTTP 400: bad request')).toBe(false);
+    expect(isRetryableStreamError('HTTP 401: unauthorized')).toBe(false);
+    expect(isRetryableStreamError('HTTP 404: model not found')).toBe(false);
+  });
+
+  it('retries a 529 that streamed nothing, then succeeds — no error surfaced', async () => {
+    const provider = new ScriptedProvider([
+      [{ type: 'error', message: 'HTTP 529: overloaded' }],
+      [{ type: 'text_delta', text: '重試後完成。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const events = await runAndCollect('hi', session, provider, ctx, undefined, { retryBaseMs: 0 });
+    expect(provider.calls).toBe(2);
+    expect(events.some(e => e.type === 'error')).toBe(false);
+    expect(events.some(e => e.type === 'text' && e.text.includes('重試中'))).toBe(true);
+    expect(events.some(e => e.type === 'text' && e.text.includes('重試後完成'))).toBe(true);
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('retries a THROWN network error before any yield', async () => {
+    const provider = new ScriptedProvider([
+      () => { throw new Error('ECONNRESET'); },
+      [{ type: 'text_delta', text: '恢復連線。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const events = await runAndCollect('hi', session, provider, ctx, undefined, { retryBaseMs: 0 });
+    expect(provider.calls).toBe(2);
+    expect(events.some(e => e.type === 'error')).toBe(false);
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('does NOT retry once content has streamed (error mid-stream is surfaced)', async () => {
+    const provider = new ScriptedProvider([
+      [{ type: 'text_delta', text: '部分輸出' }, { type: 'error', message: 'HTTP 529: overloaded' }],
+      [{ type: 'text_delta', text: '不應重試' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const events = await runAndCollect('hi', session, provider, ctx, undefined, { retryBaseMs: 0 });
+    expect(provider.calls).toBe(1); // no retry
+    expect(events.some(e => e.type === 'error')).toBe(true);
+    expect(events.some(e => e.type === 'text' && e.text.includes('部分輸出'))).toBe(true);
+    expect(events.some(e => e.type === 'text' && e.text.includes('不應重試'))).toBe(false);
+  });
+
+  it('does NOT retry a non-retryable 400 — surfaces immediately', async () => {
+    const provider = new ScriptedProvider([
+      [{ type: 'error', message: 'HTTP 400: bad request' }],
+    ]);
+    const events = await runAndCollect('hi', session, provider, ctx, undefined, { retryBaseMs: 0 });
+    expect(provider.calls).toBe(1);
+    expect(events.some(e => e.type === 'error')).toBe(true);
+    expect(events.some(e => e.type === 'text' && e.text.includes('重試中'))).toBe(false);
+  });
+
+  it('gives up after STREAM_MAX_RETRIES and surfaces the error', async () => {
+    const turns = Array.from({ length: STREAM_MAX_RETRIES + 1 }, () =>
+      [{ type: 'error', message: 'HTTP 503: unavailable' }] as StreamEvent[]);
+    const provider = new ScriptedProvider(turns);
+    const events = await runAndCollect('hi', session, provider, ctx, undefined, { retryBaseMs: 0 });
+    expect(provider.calls).toBe(STREAM_MAX_RETRIES + 1);
+    const retries = events.filter(e => e.type === 'text' && e.text.includes('重試中'));
+    expect(retries).toHaveLength(STREAM_MAX_RETRIES);
+    expect(events.some(e => e.type === 'error')).toBe(true);
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('a user abort during backoff stops the retry loop (no further calls)', async () => {
+    const controller = new AbortController();
+    const provider = new ScriptedProvider([
+      [{ type: 'error', message: 'HTTP 529: overloaded' }],
+      [{ type: 'text_delta', text: '不該到這' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const emit: EmitFn = (e) => { if (e.type === 'text' && e.text.includes('重試中')) controller.abort(); };
+    await runAgent('hi', session, provider, 'fake-model', ctx, emit, controller.signal, { retryBaseMs: 50 });
+    expect(provider.calls).toBe(1); // aborted before the retry stream
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §19  F — proactive projected-context gate (fires BEFORE sending)
+// ---------------------------------------------------------------------------
+
+describe('F: projected context gate', () => {
+  it('emits limit(cost) before any provider call when the projected request exceeds the ceiling', async () => {
+    // Fresh session: contextTokens is 0, so the OLD stale-value gate would not
+    // fire. The projected estimate (system + history) must trip a tiny ceiling.
+    const provider = new FakeProvider([
+      [{ type: 'text_delta', text: '不應送出' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const events = await runAndCollect('做一個材質', session, provider, ctx, undefined, { tokenCeiling: 100 });
+    expect(provider.calls).toBe(0); // never sent — proactive gate
+    const limit = events.find(e => e.type === 'limit');
+    expect(limit?.type === 'limit' && limit.kind).toBe('cost');
+    expect(events.at(-1)?.type).toBe('done');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §20  D — in-loop auto-compaction when a turn outgrows the window mid-flight
+// ---------------------------------------------------------------------------
+
+describe('D: in-loop auto-compaction', () => {
+  it('compacts mid-turn when a tool round pushes context past the threshold', async () => {
+    const memory = createMemoryStore(join(tmpDir, 'viewer'), 'in-loop-compact');
+    const memCtx: ToolContext = { ...ctx, memory };
+    // Seed older turns so there is something to compact; contextTokens starts 0
+    // so the PRE-loop compaction does NOT fire (this proves the in-loop path).
+    for (let i = 1; i <= 6; i++) {
+      session.messages.push({ role: 'user', content: [{ type: 'text', text: `第${i}輪請求` }] });
+      session.messages.push({ role: 'assistant', content: [{ type: 'text', text: `第${i}輪回覆` }] });
+    }
+
+    let mainCalls = 0;
+    const provider: Provider = {
+      async *stream(req: ChatRequest): AsyncGenerator<StreamEvent> {
+        // The summarizer one-shot carries no tools — route it by that.
+        if (req.tools === undefined) {
+          yield { type: 'text_delta', text: '摘要：先前重點。' };
+          yield { type: 'done', stopReason: 'end' };
+          return;
+        }
+        mainCalls++;
+        if (mainCalls === 1) {
+          // iter 0: a tool round whose usage pushes context over the threshold.
+          yield { type: 'tool_use', id: 'sn-1', name: 'search_nodes', input: { query: 'multiply' } };
+          yield { type: 'usage', inputTokens: 5000, outputTokens: 50 };
+          yield { type: 'done', stopReason: 'tool_use' };
+        } else {
+          yield { type: 'text_delta', text: '繼續處理完成。' };
+          yield { type: 'done', stopReason: 'end' };
+        }
+      },
+    };
+
+    const events: AgentSseEvent[] = [];
+    await runAgent('繼續做', session, provider, 'fake-model', memCtx, e => events.push(e), undefined, {
+      compactThreshold: 1000, compactKeepTurns: 2,
+    });
+
+    // The mid-turn compaction fired and trimmed the oldest seeded turns.
+    expect(events.some(e => e.type === 'compacted')).toBe(true);
+    expect(await memory.read('session')).toContain('先前重點');
+    expect(JSON.stringify(session.messages)).not.toContain('第1輪請求');
+    // The turn still finished normally after compacting.
+    expect(events.some(e => e.type === 'text' && e.text.includes('繼續處理完成'))).toBe(true);
+    expect(events.at(-1)?.type).toBe('done');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §21  B — parallel read-only dispatch (order preserved; writes are barriers)
+// ---------------------------------------------------------------------------
+
+describe('B: parallel read-only dispatch', () => {
+  const publicLookup = async () => [{ address: '93.184.216.34' }];
+
+  it('preserves model order of tool_start/tool_end/tool_result across a read→write→read mix', async () => {
+    const newGraph = { ...VALID_GRAPH, name: 'b_order' };
+    const provider = new FakeProvider([
+      [
+        { type: 'tool_use', id: 't1', name: 'search_nodes', input: { query: 'multiply' } },
+        { type: 'tool_use', id: 't2', name: 'write_graph', input: { path: 'b_order.matgraph.json', graph: newGraph } },
+        { type: 'tool_use', id: 't3', name: 'list_graphs', input: {} },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [{ type: 'text_delta', text: '完成。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const events = await runAndCollect('mix', session, provider, ctx);
+
+    const startNames = events.filter(e => e.type === 'tool_start').map(e => (e as { name: string }).name);
+    const endNames = events.filter(e => e.type === 'tool_end').map(e => (e as { name: string }).name);
+    expect(startNames).toEqual(['search_nodes', 'write_graph', 'list_graphs']);
+    expect(endNames).toEqual(['search_nodes', 'write_graph', 'list_graphs']);
+
+    // tool_results land in model order in the history.
+    const trMsg = session.messages.find(m => m.role === 'user' && m.content.some(b => b.type === 'tool_result'));
+    const ids = trMsg!.content.filter(b => b.type === 'tool_result').map(b => (b as { toolUseId: string }).toolUseId);
+    expect(ids).toEqual(['t1', 't2', 't3']);
+    // The write still fanned out a graph_written event.
+    expect(events.some(e => e.type === 'graph_written')).toBe(true);
+  });
+
+  it('dispatches a contiguous read-only run CONCURRENTLY (barrier proof)', async () => {
+    let started = 0;
+    let returned = 0;
+    let observedParallel = false;
+    let releaseGate!: () => void;
+    const gate = new Promise<void>((res) => { releaseGate = res; });
+
+    const fetchFn = (async (_url: string | URL) => {
+      started++;
+      if (started >= 2 && returned === 0) observedParallel = true;
+      if (started >= 2) releaseGate(); // the 2nd concurrent arrival opens the gate
+      // Sequential dispatch would leave only ONE caller here; cap the wait so a
+      // regression fails fast instead of hanging.
+      await Promise.race([gate, new Promise<void>(r => setTimeout(r, 600))]);
+      returned++;
+      return new Response('<html><body><p>hello world</p></body></html>', {
+        status: 200, headers: { 'content-type': 'text/html' },
+      });
+    }) as unknown as typeof fetch;
+
+    const webCtx: ToolContext = { ...ctx, web: { fetchFn, lookupFn: publicLookup } };
+    const provider = new FakeProvider([
+      [
+        { type: 'tool_use', id: 'w1', name: 'web_fetch', input: { url: 'https://example.com/a' } },
+        { type: 'tool_use', id: 'w2', name: 'web_fetch', input: { url: 'https://example.com/b' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [{ type: 'text_delta', text: '讀完了。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+
+    const events = await runAndCollect('fetch two', session, provider, webCtx);
+    expect(observedParallel).toBe(true);
+    expect(events.filter(e => e.type === 'tool_end' && e.name === 'web_fetch')).toHaveLength(2);
+    expect(events.at(-1)?.type).toBe('done');
   });
 });
