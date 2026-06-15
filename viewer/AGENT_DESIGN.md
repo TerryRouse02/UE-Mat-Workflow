@@ -350,11 +350,24 @@ runAgent(userText, session):
   「0 = 不限制」的語意收在 **loop 內**（caller 直接傳 0，不可自行換算）；不限制模式仍受
   token 天花板＋**連續失敗熔斷**約束：同檔連續 3 次寫入驗證失敗、或連續 2 次壓縮失敗 →
   emit `limit(kind:'failures')` 白話收尾（誠實 > 自信的錯）。
+- **無進展熔斷（E，2026-06-15）**：`NOPROGRESS_BREAKER`(3)——連續 3 輪「每個資料工具呼叫都是
+  自上次寫入以來的重複」（無 fresh read、無寫入）即 emit `limit(failures)`。`seenSignatures`
+  記 `name:JSON(input)`，**成功的寫入會清空**（世界變了，先前的讀不再算重複）。偵測**非破壞性**：
+  重複呼叫照常執行回真資料，只是不給「進展」分；主要保護 `maxIters:0` 無限模式。
+- **off-topic strike 一輪只記一次（H1，2026-06-15）**：`offTopicReportedThisTurn` 旗標——
+  同一 user turn 內多次 `report_off_topic` 只累加一次 strike，第二次起回「本輪已記錄」不再 +1。
+- **收尾自我複查（#1，2026-06-15，`selfCheckOnFinish`，http 層開啟）**：模型想結束（該輪寫過圖、
+  assistant 無工具呼叫）時，`runWrapUpSelfCheck` 重讀每張寫過的圖，收集**客觀**完整性問題——
+  validation error（寫入閘已擋，保留以防萬一）、未解析 MF 針腳、type=Material 但 MaterialOutput
+  無任何入線——有問題就 emit `notice` 並注入**一次**糾正 nudge（`session.messages` 追加 user 文字、
+  `continue` 給一輪修正），`selfCheckDone` 限一輪。主觀的「是否符合需求」仍交給 prompt 規則 19。
+  **opt-in**：預設關（既有 caller／eval 不受影響），http-server 生產環境傳 `true`。
 - **瞬時錯誤重試（C，2026-06-15）**：`streamRound()` 把 provider 的 error（yield 的 `{type:'error'}`
   **或** 串流中 throw 的網路例外）收進回傳值並記 `sawAnyEvent`（錯誤事件本身不算）。只有當這一輪
   **尚未串流任何內容**（`!sawAnyEvent`）、錯誤可重試（`isRetryableStreamError`：HTTP 408/409/425/429
   ／5xx／529，或 ECONNRESET/timeout/fetch failed 等網路詞），且未達 `STREAM_MAX_RETRIES`(2) 時才重試
-  ——指數退避（`retryBaseMs`·2^n，預設 1s，可中止；測試傳 0）、emit 一行 `text` 重試提示。**鐵則**：
+  ——指數退避（`retryBaseMs`·2^n，預設 1s，可中止；測試傳 0）、emit 一個 `notice` 重試提示
+  （獨立事件，不再混進 assistant 敘事）。**鐵則**：
   retry 永不重複已串出的文字／tool_use（半截錯誤直接收尾，並丟棄半截 assistant 內容避免懸空 tool_use）。
   4xx（400/401/403/404）視為設定錯不重試。
 - **並行唯讀分派（B，2026-06-15）**：`READONLY_TOOLS`（search/get/read/list/validate/web 等 15 個）的
@@ -435,6 +448,12 @@ get_signature 再連線；MF 必查 `get_mf_signature`；改圖前先 `read_grap
 0 error、核對原始需求、檢查孤立節點/未接到 MaterialOutput 的輸出/未解析 MF 針腳）。純 prompt
 引導，不動 Loop 契約；`materialStructureWarnings` 的寫入期語意 lint 是其機制兜底。
 
+**品質與效率（規則 20–22，2026-06-15）**：20 對照 Epic／UE 物理合理範圍（Metallic 多 0/1、
+Roughness 0.2–0.8、BaseColor 避免純黑/純白、非金屬 Specular 0.5、PascalCase 命名、移動端節制），
+偏離要說明、不確定就 web 查官方；21 大圖完成後用 `addComment` 按邏輯分區（位置仍交給 dagre、
+不手填 x/y）；22 token 經濟：大圖先 `read_graph summary:true`、批次 `get_node_signature`、同輪不重複
+查同樣的東西（與 Loop 的無進展熔斷呼應）。收尾複查（規則 19）另有 Loop 的 `selfCheckOnFinish` 機制兜底。
+
 ## 7. 傳輸與端點
 
 串流選 SSE（不壓垮既有單一 WS）。新 SSE 長連線已被 http-server 的 socket 追蹤
@@ -471,7 +490,8 @@ type AgentSseEvent =
   | { type: 'db_edit_proposal'; nodeName: string; ueVersion: string; create: boolean; patch: Record<string, unknown>; rationale: string } // UI 顯示確認卡，使用者核准才呼叫 POST /api/agent/db-edit
   | { type: 'usage'; inputTokens: number; outputTokens: number; estimated: boolean }
   | { type: 'compacted'; message: string }                           // 壓縮通知（2026-06-11）
-  | { type: 'limit'; kind: 'iters' | 'cost'; message: string }
+  | { type: 'notice'; text: string }                                 // 瞬時系統提示（重試／收尾自我複查，2026-06-15）
+  | { type: 'limit'; kind: 'iters' | 'cost' | 'failures'; message: string }
   | { type: 'error'; message: string }
   | { type: 'done' };
 // POST /api/agent/chat body — thinking 為每輪思考程度（2026-06-11）：
@@ -572,7 +592,12 @@ interface AgentChatRequest {
   含**迴圈內**長 turn 中途自動壓縮）；每輪 token 用量＋累計消費顯示；Markdown 匯出。
 - **韌性（2026-06-15）**：provider 瞬時錯誤（429/5xx/529 過載、網路中斷）在「尚未串流任何內容」時
   自動指數退避重試（最多 2 次，可中止）；送出前以預估大小把關，注定超標的請求不再送出；長
-  agentic turn 的多個唯讀工具呼叫並行執行（寫入序列化），更快且不互相阻塞。
+  agentic turn 的多個唯讀工具呼叫並行執行（寫入序列化），更快且不互相阻塞；重複工具呼叫的空轉、
+  無進展會以「無進展熔斷」誠實收尾。
+- **自主工作流（2026-06-15）**：需求不足先一句話對齊關鍵規格、複雜任務先給一句計畫、收尾前自我複查
+  （prompt 規則 17–19），收尾複查另有 Loop 機制（`selfCheckOnFinish`）兜底——寫過圖卻把
+  MaterialOutput 留空或留有未解析 MF 針腳時，自動注入一次糾正再結束。對照 Epic PBR 慣例、用註解框
+  分區、token 經濟（規則 20–22）。
 - **快捷指令**：⚡ 選單或輸入 `/` 篩選執行（12 個，含 /redo 與 /crawlmf 直接爬取並回報）。
 - **體驗**：Agent 分頁 keep-alive＋注意力小點、欄寬拖曳、思考程度旋鈕（off/low/medium/high）。
 - **團隊模式（BIND_HOST 非 loopback 或 web 切換）**：預設 agent 面是 admin 專屬（gate 在

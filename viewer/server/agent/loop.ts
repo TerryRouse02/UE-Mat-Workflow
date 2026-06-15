@@ -78,6 +78,16 @@ export const STREAM_MAX_RETRIES = 2;
 export const STREAM_RETRY_BASE_MS = 1000;
 
 /**
+ * Consecutive iterations in which EVERY data tool call was a duplicate of one
+ * already made since the last write (no fresh read, no write) before the loop
+ * stops on a no-progress circuit breaker. Guards `maxIters:0` (unlimited) runs
+ * against a model that spins on the same lookups; bounded runs are also capped
+ * by MAX_ITERS. Duplicate detection is non-destructive (it only feeds this
+ * counter — a repeated call still executes and returns real data).
+ */
+export const NOPROGRESS_BREAKER = 3;
+
+/**
  * Tools that only read (no writes, no session mutation, no UI fan-out) — a
  * contiguous run of these in one assistant turn is dispatched CONCURRENTLY
  * (B: parallel read-only). Anything not listed here (writes, proposals,
@@ -286,6 +296,66 @@ function fanOutToolResult(
   }
 }
 
+/**
+ * Wrap-up self-check (#1, mechanizes prompt rule 19). Re-reads each graph
+ * written this turn and collects OBJECTIVE completeness issues: validation
+ * errors (impossible past the write gate, kept for robustness), unresolved
+ * Material Function pins, and a Material whose MaterialOutput has nothing wired
+ * into it (outputs nothing). Returns a corrective nudge string, or null when
+ * everything is clean. Subjective "does it match the request" stays with the
+ * model (rule 19); this only catches what is mechanically verifiable.
+ */
+async function runWrapUpSelfCheck(
+  paths: Set<string>,
+  turnCtx: ToolContext,
+  lang: 'zh-Hant' | 'en',
+): Promise<string | null> {
+  const fileIssues: string[] = [];
+  for (const path of paths) {
+    let parsed: { graph?: unknown; errors?: unknown; unresolvedMfPins?: unknown };
+    try {
+      const r = await dispatchTool('read_graph', { path }, turnCtx);
+      if (r.isError) continue; // unreadable (e.g. renamed/deleted after) — skip
+      parsed = JSON.parse(r.content) as typeof parsed;
+    } catch {
+      continue;
+    }
+    const issues: string[] = [];
+    if (Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+      issues.push(...parsed.errors.map(String));
+    }
+    if (Array.isArray(parsed.unresolvedMfPins) && parsed.unresolvedMfPins.length > 0) {
+      issues.push((lang === 'en' ? 'unresolved Material Function pins: ' : '未解析的 MF 針腳：') +
+        parsed.unresolvedMfPins.map(String).join('; '));
+    }
+    const g = parsed.graph as { type?: unknown; nodes?: unknown; connections?: unknown } | undefined;
+    if (g && g.type === 'Material' && Array.isArray(g.nodes) && Array.isArray(g.connections)) {
+      const moIds = (g.nodes as Array<{ id?: unknown; type?: unknown }>)
+        .filter(n => n.type === 'MaterialOutput')
+        .map(n => String(n.id));
+      if (moIds.length > 0) {
+        const wired = (g.connections as Array<{ to?: unknown }>)
+          .some(c => moIds.some(id => String(c.to).startsWith(id + ':')));
+        if (!wired) {
+          issues.push(lang === 'en'
+            ? 'nothing is connected to MaterialOutput (the material outputs nothing)'
+            : '沒有任何連線接到 MaterialOutput（材質沒有輸出）');
+        }
+      }
+    }
+    if (issues.length > 0) fileIssues.push(`「${path}」：${issues.join('；')}`);
+  }
+
+  if (fileIssues.length === 0) return null;
+  const head = lang === 'en'
+    ? '(System wrap-up check) You said you were done, but the final graph still has issues to fix or explain to the user:'
+    : '（系統收尾檢查）你剛表示完成，但最終的圖還有以下問題要先處理或向使用者說明：';
+  const tail = lang === 'en'
+    ? 'Fix them, or clearly tell the user why they are intentional.'
+    : '請修正後再結束；若是刻意如此，請明確向使用者說明原因。';
+  return `${head}\n${fileIssues.map(s => `- ${s}`).join('\n')}\n${tail}`;
+}
+
 // ---------------------------------------------------------------------------
 // runAgent
 // ---------------------------------------------------------------------------
@@ -319,6 +389,17 @@ export interface RunAgentOptions {
   compactKeepTurns?: number;
   /** Override STREAM_RETRY_BASE_MS (tests pass 0 to avoid real backoff waits). */
   retryBaseMs?: number;
+  /**
+   * Wrap-up self-check (mechanizes prompt rule 19). When true, the moment the
+   * model tries to FINISH (a turn that wrote graphs but the assistant produced
+   * no further tool calls), the final state of each written graph is
+   * re-validated; objective issues (errors — impossible past the write gate —
+   * unresolved MF pins, or a Material whose MaterialOutput has nothing wired
+   * into it) inject ONE corrective nudge so the model fixes it before ending.
+   * Bounded to a single corrective round per turn. Off by default (so existing
+   * callers/tests are unchanged); the http-server turns it on in production.
+   */
+  selfCheckOnFinish?: boolean;
   /**
    * Per-turn 🌐 switch (AgentChatRequest.webSearch; absent = true). false
    * removes web_search/web_fetch from the tool list the provider sees AND
@@ -376,6 +457,7 @@ export async function runAgent(
   const compactThreshold = options?.compactThreshold ?? COMPACT_THRESHOLD;
   const compactKeepTurns = options?.compactKeepTurns ?? COMPACT_KEEP_TURNS;
   const retryBaseMs = options?.retryBaseMs ?? STREAM_RETRY_BASE_MS;
+  const selfCheckOnFinish = options?.selfCheckOnFinish === true;
 
   // User-facing transcript strings — localized by replyLang.
   const ceilingMessage = (used: number): string =>
@@ -457,6 +539,18 @@ export async function runAgent(
   // Set when an off-topic strike reaches OFF_TOPIC_LIMIT — terminate after the
   // tool results land (the http layer deletes the session on session_closed).
   let offTopicClosed = false;
+  // No-progress breaker: signatures of data tool calls seen since the last
+  // write (a write changes the world, so it clears the set and prior reads are
+  // no longer "stale repeats"); consecutive all-duplicate iterations accumulate.
+  const seenSignatures = new Set<string>();
+  let allDuplicateStreak = 0;
+  // Off-topic strikes count at most once per user turn (a model emitting
+  // report_off_topic twice in one turn must not double-strike).
+  let offTopicReportedThisTurn = false;
+  // Wrap-up self-check (#1): relative paths written this turn + a once-per-turn
+  // guard so the corrective nudge can fire at most once.
+  const turnWrittenPaths = new Set<string>();
+  let selfCheckDone = false;
 
   // Once an in-loop auto-compaction reports it cannot help, stop retrying it
   // every iteration (avoids busy no-op summarizer calls); the ceiling still guards.
@@ -522,6 +616,13 @@ export async function runAgent(
     return dispatchTool(call.name, call.input, turnCtx);
   };
 
+  // Identity of a tool call for the no-progress (duplicate-spin) breaker.
+  const callSignature = (call: ToolUseBlock): string => {
+    let inp: string;
+    try { inp = JSON.stringify(call.input ?? {}); } catch { inp = String(call.input); }
+    return `${call.name}:${inp}`;
+  };
+
   for (let iter = 0; iter < maxIters; iter++) {
     if (signal?.aborted) break;
 
@@ -565,10 +666,10 @@ export async function runAgent(
            && isRetryableStreamError(round.errorMsg) && attempt <= STREAM_MAX_RETRIES;
          attempt++) {
       emit({
-        type: 'text',
+        type: 'notice',
         text: replyLang === 'en'
-          ? `\n(Connection issue — retrying ${attempt}/${STREAM_MAX_RETRIES}…)\n`
-          : `\n（連線中斷，重試中 ${attempt}/${STREAM_MAX_RETRIES}…）\n`,
+          ? `Connection issue — retrying ${attempt}/${STREAM_MAX_RETRIES}…`
+          : `連線中斷，重試中 ${attempt}/${STREAM_MAX_RETRIES}…`,
       });
       await delay(retryBaseMs * 2 ** (attempt - 1), signal);
       if (signal?.aborted) break;
@@ -621,9 +722,27 @@ export async function runAgent(
     }
 
     // No tool calls → final text response.
-    // Still check the ceiling so a single massive text response that crosses it
-    // gets a graceful limit event rather than silently stopping.
     if (toolUses.length === 0) {
+      // Wrap-up self-check (#1): the model is trying to FINISH. If it wrote
+      // graphs this turn and we have not yet self-checked, re-validate the
+      // final state; objective issues inject ONE corrective nudge so the model
+      // fixes them before ending (bounded to a single extra round per turn).
+      if (selfCheckOnFinish && !selfCheckDone && turnWrittenPaths.size > 0 && !signal?.aborted) {
+        selfCheckDone = true;
+        const nudge = await runWrapUpSelfCheck(turnWrittenPaths, turnCtx, replyLang);
+        if (nudge !== null) {
+          emit({
+            type: 'notice',
+            text: replyLang === 'en'
+              ? 'Wrap-up self-check: the final graph still has issues — fixing before finishing…'
+              : '收尾自我複查：最終的圖還有問題，正在修正後再結束…',
+          });
+          session.messages.push({ role: 'user', content: [{ type: 'text', text: nudge }] });
+          continue; // give the model one round to fix or justify
+        }
+      }
+      // Still check the ceiling so a single massive text response that crosses
+      // it gets a graceful limit event rather than silently stopping.
       if (session.contextTokens >= tokenCeiling) {
         emit({
           type: 'limit',
@@ -666,6 +785,23 @@ export async function runAgent(
         }
       }
       if (!result.isError) fanOutToolResult(call, result.content, emit, session.ueVersion);
+      // A successful state-changing tool invalidates the duplicate-spin window
+      // (prior reads may now be stale) and, for graph writes, records the path
+      // for the wrap-up self-check.
+      if (!READONLY_TOOLS.has(call.name) && !result.isError) {
+        seenSignatures.clear();
+        if (WRITE_TOOL_NAMES.has(call.name)) {
+          let p: string | undefined;
+          try {
+            const j = JSON.parse(result.content) as { path?: unknown };
+            if (typeof j.path === 'string') p = j.path;
+          } catch { /* non-JSON */ }
+          if (!p && typeof (call.input as Record<string, unknown> | null)?.path === 'string') {
+            p = String((call.input as Record<string, unknown>).path);
+          }
+          if (p) turnWrittenPaths.add(p);
+        }
+      }
       toolResults.push({ type: 'tool_result', toolUseId: call.id, content: result.content, isError: result.isError });
     };
 
@@ -676,10 +812,23 @@ export async function runAgent(
       pending.length = 0;
     };
 
+    // No-progress tracking for THIS iteration (a "data" call = anything but the
+    // loop-special compact_context / report_off_topic).
+    let sawDataCall = false;
+    let sawFreshRead = false;
+    let sawNonReadAction = false;
+
     for (const call of toolUses) {
       if (signal?.aborted) break;
 
       if (READONLY_TOOLS.has(call.name)) {
+        // Duplicate-spin bookkeeping (non-destructive — the call still runs):
+        // a read whose signature was already seen since the last write is a
+        // repeat; a never-seen one counts as progress.
+        sawDataCall = true;
+        const sig = callSignature(call);
+        if (seenSignatures.has(sig)) { /* duplicate — no fresh-read credit */ }
+        else { seenSignatures.add(sig); sawFreshRead = true; }
         // Kick the work off now; settle it (in order) on the next flush.
         emit({ type: 'tool_start', name: call.name, summary: toolSummary(call) });
         pending.push({ call, promise: dispatchGuarded(call) });
@@ -689,6 +838,11 @@ export async function runAgent(
       // Barrier: complete in-flight reads before a write / session-mutating tool.
       await flushPending();
       if (signal?.aborted) break;
+
+      if (call.name !== 'compact_context' && call.name !== 'report_off_topic') {
+        sawDataCall = true;
+        sawNonReadAction = true; // a write / proposal / export is always progress
+      }
 
       emit({ type: 'tool_start', name: call.name, summary: toolSummary(call) });
       // compact_context / report_off_topic are handled here, not in tools.ts —
@@ -706,8 +860,15 @@ export async function runAgent(
             : `連續 ${compactFailCount} 次壓縮上下文都失敗，先停下來。請改用「新對話」或稍後再試。`;
         }
       } else if (call.name === 'report_off_topic') {
-        result = offTopicStrike(session, replyLang);
-        if (session.offTopicStrikes >= OFF_TOPIC_LIMIT) offTopicClosed = true;
+        // At most ONE strike per user turn — a model that reports off-topic
+        // twice in the same turn must not double-count toward the close limit.
+        if (offTopicReportedThisTurn) {
+          result = { content: '（本輪已記錄一次離題，請依先前指示回應，不要重複呼叫。）', isError: false };
+        } else {
+          offTopicReportedThisTurn = true;
+          result = offTopicStrike(session, replyLang);
+          if (session.offTopicStrikes >= OFF_TOPIC_LIMIT) offTopicClosed = true;
+        }
       } else {
         result = await dispatchGuarded(call);
       }
@@ -744,6 +905,24 @@ export async function runAgent(
       role: 'user',
       content: toolResults,
     });
+
+    // No-progress breaker: an iteration that made ONLY duplicate data calls
+    // (every call a repeat since the last write, no fresh read, no write) is
+    // spinning. Count consecutive such iterations; trip the breaker at the
+    // threshold. Any progress (a fresh read, a write, or no data call at all)
+    // resets the streak.
+    if (sawDataCall && !sawNonReadAction && !sawFreshRead) {
+      allDuplicateStreak += 1;
+      if (allDuplicateStreak >= NOPROGRESS_BREAKER && !breakerMessage) {
+        breakerMessage = replyLang === 'en'
+          ? `The last ${allDuplicateStreak} rounds only repeated tool calls I had already made, with no progress, so I'm stopping. ` +
+            'Please give me a more specific instruction, or tell me what is still missing.'
+          : `最近 ${allDuplicateStreak} 輪都在重複先前一樣的工具呼叫、沒有任何進展，先停下來以免空轉。` +
+            '請給更具體的指示，或告訴我還缺什麼。';
+      }
+    } else {
+      allDuplicateStreak = 0;
+    }
 
     // Third off-topic strike: stop NOW — no further model round, no farewell
     // text. The http layer reacts to session_closed by deleting the session

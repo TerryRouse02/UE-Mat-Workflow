@@ -243,6 +243,11 @@ export function applyAgentEvent(items: ChatItem[], event: AgentSseEvent, flags: 
     case 'compacted':
       return [...items, { kind: 'notice', variant: 'info', message: event.message }];
 
+    case 'notice':
+      // Transient system note (retry-after-hiccup, wrap-up self-check) — same
+      // muted info styling as compacted; never opens/forces a new text bubble.
+      return [...items, { kind: 'notice', variant: 'info', message: event.text }];
+
     case 'limit':
       return [...items, { kind: 'notice', variant: 'limit', message: event.message }];
 

@@ -413,13 +413,15 @@ describe('self-correction on invalid graph', () => {
 
 describe('MAX_ITERS limit', () => {
   it('emits limit(iters) event when hitting the iteration ceiling', async () => {
-    // Provide MAX_ITERS+1 turns that all call a tool (model never settles)
+    // Provide MAX_ITERS+1 turns that all call a tool (model never settles).
+    // Distinct queries so the no-progress (duplicate-spin) breaker doesn't fire
+    // first — this test targets the iteration ceiling specifically.
     const turns: StreamEvent[][] = Array.from({ length: MAX_ITERS + 1 }, (_, i) => [
       {
         type: 'tool_use',
         id: `call-${i}`,
         name: 'search_nodes',
-        input: { query: 'test' },
+        input: { query: `test${i}` },
       },
       { type: 'done', stopReason: 'tool_use' },
     ]);
@@ -1851,10 +1853,12 @@ describe('contextTokens vs totalTokens (compaction-too-eager regression)', () =>
 describe('maxIters 0 = unlimited (BUG-4)', () => {
   it('runs past the default MAX_ITERS instead of doing zero iterations', async () => {
     // 10 scripted tool rounds + final text = 11 provider calls > MAX_ITERS (8).
+    // Each round queries a DISTINCT term so it is genuine progress, not the
+    // duplicate-spin the no-progress breaker is meant to catch.
     const turns: StreamEvent[][] = [];
     for (let i = 0; i < 10; i++) {
       turns.push([
-        { type: 'tool_use', id: `u${i}`, name: 'list_graphs', input: {} },
+        { type: 'tool_use', id: `u${i}`, name: 'search_nodes', input: { query: `term${i}` } },
         { type: 'done', stopReason: 'tool_use' },
       ]);
     }
@@ -2089,6 +2093,10 @@ describe('autonomous workflow — buildSystemPrompt directives', () => {
     // 19 — final wrap-up self-check before declaring done.
     expect(sys).toContain('收尾前自我複查');
     expect(sys).toContain('未接到 MaterialOutput 的輸出');
+    // 20–22 — quality/efficiency: Epic conventions, comment-frame layout, token economy.
+    expect(sys).toContain('對照 Epic 慣例');
+    expect(sys).toContain('可讀的版面用註解框分區');
+    expect(sys).toContain('省 token、不重複查');
   });
 });
 
@@ -2197,7 +2205,7 @@ describe('C: transient-error retry', () => {
     const events = await runAndCollect('hi', session, provider, ctx, undefined, { retryBaseMs: 0 });
     expect(provider.calls).toBe(2);
     expect(events.some(e => e.type === 'error')).toBe(false);
-    expect(events.some(e => e.type === 'text' && e.text.includes('重試中'))).toBe(true);
+    expect(events.some(e => e.type === 'notice' && e.text.includes('重試中'))).toBe(true);
     expect(events.some(e => e.type === 'text' && e.text.includes('重試後完成'))).toBe(true);
     expect(events.at(-1)?.type).toBe('done');
   });
@@ -2232,7 +2240,7 @@ describe('C: transient-error retry', () => {
     const events = await runAndCollect('hi', session, provider, ctx, undefined, { retryBaseMs: 0 });
     expect(provider.calls).toBe(1);
     expect(events.some(e => e.type === 'error')).toBe(true);
-    expect(events.some(e => e.type === 'text' && e.text.includes('重試中'))).toBe(false);
+    expect(events.some(e => e.type === 'notice' && e.text.includes('重試中'))).toBe(false);
   });
 
   it('gives up after STREAM_MAX_RETRIES and surfaces the error', async () => {
@@ -2241,7 +2249,7 @@ describe('C: transient-error retry', () => {
     const provider = new ScriptedProvider(turns);
     const events = await runAndCollect('hi', session, provider, ctx, undefined, { retryBaseMs: 0 });
     expect(provider.calls).toBe(STREAM_MAX_RETRIES + 1);
-    const retries = events.filter(e => e.type === 'text' && e.text.includes('重試中'));
+    const retries = events.filter(e => e.type === 'notice' && e.text.includes('重試中'));
     expect(retries).toHaveLength(STREAM_MAX_RETRIES);
     expect(events.some(e => e.type === 'error')).toBe(true);
     expect(events.at(-1)?.type).toBe('done');
@@ -2253,7 +2261,7 @@ describe('C: transient-error retry', () => {
       [{ type: 'error', message: 'HTTP 529: overloaded' }],
       [{ type: 'text_delta', text: '不該到這' }, { type: 'done', stopReason: 'end' }],
     ]);
-    const emit: EmitFn = (e) => { if (e.type === 'text' && e.text.includes('重試中')) controller.abort(); };
+    const emit: EmitFn = (e) => { if (e.type === 'notice' && e.text.includes('重試中')) controller.abort(); };
     await runAgent('hi', session, provider, 'fake-model', ctx, emit, controller.signal, { retryBaseMs: 50 });
     expect(provider.calls).toBe(1); // aborted before the retry stream
   });
@@ -2397,5 +2405,107 @@ describe('B: parallel read-only dispatch', () => {
     expect(observedParallel).toBe(true);
     expect(events.filter(e => e.type === 'tool_end' && e.name === 'web_fetch')).toHaveLength(2);
     expect(events.at(-1)?.type).toBe('done');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// §23  Loop hardening — no-progress breaker, off-topic dedup, wrap-up self-check
+// ---------------------------------------------------------------------------
+
+const UNWIRED_MATERIAL = {
+  schemaVersion: '1.0',
+  ueVersion: '5.7',
+  type: 'Material',
+  name: 'unwired',
+  nodes: [
+    { id: 'col', type: 'VectorParameter', params: { ParameterName: 'C', DefaultValue: [1, 0, 0, 1] } },
+    { id: 'OUT', type: 'MaterialOutput' },
+  ],
+  connections: [], // nothing wired into MaterialOutput
+};
+
+describe('E: no-progress (duplicate-spin) breaker', () => {
+  it('stops with limit(failures) after consecutive all-duplicate iterations', async () => {
+    const turns: StreamEvent[][] = Array.from({ length: 6 }, (_, i) => [
+      { type: 'tool_use', id: `d${i}`, name: 'list_graphs', input: {} },
+      { type: 'done', stopReason: 'tool_use' },
+    ]);
+    const provider = new FakeProvider(turns);
+    const events = await runAndCollect('列出', session, provider, ctx, undefined, { maxIters: 0 });
+    const limits = events.filter(e => e.type === 'limit');
+    expect(limits).toHaveLength(1);
+    expect(limits[0]?.type === 'limit' && limits[0].kind).toBe('failures');
+    // round 0 fresh, rounds 1/2/3 duplicate → breaker trips at streak 3 → 4 calls.
+    expect(provider.calls).toBe(4);
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('a write between repeats resets the duplicate window (no false breaker)', async () => {
+    const provider = new FakeProvider([
+      [{ type: 'tool_use', id: 'r0', name: 'list_graphs', input: {} }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'tool_use', id: 'r1', name: 'list_graphs', input: {} }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'tool_use', id: 'w', name: 'write_graph', input: { path: 'proj/reset.matgraph.json', graph: { ...VALID_GRAPH, name: 'reset' } } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'tool_use', id: 'r2', name: 'list_graphs', input: {} }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'tool_use', id: 'r3', name: 'list_graphs', input: {} }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '完成。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const events = await runAndCollect('做事', session, provider, ctx, undefined, { maxIters: 0 });
+    expect(events.filter(e => e.type === 'limit')).toEqual([]);
+    expect(provider.calls).toBe(6);
+    expect(events.at(-1)?.type).toBe('done');
+  });
+});
+
+describe('off-topic strike dedup', () => {
+  it('counts at most one strike per turn even when reported twice', async () => {
+    const provider = new FakeProvider([
+      [
+        { type: 'tool_use', id: 'o1', name: 'report_off_topic', input: { reason: 'a' } },
+        { type: 'tool_use', id: 'o2', name: 'report_off_topic', input: { reason: 'b' } },
+        { type: 'done', stopReason: 'tool_use' },
+      ],
+      [{ type: 'text_delta', text: '回到主題。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    await runAndCollect('閒聊', session, provider, ctx);
+    expect(session.offTopicStrikes).toBe(1);
+  });
+});
+
+describe('#1 wrap-up self-check gate', () => {
+  it('nudges once when a written Material leaves MaterialOutput unwired', async () => {
+    const provider = new FakeProvider([
+      [{ type: 'tool_use', id: 'w', name: 'write_graph', input: { path: 'proj/unwired.matgraph.json', graph: UNWIRED_MATERIAL } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '做好了！' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const events = await runAndCollect('做個材質', session, provider, ctx, undefined, { selfCheckOnFinish: true });
+
+    // A wrap-up notice fired and a corrective nudge was injected into history.
+    expect(events.some(e => e.type === 'notice' && e.text.includes('收尾'))).toBe(true);
+    const nudge = session.messages.find(m =>
+      m.role === 'user' && m.content.some(b => b.type === 'text' && b.text.includes('沒有任何連線接到 MaterialOutput')));
+    expect(nudge).toBeDefined();
+    // write → final-text → (nudge) → one more model round.
+    expect(provider.calls).toBe(3);
+    expect(events.at(-1)?.type).toBe('done');
+  });
+
+  it('does NOT nudge when the written graph wires MaterialOutput', async () => {
+    const provider = new FakeProvider([
+      [{ type: 'tool_use', id: 'w', name: 'write_graph', input: { path: 'proj/wired.matgraph.json', graph: { ...VALID_GRAPH, name: 'wired' } } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '完成。' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const events = await runAndCollect('做個材質', session, provider, ctx, undefined, { selfCheckOnFinish: true });
+    expect(events.some(e => e.type === 'notice' && e.text.includes('收尾'))).toBe(false);
+    expect(provider.calls).toBe(2);
+  });
+
+  it('is OFF by default — no self-check without the option', async () => {
+    const provider = new FakeProvider([
+      [{ type: 'tool_use', id: 'w', name: 'write_graph', input: { path: 'proj/unwired2.matgraph.json', graph: { ...UNWIRED_MATERIAL, name: 'unwired2' } } }, { type: 'done', stopReason: 'tool_use' }],
+      [{ type: 'text_delta', text: '做好了！' }, { type: 'done', stopReason: 'end' }],
+    ]);
+    const events = await runAndCollect('做個材質', session, provider, ctx);
+    expect(events.some(e => e.type === 'notice' && e.text.includes('收尾'))).toBe(false);
+    expect(provider.calls).toBe(2);
   });
 });

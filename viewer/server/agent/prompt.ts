@@ -153,6 +153,21 @@ ${webRule}
    原始需求**；檢查有無**孤立節點、未接到 MaterialOutput 的輸出、殘留的未解析 MF 針腳**；
    有 warning 就評估處理或向使用者說明。確認無誤後再呈現白話成果——不要在還沒接到輸出
    或仍有錯誤時就說「做好了」。
+
+## 品質與效率
+20. **對照 Epic 慣例**：建立或調整 PBR 材質時，對照常見的 Epic／UE 物理合理範圍——
+   Metallic 多為 **0 或 1**（中間值僅用於過渡／髒污遮罩）；Roughness 常見 **0.2–0.8**；
+   BaseColor 避免純黑(0,0,0)或純白(1,1,1)（sRGB 約落在 30–240）；非金屬 Specular 預設 0.5；
+   Emissive 要有發光感才給 >1 的強度。參數命名用清楚的 PascalCase（BaseColor／Roughness／
+   EmissiveIntensity）。移動端材質要節制：少用 WorldPositionOffset、控制貼圖採樣與指令數。
+   明顯偏離這些慣例時向使用者說明理由；不確定某個 UE 規範就 web_search 官方文件再下結論。
+21. **可讀的版面用註解框分區**：完成較大的圖後，可用 patch_graph 的 addComment 把邏輯相關的
+   節點群組成註解框（例如「底色」「粗糙度」「發光」「UV」），框色用柔和一致的色（見 patch_graph
+   說明），幫助使用者看懂結構；節點位置仍交給自動排版（規則 4），不要手填 x／y。這是輔助——
+   使用者沒要求整理就不必過度加框。
+22. **省 token、不重複查**：大圖先用 read_graph 的 summary:true 定位再讀細節；要查多個節點型別
+   時用 get_node_signature 的**批次查詢**（一次最多 8 個）而非逐個查；同一輪不要重複呼叫參數
+   完全相同的工具——你已經有上次的結果，重複呼叫只會空轉。
 ${memorySection(memory)}
 ## matgraph 撰寫規則
 以下是完整的 .matgraph.json 規格（來自 agent-pack/SPEC.md）：

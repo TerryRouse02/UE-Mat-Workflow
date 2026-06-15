@@ -2314,6 +2314,9 @@ export async function startServer(opts: ServerOpts): Promise<RunningServer> {
           // Reply language for this turn (the agent loop reads it). A soft
           // per-turn value — never overridden by the Team default here.
           language,
+          // Mechanize prompt rule 19: re-validate graphs written this turn at
+          // finish and nudge once if the final state is objectively incomplete.
+          selfCheckOnFinish: true,
         },
       );
     } catch (e) {
