@@ -234,7 +234,7 @@ function ApprovalRequestView({ item, sessionId, onError }: {
   sessionId: string | null;
   onError: (message: string) => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState('');
   const decide = async (decision: 'approve' | 'reject') => {
@@ -266,58 +266,65 @@ function ApprovalRequestView({ item, sessionId, onError }: {
   };
 
   const auto = item.mode === 'auto';
-  const icon = auto ? 'bolt' : 'lock';
+  const pendingReview = !item.resolved && !auto;
 
-  if (item.resolved) {
-    const base = item.decision === 'approved'
-      ? (auto ? t('agentChat.approveAutoApproved') : t('agentChat.approveApproved'))
-      : item.decision === 'timeout'
-        ? t('agentChat.approveTimeout')
-        : (auto ? t('agentChat.approveAutoRejected') : t('agentChat.approveRejected'));
-    const sep = i18n.language?.startsWith('en') ? ': ' : '：';
-    const label = item.decision === 'rejected' && item.reason ? `${base}${sep}${item.reason}` : base;
-    return (
-      <div className="agent-approval agent-item resolved">
-        <div className="agent-approval-title"><Icon name={icon} size={12} /> {item.summary}</div>
-        <div className="agent-approval-resolved">{label}</div>
-      </div>
-    );
-  }
-
-  // Auto mode: the LLM judge is deciding — informational card, no buttons.
-  if (auto) {
-    return (
-      <div className="agent-approval agent-item auto">
-        <div className="agent-approval-title"><Icon name="bolt" size={12} /> {t('agentChat.approveAutoJudging')}</div>
-        <div className="agent-approval-summary">{item.summary}</div>
-      </div>
-    );
+  // Consistent header (icon + short status) across every state — the long file
+  // path always goes to the summary line below, never into the wrapping title.
+  let headerIcon: 'lock' | 'refresh' | 'check' | 'warn' | 'clock';
+  let headerLabel: string;
+  let stateClass: string;
+  if (!item.resolved) {
+    headerIcon = auto ? 'refresh' : 'lock';
+    headerLabel = auto ? t('agentChat.approveAutoJudging') : t('agentChat.approveTitle');
+    stateClass = auto ? 'auto' : '';
+  } else if (item.decision === 'approved') {
+    headerIcon = 'check';
+    headerLabel = auto ? t('agentChat.approveAutoApproved') : t('agentChat.approveApproved');
+    stateClass = 'resolved approved';
+  } else if (item.decision === 'timeout') {
+    headerIcon = 'clock';
+    headerLabel = t('agentChat.approveTimeout');
+    stateClass = 'resolved timeout';
+  } else {
+    headerIcon = 'warn';
+    headerLabel = auto ? t('agentChat.approveAutoRejected') : t('agentChat.approveRejected');
+    stateClass = 'resolved rejected';
   }
 
   return (
-    <div className="agent-approval agent-item">
-      <div className="agent-approval-title"><Icon name="lock" size={12} /> {t('agentChat.approveTitle')}</div>
+    <div className={'agent-approval agent-item ' + stateClass}>
+      <div className="agent-approval-title">
+        <Icon name={headerIcon} size={12} className={headerIcon === 'refresh' ? 'spin' : undefined} />
+        <span>{headerLabel}</span>
+      </div>
       <div className="agent-approval-summary">{item.summary}</div>
-      {item.diff && item.diff.length > 0 && (
+      {item.resolved && item.decision === 'rejected' && item.reason && (
+        <div className="agent-approval-reason-note">{item.reason}</div>
+      )}
+      {pendingReview && item.diff && item.diff.length > 0 && (
         <ul className="agent-approval-diff">
           {item.diff.map((l, i) => <li key={i}>{l}</li>)}
         </ul>
       )}
-      <input
-        className="agent-approval-reason"
-        placeholder={t('agentChat.approveReasonPlaceholder')}
-        value={reason}
-        onChange={e => setReason(e.target.value)}
-        disabled={busy}
-      />
-      <div className="agent-approval-actions">
-        <button className="agent-approval-approve" disabled={busy} onClick={() => void decide('approve')}>
-          {busy ? t('agentChat.approveWorking') : t('agentChat.approveApprove')}
-        </button>
-        <button className="agent-approval-reject" disabled={busy} onClick={() => void decide('reject')}>
-          {t('agentChat.approveReject')}
-        </button>
-      </div>
+      {pendingReview && (
+        <>
+          <input
+            className="agent-approval-reason"
+            placeholder={t('agentChat.approveReasonPlaceholder')}
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            disabled={busy}
+          />
+          <div className="agent-approval-actions">
+            <button className="agent-approval-approve" disabled={busy} onClick={() => void decide('approve')}>
+              {busy ? t('agentChat.approveWorking') : t('agentChat.approveApprove')}
+            </button>
+            <button className="agent-approval-reject" disabled={busy} onClick={() => void decide('reject')}>
+              {t('agentChat.approveReject')}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

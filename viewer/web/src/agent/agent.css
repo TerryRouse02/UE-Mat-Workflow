@@ -321,19 +321,35 @@
 .agent-crawl-approve:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .agent-crawl-approve:disabled { opacity: .5; cursor: not-allowed; }
 
-/* ─── Write-approval card (review mode) ───────────────────────────────────── */
+/* ─── Write-approval card (review / auto) ─────────────────────────────────── */
 .agent-approval {
   border: 1px solid var(--accent-dim); border-radius: 8px;
   padding: 9px 11px; background: var(--accent-ghost);
-  display: flex; flex-direction: column; gap: 6px;
+  display: flex; flex-direction: column; gap: 5px;
 }
-.agent-approval.resolved { border-color: var(--border); background: var(--bg-panel-2); }
-.agent-approval.auto { border-color: var(--border-strong); background: var(--bg-panel-2); }
-.agent-approval-title { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text); font-weight: 600; }
-.agent-approval-summary { font-size: 11.5px; color: var(--text); }
-.agent-approval-diff { margin: 0; padding-left: 18px; font-size: 11px; color: var(--text-dim); }
+/* Resolved / auto cards read as settled system cards, matching the crawl/db cards. */
+.agent-approval.resolved, .agent-approval.auto { border-color: var(--border-strong); background: var(--bg-panel-2); }
+/* Header: icon + short status; the icon stays top-aligned and the label never
+   carries the long file path (that lives in the summary line below). */
+.agent-approval-title {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text); font-weight: 600;
+}
+.agent-approval-title svg { flex: none; }
+.agent-approval.approved .agent-approval-title { color: var(--accent); }
+.agent-approval.rejected .agent-approval-title { color: var(--danger, #d97); }
+.agent-approval.timeout .agent-approval-title { color: var(--text-dim); }
+.agent-approval-summary {
+  font-size: 11px; color: var(--text-dim);
+  overflow-wrap: anywhere; line-height: 1.45;
+}
+.agent-approval-reason-note {
+  font-size: 11px; color: var(--text); line-height: 1.5;
+  padding-left: 18px; position: relative;
+}
+.agent-approval-reason-note::before { content: '“'; position: absolute; left: 6px; color: var(--text-mute); }
+.agent-approval-diff { margin: 1px 0 0; padding-left: 18px; font-size: 11px; color: var(--text-dim); }
 .agent-approval-diff li { margin: 2px 0; }
-.agent-approval-resolved { font-size: 11px; color: var(--text-dim); font-style: italic; }
 .agent-approval-reason {
   all: unset; box-sizing: border-box; width: 100%;
   font-family: inherit; font-size: 11px; color: var(--text);
