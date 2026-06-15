@@ -406,8 +406,11 @@ runAgent(userText, session):
     （逾時 10 分鐘／中止保底）。拒絕／逾時 → 回模型「勿重試、停下來簡短詢問」（軟停）。
     **owner 自審**：團隊成員審自己 agent 對自己圖的寫入，永不轉送 admin（與 request_crawl/propose_db_edit 相反）。
   - **auto（Phase 2）**：hook 改呼叫 `judge.ts` `judgeChange()`——同 provider/model 的一次性無工具
-    LLM 裁判，看「使用者需求＋變更（tool/summary/diff／write 的整圖）」依「風險／不合規／不規範」
-    rubric 回 `VERDICT: APPROVE`／`REJECT — 原因`。拒絕回 `{retry:true}` → 回模型「自動審查未通過（原因…），
+    LLM 裁判，看「使用者需求＋變更（tool/summary/diff／write 的整圖）」。prompt 走**兩步＋嚴重度分級**
+    （資深 TA 人設去偏；STEP 1 對風險／合規／BaseColor/Metallic/Roughness/Specular/命名逐項標 PASS 或
+    FLAG[HIGH|LOW] 並引用節點與數值，使用者明確指定的值或附註才把 HIGH 降為 LOW；STEP 2：有任何 HIGH→
+    `VERDICT: REJECT — 原因`，否則 `APPROVE`）。`parseVerdict` 取**最後**一個 VERDICT 行（容忍 checklist 前言）。
+    拒絕回 `{retry:true}` → 回模型「自動審查未通過（原因…），
     反思修正後再試」→ 模型修正再送審。連續 `AUTO_REJECT_BREAKER`(3) 次未過 → loop `limit(failures)`
     停下問使用者。裁判**fail-open**（裁判錯誤／無法解析＝放行，因為是使用者自己的可 undo 圖，當機不該卡住 agent）；
     裁判 token 計入 session 花費（團隊配額照算）。

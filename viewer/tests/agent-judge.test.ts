@@ -26,6 +26,22 @@ describe('parseVerdict', () => {
   it('fails open on unparseable text', () => {
     expect(parseVerdict('hmm, looks fine to me').approved).toBe(true);
   });
+  it('reads the LAST verdict after a checklist preamble', () => {
+    const out = [
+      '1. RISK: PASS',
+      '2. COMPLIANCE: PASS',
+      '4. Metallic: FLAG HIGH — node `m` constant 0.5 on an ordinary surface',
+      '5. Roughness: PASS',
+      'VERDICT: REJECT — Metallic 0.5 不是 0/1，請改成金屬(1)或非金屬(0)',
+    ].join('\n');
+    const v = parseVerdict(out);
+    expect(v.approved).toBe(false);
+    expect(v.reason).toContain('Metallic');
+  });
+  it('approves when the checklist only has LOW flags', () => {
+    const out = '6. Specular: FLAG LOW — 0.6\n7. NAMING: PASS\nVERDICT: APPROVE';
+    expect(parseVerdict(out).approved).toBe(true);
+  });
 });
 
 describe('judgeChange', () => {
