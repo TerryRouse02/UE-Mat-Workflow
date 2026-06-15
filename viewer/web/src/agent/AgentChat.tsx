@@ -109,8 +109,11 @@ function ToolGroupView({ item, onToggle }: { item: ToolGroup; onToggle: () => vo
   const { t } = useTranslation();
   const running = item.steps.some(s => !s.done);
   const anyErr = item.steps.some(s => s.done && s.ok === false);
-  // Force open while any step is still running so the user sees live progress.
-  const open = running || !item.collapsed;
+  // Collapsed state is authoritative: a live group is collapsed:false (so it
+  // shows progress), and once the turn ends / a new turn starts the reducer sets
+  // collapsed:true. Don't let a step stuck mid-run (an interrupted turn that
+  // never got its tool_end) keep the group expanded after it was folded.
+  const open = !item.collapsed;
   const lastStep = item.steps[item.steps.length - 1];
 
   return (
@@ -1402,14 +1405,13 @@ export function AgentChat({ onGotoConfig, active = true }: AgentChatProps) {
               <Icon name="globe" size={11} /> {effWebOn ? t('agentChat.webToggleOn') : t('agentChat.webToggleOff')}
             </button>
             <label
-              className="agent-approval-mode"
+              className={'agent-approval-mode' + (approvalMode !== 'skip' ? ' on' : '') + (streaming ? ' disabled' : '')}
               title={approvalMode === 'review' ? t('agentChat.approvalReviewTitle')
                 : approvalMode === 'auto' ? t('agentChat.approvalAutoTitle')
                 : t('agentChat.approvalSkipTitle')}
             >
               <Icon name="lock" size={11} />
               <select
-                className={approvalMode !== 'skip' ? 'on' : ''}
                 value={approvalMode}
                 disabled={streaming}
                 onChange={e => changeApprovalMode(e.target.value as 'skip' | 'review' | 'auto')}

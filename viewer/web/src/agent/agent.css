@@ -241,16 +241,19 @@
 .agent-web-toggle:hover { border-color:var(--border-strong); color:var(--text); }
 .agent-web-toggle.on { color:var(--accent); border-color:var(--accent-dim); background:var(--accent-ghost); }
 .agent-web-toggle:disabled { opacity:.4; cursor:not-allowed; }
-.agent-approval-mode { display:inline-flex; align-items:center; gap:3px; color:var(--text-mute); cursor:pointer; }
-.agent-approval-mode select {
-  all:unset; cursor:pointer;
-  font-family:inherit; font-size:10px; color:var(--text-dim);
+.agent-approval-mode {
+  display:inline-flex; align-items:center; gap:4px;
   border:1px solid var(--border); border-radius:5px; padding:1px 6px;
-  background:var(--bg-panel-2);
+  background:var(--bg-panel-2); color:var(--text-mute); cursor:pointer;
 }
-.agent-approval-mode select:hover { border-color:var(--border-strong); color:var(--text); }
-.agent-approval-mode select.on { color:var(--accent); border-color:var(--accent-dim); background:var(--accent-ghost); }
-.agent-approval-mode select:disabled { opacity:.4; cursor:not-allowed; }
+.agent-approval-mode:hover { border-color:var(--border-strong); color:var(--text); }
+.agent-approval-mode.on { color:var(--accent); border-color:var(--accent-dim); background:var(--accent-ghost); }
+.agent-approval-mode.disabled { opacity:.4; cursor:not-allowed; }
+.agent-approval-mode svg { display:block; flex:none; }
+.agent-approval-mode select {
+  all:unset; cursor:inherit;
+  font-family:inherit; font-size:10px; color:inherit;
+}
 .agent-approval-mode select option { background:var(--bg-panel); color:var(--text); }
 .agent-lock-note {
   display:inline-flex; align-items:center; gap:3px;
