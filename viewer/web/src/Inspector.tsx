@@ -519,7 +519,7 @@ export function Inspector({
 }: InspectorProps) {
   const { t } = useTranslation();
   const { db } = useDb();
-  const { state: storeState, askAgent } = useStore();
+  const { state: storeState, askAgent, startCrawl } = useStore();
   const [inspMode, setInspMode] = useState<InspMode>('node');
 
   // Reset mode to 'node' when a node becomes selected (null → set transition).
@@ -584,6 +584,13 @@ export function Inspector({
 
   const node = selectedNodeId ? graph.nodes.find(n => n.id === selectedNodeId) : undefined;
 
+  // A crawled project asset (graphs/_project) carries its UE object path — offer a
+  // one-click single-asset re-crawl that overwrites JUST this asset (+ its referenced
+  // MFs for a Material), instead of a full project crawl. Live mode only.
+  const recrawlSource = graph.sourcePath;
+  const crawlRunning = storeState.crawl.status === 'running';
+  const isMf = graph.type === 'MaterialFunction';
+
   return (
     <aside className="panel right">
       {/* Panel header */}
@@ -603,6 +610,22 @@ export function Inspector({
           </button>
         )}
       </div>
+
+      {/* Crawled project asset → single-asset re-crawl (overwrites just this one) */}
+      {recrawlSource && storeState.connection === 'live' && (
+        <button
+          type="button"
+          className="insp-recrawl"
+          disabled={crawlRunning}
+          title={t('inspector.recrawlAssetTitle', { path: recrawlSource })}
+          onClick={() => void startCrawl('projectmat', undefined, recrawlSource)}
+        >
+          <Icon name="refresh" size={13} className={crawlRunning ? 'spin' : undefined} />
+          {crawlRunning
+            ? t('inspector.recrawlBusy')
+            : t(isMf ? 'inspector.recrawlThisMf' : 'inspector.recrawlThisMat')}
+        </button>
+      )}
 
       {/* Mode tabs */}
       <div className="insp-mode">

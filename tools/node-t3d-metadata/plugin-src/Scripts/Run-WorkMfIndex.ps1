@@ -7,6 +7,11 @@ param(
     # Comma-separated UE content roots to crawl for the project's own Material Functions.
     # Default is /Game (the project's Content/). Engine/official MFs are intentionally NOT indexed.
     [string]$ContentRoots = "/Game",
+    # Single-asset UPSERT mode: a UE object path (e.g. /Game/Functions/MF_Foo.MF_Foo,
+    # or a Material path to re-index the MFs it references transitively). When set, the
+    # commandlet re-indexes only that asset and merges into the existing index, leaving
+    # every other entry untouched. Empty -> full crawl of -ContentRoots.
+    [string]$Asset = "",
     [string]$UeVersion = "5.7",
     [switch]$UseProjectPlugin
 )
@@ -132,6 +137,11 @@ $args = @(
     "-FullStdOutLogOutput",
     "-AbsLog=$CommandletLog"
 )
+if (-not [string]::IsNullOrWhiteSpace($Asset)) {
+    # Single-asset upsert: the commandlet merges this one asset (and, for a Material,
+    # its referenced MFs) into the existing index instead of regenerating it whole.
+    $args += "-Asset=$Asset"
+}
 if ($UseProjectPlugin) {
     $args = $args | Where-Object { $_ -ne "-plugin=$PackagedPlugin" }
 }
@@ -142,6 +152,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Work-MF index written to $Out"
-Write-Host "Content roots crawled: $ContentRoots"
+if (-not [string]::IsNullOrWhiteSpace($Asset)) {
+    Write-Host "Single-asset upsert: $Asset (other entries untouched)"
+} else {
+    Write-Host "Content roots crawled: $ContentRoots"
+}
 Write-Host "Commandlet log: $CommandletLog"
 Write-Host "NOTE: $Out is gitignored (local to this machine) - do not commit it."

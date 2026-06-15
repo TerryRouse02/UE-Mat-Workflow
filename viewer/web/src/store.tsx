@@ -213,7 +213,7 @@ interface Ctx {
   open(path: string): void;
   enterMF(path: string): void;
   popBreadcrumb(i: number): void;
-  startCrawl(kind: CrawlKind, contentRoots?: string): void;
+  startCrawl(kind: CrawlKind, contentRoots?: string, asset?: string): void;
   stopCrawl(): void;
   resetCrawl(): void;
   refreshEnv(): void;
@@ -379,8 +379,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.crawl.status, state.crawl.kind]);
 
-  const startCrawl = useCallback(async (kind: CrawlKind, contentRoots?: string) => {
-    await startCrawlRequest(kind, dispatch, contentRoots ? { contentRoots } : {});
+  const startCrawl = useCallback(async (kind: CrawlKind, contentRoots?: string, asset?: string) => {
+    await startCrawlRequest(kind, dispatch, (contentRoots || asset) ? { contentRoots, asset } : {});
   }, []);
 
   const stopCrawl = useCallback(() => {

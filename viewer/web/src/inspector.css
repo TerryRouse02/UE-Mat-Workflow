@@ -16,6 +16,20 @@
 }
 
 /* Mode tabs (mockup lines 630–632) */
+/* Single-asset re-crawl button (crawled _project graphs only). */
+.insp-recrawl {
+  flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+  margin: 8px 10px 0;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: var(--bg-panel-2);
+  color: var(--text); font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.insp-recrawl:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.insp-recrawl:disabled { opacity: .55; cursor: not-allowed; }
+
 .insp-mode {
   display: flex;
   gap: 4px;

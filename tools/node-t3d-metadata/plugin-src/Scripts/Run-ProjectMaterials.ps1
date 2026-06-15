@@ -8,6 +8,12 @@ param(
     # Comma-separated project content roots to crawl for UMaterial assets.
     # Default is /Game. Example: /Game/Materials limits the crawl to that subtree.
     [string]$ContentRoots = "/Game",
+    # Single-asset mode: a UE object path (e.g. /Game/Materials/M_Foo.M_Foo). When set,
+    # the commandlet re-dumps ONLY that asset and the Material Functions it references
+    # (transitively) into staging - the importer then overwrites just those
+    # graphs/_project/<name> graphs, leaving the rest of _project untouched. Empty ->
+    # full crawl of -ContentRoots.
+    [string]$Asset = "",
     [switch]$ForcePackage,
     [switch]$UseProjectPlugin
 )
@@ -146,6 +152,10 @@ $args = @(
     "-FullStdOutLogOutput",
     "-AbsLog=$CommandletLog"
 )
+if (-not [string]::IsNullOrWhiteSpace($Asset)) {
+    # Single-asset mode: dump only this asset (and its referenced MFs, transitively).
+    $args += "-Asset=$Asset"
+}
 if ($UseProjectPlugin) {
     $args = $args | Where-Object { $_ -ne "-plugin=$PackagedPlugin" }
 }
@@ -156,6 +166,10 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 Write-Host "Project material staging written to $StagingDir"
-Write-Host "Content roots crawled: $ContentRoots"
+if (-not [string]::IsNullOrWhiteSpace($Asset)) {
+    Write-Host "Single-asset mode: $Asset (plus its referenced MFs; other _project graphs untouched)"
+} else {
+    Write-Host "Content roots crawled: $ContentRoots"
+}
 Write-Host "Commandlet log: $CommandletLog"
 Write-Host "NOTE: $StagingDir is gitignored staging - do not commit generated T3D files."
